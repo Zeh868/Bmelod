@@ -1,0 +1,61 @@
+/*
+ * Copy to the application directory as bm_config.h.
+ * Put that directory before bmelod-baremetal/include in the include path.
+ * Application API entry: #include "bmelod.h"
+ */
+#ifndef BM_CONFIG_H
+#define BM_CONFIG_H
+
+/* Component switches (align with CMake BM_ENABLE_* / PROFILE) */
+#define BM_CONFIG_ENABLE_ULTRA              0
+#define BM_CONFIG_ENABLE_MODULE             1
+#define BM_CONFIG_ENABLE_CHANNEL            0
+#define BM_CONFIG_ENABLE_SHELL              0
+#define BM_CONFIG_ENABLE_WDG                1
+#define BM_CONFIG_ENABLE_HRT                0
+#define BM_CONFIG_ENABLE_TICKER             0
+#define BM_CONFIG_ENABLE_EXEC          0
+#define BM_CONFIG_ENABLE_SYNC               0
+
+/* Event system */
+#define BM_CONFIG_MAX_EVENT_TYPES           16
+#define BM_CONFIG_MAX_EVENT_SUBSCRIBERS     32
+#define BM_CONFIG_EVENT_QUEUE_SIZE          16
+#define BM_CONFIG_EVENT_PRIORITIES          4
+#define BM_CONFIG_EVENT_INLINE_DATA_SIZE     8
+/* EVENT_QUEUE_SIZE must be divisible by EVENT_PRIORITIES; quotient a power of 2 */
+
+/* Module system */
+#define BM_CONFIG_MAX_MODULES               8
+
+/* Channel system */
+/* (channels are statically allocated per-instance via BM_CHANNEL_DEFINE) */
+
+/* Shell system */
+#define BM_CONFIG_SHELL_BUF_SIZE            64
+#define BM_CONFIG_SHELL_MAX_ARGS            4
+#define BM_CONFIG_SHELL_MAX_CMDS            8
+
+/* Watchdog */
+#define BM_CONFIG_MAX_WDG_MODULES           4
+#define BM_CONFIG_WDG_MAX_NAME_LEN          32
+
+/* bm-ultra */
+#define BM_CONFIG_ULTRA_MAX_EVENT_TYPES     8
+#define BM_CONFIG_ULTRA_MAX_EVENT_DATA_SIZE 8
+#define BM_CONFIG_ULTRA_QUEUE_DEPTH         8
+
+/* Hybrid domain (optional) */
+#define BM_CONFIG_ENABLE_PRIORITY_MASK      0
+#define BM_CONFIG_HRT_PRIORITY_THRESHOLD      4
+#define BM_CONFIG_HRT_TICK_US               100
+#define BM_CONFIG_HRT_MAX_SLOTS             16
+#define BM_CONFIG_TICKER_MAX_SLOTS          8
+#define BM_CONFIG_TICKER_MAX_CATCHUP        4
+#define BM_CONFIG_MAX_EXEC_SLOTS            32
+#define BM_CONFIG_MAX_EXEC_INSTANCES        16
+#define BM_CONFIG_MAX_RESOURCE_CLAIMS       64
+#define BM_CONFIG_MAX_SYNC_MEMBERS          BM_CONFIG_MAX_EXEC_INSTANCES
+#define BM_CONFIG_SYNC_MAX_PHASE_TICKS      1000000000u
+
+#endif

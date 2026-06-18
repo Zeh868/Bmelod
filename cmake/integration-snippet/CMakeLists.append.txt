@@ -1,0 +1,16 @@
+# 追加到厂商 CMake 工程末尾。文档：docs/04-移植与IDE集成/04-STM32-CubeMX集成.md
+
+set(BMELOD_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/bmelod-baremetal")
+include(${BMELOD_ROOT}/cmake/bmelod.cmake)
+
+bmelod_configure(
+    ROOT    ${BMELOD_ROOT}
+    PROFILE event
+    BACKEND external
+    CONFIG  ${CMAKE_CURRENT_SOURCE_DIR}/Core/Inc/bm_config.h
+)
+
+target_sources(${CMAKE_PROJECT_NAME} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/bm_port.c
+)
+bmelod_link(${CMAKE_PROJECT_NAME})

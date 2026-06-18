@@ -1,0 +1,2 @@
+QEMU 11.0.50 monitor - type 'help' for more information
+(qemu) 

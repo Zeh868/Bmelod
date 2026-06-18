@@ -1,0 +1,73 @@
+# 本地路径配置（由 zephyr_config.env.template 复制；勿提交真实密钥）
+zephyr_config.env
+
+# 常见密钥与证书（勿提交；按需增删）
+*.pem
+*.p12
+id_rsa
+id_ed25519
+
+# Build output (framework tests, Demo examples, QEMU smoke)
+build/
+build_tests_hw/
+Demo/build/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+
+# Allow top-level Makefile (baremetal framework build system)
+!/Makefile
+
+# IDE
+
+.idea/
+*.swp
+*.swo
+*~
+
+# Compiled objects
+*.o
+*.a
+*.so
+*.elf
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Logs
+*.log
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Documentation
+docs/_build/
+docs/superpowers/
+
+.vscode/*
+.cache/
+
+release/
+copywriting/
+
+src/proprietary/
+.claude/
+*.err
+build*
+/superpowers/
+review/
+docs/zh-CN/90-学习资源/
+Testing/
+
+ideas/
+# docs/plan and docs/design are part of the project deliverables
+# docs/plan
+# docs/design
+

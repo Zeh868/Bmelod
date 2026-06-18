@@ -1,0 +1,3 @@
+## 灯哥平衡车主控板 ESP32-WROOM-32E 后端（ESP-IDF 组件）
+dependencies:
+  idf: ">=5.0"

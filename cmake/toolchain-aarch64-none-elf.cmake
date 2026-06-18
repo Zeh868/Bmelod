@@ -1,0 +1,27 @@
+set(CMAKE_SYSTEM_NAME Generic)
+set(CMAKE_SYSTEM_PROCESSOR aarch64)
+set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES ZEPHYR_SDK_INSTALL_DIR)
+
+if(WIN32 OR MINGW OR CMAKE_HOST_WIN32)
+    set(_BM_HOST_EXE ".exe")
+else()
+    set(_BM_HOST_EXE "")
+endif()
+
+if(DEFINED ZEPHYR_SDK_INSTALL_DIR AND EXISTS
+   "${ZEPHYR_SDK_INSTALL_DIR}/aarch64-zephyr-elf/bin/aarch64-zephyr-elf-gcc${_BM_HOST_EXE}")
+    set(_pfx "${ZEPHYR_SDK_INSTALL_DIR}/aarch64-zephyr-elf/bin/aarch64-zephyr-elf")
+    set(CMAKE_C_COMPILER   "${_pfx}-gcc${_BM_HOST_EXE}")
+    set(CMAKE_ASM_COMPILER "${_pfx}-gcc${_BM_HOST_EXE}")
+    set(CMAKE_OBJCOPY      "${_pfx}-objcopy${_BM_HOST_EXE}")
+    set(CMAKE_SIZE         "${_pfx}-size${_BM_HOST_EXE}")
+else()
+    set(CMAKE_C_COMPILER aarch64-none-elf-gcc)
+    set(CMAKE_ASM_COMPILER aarch64-none-elf-gcc)
+    set(CMAKE_OBJCOPY aarch64-none-elf-objcopy)
+    set(CMAKE_SIZE aarch64-none-elf-size)
+endif()
+
+set(CMAKE_C_FLAGS "-mcpu=cortex-a53 -Os -ffunction-sections -fdata-sections -Wall -Wextra -std=c99")
+set(CMAKE_EXE_LINKER_FLAGS "-nostartfiles -Wl,--gc-sections")
