@@ -1,138 +1,133 @@
 /**
  * @file bm_vendor_singleton_esp32_idf.c
- * @brief 灯哥平衡车主控板 ESP32-WROOM-32E vendor 单例驱动（定时器 / UART / 看门狗）
+ * @brief ESP32 裸机后端的 timer / UART / WDT 单例实现
  *
- * 临界区与内存屏障由 `bm_port_arch_xtensa` 提供。
- * 电机、IMU、PWM、ADC 等外设待用户提供板级引脚表后扩展。
+ * 该文件只使用 IDF 的底层头文件、ROM 打印和看门狗寄存器封装，
+ * 不依赖调度器、队列或高级外设驱动。
+ *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-15
+ * @version 1.2
+ * @date 2026-06-19
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
- * 2026-06-15       1.0            zeh            从 sdk_esp32_idf singleton 拆分
- * 2026-06-15       1.1            zeh            兼容 ESP-IDF 5 task WDT 配置 API
+ * 2026-06-15       1.0            zeh            迁入 vendor
+ * 2026-06-19       1.2            zeh          改为裸机底层实现
  *
  */
 #include "bm_drv_timer.h"
 #include "bm_drv_uart.h"
 #include "bm_drv_wdg.h"
 #include "bm_hal_instances_esp32wroom32e.h"
-#include "bm_hal_sdk_esp32.h"
-#include "bm_log.h"
+#include "bm_vendor_esp32_idf_compat.h"
 #include "bm_types.h"
 
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 
-#define BM_UART_DEFAULT_BAUD 115200u
-#define TAG_WDG              "hal_wdg"
-#define TAG_UART             "hal_uart"
-#define TAG_TIMER            "hal_timer"
+#include "esp_cpu.h"
+#include "esp_rom_sys.h"
+#include "hal/mwdt_ll.h"
+#include "soc/timer_group_struct.h"
+
+/** @brief ESP32 默认 CPU 主频，用于 cycle->tick 粗略换算。 */
+#define BM_VENDOR_ESP32_CPU_FREQ_HZ      240000000u
+/** @brief 看门狗分频后每个 tick 对应的微秒数。 */
+#define BM_VENDOR_WDT_TICKS_PER_MS       2u
 
 static void (*g_tick_callback)(void);
-static uint32_t g_tick_freq;
 static void (*g_rx_callback)(uint8_t c);
-static int g_uart_installed;
-static int g_wdt_enabled;
-static gptimer_handle_t g_tick_timer;
+static uint32_t g_tick_freq_hz;
+static uint32_t g_tick_period_cycles;
+static uint32_t g_tick_count;
+static uint32_t g_tick_start_cycle;
+static uint32_t g_tick_last_cycle;
+static uint8_t g_tick_dispatching;
+static uint8_t g_uart_ready;
+static uint8_t g_wdt_ready;
 
-static bool esp32_tick_alarm_cb(gptimer_handle_t timer,
-                                const gptimer_alarm_event_data_t *edata,
-                                void *user_ctx) {
-    (void)timer;
-    (void)edata;
-    (void)user_ctx;
-    if (g_tick_callback) {
-        g_tick_callback();
+/**
+ * @brief PWM 裸机子步推进入口。
+ */
+extern void bm_vendor_pwm_esp32_idf_timer_tick(void);
+
+/**
+ * @brief 按当前计数器推进周期回调。
+ *
+ * 该实现依赖主循环或上层轮询触发，以保持裸机后端无 RTOS 依赖。
+ */
+static void bm_vendor_timer_advance(void) {
+    uint32_t now_cycle;
+    uint32_t delta_cycles;
+
+    if (g_tick_freq_hz == 0u || g_tick_period_cycles == 0u || g_tick_dispatching != 0u) {
+        return;
     }
-    return false;
+
+    now_cycle = esp_cpu_get_cycle_count();
+    delta_cycles = now_cycle - g_tick_last_cycle;
+    while (delta_cycles >= g_tick_period_cycles) {
+        delta_cycles -= g_tick_period_cycles;
+        g_tick_last_cycle += g_tick_period_cycles;
+        g_tick_count++;
+        if (g_tick_callback != NULL && g_tick_dispatching == 0u) {
+            g_tick_dispatching = 1u;
+            g_tick_callback();
+            g_tick_dispatching = 0u;
+        }
+        bm_vendor_pwm_esp32_idf_timer_tick();
+        bm_vendor_pwm_esp32_idf_timer_tick();
+    }
+}
+
+/**
+ * @brief 计算裸机计时器周期对应的 CPU cycle 数。
+ */
+static uint32_t bm_vendor_timer_cycles_per_tick(uint32_t freq_hz) {
+    uint32_t cycles;
+
+    if (freq_hz == 0u) {
+        return 0u;
+    }
+    cycles = BM_VENDOR_ESP32_CPU_FREQ_HZ / freq_hz;
+    return cycles;
 }
 
 static int esp32_timer_init(uint32_t freq_hz) {
-    gptimer_config_t timer_cfg;
-    gptimer_alarm_config_t alarm_cfg;
-    gptimer_event_callbacks_t cbs;
-    uint64_t alarm_ticks;
-    esp_err_t err;
-
     if (freq_hz == 0u) {
         return BM_ERR_INVALID;
     }
-    if (g_tick_timer != NULL) {
-        gptimer_stop(g_tick_timer);
-        gptimer_disable(g_tick_timer);
-        gptimer_del_timer(g_tick_timer);
-        g_tick_timer = NULL;
-    }
 
-    g_tick_freq = freq_hz;
-    memset(&timer_cfg, 0, sizeof(timer_cfg));
-    timer_cfg.clk_src = GPTIMER_CLK_SRC_DEFAULT;
-    timer_cfg.direction = GPTIMER_COUNT_UP;
-    timer_cfg.resolution_hz = BM_ESP32WROOM32E_TICK_TIMER_RESOLUTION_HZ;
-
-    err = gptimer_new_timer(&timer_cfg, &g_tick_timer);
-    if (err != ESP_OK) {
-        BM_LOGE(TAG_TIMER, "gptimer_new_timer: %d", (int)err);
-        return BM_ERR_IO;
-    }
-
-    memset(&cbs, 0, sizeof(cbs));
-    cbs.on_alarm = esp32_tick_alarm_cb;
-    err = gptimer_register_event_callbacks(g_tick_timer, &cbs, NULL);
-    if (err != ESP_OK) {
-        return BM_ERR_IO;
-    }
-
-    alarm_ticks = BM_ESP32WROOM32E_TICK_TIMER_RESOLUTION_HZ / (uint64_t)freq_hz;
-    if (alarm_ticks == 0u) {
+    g_tick_freq_hz = freq_hz;
+    g_tick_period_cycles = bm_vendor_timer_cycles_per_tick(freq_hz);
+    if (g_tick_period_cycles == 0u) {
         return BM_ERR_INVALID;
     }
-
-    memset(&alarm_cfg, 0, sizeof(alarm_cfg));
-    alarm_cfg.alarm_count = alarm_ticks;
-    alarm_cfg.reload_count = 0;
-    alarm_cfg.flags.auto_reload_on_alarm = true;
-    err = gptimer_set_alarm_action(g_tick_timer, &alarm_cfg);
-    if (err != ESP_OK) {
-        return BM_ERR_IO;
-    }
-
-    err = gptimer_enable(g_tick_timer);
-    if (err != ESP_OK) {
-        return BM_ERR_IO;
-    }
-    err = gptimer_start(g_tick_timer);
-    if (err != ESP_OK) {
-        return BM_ERR_IO;
-    }
+    g_tick_start_cycle = esp_cpu_get_cycle_count();
+    g_tick_last_cycle = g_tick_start_cycle;
+    g_tick_count = 0u;
     return BM_OK;
 }
 
 static void esp32_timer_stop(void) {
-    if (g_tick_timer != NULL) {
-        gptimer_stop(g_tick_timer);
-        gptimer_disable(g_tick_timer);
-        gptimer_del_timer(g_tick_timer);
-        g_tick_timer = NULL;
-    }
     g_tick_callback = NULL;
+    g_tick_freq_hz = 0u;
+    g_tick_period_cycles = 0u;
+    g_tick_count = 0u;
+    g_tick_start_cycle = 0u;
+    g_tick_last_cycle = 0u;
+    g_tick_dispatching = 0u;
 }
 
 static uint32_t esp32_timer_get_ticks(void) {
-    uint64_t count = 0u;
-
-    if (g_tick_timer != NULL) {
-        (void)gptimer_get_raw_count(g_tick_timer, &count);
-    }
-    return (uint32_t)count;
+    bm_vendor_timer_advance();
+    return g_tick_count;
 }
 
 static uint32_t esp32_timer_get_freq(void) {
-    return g_tick_freq;
+    return g_tick_freq_hz;
 }
 
 static void esp32_timer_set_callback(void (*cb)(void)) {
@@ -148,69 +143,30 @@ const struct bm_timer_driver_api bm_drv_timer_api = {
 };
 
 static int esp32_uart_init(void *config) {
-    uint32_t baud = BM_UART_DEFAULT_BAUD;
-    uart_config_t uart_cfg;
-    esp_err_t err;
-
-    if (config != NULL) {
-        baud = *(const uint32_t *)config;
-        if (baud == 0u) {
-            baud = BM_UART_DEFAULT_BAUD;
-        }
-    }
-
-    if (!g_uart_installed) {
-        memset(&uart_cfg, 0, sizeof(uart_cfg));
-        uart_cfg.baud_rate = (int)baud;
-        uart_cfg.data_bits = UART_DATA_8_BITS;
-        uart_cfg.parity = UART_PARITY_DISABLE;
-        uart_cfg.stop_bits = UART_STOP_BITS_1;
-        uart_cfg.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
-        uart_cfg.source_clk = UART_SCLK_DEFAULT;
-
-        err = uart_driver_install(BM_ESP32WROOM32E_UART_PORT, 256, 0, 0, NULL, 0);
-        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-            BM_LOGE(TAG_UART, "uart_driver_install: %d", (int)err);
-            return BM_ERR_IO;
-        }
-        err = uart_param_config(BM_ESP32WROOM32E_UART_PORT, &uart_cfg);
-        if (err != ESP_OK) {
-            return BM_ERR_IO;
-        }
-        g_uart_installed = 1;
-    } else {
-        err = uart_set_baudrate(BM_ESP32WROOM32E_UART_PORT, baud);
-        if (err != ESP_OK) {
-            return BM_ERR_IO;
-        }
-    }
+    (void)config;
+    g_uart_ready = 1u;
     return BM_OK;
 }
 
 static int esp32_uart_send(const uint8_t *data, size_t len) {
-    int written;
+    size_t i;
 
     if (data == NULL) {
         return BM_ERR_INVALID;
     }
-    written = uart_write_bytes(BM_ESP32WROOM32E_UART_PORT, (const char *)data, len);
-    if (written < 0) {
-        return BM_ERR_IO;
+    if (g_uart_ready == 0u) {
+        return BM_ERR_NOT_INIT;
+    }
+    for (i = 0u; i < len; ++i) {
+        esp_rom_printf("%c", (int)data[i]);
     }
     return BM_OK;
 }
 
 static size_t esp32_uart_recv(uint8_t *data, size_t max_len) {
-    int n;
-
-    if (data == NULL || max_len == 0u) {
-        return 0u;
-    }
-    n = uart_read_bytes(BM_ESP32WROOM32E_UART_PORT, data, max_len, 0);
-    if (n < 0) {
-        return 0u;
-    }
-    return (size_t)n;
+    (void)data;
+    (void)max_len;
+    return 0u;
 }
 
 static void esp32_uart_set_rx_callback(void (*cb)(uint8_t c)) {
@@ -225,51 +181,51 @@ const struct bm_uart_driver_api bm_drv_uart_api = {
     esp32_uart_set_rx_callback,
 };
 
+/**
+ * @brief 返回 WDT 硬件实例。
+ */
+static inline timg_dev_t *bm_vendor_wdt_hw(void) {
+    return &TIMERG1;
+}
+
 static int esp32_wdg_init(uint32_t timeout_ms) {
-    esp_err_t err;
-#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
-    uint32_t timeout_s;
-#else
-    esp_task_wdt_config_t wdt_cfg;
-#endif
+    timg_dev_t *hw;
+    uint32_t timeout_ticks;
 
     if (timeout_ms == 0u) {
         timeout_ms = 5000u;
     }
-#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
-    timeout_s = (timeout_ms + 999u) / 1000u;
-    if (timeout_s == 0u) {
-        timeout_s = 1u;
-    }
-#endif
 
-    err = esp_task_wdt_deinit();
-    (void)err;
-#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
-    err = esp_task_wdt_init(timeout_s, true);
-#else
-    memset(&wdt_cfg, 0, sizeof(wdt_cfg));
-    wdt_cfg.timeout_ms = timeout_ms;
-    wdt_cfg.idle_core_mask = 0u;
-    wdt_cfg.trigger_panic = true;
-    err = esp_task_wdt_init(&wdt_cfg);
-#endif
-    if (err != ESP_OK) {
-        BM_LOGE(TAG_WDG, "esp_task_wdt_init: %d", (int)err);
-        return BM_ERR_IO;
-    }
-    err = esp_task_wdt_add(NULL);
-    if (err != ESP_OK) {
-        return BM_ERR_IO;
-    }
-    g_wdt_enabled = 1;
+    hw = bm_vendor_wdt_hw();
+    timeout_ticks = timeout_ms * BM_VENDOR_WDT_TICKS_PER_MS;
+
+    mwdt_ll_write_protect_disable(hw);
+    mwdt_ll_disable(hw);
+    mwdt_ll_set_clock_source(hw, MWDT_CLK_SRC_APB);
+    mwdt_ll_set_prescaler(hw, MWDT_LL_DEFAULT_CLK_PRESCALER);
+    mwdt_ll_disable_stage(hw, WDT_STAGE1);
+    mwdt_ll_disable_stage(hw, WDT_STAGE2);
+    mwdt_ll_disable_stage(hw, WDT_STAGE3);
+    mwdt_ll_config_stage(hw, WDT_STAGE0, timeout_ticks, WDT_STAGE_ACTION_RESET_SYSTEM);
+    mwdt_ll_set_edge_intr(hw, false);
+    mwdt_ll_set_level_intr(hw, false);
+    mwdt_ll_enable(hw);
+    mwdt_ll_write_protect_enable(hw);
+
+    g_wdt_ready = 1u;
     return BM_OK;
 }
 
 static void esp32_wdg_feed(void) {
-    if (g_wdt_enabled) {
-        (void)esp_task_wdt_reset();
+    timg_dev_t *hw;
+
+    if (g_wdt_ready == 0u) {
+        return;
     }
+    hw = bm_vendor_wdt_hw();
+    mwdt_ll_write_protect_disable(hw);
+    mwdt_ll_feed(hw);
+    mwdt_ll_write_protect_enable(hw);
 }
 
 const struct bm_wdg_driver_api bm_drv_wdg_api = {

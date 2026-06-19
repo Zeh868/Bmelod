@@ -71,3 +71,8 @@ ideas/
 # docs/plan
 # docs/design
 
+# SDK 目录统一放在 Bmelod-all 平级目录，勿提交
+/Bmelod-sdks/
+/sdks/
+/.sdks/
+
