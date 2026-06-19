@@ -16,6 +16,7 @@
  *
  */
 #include "bm_vendor_encoder_esp32_idf.h"
+#include "bm_vendor_esp32_idf_compat.h"
 #include "bm_hal_instances_esp32wroom32e.h"
 #include "bm_types.h"
 

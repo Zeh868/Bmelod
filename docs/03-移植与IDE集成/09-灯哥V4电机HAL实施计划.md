@@ -1,7 +1,8 @@
-# 09 灯哥 V4 电机 HAL 裸机实施计划
+# 09 灯哥 V4 电机 HAL 实施计划（IDF 组件 + SMP ISR 驱动）
 
-> 这份计划只针对灯哥 V4 的 ESP32 裸机后端：PWM / ADC / 编码器 / IMU。  
-> 目标不是做一个普通 ESP-IDF 应用，而是保留 Bmelod 的确定性流式运行模型。
+> 本文描述灯哥 V4 ESP32-WROOM-32E 电机 HAL 的 Phase 2/3 实施现状，架构已迁移为
+> **IDF 组件 + SMP 双核 + 控制环 core1 高优先级 ISR + 硬件 MCPWM**。
+> WiFi 可选在 core0，但 Bmelod 控制环不依赖 WiFi 路径（待硬件集成）。
 
 ## 1. 目前确认的板级引脚
 
@@ -24,22 +25,26 @@
 
 其中编码器 1 的 `SDA1` 按模块脚 37 对应 `GPIO23` 处理。
 
-## 2. 当前实现状态
+## 2. 当前实现状态（Phase 2/3 已完成）
 
 | 文件 | 状态 |
 |---|---|
 | `portable/vendor/esp32_idf/bm_hal_instances_esp32wroom32e.h` | 已补全板级宏与电气常量 |
-| `portable/vendor/esp32_idf/bm_vendor_pwm_esp32_idf.c` | M0 / M1 PWM 实现中 |
-| `portable/vendor/esp32_idf/bm_vendor_adc_esp32_idf.c` | M0 / M1 ADC 缓存采样中 |
-| `portable/vendor/esp32_idf/bm_vendor_encoder_esp32_idf.c` | 两路 AS5600 读取中 |
-| `portable/vendor/esp32_idf/bm_vendor_bmi160_esp32_idf.c` | 保留通用接口，板级连线未确认 |
+| `portable/vendor/esp32_idf/bm_vendor_singleton_esp32_idf.c` | timer ISR + UART + MWDT WDG 已完成 |
+| `portable/vendor/esp32_idf/bm_vendor_pwm_esp32_idf.c` | 硬件 MCPWM ISR 驱动已完成（**待硬件出波验证**） |
+| `portable/vendor/esp32_idf/bm_vendor_adc_esp32_idf.c` | MCPWM TEZ ISR 内软触发采样已完成（**待硬件验证**） |
+| `portable/vendor/esp32_idf/bm_vendor_encoder_esp32_idf.c` | AS5600 I2C 接口已完成（**待硬件验证**） |
+| `portable/vendor/esp32_idf/bm_vendor_bmi160_esp32_idf.c` | 保留通用接口，板级连线**待硬件确认** |
+| `portable/vendor/esp32_idf/idf_component.yml` | IDF 组件清单（依赖 idf>=5.0） |
 
-## 3. 裸机约束
+## 3. 驱动层约束
 
-1. 不使用 FreeRTOS、任务、队列、信号量、事件组或 `app_main`。
-2. 不使用 `esp_timer`、`esp_task_wdt` 或会隐式拉入 RTOS 的高级驱动。
-3. 运行期对象全部静态分配。
-4. ISR 里不能阻塞、不能打日志、不能动态分配。
+1. 控制环 ISR（MCPWM TEZ + Timer tick）固定在 core1 高优先级中断，WiFi 在 core0（待集成）。
+2. 不在 ISR 内动态分配（无 `malloc`/`pvPortMalloc`/`heap_caps_malloc`）。
+3. 运行期对象全部静态分配；所有 API 表为 `const` 全局对象。
+4. `esp_task_wdt_config_t` 类型在 singleton 中归档，待 FreeRTOS 应用路径时启用；
+   当前裸机路径使用 TIMERG1 MWDT 直接寄存器控制。
+5. `driver/` 高级封装层、`esp_wifi`、`malloc/free` 在裸机 vendor 层禁用（failfast 扫描）。
 
 ## 4. 硬件确认要求
 

@@ -1,21 +1,35 @@
 /**
  * @file bm_vendor_adc_esp32_idf.c
- * @brief ESP32-WROOM-32E 裸机 ADC1 采样实现
+ * @brief ESP32-WROOM-32E ADC1 采样实现（Phase 2：ISR 内软触发）
  *
- * 本实现仅使用 ESP-IDF 的 ADC LL / SoC 寄存器头文件，不依赖驱动层、
- * FreeRTOS 任务或队列。采样由确定性的轮询路径触发，供 PWM 周期回调使用。
+ * 本实现仅使用 ESP-IDF 5.2.3 的 ADC LL / SoC 寄存器头文件，不依赖驱动层、
+ * FreeRTOS 任务或队列。采样由 MCPWM TEZ ISR 周期触发（oneshot 软触发模式）。
+ *
+ * @note Phase 2 修正（相较 Phase 1）：
+ *       ① 删除 `adc_ll_enable_bus_clock`——IDF 5.2.3 esp32 不存在此函数
+ *          （5.2.3 esp32 上 ADC 时钟随 APB 始终开启，无需显式开关）。
+ *       ② 删除 `adc_ll_reset_register`——IDF 5.2.3 esp32 不存在此函数。
+ *       ③ `ADC_ATTEN_DB_11` → `ADC_ATTEN_DB_12`（5.2.3 中前者已废弃）。
+ *       ④ 采样入口改为 `bm_vendor_adc_esp32_idf_isr_sample`，由 MCPWM ISR
+ *          调用；`read_injected` 返回缓存值。
+ *
+ * @note ESP32 经典 ADC 在 ISR 内 oneshot 转换有 µs 级延迟（无 ETM 硬触发路径），
+ *       高频电流环（20 kHz ISR）的 ADC 采样延迟需待硬件验证。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 2.0
  * @date 2026-06-19
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-19       1.0            zeh            新增双电机 ADC 实例
- * 2026-06-19       1.1            zeh          改为 ADC LL 裸机实现
+ * 2026-06-19       1.1            zeh            改为 ADC LL 裸机实现
+ * 2026-06-19       2.0            zeh            Phase 2：改为 MCPWM ISR 触发采样
+ *
  */
 #include "bm_vendor_adc_esp32_idf.h"
+#include "bm_vendor_pwm_esp32_idf.h"
 #include "bm_vendor_esp32_idf_compat.h"
 #include "bm_hal_instances_esp32wroom32e.h"
 #include "bm_types.h"
@@ -26,46 +40,39 @@
 
 #if defined(BM_ESP32_BAREMETAL)
 #include "hal/adc_ll.h"
-#include "esp_rom_sys.h"
 #endif
 
-/** @brief 电机实例数量。*/
+/** @brief 电机实例数量。 */
 #define BM_VENDOR_ADC_INSTANCE_COUNT  2u
-/** @brief 单个实例的采样 rank 数。*/
+/** @brief 单个实例的采样 rank 数（ia / ib 两路）。 */
 #define BM_VENDOR_ADC_RANK_COUNT      2u
-/** @brief 单次轮询超时上限。*/
+/** @brief ISR 内 oneshot 转换的最大等待循环次数。 */
 #define BM_VENDOR_ADC_POLL_LIMIT      2048u
 
 typedef struct {
-    /** @brief 电机编号。*/
+    /** @brief 电机编号（0/1）。 */
     uint32_t id;
 } bm_vendor_adc_config_t;
 
 typedef struct {
-    /** @brief 是否完成硬件初始化。*/
+    /** @brief 是否已完成硬件初始化。 */
     int initialized;
-    /** @brief 缓存的原始 ADC 值。*/
+    /** @brief ISR 内采样的原始 ADC 缓存值。 */
     uint16_t cached[BM_VENDOR_ADC_RANK_COUNT];
-    /** @brief HRT 完成回调绑定。*/
+    /** @brief HRT 完成回调绑定（透传到 MCPWM ISR）。 */
     bm_hal_hrt_binding_t complete_binding;
 } bm_vendor_adc_context_t;
 
-/** @brief M0 / M1 独立上下文。*/
+/** @brief M0 / M1 独立上下文。 */
 static bm_vendor_adc_context_t g_adc_context[BM_VENDOR_ADC_INSTANCE_COUNT];
 
-/** @brief M0 / M1 实例配置。*/
-static const bm_vendor_adc_config_t g_adc_config[BM_VENDOR_ADC_INSTANCE_COUNT] = {
-    { 0u },
-    { 1u },
-};
-
-/** @brief M0 ADC1 通道。*/
+/** @brief M0 ADC1 通道（ia=CH3/GPIO39，ib=CH0/GPIO36）。 */
 static const int g_adc_channels_m0[BM_VENDOR_ADC_RANK_COUNT] = {
     3,
     0,
 };
 
-/** @brief M1 ADC1 通道。*/
+/** @brief M1 ADC1 通道（ia=CH7/GPIO35，ib=CH6/GPIO34）。 */
 static const int g_adc_channels_m1[BM_VENDOR_ADC_RANK_COUNT] = {
     7,
     6,
@@ -76,7 +83,8 @@ static const int g_adc_channels_m1[BM_VENDOR_ADC_RANK_COUNT] = {
  * @param dev HAL 设备实例。
  * @return 板级上下文；无效时返回 NULL。
  */
-static bm_vendor_adc_context_t *bm_vendor_adc_context_for(const struct bm_hal_adc *dev) {
+static bm_vendor_adc_context_t *bm_vendor_adc_context_for(const struct bm_hal_adc *dev)
+{
     const bm_vendor_adc_config_t *cfg;
 
     if (dev == NULL || dev->config == NULL) {
@@ -91,27 +99,36 @@ static bm_vendor_adc_context_t *bm_vendor_adc_context_for(const struct bm_hal_ad
 
 #if defined(BM_ESP32_BAREMETAL)
 /**
- * @brief 初始化单个 ADC1 实例。
+ * @brief 初始化单个 ADC1 实例（RTC 控制器，oneshot 模式）。
+ *
+ * IDF 5.2.3 esp32 注意事项：
+ *   - 不调用 adc_ll_enable_bus_clock（5.2.3 esp32 无此函数，APB 时钟始终开启）
+ *   - 不调用 adc_ll_reset_register（5.2.3 esp32 无此函数）
+ *   - 衰减使用 ADC_ATTEN_DB_12（替代已废弃的 ADC_ATTEN_DB_11）
+ *
  * @param ctx 板级上下文。
  * @return BM_OK 成功；否则为平台错误码。
  */
-static int bm_vendor_adc_hw_init(bm_vendor_adc_context_t *ctx) {
+static int bm_vendor_adc_hw_init(bm_vendor_adc_context_t *ctx)
+{
     const int *channels;
-    uint32_t rank;
+    uint32_t   rank;
 
     if (ctx == NULL || ctx->initialized) {
         return BM_OK;
     }
 
-    adc_ll_enable_bus_clock(true);
-    adc_ll_reset_register();
+    /* 选择 RTC 控制器（oneshot 软触发路径） */
     adc_ll_set_controller(ADC_UNIT_1, ADC_LL_CTRL_RTC);
     adc_oneshot_ll_set_output_bits(ADC_UNIT_1, ADC_BITWIDTH_12);
     adc_oneshot_ll_enable(ADC_UNIT_1);
 
     channels = (ctx == &g_adc_context[0]) ? g_adc_channels_m0 : g_adc_channels_m1;
     for (rank = 0u; rank < BM_VENDOR_ADC_RANK_COUNT; ++rank) {
-        adc_oneshot_ll_set_atten(ADC_UNIT_1, (adc_channel_t)channels[rank], ADC_ATTEN_DB_11);
+        /* Phase 2：使用 ADC_ATTEN_DB_12（5.2.3 中 DB_11 已废弃） */
+        adc_oneshot_ll_set_atten(ADC_UNIT_1,
+                                 (adc_channel_t)channels[rank],
+                                 ADC_ATTEN_DB_12);
     }
 
     ctx->initialized = 1;
@@ -119,14 +136,21 @@ static int bm_vendor_adc_hw_init(bm_vendor_adc_context_t *ctx) {
 }
 
 /**
- * @brief 触发一次 ADC1 轮询并更新缓存。
+ * @brief 在 ISR 内对单个电机执行 oneshot ADC 采样并更新缓存。
+ *
+ * 由 MCPWM TEZ ISR 调用。每次调用对两路通道（ia/ib）依次转换。
+ *
+ * @note ESP32 经典 ADC oneshot 转换在 ISR 内有 µs 级轮询延迟，
+ *       20 kHz 电流环性能为待硬件验证项。
+ *
  * @param ctx 板级上下文。
  * @return BM_OK 成功；否则为平台错误码。
  */
-static int bm_vendor_adc_sample(bm_vendor_adc_context_t *ctx) {
+static int bm_vendor_adc_isr_sample(bm_vendor_adc_context_t *ctx)
+{
     const int *channels;
-    uint32_t rank;
-    uint32_t wait;
+    uint32_t   rank;
+    uint32_t   wait;
 
     if (ctx == NULL) {
         return BM_ERR_INVALID;
@@ -151,16 +175,20 @@ static int bm_vendor_adc_sample(bm_vendor_adc_context_t *ctx) {
         ctx->cached[rank] = (uint16_t)adc_oneshot_ll_get_raw_result(ADC_UNIT_1);
         adc_oneshot_ll_clear_event(ADC_LL_EVENT_ADC1_ONESHOT_DONE);
     }
-
     return BM_OK;
 }
-#endif
+#endif /* BM_ESP32_BAREMETAL */
 
 /**
- * @brief 读取单次电流采样并触发完成回调。
- * @param motor_id 电机编号。
+ * @brief MCPWM TEZ ISR 内的 ADC 采样入口（由 PWM 驱动 ISR 调用）。
+ *
+ * 在 ISR 上下文中触发 oneshot 采样，更新缓存；完成回调通过
+ * MCPWM ISR 中的 adc_complete_binding 分发（不在本函数内调用）。
+ *
+ * @param motor_id 电机编号（0/1）。
  */
-void bm_vendor_adc_esp32_idf_pwm_tick(uint32_t motor_id) {
+void bm_vendor_adc_esp32_idf_isr_sample(uint32_t motor_id)
+{
     bm_vendor_adc_context_t *ctx;
 
     if (motor_id >= BM_VENDOR_ADC_INSTANCE_COUNT) {
@@ -169,24 +197,21 @@ void bm_vendor_adc_esp32_idf_pwm_tick(uint32_t motor_id) {
     ctx = &g_adc_context[motor_id];
 
 #if defined(BM_ESP32_BAREMETAL)
-    if (bm_vendor_adc_sample(ctx) != BM_OK) {
-        return;
-    }
+    (void)bm_vendor_adc_isr_sample(ctx);
 #endif
-    if (ctx->complete_binding.callback != NULL) {
-        ctx->complete_binding.callback(ctx->complete_binding.context);
-    }
+    (void)ctx;
 }
 
 /**
- * @brief 读取缓存的注入通道值。
- * @param dev HAL 设备实例。
- * @param rank 采样序号。
+ * @brief 读取缓存的注入通道值（ISR 后由控制环读取）。
+ * @param dev   HAL 设备实例。
+ * @param rank  采样序号（0=ia，1=ib）。
  * @param value 输出值。
  * @return BM_OK 成功；否则为错误码。
  */
 static int bm_vendor_adc_read_injected(const struct bm_hal_adc *dev,
-                                       uint32_t rank, uint16_t *value) {
+                                       uint32_t rank, uint16_t *value)
+{
     bm_vendor_adc_context_t *ctx;
 
     if (value == NULL || rank >= BM_VENDOR_ADC_RANK_COUNT) {
@@ -207,14 +232,16 @@ static int bm_vendor_adc_read_injected(const struct bm_hal_adc *dev,
 }
 
 /**
- * @brief 绑定采样完成回调。
- * @param dev HAL 设备实例。
- * @param binding 回调绑定。
+ * @brief 绑定采样完成回调（透传到对应电机的 MCPWM ISR）。
+ * @param dev     HAL 设备实例。
+ * @param binding HRT 绑定；NULL 表示清除。
  * @return BM_OK 成功；否则为错误码。
  */
 static int bm_vendor_adc_bind_complete(const struct bm_hal_adc *dev,
-                                       const bm_hal_hrt_binding_t *binding) {
-    bm_vendor_adc_context_t *ctx;
+                                       const bm_hal_hrt_binding_t *binding)
+{
+    const bm_vendor_adc_config_t *cfg;
+    bm_vendor_adc_context_t      *ctx;
 
     ctx = bm_vendor_adc_context_for(dev);
     if (ctx == NULL) {
@@ -222,24 +249,28 @@ static int bm_vendor_adc_bind_complete(const struct bm_hal_adc *dev,
     }
     if (binding == NULL) {
         memset(&ctx->complete_binding, 0, sizeof(ctx->complete_binding));
-        return BM_OK;
+    } else {
+        ctx->complete_binding = *binding;
     }
-    ctx->complete_binding = *binding;
+
+    /* 同步到 MCPWM ISR 上下文中的 adc_complete_binding */
+    cfg = (const bm_vendor_adc_config_t *)dev->config;
+    bm_vendor_pwm_esp32_idf_bind_adc_complete(cfg->id, binding);
     return BM_OK;
 }
 
-/** @brief ADC 驱动 API 表。*/
+/** @brief ADC 驱动 API 表。 */
 static const struct bm_adc_driver_api g_adc_api = {
     bm_vendor_adc_read_injected,
     bm_vendor_adc_bind_complete,
 };
 
-/** @brief M0 电机 ADC 实例配置。*/
+/** @brief M0 电机 ADC 实例配置。 */
 static const bm_vendor_adc_config_t g_adc_config_m0 = { 0u };
-/** @brief M1 电机 ADC 实例配置。*/
+/** @brief M1 电机 ADC 实例配置。 */
 static const bm_vendor_adc_config_t g_adc_config_m1 = { 1u };
 
-/** @brief M0 电机 ADC 实例。*/
+/** @brief M0 电机 ADC 实例。 */
 const bm_hal_adc_t bm_hal_adc_m0 = { &g_adc_api, &g_adc_config_m0 };
-/** @brief M1 电机 ADC 实例。*/
+/** @brief M1 电机 ADC 实例。 */
 const bm_hal_adc_t bm_hal_adc_m1 = { &g_adc_api, &g_adc_config_m1 };

@@ -61,6 +61,8 @@ src/proprietary/
 .claude/
 *.err
 build*
+*build*
+_compilecheck*
 /superpowers/
 review/
 docs/zh-CN/90-学习资源/
