@@ -2,7 +2,7 @@
  * @file bm_shell.h
  * @brief 轻量级非阻塞串口命令行
  *
- * 支持字符流喂入、命令注册与 UART 轮询，适用于裸机调试。
+ * 支持字符流喂入、命令注册与 Console CLI 轮询，适用于裸机调试。
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-10
@@ -110,7 +110,7 @@ int bm_shell_register(bm_shell_t *shell, const char *name,
 void bm_shell_feed(bm_shell_t *shell, char c);
 
 /**
- * @brief 轮询 UART 并处理新字符（非阻塞）
+ * @brief 轮询 Console CLI 并处理新字符（非阻塞）
  *
  * @param shell Shell 实例指针
  */
@@ -126,7 +126,7 @@ void bm_shell_poll(bm_shell_t *shell);
 int bm_shell_exec(bm_shell_t *shell, char *line);
 
 /**
- * @brief 通过 UART 输出字符串
+ * @brief 通过 Console CLI 通道输出字符串
  *
  * @param s 以 NUL 结尾的字符串
  */

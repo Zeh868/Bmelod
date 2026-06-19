@@ -11,6 +11,7 @@
 #include "hal/bm_hal_memory.h"
 #include "hal/bm_hal_timer.h"
 #include "hal/bm_hal_uart.h"
+#include "hal/bm_hal_console.h"
 #include "hal/bm_hal_wdg.h"
 
 #endif /* BM_HAL_H */

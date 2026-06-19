@@ -38,6 +38,8 @@ option(BM_ENABLE_SYNC "Enable sync domain" OFF)
 option(BM_SYNC_HAL_NATIVE "Link native_sim sync HAL into bm_exec" OFF)
 option(BM_SYNC_HAL_QEMU "Link QEMU sync HAL into bm_exec" OFF)
 option(BM_BUILD_TESTS "Build unit tests" ON)
+option(BM_ENABLE_SEGGER_RTT
+    "Link SEGGER RTT into bm_hal (embedded targets with J-Link)" OFF)
 set(BM_BACKEND "" CACHE STRING
     "Portable backend: native_sim, sdk_esp32_idf, qemu_cortex_m0, qemu_riscv64, arch_stub, external, ...")
 
@@ -58,6 +60,8 @@ include(${CMAKE_CURRENT_LIST_DIR}/cmake/bm_include_dirs.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/bm_config_export.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/bm_port_arch.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/bm_port_resolve.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/bm_console.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/bm_segger_rtt.cmake)
 
 if(BM_BUILD_ALL_COMPONENTS)
     set(BM_ENABLE_ALGORITHM ON CACHE BOOL "" FORCE)
@@ -88,6 +92,10 @@ if(BM_BUILD_TESTS)
     endif()
 endif()
 
+if(BM_BACKEND STREQUAL "sdk_esp32_idf")
+    set(BM_ENABLE_SEGGER_RTT ON CACHE BOOL "" FORCE)
+endif()
+
 add_library(bm_config INTERFACE)
 target_include_directories(bm_config INTERFACE ${BM_INCLUDE_BACKEND_DIRS})
 bm_export_config_enable(bm_config)
@@ -95,6 +103,7 @@ if(BM_BACKEND STREQUAL "native_sim")
     target_compile_definitions(
         bm_config INTERFACE BM_HAL_CRITICAL_MASKS_STREAM_IRQ=1)
 endif()
+bm_console_apply_defaults(bm_config)
 
 if(BM_CONFIG_FILE)
     get_filename_component(BM_CONFIG_FILE "${BM_CONFIG_FILE}" ABSOLUTE)
@@ -109,6 +118,7 @@ endif()
 
 add_library(bm_hal STATIC
     Source/hal/bm_hal_critical.c
+    Source/hal/bm_hal_console.c
     Source/hal/bm_hal_uart.c
     Source/hal/bm_hal_timer.c
     Source/hal/bm_hal_cap.c
@@ -127,6 +137,8 @@ if(BM_HAL_USE_CPU_STUB)
 endif()
 target_link_libraries(bm_hal PUBLIC bm_config)
 bm_target_internal_includes(bm_hal)
+bm_console_add_backends(bm_hal)
+bm_segger_rtt_link_to_hal(bm_hal)
 
 if(BM_ENABLE_PIPELINE AND NOT BM_ENABLE_STREAM AND NOT BM_ENABLE_EXEC)
     message(FATAL_ERROR "BM_ENABLE_PIPELINE requires BM_ENABLE_STREAM or BM_ENABLE_EXEC")
