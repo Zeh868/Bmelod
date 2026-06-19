@@ -187,4 +187,21 @@ void bm_module_set_owner_resolver(bm_module_owner_resolver_t resolver);
  */
 void bm_module_set_freeze_hook(void (*hook)(void));
 
+/**
+ * @brief 获取当前应用静态模块表
+ *
+ * 返回值由 `BM_MODULE_TABLE(...)` 宏提供的只读数组承载；当应用未定义
+ * 模块表时，返回 NULL。
+ *
+ * @return 模块表首地址，或 NULL
+ */
+const bm_module_t *const *bm_module_table(void);
+
+/**
+ * @brief 获取当前应用静态模块表元素个数
+ *
+ * @return 模块条目数；未定义模块表时返回 0
+ */
+uint32_t bm_module_count(void);
+
 #endif /* BM_MODULE_H */
