@@ -5,13 +5,14 @@
  * LOG 通道供 `bm_log_output` drain 使用；CLI 通道供 `bm_shell` 交互。
  * 多核下日志仅 bootstrap 核 drain 后写出；CLI 读写默认仅 bootstrap 核。
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-06-19
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-19       1.0            zeh            初版：双通道 Console HAL
+ * 2026-06-19       1.1            zeh            补 LOG 通道阻塞语义与实时主循环契约
  *
  */
 #ifndef BM_HAL_CONSOLE_H
@@ -68,6 +69,15 @@ int bm_hal_console_init(void);
  *
  * hard RT 剖面下 CLI 通道返回 BM_ERR_NOT_SUPPORTED。
  * 多核且 BM_CONFIG_CONSOLE_MP_CLI_BOOTSTRAP_ONLY 时，非 bootstrap 核写 CLI 被拒绝。
+ *
+ * @warning 确定性/阻塞语义按后端而定，且 LOG 通道写发生在 bootstrap 核主迭代的
+ *          日志 drain 上（确定性主循环热路径）：
+ *          - NONE / RTT：有界、非阻塞（RTT 默认 NO_BLOCK_SKIP 满则丢），可用于
+ *            周期强制（bm_mp_enforce_main_loop_period）生效的实时主循环；
+ *          - STDIO / UART：可能阻塞（fflush / TX 忙等），延迟无界，**不可**用于
+ *            实时主循环的 LOG 通道，否则会破坏 WCET 闭包与周期保证。
+ *          实时目标的 LOG 通道请用 RTT/NONE，或令 BM_CONFIG_ENABLE_LOG=0
+ *          （hard RT 下 BM_LOG* 已编译为 no-op，CLI 亦被拒绝，故自动安全）。
  *
  * @param ch 逻辑通道
  * @param data 数据缓冲区（len>0 时不可为 NULL）
