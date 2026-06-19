@@ -90,6 +90,14 @@ void bm_module_set_freeze_hook(void (*hook)(void)) {
     s_freeze_hook = hook;
 }
 
+const bm_module_t *const *bm_module_table(void) {
+    return _bm_module_table;
+}
+
+uint32_t bm_module_count(void) {
+    return _bm_module_count;
+}
+
 /**
  * @brief 按 priority 升序对模块表冒泡排序
  */
