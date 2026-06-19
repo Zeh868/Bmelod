@@ -80,6 +80,42 @@
 #define BM_CONFIG_LOG_USE_STDIO              0
 #endif
 
+/* Console 诊断 I/O（日志 / Shell 分通道，编译期选后端） */
+#ifndef BM_CONSOLE_BACKEND_NONE
+#define BM_CONSOLE_BACKEND_NONE                0
+#endif
+#ifndef BM_CONSOLE_BACKEND_STDIO
+#define BM_CONSOLE_BACKEND_STDIO               1
+#endif
+#ifndef BM_CONSOLE_BACKEND_UART
+#define BM_CONSOLE_BACKEND_UART                2
+#endif
+#ifndef BM_CONSOLE_BACKEND_RTT
+#define BM_CONSOLE_BACKEND_RTT                 3
+#endif
+
+#ifndef BM_CONFIG_CONSOLE_LOG_BACKEND
+#if BM_CONFIG_LOG_USE_STDIO
+#define BM_CONFIG_CONSOLE_LOG_BACKEND          BM_CONSOLE_BACKEND_STDIO
+#else
+#define BM_CONFIG_CONSOLE_LOG_BACKEND          BM_CONSOLE_BACKEND_NONE
+#endif
+#endif
+
+#ifndef BM_CONFIG_CONSOLE_CLI_BACKEND
+#define BM_CONFIG_CONSOLE_CLI_BACKEND          BM_CONFIG_CONSOLE_LOG_BACKEND
+#endif
+
+#ifndef BM_CONFIG_CONSOLE_MP_CLI_BOOTSTRAP_ONLY
+#define BM_CONFIG_CONSOLE_MP_CLI_BOOTSTRAP_ONLY  1
+#endif
+
+#if BM_CONFIG_HARD_RT_PROFILE && \
+    (BM_CONFIG_CONSOLE_LOG_BACKEND == BM_CONSOLE_BACKEND_STDIO || \
+     BM_CONFIG_CONSOLE_CLI_BACKEND == BM_CONSOLE_BACKEND_STDIO)
+#error "hard RT profile forbids stdio console backend"
+#endif
+
 /* 核心事件子系统 */
 #ifndef BM_CONFIG_MAX_EVENT_TYPES
 #define BM_CONFIG_MAX_EVENT_TYPES           16

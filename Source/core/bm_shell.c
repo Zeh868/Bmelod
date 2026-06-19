@@ -2,7 +2,7 @@
  * @file bm_shell.c
  * @brief 轻量级非阻塞串口命令行实现
  *
- * 字符回显、退格处理与命令分词执行；通过 UART HAL 收发。
+ * 字符回显、退格处理与命令分词执行；通过 Console CLI 通道收发。
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-10
@@ -14,7 +14,7 @@
  *
  */
 #include "bm_shell.h"
-#include "bm_hal_uart.h"
+#include "hal/bm_hal_console.h"
 #include "bm_log.h"
 
 #include <string.h>
@@ -32,12 +32,15 @@ static int _strcmp(const char *a, const char *b) {
 }
 
 /**
- * @brief 通过 UART HAL 发送以 NUL 结尾的字符串
+ * @brief 经 Console CLI 通道发送以 NUL 结尾的字符串
  *
  * @param s 字符串指针
  */
 static void _puts(const char *s) {
-    bm_hal_uart_send((const uint8_t *)s, strlen(s));
+    if (s) {
+        (void)bm_hal_console_write(BM_CONSOLE_CLI,
+                                   (const uint8_t *)s, strlen(s));
+    }
 }
 
 /**
@@ -179,10 +182,11 @@ void bm_shell_feed(bm_shell_t *shell, char c) {
     if (c >= 0x20 && c < 0x7F) {
         if (shell->cursor < BM_CONFIG_SHELL_BUF_SIZE - 1) {
             shell->buf[shell->cursor++] = c;
-            bm_hal_uart_send((const uint8_t *)&c, 1);
+            (void)bm_hal_console_write(BM_CONSOLE_CLI, (const uint8_t *)&c, 1u);
         } else {
             BM_LOGW("shell", "line buffer full");
-            (void)bm_hal_uart_send((const uint8_t *)"\a", 1);
+            (void)bm_hal_console_write(BM_CONSOLE_CLI,
+                                       (const uint8_t *)"\a", 1u);
         }
         return;
     }
@@ -206,7 +210,7 @@ void bm_shell_feed(bm_shell_t *shell, char c) {
 #endif
 
 /**
- * @brief 轮询 UART 接收缓冲区并逐字符喂入 Shell
+ * @brief 轮询 Console CLI 接收并逐字符喂入 Shell
  *
  * 每轮最多处理 BM_CONFIG_SHELL_MAX_CHARS_PER_POLL 字符，
  * 保证主循环有界执行。剩余字符在后续 poll 中处理。
@@ -217,7 +221,8 @@ void bm_shell_poll(bm_shell_t *shell) {
     if (!shell) return;
     uint8_t c;
     uint32_t remaining = BM_CONFIG_SHELL_MAX_CHARS_PER_POLL;
-    while (remaining > 0u && bm_hal_uart_recv(&c, 1) == 1) {
+    while (remaining > 0u &&
+           bm_hal_console_read(BM_CONSOLE_CLI, &c, 1u) == 1u) {
         bm_shell_feed(shell, (char)c);
         remaining--;
     }
