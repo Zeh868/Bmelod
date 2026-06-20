@@ -15,6 +15,7 @@ add_library(bm_vendor_esp32_idf STATIC
     bm_vendor_singleton_esp32_idf.c
     bm_vendor_pwm_esp32_idf.c
     bm_vendor_adc_esp32_idf.c
+    bm_vendor_i2c_esp32_idf.c
     bm_vendor_encoder_esp32_idf.c
     bm_vendor_bmi160_esp32_idf.c
 )
