@@ -52,4 +52,11 @@ void bm_vendor_pwm_esp32_idf_diag_read_clear(uint32_t *cycles_max,
                                              uint32_t *cycles_avg,
                                              uint32_t *isr_cnt);
 
+/**
+ * @brief 诊断：读取指定电机三相当前占空比（组件 set_duty 写入的 SVPWM 值）。
+ * @param[in]  motor_id 电机编号（0/1）。
+ * @param[out] out_duty 输出三相 duty[3]（0..PWM_MAX）；越界/NULL 时不写。
+ */
+void bm_vendor_pwm_esp32_idf_diag_get_duty(uint32_t motor_id, uint16_t out_duty[3]);
+
 #endif /* BM_VENDOR_PWM_ESP32_IDF_H */

@@ -64,6 +64,23 @@ static volatile uint32_t g_adc_diag_wait_max = 0u;
 #define BM_VENDOR_ADC_RANK_COUNT      2u
 /** @brief ISR 内 oneshot 转换的最大等待循环次数。 */
 #define BM_VENDOR_ADC_POLL_LIMIT      2048u
+/**
+ * @brief 每通道 oneshot 连采次数（ISR 内同步采样）。
+ *
+ * B2 诊断②曾置 8（多次平均降噪），但 ESP32 经典 ADC 单次 oneshot 含轮询约
+ * 12µs，8 次×双通道(ia/ib)=16 次使单次 isr_sample 耗时约 191µs（实测
+ * adc_avg）。FOC 在 TEZ（计数谷底=三相全低边导通=唯一能测下桥采样电阻相电流
+ * 的窗口）启动采样，而该低边窗口宽度受最高占空比相限制：4kHz 载波下约 93µs、
+ * 20kHz 下仅约 18µs。191µs 的连采远超窗口，绝大多数采样点落到高边导通区
+ * （下桥 MOSFET 关断、采样电阻无电流）→ 读回零电流偏置 1853 → iq 反馈恒≈0、
+ * 电流环 vq 积分 windup 饱和（电机实有顿挫力矩，电流却测不到）。这正是
+ * "降载波/倒序采样均无效、8 次平均后 raw 干净贴 1853" 的真因——多数点在高边
+ * 读零电流被平均稀释，而非相电流真为 0。
+ *
+ * 故改回 1：单次双通道约 24µs，可收进谷底低边窗口（4kHz 下余量充足）。
+ * 20kHz 治本（窗口仅 18µs）需把 ADC 移出 ISR / 改硬件触发，留待 B3。
+ */
+#define BM_VENDOR_ADC_AVG_N           1u
 
 typedef struct {
     /** @brief 电机编号（0/1）。 */
@@ -240,7 +257,11 @@ static int bm_vendor_adc_isr_sample(bm_vendor_adc_context_t *ctx)
     /* [DIAG_ADC_END] */
 
     channels = (ctx == &g_adc_context[0]) ? g_adc_channels_m0 : g_adc_channels_m1;
-    for (rank = 0u; rank < BM_VENDOR_ADC_RANK_COUNT; ++rank) {
+    /* B2 诊断①：倒序采样（先 ib=rank1，后 ia=rank0）。θ_e=0 时电流全在 B/C 相、
+     * A 相(ia)≈0；原顺序 ib 排第二，TEZ 后 ~14µs 才采、已错过谷底低边导通窗口
+     * (~±12µs)→读不到 B 相电流（id/iq≈0、vq windup 饱和）。倒序让 ib 落进窗口
+     * 前段，验证"靠后通道丢低边窗口"假设。cached[rank]↔通道映射不变。 */
+    for (rank = BM_VENDOR_ADC_RANK_COUNT; rank-- > 0u; ) {
         /*
          * 每通道采样前重设衰减（fix：确保 atten 在 set_channel/start 序列之前生效）。
          * 与 IDF 高层 adc_oneshot_hal_setup 每次 read 前均重设 atten 的行为对齐。
@@ -249,23 +270,32 @@ static int bm_vendor_adc_isr_sample(bm_vendor_adc_context_t *ctx)
                                  (adc_channel_t)channels[rank],
                                  ADC_ATTEN_DB_12);
         adc_oneshot_ll_set_channel(ADC_UNIT_1, channels[rank]);
-        adc_oneshot_ll_start(ADC_UNIT_1);
-        for (wait = 0u; wait < BM_VENDOR_ADC_POLL_LIMIT; ++wait) {
-            if (adc_oneshot_ll_get_event(ADC_LL_EVENT_ADC1_ONESHOT_DONE)) {
-                break;
+        /* B2 诊断②：同通道连采 BM_VENDOR_ADC_AVG_N 次求平均，把可能被单次噪声
+         * (±10raw)淹没的小电流信号(几十 mA)从底噪里捞出来（对齐 app 多次平均）。 */
+        {
+            uint32_t acc = 0u;
+            uint32_t n;
+            for (n = 0u; n < BM_VENDOR_ADC_AVG_N; ++n) {
+                adc_oneshot_ll_start(ADC_UNIT_1);
+                for (wait = 0u; wait < BM_VENDOR_ADC_POLL_LIMIT; ++wait) {
+                    if (adc_oneshot_ll_get_event(ADC_LL_EVENT_ADC1_ONESHOT_DONE)) {
+                        break;
+                    }
+                }
+                if (wait >= BM_VENDOR_ADC_POLL_LIMIT) {
+                    adc_oneshot_ll_disable_channel(ADC_UNIT_1);
+                    return BM_ERR_IO;
+                }
+                acc += (uint32_t)adc_oneshot_ll_get_raw_result(ADC_UNIT_1);
+                adc_oneshot_ll_clear_event(ADC_LL_EVENT_ADC1_ONESHOT_DONE);
             }
+            /* [DIAG_ADC_BEGIN] 记录本通道 wait 次数（取末次轮询数） */
+            if (wait > diag_wait_max_local) {
+                diag_wait_max_local = wait;
+            }
+            /* [DIAG_ADC_END] */
+            ctx->cached[rank] = (uint16_t)(acc / BM_VENDOR_ADC_AVG_N);
         }
-        /* [DIAG_ADC_BEGIN] 记录本通道 wait 次数 */
-        if (wait > diag_wait_max_local) {
-            diag_wait_max_local = wait;
-        }
-        /* [DIAG_ADC_END] */
-        if (wait >= BM_VENDOR_ADC_POLL_LIMIT) {
-            adc_oneshot_ll_disable_channel(ADC_UNIT_1);
-            return BM_ERR_IO;
-        }
-        ctx->cached[rank] = (uint16_t)adc_oneshot_ll_get_raw_result(ADC_UNIT_1);
-        adc_oneshot_ll_clear_event(ADC_LL_EVENT_ADC1_ONESHOT_DONE);
     }
 
     /* [DIAG_ADC_BEGIN] 采样结束，更新统计（仅 M0 实例计入，避免双路重复累加）。 */

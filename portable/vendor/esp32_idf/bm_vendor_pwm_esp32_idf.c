@@ -15,8 +15,8 @@
  *       性能为待硬件验证项。
  *
  * @author zeh (china_qzh@163.com)
- * @version 2.0
- * @date 2026-06-19
+ * @version 2.5
+ * @date 2026-06-21
  *
  * @par 修改日志:
  *
@@ -27,6 +27,8 @@
  * 2026-06-21       2.1            zeh            修复惰性初始化中断重入窗口导致的崩溃
  * 2026-06-21       2.2            zeh        ISR 回调加 FPU 协处理器守卫，支持中断内浮点
  * 2026-06-21       2.3            zeh            诊断埋点：ISR 有效负载段耗时统计
+ * 2026-06-21       2.4            zeh            修复 GPIO32/33/25 RTC domain 路由失效（B2 根因）
+ * 2026-06-21       2.5            zeh            补 RTCIO 数字域切换(hal LL)修复 GPIO32/33/25 RTC 域未释放致 MCPWM 无输出
  *
  */
 #include "bm_vendor_pwm_esp32_idf.h"
@@ -41,10 +43,13 @@
 
 #include "hal/gpio_ll.h"
 #include "hal/mcpwm_ll.h"
+#include "hal/rtc_io_ll.h"
+#include "soc/rtc_periph.h"
 #include "soc/interrupts.h"
 #include "esp_attr.h"
 #include "esp_intr_alloc.h"
 #include "esp_cpu.h"           /**< esp_cpu_get_cycle_count()：CCOUNT 寄存器，ISR 安全。 */
+#include "esp_rom_gpio.h"      /**< esp_rom_gpio_pad_select_gpio / esp_rom_gpio_connect_out_signal（ROM 函数）。 */
 
 /* ---------- 诊断埋点：PWM ISR 有效负载段耗时统计 ----------
  * 有效负载段 = bm_vendor_adc_esp32_idf_isr_sample + FPU 守卫内两个回调。
@@ -81,7 +86,10 @@ static volatile uint32_t g_pwm_isr_diag_isr_cnt = 0u;
  * => timer_prescale = 160M / (2 * 1000 * 20000) = 4。
  */
 #define BM_VENDOR_PWM_GROUP_PRESCALE  1
-#define BM_VENDOR_PWM_TIMER_PRESCALE  4u
+/* B2 诊断①：临时降载波 20kHz→4kHz（prescale 4→20），把低边导通窗口拉宽到
+ * ~125µs ≫ ADC 28µs 采样，验证"高频下采样窗口太窄→采不到相电流"假设。
+ * 若降频后 ib raw 出现偏移/iq 跟上 → 根因坐实，进②重构采样；验证后恢复 4。 */
+#define BM_VENDOR_PWM_TIMER_PRESCALE  20u
 /** @brief up-down 中心对齐 peak 值（与 BOARD_FOC_PWM_MAX 对齐）。 */
 #define BM_VENDOR_PWM_PEAK            BOARD_FOC_PWM_MAX
 
@@ -198,23 +206,90 @@ static int bm_vendor_pwm_set_en_pin(int enable)
 }
 
 /**
- * @brief 通过 GPIO matrix 将 GPIO 路由到 MCPWM 信号输出。
+ * @brief ESP32 GPIO 编号 → RTCIO index 映射（仅本板用到的 RTC 复用脚）。
+ *
+ * GPIO25(DAC1)、GPIO32/33(XTAL_32K_P/N) 是 RTC 域复用脚，做数字输出前须切回
+ * 数字域。值来自 soc/rtc_io_channel.h：RTCIO_GPIO25/32/33_CHANNEL = 6/9/8，
+ * 系 ESP32 芯片物理固定映射（与板级布线无关）。非 RTC valid GPIO（如 M1 普通
+ * 脚）返回 -1，调用方据此跳过 RTC 域释放。
+ *
  * @param gpio_num GPIO 编号。
+ * @return RTCIO index；非 RTC valid GPIO 返回 -1。
+ */
+static int bm_vendor_pwm_gpio_to_rtcio(uint32_t gpio_num)
+{
+    switch (gpio_num) {
+    case 25u: return 6;  /* DAC1       → RTCIO6 */
+    case 32u: return 9;  /* XTAL_32K_P → RTCIO9 */
+    case 33u: return 8;  /* XTAL_32K_N → RTCIO8 */
+    default:  return -1; /* 非 RTC 脚（含 M1 普通脚），无需 RTC 域释放 */
+    }
+}
+
+/**
+ * @brief 通过 GPIO matrix 将 GPIO 路由到 MCPWM 信号输出。
+ *
+ * 修复（B2 bring-up 根因）：M0 三相 GPIO32/33/25 均属 ESP32 RTC GPIO domain。
+ * 原写法仅调 esp_rom_gpio_pad_select_gpio()（只设数字 IOMUX MCU_SEL 字段，
+ * 不操作 RTCIO MUX_SEL 寄存器位），这三个 pad 的控制权仍留在 RTC 域，
+ * 数字 GPIO matrix 侧的 func_out_sel_cfg 配置对物理引脚无效，导致 MCPWM
+ * 波形无法到达引脚，桥臂无驱动，相电流始终为 0。
+ *
+ * 正确顺序（对齐 IDF gpio_config + mcpwm_new_generator 路径）：
+ *   0. RTCIO 数字域切换            — 对 RTC valid GPIO（25/32/33）用 hal LL
+ *      rtcio_ll_function_select(rtcio, DIGITAL) 将 pad 从 RTC 域释放回数字域
+ *      （等价 IDF rtc_gpio_deinit 核心动作；vendor 层不依赖 driver 组件，故用
+ *      LL 复刻，GPIO→RTCIO 映射见 bm_vendor_pwm_gpio_to_rtcio）。非 RTC GPIO
+ *      （M1 普通脚）跳过，兼容。注意 esp_rom_gpio_pad_select_gpio 只设数字
+ *      IOMUX，不切 RTC 域。
+ *   1. esp_rom_gpio_pad_select_gpio() — 设数字 IOMUX（MCU_SEL 字段），将 pad
+ *      接入数字 GPIO matrix 路径。
+ *   2. gpio_ll_output_enable()        — 在 GPIO_ENABLE_REG 中使能输出方向。
+ *   3. gpio_ll_input_disable()        — 关闭输入缓冲（PWM 纯输出场景）。
+ *   4. gpio_ll_od_disable()           — 确保推挽输出（非开漏）。
+ *   5. gpio_ll_set_drive_capability() — 40 mA 驱动能力，匹配栅驱电流需求。
+ *   6. esp_rom_gpio_connect_out_signal() — 把 MCPWM 外设输出信号写入
+ *      GPIO.func_out_sel_cfg[gpio_num]（等价于 gpio_matrix_out ROM 函数），同时
+ *      自动将 IOMUX MCU_SEL 切到 func=2（GPIO matrix 路径），out_inv/oen_inv=false。
+ *
+ * @param gpio_num GPIO 编号（M0: 32/33/25；M1: 其它普通脚亦兼容）。
  * @param signal   MCPWM 输出信号编号（来自 g_mcpwm_signal）。
  */
 static void bm_vendor_pwm_route_gpio(uint32_t gpio_num, int signal)
 {
-    /* 配置 GPIO 为输出，使用 IOMUX 功能 2（GPIO matrix）*/
-    gpio_ll_func_sel(&GPIO, (uint8_t)gpio_num, 2u);
+    int rtcio_num = bm_vendor_pwm_gpio_to_rtcio(gpio_num);
+
+    /*
+     * 步骤 0：将 RTC valid GPIO 从 RTC 域释放回数字域。
+     * GPIO25（DAC1=RTCIO6）、GPIO32（XTAL_32K_P=RTCIO9）、GPIO33（XTAL_32K_N=RTCIO8）
+     * 上电后 RTCIO MUX_SEL=1（RTC 控制），数字 GPIO matrix 侧配置对物理引脚无效。
+     * rtcio_ll_function_select(DIGITAL) 清 MUX_SEL 位，将 pad 控制权交还数字域
+     * （等价 IDF rtc_gpio_deinit 核心动作）。非 RTC 脚（rtcio_num<0，含 M1 普通脚）
+     * 跳过，保持兼容。
+     */
+    if (rtcio_num >= 0) {
+        rtcio_ll_function_select(rtcio_num, RTCIO_LL_FUNC_DIGITAL);
+    }
+
+    /*
+     * 步骤 1：设数字 IOMUX，将 pad 接入 GPIO matrix 路径。
+     * 注意：此函数只操作 IOMUX MCU_SEL 字段，不切 RTCIO MUX_SEL；
+     * 步骤 0 已完成 RTC 域释放，此处仅完成数字侧 IOMUX 选择。
+     */
+    esp_rom_gpio_pad_select_gpio(gpio_num);
+
+    /* 步骤 2-5：配置输出方向、关输入、推挽、驱动能力。 */
     gpio_ll_output_enable(&GPIO, gpio_num);
     gpio_ll_input_disable(&GPIO, gpio_num);
     gpio_ll_od_disable(&GPIO, gpio_num);
     gpio_ll_set_drive_capability(&GPIO, gpio_num, GPIO_DRIVE_CAP_3);
-    /* 通过 GPIO matrix 将 MCPWM 信号连接到该 GPIO */
-    GPIO.func_out_sel_cfg[gpio_num].func_sel = (uint32_t)signal;
-    GPIO.func_out_sel_cfg[gpio_num].inv_sel  = 0u;
-    GPIO.func_out_sel_cfg[gpio_num].oen_sel  = 0u;
-    GPIO.func_out_sel_cfg[gpio_num].oen_inv_sel = 0u;
+
+    /*
+     * 步骤 6：连接 MCPWM 外设信号到 GPIO matrix 输出路径。
+     * 内部写 GPIO.func_out_sel_cfg[gpio_num].func_sel = signal，并设
+     * IOMUX MCU_SEL=2（走 GPIO matrix），out_inv=false，oen_inv=false。
+     */
+    esp_rom_gpio_connect_out_signal(gpio_num, (uint32_t)signal, false, false);
 }
 
 /**
@@ -453,6 +528,10 @@ static void bm_vendor_pwm_write_cmp(uint32_t motor_id, uint32_t phase, uint16_t 
     if (cmp_val > (uint32_t)BM_VENDOR_PWM_PEAK) {
         cmp_val = (uint32_t)BM_VENDOR_PWM_PEAK;
     }
+    /* 反相补偿：generator UP→HIGH/DOWN→LOW 下实际占空比=(peak-cmp)/peak，
+     * 故 cmp=peak-duty 使入参 duty 正比于占空比（对齐开环 app PWM）。原 vendor
+     * 缺此补偿→三相占空比整体反相、电压矢量反向。 */
+    cmp_val = (uint32_t)BM_VENDOR_PWM_PEAK - cmp_val;
     mcpwm_ll_operator_set_compare_value(hw, (int)phase, BM_VENDOR_PWM_CMP_ID, cmp_val);
 }
 
@@ -633,6 +712,28 @@ void bm_vendor_pwm_esp32_idf_bind_adc_complete(uint32_t motor_id,
         return;
     }
     ctx->adc_complete_binding = *binding;
+}
+
+/**
+ * @brief 诊断：读取指定电机三相当前占空比（vendor 内部 ctx->duty，即组件 set_duty
+ *        写入的 SVPWM 占空比值，0..BM_VENDOR_PWM_PEAK，反相补偿前）。
+ *
+ * 看 vendor PWM 实际收到的三相占空比有无有效差分：三相都贴 peak/2=共模无差分
+ * （电压链没出力）；差分大=SVPWM 在出力（则问题在 vendor ADC/桥臂）。
+ *
+ * @param[in]  motor_id 电机编号（0/1）。
+ * @param[out] out_duty 输出三相 duty[3]；越界/NULL 时不写。
+ */
+void bm_vendor_pwm_esp32_idf_diag_get_duty(uint32_t motor_id, uint16_t out_duty[3])
+{
+    uint32_t phase;
+
+    if (motor_id >= BM_VENDOR_PWM_INSTANCE_COUNT || out_duty == NULL) {
+        return;
+    }
+    for (phase = 0u; phase < BM_VENDOR_PWM_PHASE_COUNT; ++phase) {
+        out_duty[phase] = g_pwm_context[motor_id].duty[phase];
+    }
 }
 
 /**
