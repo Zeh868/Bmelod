@@ -30,6 +30,19 @@ target_include_directories(bm_vendor_esp32_idf PUBLIC
 #   include/port       — 架构层契约（bm_arch_ops.h、bm_port_arch.h）
 bm_target_internal_includes(bm_vendor_esp32_idf)
 target_link_libraries(bm_vendor_esp32_idf PUBLIC bm_config)
+
+# ESP ISR FPU(CP0) 守卫（bm_vendor_esp32_isr_fpu.h）引用 xthal_save_cp0 /
+# xthal_get_cpenable 等，这些符号由 IDF xtensa 组件的预编译 libxt_hal.a 提供。
+# 在 IDF 工程内构建时（ESP_PLATFORM），把该归档作为 vendor 目标的链接依赖：
+# vendor 是其使用方，CMake 据依赖关系把 libxt_hal.a 排在 vendor 之后，闭合 GNU ld
+# 单遍扫描下的 xthal_* 引用。独立裸机/compilecheck 构建（无 ESP_PLATFORM）不引入。
+if(DEFINED ESP_PLATFORM AND DEFINED ENV{IDF_PATH})
+    if(NOT DEFINED IDF_TARGET)
+        set(IDF_TARGET "esp32")
+    endif()
+    target_link_libraries(bm_vendor_esp32_idf PUBLIC
+        "$ENV{IDF_PATH}/components/xtensa/${IDF_TARGET}/libxt_hal.a")
+endif()
 target_compile_definitions(bm_vendor_esp32_idf PUBLIC
     BM_DRV_HAS_BACKEND
     BM_ESP32_BAREMETAL=1
