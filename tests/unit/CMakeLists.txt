@@ -184,6 +184,22 @@ if(BM_BUILD_TESTS)
         ${CMAKE_SOURCE_DIR}/portable/sim/native)
     add_test(NAME test_snapshot COMMAND test_snapshot)
 
+    add_executable(test_recorder test_recorder.c)
+    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        target_link_libraries(test_recorder PRIVATE
+            "-Wl,--start-group"
+            unity bm_core bm_hal bm_hal_native
+            "-Wl,--end-group")
+    else()
+        target_link_libraries(test_recorder PRIVATE
+            unity bm_core bm_hal bm_hal_native)
+    endif()
+    bm_target_internal_includes(test_recorder)
+    target_include_directories(test_recorder PRIVATE
+        ${CMAKE_SOURCE_DIR}/tests/unit/unity
+        ${CMAKE_SOURCE_DIR}/portable/sim/native)
+    add_test(NAME test_recorder COMMAND test_recorder)
+
     add_executable(test_priority_mask
         test_priority_mask.c
         fakes/bm_hal_priority_mask_fake.c
