@@ -137,21 +137,20 @@ static const uint32_t g_pwm_phase_gpio[BM_VENDOR_PWM_INSTANCE_COUNT][BM_VENDOR_P
 };
 
 /**
- * @brief MCPWM unit0/1 的 IOMUX 信号编号（PWMxA，operator 0/1/2）。
+ * @brief MCPWM unit0/1 的 GPIO matrix 输出信号编号（PWMxA，operator 0/1/2）。
  *
- * 来自 ESP32 TRM IOMUX 章节：
- *   MCPWM0 operator0 PWMA = GPIO_FUNC_IN/OUT signal 86
- *   MCPWM0 operator1 PWMA = GPIO_FUNC_IN/OUT signal 88
- *   MCPWM0 operator2 PWMA = GPIO_FUNC_IN/OUT signal 90
- *   MCPWM1 operator0 PWMA = GPIO_FUNC_IN/OUT signal 94 (PWM1 0A)
- *   MCPWM1 operator1 PWMA = GPIO_FUNC_IN/OUT signal 96
- *   MCPWM1 operator2 PWMA = GPIO_FUNC_IN/OUT signal 98
+ * 来自 ESP32 soc/gpio_sig_map.h（peripheral output signal index）：
+ *   PWM0_OUT0A=84, PWM0_OUT1A=86, PWM0_OUT2A=88
+ *   PWM1_OUT0A=90, PWM1_OUT1A=92, PWM1_OUT2A=94
  *
- * @note 待硬件验证：信号编号通过 gpio_matrix_out 路由，实际出波需上板确认。
+ * 修正（B2 bring-up 实测根因）：原表误填 {86,88,90}/{94,96,98}，整体偏了一个
+ * operator——A 相被挂到 OP1A、C 相被挂到 PWM1 的 0A（M1 单元，M0 路径未初始化=
+ * 死相），三相被错位路由，电流环算对的电压送不到桥臂（有 PWM 声却无绕组电流）。
+ * 开环 app PWM 用 IDF 高层 mcpwm_new_generator 自动分配信号，故无此问题。
  */
 static const int g_mcpwm_signal[BM_VENDOR_PWM_INSTANCE_COUNT][BM_VENDOR_PWM_PHASE_COUNT] = {
-    { 86, 88, 90 },  /* MCPWM0 OP0A, OP1A, OP2A */
-    { 94, 96, 98 },  /* MCPWM1 OP0A, OP1A, OP2A */
+    { 84, 86, 88 },  /* MCPWM0 OP0A/OP1A/OP2A = PWM0_OUT0A/1A/2A */
+    { 90, 92, 94 },  /* MCPWM1 OP0A/OP1A/OP2A = PWM1_OUT0A/1A/2A */
 };
 
 /* ---------- 前向声明 ---------- */
