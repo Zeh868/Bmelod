@@ -8,7 +8,7 @@
  * 零 FreeRTOS 依赖；复位/上电等待用 esp_rom_delay_us 实现有界忙等。
  *
  * @author zeh (china_qzh@163.com)
- * @version 2.1
+ * @version 2.2
  * @date 2026-06-21
  *
  * @par 修改日志:
@@ -18,6 +18,8 @@
  * 2026-06-19       1.1            zeh          删除总线假实现，仅保留明确返回
  * 2026-06-21       2.0            zeh           改用 ESP-IDF 硬件 I2C 实现
  * 2026-06-21       2.1            zeh         删除 FreeRTOS 依赖，vTaskDelay→esp_rom_delay_us
+ * 2026-06-21       2.2            zeh         I2C 默认时钟 100k→400k，与 M0 AS5600
+ *                                                共线统一 400kHz
  */
 #include "bm_vendor_bmi160_esp32_idf.h"
 #include "bm_vendor_i2c_esp32_idf.h"
@@ -49,10 +51,11 @@ static void bm_vendor_bmi160_normalize_config(const bm_vendor_bmi160_config_t *c
     }
     if (out->clock_hz == 0u) {
         /*
-         * I2C1 与 M0 AS5600 共线。电机出波时 400 kHz 已观测到地址 NACK 和
-         * SDA 卡低；100 kHz 足以覆盖当前 100 Hz 采样并显著增加抗干扰余量。
+         * I2C1 与 M0 AS5600 共线。底层 I2C 已加入 7 周期 glitch 滤波并经真机
+         * 验证，电机出波期间 400 kHz（fast mode）已稳定；与 M0 AS5600 共用
+         * I2C1，统一 400 kHz，避免共线速率不一致。SPI 默认 1 MHz。
          */
-        out->clock_hz = (out->bus_type == BM_VENDOR_BMI160_BUS_SPI) ? 1000000u : 100000u;
+        out->clock_hz = (out->bus_type == BM_VENDOR_BMI160_BUS_SPI) ? 1000000u : 400000u;
     }
     if (out->acc_conf == 0u) {
         out->acc_conf = BM_VENDOR_BMI160_DEFAULT_ACC_CONF;

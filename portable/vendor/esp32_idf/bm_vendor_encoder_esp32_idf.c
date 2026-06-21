@@ -6,12 +6,13 @@
  * - M0：I2C_NUM_1，SDA=GPIO19，SCL=GPIO18（与 BMI160 共用）
  * - M1：I2C_NUM_0，SDA=GPIO23，SCL=GPIO5
  *
- * 总线速率 100 kHz。I2C 端口初始化由 bmi160_init（M0）或 encoder 首次
- * read 前调用 bm_vendor_i2c_port_init 完成（幂等）；read 在端口未初始化
- * 时执行一次幂等懒初始化兜底，兼容直接调用 read 的上层。
+ * 总线速率：M0（I2C1）400 kHz（fast mode，与 BMI160 共线一致），M1（I2C0）
+ * 100 kHz。I2C 端口初始化由 bmi160_init（M0）或 encoder 首次 read 前调用
+ * bm_vendor_i2c_port_init 完成（幂等）；read 在端口未初始化时执行一次幂等
+ * 懒初始化兜底，兼容直接调用 read 的上层。
  *
  * @author zeh (china_qzh@163.com)
- * @version 2.3
+ * @version 2.4
  * @date 2026-06-21
  *
  * @par 修改日志:
@@ -25,6 +26,8 @@
  *                                                的 I2C 抗干扰余量
  * 2026-06-21       2.3            zeh         更正文件头：read 保留幂等懒初始化兜底、
  *                                                总线速率改写为 100 kHz，与代码一致
+ * 2026-06-21       2.4            zeh         M0 I2C 提速至 400kHz（共享 I2C1，与
+ *                                                BMI160 一致），M1 维持 100kHz
  */
 #include "bm_vendor_encoder_esp32_idf.h"
 #include "bm_vendor_i2c_esp32_idf.h"
@@ -45,10 +48,12 @@
 /**
  * @brief M0 AS5600 硬件 I2C 时钟频率（Hz）。
  *
- * M0 与 BMI160 共用 I2C1。真机在电机出波期间使用 400 kHz 会出现地址 NACK、
- * SDA 卡低与控制器 busy；当前传感器采样率不需要 fast mode，因此降到 100 kHz。
+ * M0 与 BMI160 共用 I2C1。底层 I2C 已加入 7 周期 SCL/SDA glitch 滤波并经真机
+ * 验证：电机出波期间 400 kHz（fast mode）已稳定，不再出现地址 NACK、SDA 卡低
+ * 与控制器 busy，因此 M0 恢复 fast mode 400 kHz。M0 与 BMI160 共用 I2C1，二者
+ * 速率统一为 400 kHz，消除初始化顺序定速带来的共线速率不一致。
  */
-#define BM_VENDOR_ENCODER_M0_I2C_CLK_HZ   100000u
+#define BM_VENDOR_ENCODER_M0_I2C_CLK_HZ   400000u
 /**
  * @brief M1 AS5600 硬件 I2C 时钟频率（Hz）。
  *
