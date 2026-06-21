@@ -79,6 +79,29 @@ static const int g_adc_channels_m1[BM_VENDOR_ADC_RANK_COUNT] = {
 };
 
 /**
+ * @brief ADC 组件中心点（与 motor_foc_sensored 组件硬编码一致）。
+ *
+ * 组件 adc_to_current(scale,raw) = ((int32)raw − 32768) / scale。本驱动在
+ * read_injected 返回前把 12bit raw 平移到该中心：raw' = (raw − zero_offset)
+ * + 32768，使组件 (raw'−32768)/scale = (raw−zero_offset)/scale 等价于
+ * 项目 A1 标定 I = (raw − zero_offset) × (1/scale)。
+ */
+#define BM_VENDOR_ADC_CENTER  32768
+
+/**
+ * @brief 每电机的电流零偏（raw，板级 config，per-motor）。
+ *
+ * 来自项目 A1 标定（INA240 零点偏置实测）：M0/M1 均 1853。本驱动据此在返回前
+ * 做中心化，使组件可直接套用 current_adc_scale=1/0.00160≈625 而无需改组件。
+ * 切到本 vendor 路径后该零偏需上板按 A1 流程重核一次（vendor ISR oneshot 与
+ * hover_adc 16 样均值可能有微差）。
+ */
+static const int32_t g_adc_zero_offset[BM_VENDOR_ADC_INSTANCE_COUNT] = {
+    1853,  /* M0：A1 实测零偏 raw */
+    1853,  /* M1：A1 暂复用 M0 零偏，上板按 A1 重核 */
+};
+
+/**
  * @brief 从设备实例提取板级上下文。
  * @param dev HAL 设备实例。
  * @return 板级上下文；无效时返回 NULL。
@@ -203,16 +226,24 @@ void bm_vendor_adc_esp32_idf_isr_sample(uint32_t motor_id)
 }
 
 /**
- * @brief 读取缓存的注入通道值（ISR 后由控制环读取）。
+ * @brief 读取缓存的注入通道值并中心化（ISR 后由控制环读取）。
+ *
+ * 在返回前把 12bit raw 平移到组件中心点：raw' = clamp((raw − zero_offset)
+ * + 32768, 0..65535)。zero_offset 取本电机板级零偏（g_adc_zero_offset）。
+ * 这样上层 motor_foc_sensored 组件 (raw'−32768)/scale 即等价于 A1 标定
+ * (raw − zero_offset) × (1/scale)，组件无需改动、可跨板复用。
+ *
  * @param dev   HAL 设备实例。
  * @param rank  采样序号（0=ia，1=ib）。
- * @param value 输出值。
+ * @param value 输出值（已中心化的 16bit 等效 raw）。
  * @return BM_OK 成功；否则为错误码。
  */
 static int bm_vendor_adc_read_injected(const struct bm_hal_adc *dev,
                                        uint32_t rank, uint16_t *value)
 {
-    bm_vendor_adc_context_t *ctx;
+    const bm_vendor_adc_config_t *cfg;
+    bm_vendor_adc_context_t      *ctx;
+    int32_t                       centered;
 
     if (value == NULL || rank >= BM_VENDOR_ADC_RANK_COUNT) {
         return BM_ERR_INVALID;
@@ -227,7 +258,17 @@ static int bm_vendor_adc_read_injected(const struct bm_hal_adc *dev,
         return BM_ERR_IO;
     }
 #endif
-    *value = ctx->cached[rank];
+    cfg = (const bm_vendor_adc_config_t *)dev->config;
+    /* 板级零偏中心化：(raw − zero_offset) + 32768，再饱和到 uint16 范围。 */
+    centered = (int32_t)ctx->cached[rank]
+               - g_adc_zero_offset[cfg->id]
+               + BM_VENDOR_ADC_CENTER;
+    if (centered < 0) {
+        centered = 0;
+    } else if (centered > 65535) {
+        centered = 65535;
+    }
+    *value = (uint16_t)centered;
     return BM_OK;
 }
 
