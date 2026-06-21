@@ -15,8 +15,8 @@
  *       性能为待硬件验证项。
  *
  * @author zeh (china_qzh@163.com)
- * @version 2.5
- * @date 2026-06-21
+ * @version 3.0
+ * @date 2026-06-22
  *
  * @par 修改日志:
  *
@@ -29,6 +29,7 @@
  * 2026-06-21       2.3            zeh            诊断埋点：ISR 有效负载段耗时统计
  * 2026-06-21       2.4            zeh            修复 GPIO32/33/25 RTC domain 路由失效（B2 根因）
  * 2026-06-21       2.5            zeh            补 RTCIO 数字域切换(hal LL)修复 GPIO32/33/25 RTC 域未释放致 MCPWM 无输出
+ * 2026-06-22       3.0            zeh            FOC 混合架构：新增 bm_vendor_pwm_hw_init_isr_only（仅挂 ISR）
  *
  */
 #include "bm_vendor_pwm_esp32_idf.h"
@@ -775,6 +776,83 @@ void bm_vendor_pwm_esp32_idf_diag_read_clear(uint32_t *cycles_max,
     if (isr_cnt != NULL) {
         *isr_cnt = cnt;
     }
+}
+
+/**
+ * @brief FOC 混合架构：仅挂载 TEZ ISR，不配 timer/operator/GPIO。
+ *
+ * 在 app 层 hover_board_pwm_esp32_init + hover_board_pwm_esp32_enable(true) 之后、
+ * hover_foc_axis_init（bind current_step 到 update callback）之前调用。
+ *
+ * 与原 bm_vendor_pwm_hw_init 的区别：
+ *   - 跳过 bm_vendor_pwm_timer_init / bm_vendor_pwm_operator_init（app 已配）
+ *   - 跳过 bm_vendor_pwm_route_gpio（app 已路由 GPIO）
+ *   - 跳过 bm_vendor_pwm_set_en_pin（app hover_board_pwm_esp32_enable 已控制 M_EN）
+ *   - 跳过 timer start（app 已启动 timer）
+ *   - 保留：总线时钟使能 + ISR 注册 + TEZ 事件使能 + ctx->initialized 置位
+ *
+ * set_duty（bm_vendor_pwm_write_cmp）直写 comparator（量程 BOARD_FOC_PWM_MAX=1000），
+ * 与 app 配好的 peak=1000 一致，反相补偿语义与 app set_duty 相同。
+ *
+ * @note 若 ctx->initialized 已非 0（重复调用），直接返回 BM_OK。
+ *
+ * @param motor_id 电机编号（0 或 1）。
+ * @return BM_OK 成功；BM_ERR_INVALID 参数越界；BM_ERR_IO ISR 注册失败。
+ */
+int bm_vendor_pwm_hw_init_isr_only(uint32_t motor_id)
+{
+    bm_vendor_pwm_context_t *ctx;
+    mcpwm_dev_t             *hw;
+    int                      intr_src;
+    int                      ret;
+
+    if (motor_id >= BM_VENDOR_PWM_INSTANCE_COUNT) {
+        return BM_ERR_INVALID;
+    }
+    ctx = &g_pwm_context[motor_id];
+    if (ctx->initialized != 0) {
+        return BM_OK;
+    }
+
+    hw = MCPWM_LL_GET_HW((int)motor_id);
+
+    /*
+     * 使能 MCPWM 总线时钟（app 层 IDF driver 路径可能已使能；此处幂等重入安全）。
+     * 若不使能，LL 读写寄存器会访问未上电外设（undefined behavior）。
+     */
+    BM_PERIPH_RCC_ATOMIC_BEGIN
+        mcpwm_ll_enable_bus_clock((int)motor_id, true);
+        /* 不 reset_register：app 层已完整配置，reset 会清除已有 timer/operator 配置。 */
+    BM_PERIPH_RCC_ATOMIC_END
+
+    /*
+     * 注册 TEZ ISR，以 ESP_INTR_FLAG_INTRDISABLED 装入：alloc 后中断处于
+     * 禁用态，配合最后 esp_intr_enable 消除 init 期重入窗口。
+     */
+    intr_src = (motor_id == 0u) ? ETS_PWM0_INTR_SOURCE : ETS_PWM1_INTR_SOURCE;
+    ret = esp_intr_alloc(intr_src,
+                         ESP_INTR_FLAG_LEVEL3 | ESP_INTR_FLAG_IRAM |
+                             ESP_INTR_FLAG_INTRDISABLED,
+                         bm_vendor_pwm_isr,
+                         ctx,
+                         &ctx->isr_handle);
+    if (ret != 0) {
+        return BM_ERR_IO;
+    }
+
+    /*
+     * 先置 initialized=1 再放开中断：保证 TEZ ISR 触发时 set_duty → hw_init
+     * 的重入保护生效（initialized!=0 → 立即早返回）。
+     */
+    ctx->initialized = 1;
+
+    /* 使能 TEZ 事件源（timer0 empty event）+ 放开 CPU 中断。 */
+    mcpwm_ll_intr_enable(hw,
+                         MCPWM_LL_EVENT_TIMER_EMPTY(BM_VENDOR_PWM_TIMER_ID),
+                         true);
+    (void)esp_intr_enable(ctx->isr_handle);
+
+    return BM_OK;
 }
 
 /** @brief PWM HAL 驱动 API 表。 */
