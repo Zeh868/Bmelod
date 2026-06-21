@@ -7,7 +7,7 @@
  * 零 FreeRTOS 依赖，零 IDF driver 层依赖。
  *
  * @author zeh (china_qzh@163.com)
- * @version 2.3
+ * @version 2.4
  * @date 2026-06-21
  *
  * @par 修改日志:
@@ -19,6 +19,7 @@
  *                                                加 bm_vendor_i2c_get_last_fail 诊断 getter
  * 2026-06-21       2.3            zeh         初始化顺序对齐官方 i2c_set_pin：先 GPIO 开漏高电平，
  *                                                再挂接 I2C matrix；补 bus-clear 恢复路径
+ * 2026-06-21       2.4            zeh         整理：移除两个临时诊断 getter 声明
  */
 #ifndef BM_VENDOR_I2C_ESP32_IDF_H
 #define BM_VENDOR_I2C_ESP32_IDF_H
@@ -83,31 +84,6 @@ int bm_vendor_i2c_write_read(i2c_port_t port, uint8_t addr,
                              const uint8_t *write_buf, size_t write_len,
                              uint8_t *read_buf, size_t read_len,
                              uint32_t timeout_ms);
-
-/**
- * @brief 获取指定端口最近一次 I2C 事务失败的诊断信息（临时诊断，确认根因后可删）。
- *
- * @param port   I2C 端口号（I2C_NUM_0 或 I2C_NUM_1）。
- * @param intr   输出参数，最近一次失败时的 int_status 寄存器值（NULL 则忽略）。
- * @param reason 输出参数，失败原因：0=ok, 1=NACK, 2=TIMEOUT, 3=ARB_LOST,
- *               4=POLL_TIMEOUT（轮询超时，总线可能未翻转）（NULL 则忽略）。
- */
-void bm_vendor_i2c_get_last_fail(i2c_port_t port, uint32_t *intr, int *reason);
-
-/**
- * @brief 获取指定端口最近一次 I2C 失败时的总线与引脚状态（临时诊断，确认根因后可删）。
- *
- * @param port       I2C 端口号（I2C_NUM_0 或 I2C_NUM_1）。
- * @param bus_busy   输出参数，最近一次失败时的 bus_busy 状态（NULL 则忽略）。
- * @param sda_level  输出参数，最近一次失败时的 SDA 线电平（NULL 则忽略）。
- * @param scl_level  输出参数，最近一次失败时的 SCL 线电平（NULL 则忽略）。
- * @param timeout_reg 输出参数，最近一次失败时的 timeout 寄存器值（NULL 则忽略）。
- */
-void bm_vendor_i2c_get_last_fail_detail(i2c_port_t port,
-                                        int *bus_busy,
-                                        int *sda_level,
-                                        int *scl_level,
-                                        uint32_t *timeout_reg);
 
 #ifdef __cplusplus
 }

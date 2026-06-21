@@ -33,6 +33,8 @@
  *                                                再挂接 I2C matrix；补静态 bus-clear 恢复路径
  * 2026-06-21       2.4            zeh         开启 7 周期 glitch 滤波修复电机噪声导致的 NACK；
  *                                                移除 vendor 层 printf 恢复确定性流式特性
+ * 2026-06-21       2.5            zeh         整理：提取 prepare_bus 助手去重 write/write_read 的
+ *                                                总线准备段；移除临时失败诊断脚手架与两个 getter
  */
 #include "bm_vendor_i2c_esp32_idf.h"
 #include "bm_vendor_esp32_idf_compat.h"
@@ -151,42 +153,6 @@ static gpio_num_t g_i2c_scl_gpio[BM_VENDOR_I2C_PORT_MAX] = {
  * 用于硬件恢复后重建 timing。
  */
 static uint32_t g_i2c_clk_hz[BM_VENDOR_I2C_PORT_MAX] = { 0u, 0u };
-
-/* ---------- 诊断：按端口记录最近一次 poll_done 失败信息（临时诊断，确认 I2C 根因后可删）*/
-
-/**
- * @brief 最近一次失败时的 int_status 寄存器值（按端口）。
- *
- * 0 表示无失败记录（或上次成功）。
- */
-static volatile uint32_t s_last_intr[BM_VENDOR_I2C_PORT_MAX] = { 0u, 0u };
-
-/**
- * @brief 最近一次失败原因编码（按端口）。
- *
- * 0=ok, 1=NACK, 2=TIMEOUT, 3=ARB_LOST, 4=POLL_TIMEOUT（轮询超时无任何标志）。
- */
-static volatile int s_last_reason[BM_VENDOR_I2C_PORT_MAX] = { 0, 0 };
-
-/**
- * @brief 最近一次失败时的总线忙状态（按端口）。
- */
-static volatile int s_last_bus_busy[BM_VENDOR_I2C_PORT_MAX] = { 0, 0 };
-
-/**
- * @brief 最近一次失败时的 SDA 线电平（按端口）。
- */
-static volatile int s_last_sda_level[BM_VENDOR_I2C_PORT_MAX] = { -1, -1 };
-
-/**
- * @brief 最近一次失败时的 SCL 线电平（按端口）。
- */
-static volatile int s_last_scl_level[BM_VENDOR_I2C_PORT_MAX] = { -1, -1 };
-
-/**
- * @brief 最近一次失败时的 timeout 寄存器值（按端口）。
- */
-static volatile uint32_t s_last_timeout_reg[BM_VENDOR_I2C_PORT_MAX] = { 0u, 0u };
 
 /* ---------- 静态辅助函数 ---------- */
 
@@ -353,25 +319,6 @@ restore_and_fail:
 }
 
 /**
- * @brief 按端口采样失败时的辅助状态。
- *
- * @param p        端口索引。
- * @param hw       I2C 设备寄存器。
- * @param intr_st  本次失败对应的原始中断状态。
- * @param reason   本次失败的原因编码。
- */
-static void bm_vendor_i2c_record_fail_state(int p, i2c_dev_t *hw,
-                                            uint32_t intr_st, int reason)
-{
-    s_last_intr[p]       = intr_st;
-    s_last_reason[p]     = reason;
-    s_last_bus_busy[p]   = (int)hw->status_reg.bus_busy;
-    s_last_sda_level[p]  = gpio_ll_get_level(&GPIO, (uint32_t)g_i2c_sda_gpio[p]);
-    s_last_scl_level[p]  = gpio_ll_get_level(&GPIO, (uint32_t)g_i2c_scl_gpio[p]);
-    s_last_timeout_reg[p] = hw->timeout.tout;
-}
-
-/**
  * @brief 有界等待 I2C 控制器进入总线空闲态。
  *
  * ESP32 的 TRANS_COMPLETE 标志可能早于 STOP 条件完全释放 bus_busy。
@@ -471,11 +418,11 @@ static int bm_vendor_i2c_recover_port(int p)
  *
  * 轮询 int_status 中的 trans_complete 或错误位（NACK / timeout / arbitration），
  * 超时后返回 BM_ERR_IO。完成后清除所有中断标志。
- * 失败时按 port_idx 更新诊断变量 s_last_intr / s_last_reason（临时诊断）。
+ * timeout / 轮询超时命中时调用 recover_port 重建控制器作为兜底。
  *
  * @param hw         I2C 硬件寄存器指针。
  * @param budget_us  最大等待时间（µs）。
- * @param port_idx   端口索引（0/1），用于按端口记录诊断信息。
+ * @param port_idx   端口索引（0/1），用于 recover_port 兜底。
  * @return BM_OK 事务完成；BM_ERR_IO 超时或出错。
  */
 static int bm_vendor_i2c_poll_done(i2c_dev_t *hw, uint32_t budget_us, int port_idx)
@@ -488,20 +435,17 @@ static int bm_vendor_i2c_poll_done(i2c_dev_t *hw, uint32_t budget_us, int port_i
          * int_status = int_raw & int_ena 恒为 0，轮询它会永远超时（reason=4, intr=0）。 */
         intr_st = hw->int_raw.val;
 
-        /* 检查错误位（NACK / 超时 / 仲裁丢失）——临时诊断：记录 intr 与原因 */
+        /* 检查错误位（NACK / 超时 / 仲裁丢失） */
         if ((intr_st & (uint32_t)I2C_LL_INTR_NACK) != 0u) {
-            bm_vendor_i2c_record_fail_state(port_idx, hw, intr_st, 1);
             hw->int_clr.val = 0xFFFFu;
             return BM_ERR_IO;
         }
         if ((intr_st & (uint32_t)I2C_LL_INTR_TIMEOUT) != 0u) {
-            bm_vendor_i2c_record_fail_state(port_idx, hw, intr_st, 2);
             hw->int_clr.val = 0xFFFFu;
             (void)bm_vendor_i2c_recover_port(port_idx);
             return BM_ERR_IO;
         }
         if ((intr_st & (uint32_t)I2C_LL_INTR_ARBITRATION) != 0u) {
-            bm_vendor_i2c_record_fail_state(port_idx, hw, intr_st, 3);
             hw->int_clr.val = 0xFFFFu;
             return BM_ERR_IO;
         }
@@ -513,12 +457,10 @@ static int bm_vendor_i2c_poll_done(i2c_dev_t *hw, uint32_t budget_us, int port_i
         if ((intr_st & (uint32_t)I2C_LL_INTR_MST_COMPLETE) != 0u) {
             uint32_t idle_budget_us = budget_us - elapsed;
             if (bm_vendor_i2c_wait_bus_idle(hw, idle_budget_us)) {
-                s_last_reason[port_idx] = 0; /* ok */
                 hw->int_clr.val = 0xFFFFu;
                 return BM_OK;
             }
 
-            bm_vendor_i2c_record_fail_state(port_idx, hw, intr_st, 4);
             hw->int_clr.val = 0xFFFFu;
             (void)bm_vendor_i2c_recover_port(port_idx);
             return BM_ERR_IO;
@@ -527,9 +469,7 @@ static int bm_vendor_i2c_poll_done(i2c_dev_t *hw, uint32_t budget_us, int port_i
         esp_rom_delay_us(BM_VENDOR_I2C_POLL_STEP_US);
     }
 
-    /* 轮询超时：无任何中断标志，总线可能未翻转——临时诊断：记录末次 intr_st */
-    intr_st = hw->int_raw.val;
-    bm_vendor_i2c_record_fail_state(port_idx, hw, intr_st, 4);
+    /* 轮询超时：无任何中断标志，总线可能未翻转。 */
     hw->int_clr.val = 0xFFFFu;
     i2c_ll_txfifo_rst(hw);
     i2c_ll_rxfifo_rst(hw);
@@ -550,6 +490,38 @@ static uint32_t bm_vendor_i2c_budget_us(uint32_t timeout_ms)
     }
     /* ms → µs，防溢出（timeout_ms 最大合理值 1000，不会溢出 uint32） */
     return timeout_ms * 1000u;
+}
+
+/**
+ * @brief 事务开始前准备总线：确认空闲（必要时恢复）并复位 FIFO/中断。
+ *
+ * 两线均高时先等待上一笔 STOP 收尾，只有持续 busy 才恢复控制器；随后复位
+ * TX/RX FIFO 并清除中断标志，使控制器处于可填充命令链的干净状态。
+ *
+ * @param p   端口索引。
+ * @param hw  I2C 设备寄存器。
+ * @return BM_OK 可开始事务；BM_ERR_IO 总线无法恢复。
+ */
+static int bm_vendor_i2c_prepare_bus(int p, i2c_dev_t *hw)
+{
+    /* 两线均高时先等待上一笔 STOP 收尾，只有持续 busy 才恢复控制器。 */
+    if (i2c_ll_is_bus_busy(hw)) {
+        int sda_level = gpio_ll_get_level(&GPIO, (uint32_t)g_i2c_sda_gpio[p]);
+        int scl_level = gpio_ll_get_level(&GPIO, (uint32_t)g_i2c_scl_gpio[p]);
+        if (!(sda_level != 0 && scl_level != 0 &&
+              bm_vendor_i2c_wait_bus_idle(hw, BM_VENDOR_I2C_IDLE_WAIT_US))) {
+            if (bm_vendor_i2c_recover_port(p) != BM_OK) {
+                return BM_ERR_IO;
+            }
+        }
+    }
+
+    /* 复位 FIFO 与中断 */
+    i2c_ll_txfifo_rst(hw);
+    i2c_ll_rxfifo_rst(hw);
+    i2c_ll_clear_intr_mask(hw, 0xFFFFu);
+
+    return BM_OK;
 }
 
 /* ---------- 公共 API ---------- */
@@ -650,7 +622,6 @@ int bm_vendor_i2c_write(i2c_port_t port, uint8_t addr,
     i2c_ll_hw_cmd_t cmd;
     uint8_t         addr_byte;
     uint32_t        budget_us;
-    int             rc;
     int             p;
 
     if ((int)port < 0 || (int)port >= (int)BM_VENDOR_I2C_PORT_MAX) {
@@ -668,25 +639,10 @@ int bm_vendor_i2c_write(i2c_port_t port, uint8_t addr,
     hw        = I2C_LL_GET_HW(p);
     budget_us = bm_vendor_i2c_budget_us(timeout_ms);
 
-    /* 两线均高时先等待上一笔 STOP 收尾，只有持续 busy 才恢复控制器。 */
-    if (i2c_ll_is_bus_busy(hw)) {
-        int sda_level = gpio_ll_get_level(&GPIO, (uint32_t)g_i2c_sda_gpio[p]);
-        int scl_level = gpio_ll_get_level(&GPIO, (uint32_t)g_i2c_scl_gpio[p]);
-        if (sda_level != 0 && scl_level != 0 &&
-            bm_vendor_i2c_wait_bus_idle(hw, BM_VENDOR_I2C_IDLE_WAIT_US)) {
-            goto bus_ready;
-        }
-        rc = bm_vendor_i2c_recover_port(p);
-        if (rc != BM_OK) {
-            return BM_ERR_IO;
-        }
+    /* 事务前准备总线：确认空闲（必要时恢复）并复位 FIFO/中断。 */
+    if (bm_vendor_i2c_prepare_bus(p, hw) != BM_OK) {
+        return BM_ERR_IO;
     }
-
-bus_ready:
-    /* 复位 FIFO 与中断 */
-    i2c_ll_txfifo_rst(hw);
-    i2c_ll_rxfifo_rst(hw);
-    i2c_ll_clear_intr_mask(hw, 0xFFFFu);
 
     /* 填充 TX FIFO：地址字节（addr<<1 | 0 = WRITE）+ 数据 */
     addr_byte = (uint8_t)((addr << 1u) | 0u);
@@ -758,25 +714,10 @@ int bm_vendor_i2c_write_read(i2c_port_t port, uint8_t addr,
     hw        = I2C_LL_GET_HW(p);
     budget_us = bm_vendor_i2c_budget_us(timeout_ms);
 
-    /* 两线均高时先等待上一笔 STOP 收尾，只有持续 busy 才恢复控制器。 */
-    if (i2c_ll_is_bus_busy(hw)) {
-        int sda_level = gpio_ll_get_level(&GPIO, (uint32_t)g_i2c_sda_gpio[p]);
-        int scl_level = gpio_ll_get_level(&GPIO, (uint32_t)g_i2c_scl_gpio[p]);
-        if (sda_level != 0 && scl_level != 0 &&
-            bm_vendor_i2c_wait_bus_idle(hw, BM_VENDOR_I2C_IDLE_WAIT_US)) {
-            goto bus_ready;
-        }
-        rc = bm_vendor_i2c_recover_port(p);
-        if (rc != BM_OK) {
-            return BM_ERR_IO;
-        }
+    /* 事务前准备总线：确认空闲（必要时恢复）并复位 FIFO/中断。 */
+    if (bm_vendor_i2c_prepare_bus(p, hw) != BM_OK) {
+        return BM_ERR_IO;
     }
-
-bus_ready:
-    /* 复位 FIFO 与中断 */
-    i2c_ll_txfifo_rst(hw);
-    i2c_ll_rxfifo_rst(hw);
-    i2c_ll_clear_intr_mask(hw, 0xFFFFu);
 
     /* 填充写阶段 TX FIFO */
     addr_byte = (uint8_t)((addr << 1u) | 0u);  /* WRITE 地址 */
@@ -855,57 +796,4 @@ bus_ready:
     i2c_ll_read_rxfifo(hw, read_buf, (uint8_t)read_len);
 
     return BM_OK;
-}
-
-/**
- * @brief 获取指定端口最近一次 I2C 事务失败的诊断信息（临时诊断，确认根因后可删）。
- *
- * 线程安全性：只读取 volatile 变量，无加锁；适用于调试打印场景。
- *
- * @param port   I2C 端口号（I2C_NUM_0 或 I2C_NUM_1）。
- * @param intr   输出参数，最近一次失败时的 int_status 寄存器值（NULL 则忽略）。
- * @param reason 输出参数，失败原因：0=ok, 1=NACK, 2=TIMEOUT, 3=ARB_LOST,
- *               4=POLL_TIMEOUT（轮询超时，总线可能未翻转）（NULL 则忽略）。
- */
-void bm_vendor_i2c_get_last_fail(i2c_port_t port, uint32_t *intr, int *reason)
-{
-    int p = (int)port;
-    if (p < 0 || p >= (int)BM_VENDOR_I2C_PORT_MAX) {
-        if (intr)   { *intr   = 0u; }
-        if (reason) { *reason = 0;  }
-        return;
-    }
-    if (intr)   { *intr   = s_last_intr[p];   }
-    if (reason) { *reason = s_last_reason[p]; }
-}
-
-/**
- * @brief 获取指定端口最近一次 I2C 失败时的总线/引脚状态（临时诊断，确认根因后可删）。
- *
- * 用于区分“线电平异常”“bus busy 残留”“FSM 卡死”三类场景。
- *
- * @param port       I2C 端口号（I2C_NUM_0 或 I2C_NUM_1）。
- * @param bus_busy   输出参数，最近一次失败时的 bus_busy 状态（NULL 则忽略）。
- * @param sda_level   输出参数，最近一次失败时的 SDA 线电平（NULL 则忽略）。
- * @param scl_level   输出参数，最近一次失败时的 SCL 线电平（NULL 则忽略）。
- * @param timeout_reg 输出参数，最近一次失败时的 timeout 寄存器值（NULL 则忽略）。
- */
-void bm_vendor_i2c_get_last_fail_detail(i2c_port_t port,
-                                        int *bus_busy,
-                                        int *sda_level,
-                                        int *scl_level,
-                                        uint32_t *timeout_reg)
-{
-    int p = (int)port;
-    if (p < 0 || p >= (int)BM_VENDOR_I2C_PORT_MAX) {
-        if (bus_busy)   { *bus_busy   = 0;    }
-        if (sda_level)  { *sda_level  = -1;    }
-        if (scl_level)  { *scl_level  = -1;    }
-        if (timeout_reg){ *timeout_reg = 0u;   }
-        return;
-    }
-    if (bus_busy)    { *bus_busy    = s_last_bus_busy[p];    }
-    if (sda_level)   { *sda_level   = s_last_sda_level[p];   }
-    if (scl_level)   { *scl_level   = s_last_scl_level[p];   }
-    if (timeout_reg) { *timeout_reg = s_last_timeout_reg[p]; }
 }
