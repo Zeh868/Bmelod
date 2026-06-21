@@ -27,6 +27,7 @@
  * 2026-06-19       1.1            zeh            改为 ADC LL 裸机实现
  * 2026-06-19       2.0            zeh            Phase 2：改为 MCPWM ISR 触发采样
  * 2026-06-21       2.1            zeh            诊断埋点：ISR 内 ADC 采样时间与 wait 计数
+ * 2026-06-22       2.2            zeh            清 B2 诊断埋点（DIAG_ADC 计时/diag_read_clear）
  *
  */
 #include "bm_vendor_adc_esp32_idf.h"
@@ -42,21 +43,7 @@
 #if defined(BM_ESP32_BAREMETAL)
 #include "hal/adc_ll.h"
 #include "hal/sar_ctrl_ll.h"   /**< SAR ADC 电源控制（force_xpd_sar）。 */
-#include "esp_cpu.h"           /**< esp_cpu_get_cycle_count()：CCOUNT 寄存器，ISR 安全。 */
 #endif
-
-/* ---------- 诊断埋点：ADC ISR 采样耗时与 wait 计数 ----------
- * ISR 写（32 位对齐，ESP32 原子）；主循环读后清零 max。
- * 摘除方法：删除本段及 bm_vendor_adc_isr_sample 内的 DIAG_ADC_BEGIN/END 标记块。 */
-
-/** @brief ADC isr_sample 单次耗时 cycle 数（最大值，ISR 写）。 */
-static volatile uint32_t g_adc_diag_cycles_max = 0u;
-/** @brief ADC isr_sample 单次耗时 cycle 数（累计值，用于计算 avg）。 */
-static volatile uint32_t g_adc_diag_cycles_sum = 0u;
-/** @brief ADC isr_sample 采样拍数（用于计算 avg）。 */
-static volatile uint32_t g_adc_diag_sample_cnt = 0u;
-/** @brief ADC oneshot 轮询 wait 次数最大值（ISR 写；两通道取较大值）。 */
-static volatile uint32_t g_adc_diag_wait_max = 0u;
 
 /** @brief 电机实例数量。 */
 #define BM_VENDOR_ADC_INSTANCE_COUNT  2u
@@ -223,13 +210,11 @@ static int bm_vendor_adc_hw_init(bm_vendor_adc_context_t *ctx)
 /**
  * @brief 在 ISR 内对单个电机执行 oneshot ADC 采样并更新缓存。
  *
- * 由 MCPWM TEZ ISR 调用。每次调用对两路通道（ia/ib）依次转换。
+ * 由 MCPWM TEZ ISR 调用。每次调用对两路通道（ia/ib）倒序（ib 先、ia 后）转换，
+ * 确保 θ_e=0 时 B/C 相电流（ib）落在 TEZ 谷底低边导通窗口。每通道 AVG_N=1 单采。
  *
  * @note ESP32 经典 ADC oneshot 转换在 ISR 内有 µs 级轮询延迟，
  *       20 kHz 电流环性能为待硬件验证项。
- * @note 诊断埋点：函数进出打 CCOUNT 时间戳，更新 g_adc_diag_* 统计；
- *       同时对每通道 wait 取最大值更新 g_adc_diag_wait_max。
- *       摘除：删除 DIAG_ADC_BEGIN / DIAG_ADC_END 标记块及相关变量。
  *
  * @param ctx 板级上下文。
  * @return BM_OK 成功；否则为平台错误码。
@@ -239,11 +224,6 @@ static int bm_vendor_adc_isr_sample(bm_vendor_adc_context_t *ctx)
     const int *channels;
     uint32_t   rank;
     uint32_t   wait;
-    /* [DIAG_ADC_BEGIN] ADC 采样诊断埋点：进出计时 + wait 最大值 */
-    uint32_t   diag_t0;
-    uint32_t   diag_dt;
-    uint32_t   diag_wait_max_local = 0u;
-    /* [DIAG_ADC_END] */
 
     if (ctx == NULL) {
         return BM_ERR_INVALID;
@@ -252,26 +232,15 @@ static int bm_vendor_adc_isr_sample(bm_vendor_adc_context_t *ctx)
         return BM_ERR_IO;
     }
 
-    /* [DIAG_ADC_BEGIN] 采样起始时间戳 */
-    diag_t0 = esp_cpu_get_cycle_count();
-    /* [DIAG_ADC_END] */
-
     channels = (ctx == &g_adc_context[0]) ? g_adc_channels_m0 : g_adc_channels_m1;
-    /* B2 诊断①：倒序采样（先 ib=rank1，后 ia=rank0）。θ_e=0 时电流全在 B/C 相、
-     * A 相(ia)≈0；原顺序 ib 排第二，TEZ 后 ~14µs 才采、已错过谷底低边导通窗口
-     * (~±12µs)→读不到 B 相电流（id/iq≈0、vq windup 饱和）。倒序让 ib 落进窗口
-     * 前段，验证"靠后通道丢低边窗口"假设。cached[rank]↔通道映射不变。 */
+    /* 倒序采样（先 ib=rank1，后 ia=rank0）：θ_e=0 时 ib 排第一，确保落在谷底低边导通窗口。
+     * cached[rank]↔通道映射不变。 */
     for (rank = BM_VENDOR_ADC_RANK_COUNT; rank-- > 0u; ) {
-        /*
-         * 每通道采样前重设衰减（fix：确保 atten 在 set_channel/start 序列之前生效）。
-         * 与 IDF 高层 adc_oneshot_hal_setup 每次 read 前均重设 atten 的行为对齐。
-         */
+        /* 每通道采样前重设衰减，与 IDF 高层 adc_oneshot_hal_setup 行为对齐。 */
         adc_oneshot_ll_set_atten(ADC_UNIT_1,
                                  (adc_channel_t)channels[rank],
                                  ADC_ATTEN_DB_12);
         adc_oneshot_ll_set_channel(ADC_UNIT_1, channels[rank]);
-        /* B2 诊断②：同通道连采 BM_VENDOR_ADC_AVG_N 次求平均，把可能被单次噪声
-         * (±10raw)淹没的小电流信号(几十 mA)从底噪里捞出来（对齐 app 多次平均）。 */
         {
             uint32_t acc = 0u;
             uint32_t n;
@@ -289,78 +258,13 @@ static int bm_vendor_adc_isr_sample(bm_vendor_adc_context_t *ctx)
                 acc += (uint32_t)adc_oneshot_ll_get_raw_result(ADC_UNIT_1);
                 adc_oneshot_ll_clear_event(ADC_LL_EVENT_ADC1_ONESHOT_DONE);
             }
-            /* [DIAG_ADC_BEGIN] 记录本通道 wait 次数（取末次轮询数） */
-            if (wait > diag_wait_max_local) {
-                diag_wait_max_local = wait;
-            }
-            /* [DIAG_ADC_END] */
             ctx->cached[rank] = (uint16_t)(acc / BM_VENDOR_ADC_AVG_N);
         }
     }
 
-    /* [DIAG_ADC_BEGIN] 采样结束，更新统计（仅 M0 实例计入，避免双路重复累加）。 */
-    if (ctx == &g_adc_context[0]) {
-        diag_dt = esp_cpu_get_cycle_count() - diag_t0;
-        if (diag_dt > g_adc_diag_cycles_max) {
-            g_adc_diag_cycles_max = diag_dt;
-        }
-        g_adc_diag_cycles_sum += diag_dt;
-        g_adc_diag_sample_cnt++;
-        if (diag_wait_max_local > g_adc_diag_wait_max) {
-            g_adc_diag_wait_max = diag_wait_max_local;
-        }
-    }
-    /* [DIAG_ADC_END] */
-
     return BM_OK;
 }
 #endif /* BM_ESP32_BAREMETAL */
-
-/**
- * @brief 诊断埋点：读取并清零 ADC ISR 采样耗时统计（主循环每秒调用）。
- *
- * 返回自上次调用以来（约 1s 内）ADC isr_sample 的 cycle 最大值、均值，
- * 以及 oneshot 轮询 wait 最大次数。调用后内部统计清零。
- * 仅在主循环（SRT）调用，绝不在 ISR 内调用（含 printf/log）。
- *
- * @note 诊断埋点（DIAG_ADC_BEGIN/END 标记块），ENERGIZE=1 后按需摘除。
- *
- * @param[out] cycles_max  本窗口内单次最大耗时（CPU 周期数）。
- * @param[out] cycles_avg  本窗口内单次平均耗时（CPU 周期数）；cnt=0 时输出 0。
- * @param[out] wait_max    本窗口内轮询 wait 最大次数。
- */
-void bm_vendor_adc_esp32_idf_diag_read_clear(uint32_t *cycles_max,
-                                             uint32_t *cycles_avg,
-                                             uint32_t *wait_max)
-{
-    uint32_t cmax;
-    uint32_t csum;
-    uint32_t cnt;
-    uint32_t wmax;
-
-    /* 原子性：ESP32 32 位对齐读写单操作原子；分多次读存在瞬时撕裂的极小概率，
-     * 诊断用途可接受（最坏结果只是本秒 avg 轻微不准，不影响 max 判读）。 */
-    cmax = g_adc_diag_cycles_max;
-    csum = g_adc_diag_cycles_sum;
-    cnt  = g_adc_diag_sample_cnt;
-    wmax = g_adc_diag_wait_max;
-
-    /* 清零：ISR 正在写时存在短暂竞态，诊断场景可接受。 */
-    g_adc_diag_cycles_max  = 0u;
-    g_adc_diag_cycles_sum  = 0u;
-    g_adc_diag_sample_cnt  = 0u;
-    g_adc_diag_wait_max    = 0u;
-
-    if (cycles_max != NULL) {
-        *cycles_max = cmax;
-    }
-    if (cycles_avg != NULL) {
-        *cycles_avg = (cnt > 0u) ? (csum / cnt) : 0u;
-    }
-    if (wait_max != NULL) {
-        *wait_max = wmax;
-    }
-}
 
 /**
  * @brief MCPWM TEZ ISR 内的 ADC 采样入口（由 PWM 驱动 ISR 调用）。
