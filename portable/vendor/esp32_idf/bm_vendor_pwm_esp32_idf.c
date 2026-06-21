@@ -24,10 +24,13 @@
  * 2026-06-19       1.0            zeh            新增双电机 PWM 实现
  * 2026-06-19       1.1            zeh          改为裸机静态 GPIO 实现
  * 2026-06-19       2.0            zeh            重写为硬件 MCPWM + ISR 驱动（Phase 2）
+ * 2026-06-21       2.1            zeh            修复惰性初始化中断重入窗口导致的崩溃
+ * 2026-06-21       2.2            zeh        ISR 回调加 FPU 协处理器守卫，支持中断内浮点
  *
  */
 #include "bm_vendor_pwm_esp32_idf.h"
 #include "bm_vendor_esp32_idf_compat.h"
+#include "bm_vendor_esp32_isr_fpu.h"
 #include "bm_hal_instances_esp32wroom32e.h"
 #include "bm_types.h"
 
@@ -85,6 +88,14 @@ typedef struct {
     bm_hal_hrt_binding_t adc_complete_binding;
     /** @brief ISR handle。 */
     intr_handle_t isr_handle;
+    /**
+     * @brief ISR 内 FPU(CP0) 现场保存区（per-context 各一份，16 字节对齐）。
+     *
+     * 供 bm_vendor_esp32_isr_fpu_enter/exit 保存/恢复被打断代码的浮点现场，
+     * 让本 ISR 回调内的浮点运算安全。每 MCPWM unit 独立持有，避免共享/嵌套。
+     * 无 FPU 芯片上 BM_VENDOR_ESP32_ISR_FPU_SA_SIZE=1，仅占位、守卫为 no-op。
+     */
+    uint8_t cp0_sa[BM_VENDOR_ESP32_ISR_FPU_SA_SIZE] __attribute__((aligned(16)));
 } bm_vendor_pwm_context_t;
 
 /** @brief 两个电机的 PWM 上下文。 */
@@ -282,14 +293,26 @@ static void IRAM_ATTR bm_vendor_pwm_isr(void *arg)
     /* ADC 在 ISR 内软触发采样（ESP32 经典无 ETM 硬触发路径） */
     bm_vendor_adc_esp32_idf_isr_sample(motor_id);
 
-    /* ADC 完成回调（由 ADC 模块注册） */
-    if (ctx->adc_complete_binding.callback != NULL) {
-        ctx->adc_complete_binding.callback(ctx->adc_complete_binding.context);
-    }
+    /*
+     * 用户回调（adc_complete / update）可能跑浮点（如 FOC current_step）。
+     * ESP 中断上下文默认禁用 FPU(CP0)，须用守卫开 CP0 并存/恢复被打断现场。
+     * 两个回调共用一对 enter/exit，减少 CP0 存/恢复次数。
+     * 守卫顺序铁律：开 CP0 → 存现场 → 跑浮点 → 复现场 → 还原 CPENABLE。
+     */
+    {
+        unsigned cp_prev = bm_vendor_esp32_isr_fpu_enter(ctx->cp0_sa);
 
-    /* PWM 更新回调 */
-    if (ctx->update_binding.callback != NULL) {
-        ctx->update_binding.callback(ctx->update_binding.context);
+        /* ADC 完成回调（由 ADC 模块注册） */
+        if (ctx->adc_complete_binding.callback != NULL) {
+            ctx->adc_complete_binding.callback(ctx->adc_complete_binding.context);
+        }
+
+        /* PWM 更新回调 */
+        if (ctx->update_binding.callback != NULL) {
+            ctx->update_binding.callback(ctx->update_binding.context);
+        }
+
+        bm_vendor_esp32_isr_fpu_exit(ctx->cp0_sa, cp_prev);
     }
 }
 
@@ -344,15 +367,16 @@ static int bm_vendor_pwm_hw_init(bm_vendor_pwm_context_t *ctx)
     /* M_EN 初始低电平（安全态） */
     (void)bm_vendor_pwm_set_en_pin(0);
 
-    /* 使能 timer0 TEZ 中断 */
-    mcpwm_ll_intr_enable(hw,
-                         MCPWM_LL_EVENT_TIMER_EMPTY(BM_VENDOR_PWM_TIMER_ID),
-                         true);
-
-    /* 注册 ISR */
+    /*
+     * 注册 ISR，但以 ESP_INTR_FLAG_INTRDISABLED 装入：alloc 后中断处于
+     * 禁用态、绝不立即触发。配合最后再 esp_intr_enable，消除惰性初始化中断
+     * 重入窗口——避免在 hw 尚未完成、ctx->initialized 仍为 0 时被 TEZ ISR
+     * 抢入而重入 hw_init / esp_intr_alloc。
+     */
     intr_src = (motor_id == 0u) ? ETS_PWM0_INTR_SOURCE : ETS_PWM1_INTR_SOURCE;
     ret = esp_intr_alloc(intr_src,
-                         ESP_INTR_FLAG_LEVEL3 | ESP_INTR_FLAG_IRAM,
+                         ESP_INTR_FLAG_LEVEL3 | ESP_INTR_FLAG_IRAM |
+                             ESP_INTR_FLAG_INTRDISABLED,
                          bm_vendor_pwm_isr,
                          ctx,
                          &ctx->isr_handle);
@@ -364,7 +388,19 @@ static int bm_vendor_pwm_hw_init(bm_vendor_pwm_context_t *ctx)
     mcpwm_ll_timer_set_start_stop_command(hw, BM_VENDOR_PWM_TIMER_ID,
                                           MCPWM_TIMER_START_NO_STOP);
 
+    /*
+     * 此处硬件已全部配置就绪，先置 initialized=1 再放开中断：
+     * 这样即便 TEZ 中断使能后立刻触发，ISR 调 set_duty→hw_init 也会因
+     * initialized!=0 立即早返回，绝不会重入 esp_intr_alloc。
+     */
     ctx->initialized = 1;
+
+    /* 最后才使能 TEZ 事件源 + 放开 CPU 中断（顺序：标志置位 → 开中断）。 */
+    mcpwm_ll_intr_enable(hw,
+                         MCPWM_LL_EVENT_TIMER_EMPTY(BM_VENDOR_PWM_TIMER_ID),
+                         true);
+    (void)esp_intr_enable(ctx->isr_handle);
+
     return BM_OK;
 }
 
