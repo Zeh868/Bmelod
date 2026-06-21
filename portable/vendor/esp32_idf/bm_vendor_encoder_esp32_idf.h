@@ -10,7 +10,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-19       1.0            zeh            新增 M0/M1 双电机编码器实例
- * 2026-06-21       1.1            Kimi           增加读钩子声明，允许上层接管为硬件 I2C
+ * 2026-06-21       1.1            zeh           增加读钩子声明，允许上层接管为硬件 I2C
  *
  */
 #ifndef BM_VENDOR_ENCODER_ESP32_IDF_H

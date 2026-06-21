@@ -15,9 +15,9 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-19       1.0            zeh            新增 BMI160 vendor 入口
- * 2026-06-19       1.1            Codex          删除总线假实现，仅保留明确返回
- * 2026-06-21       2.0            Kimi           改用 ESP-IDF 硬件 I2C 实现
- * 2026-06-21       2.1            Sonnet         删除 FreeRTOS 依赖，vTaskDelay→esp_rom_delay_us
+ * 2026-06-19       1.1            zeh          删除总线假实现，仅保留明确返回
+ * 2026-06-21       2.0            zeh           改用 ESP-IDF 硬件 I2C 实现
+ * 2026-06-21       2.1            zeh         删除 FreeRTOS 依赖，vTaskDelay→esp_rom_delay_us
  */
 #include "bm_vendor_bmi160_esp32_idf.h"
 #include "bm_vendor_i2c_esp32_idf.h"
@@ -48,7 +48,11 @@ static void bm_vendor_bmi160_normalize_config(const bm_vendor_bmi160_config_t *c
         out->address = BM_VENDOR_BMI160_I2C_ADDR_DEFAULT;
     }
     if (out->clock_hz == 0u) {
-        out->clock_hz = (out->bus_type == BM_VENDOR_BMI160_BUS_SPI) ? 1000000u : 400000u;
+        /*
+         * I2C1 与 M0 AS5600 共线。电机出波时 400 kHz 已观测到地址 NACK 和
+         * SDA 卡低；100 kHz 足以覆盖当前 100 Hz 采样并显著增加抗干扰余量。
+         */
+        out->clock_hz = (out->bus_type == BM_VENDOR_BMI160_BUS_SPI) ? 1000000u : 100000u;
     }
     if (out->acc_conf == 0u) {
         out->acc_conf = BM_VENDOR_BMI160_DEFAULT_ACC_CONF;

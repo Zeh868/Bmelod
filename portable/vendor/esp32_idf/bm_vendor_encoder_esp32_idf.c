@@ -11,7 +11,7 @@
  * read 路径仅做有界事务，不做懒初始化。
  *
  * @author zeh (china_qzh@163.com)
- * @version 2.1
+ * @version 2.2
  * @date 2026-06-21
  *
  * @par 修改日志:
@@ -19,8 +19,10 @@
  *    Date         Version        Author          Description
  * 2026-06-19       1.0            zeh            新增编码器实现
  * 2026-06-19       1.1            zeh            改为 GPIO 软 I2C
- * 2026-06-21       2.0            Kimi           改用 ESP-IDF 硬件 I2C 400kHz
- * 2026-06-21       2.1            Sonnet         改为 LL 裸机接口，移除 read 懒初始化
+ * 2026-06-21       2.0            zeh           改用 ESP-IDF 硬件 I2C 400kHz
+ * 2026-06-21       2.1            zeh         改为 LL 裸机接口，移除 read 懒初始化
+ * 2026-06-21       2.2            zeh         M0/M1 均使用 100kHz，提高电机出波期间
+ *                                                的 I2C 抗干扰余量
  */
 #include "bm_vendor_encoder_esp32_idf.h"
 #include "bm_vendor_i2c_esp32_idf.h"
@@ -38,8 +40,20 @@
 #define BM_VENDOR_ENCODER_AS5600_ADDR     0x36u
 /** @brief AS5600 RAW ANGLE 寄存器。 */
 #define BM_VENDOR_ENCODER_AS5600_RAW_ANGLE_REG  0x0Cu
-/** @brief I2C 总线时钟频率（Hz）。 */
-#define BM_VENDOR_ENCODER_I2C_CLK_HZ      400000u
+/**
+ * @brief M0 AS5600 硬件 I2C 时钟频率（Hz）。
+ *
+ * M0 与 BMI160 共用 I2C1。真机在电机出波期间使用 400 kHz 会出现地址 NACK、
+ * SDA 卡低与控制器 busy；当前传感器采样率不需要 fast mode，因此降到 100 kHz。
+ */
+#define BM_VENDOR_ENCODER_M0_I2C_CLK_HZ   100000u
+/**
+ * @brief M1 AS5600 硬件 I2C 时钟频率（Hz）。
+ *
+ * M1 使用 GPIO23/GPIO5，当前仅依赖内部弱上拉；在 400 kHz 下 SCL 上升沿更慢，
+ * 更容易触发 ESP32 I2C0 的硬件 timeout 窗口，因此单独降到 100 kHz。
+ */
+#define BM_VENDOR_ENCODER_M1_I2C_CLK_HZ   100000u
 
 typedef struct {
     /** @brief 编号。 */
@@ -113,7 +127,9 @@ static int bm_vendor_encoder_port_init(const struct bm_hal_encoder *dev)
     cfg = (const bm_vendor_encoder_config_t *)dev->config;
     rc = bm_vendor_i2c_port_init(cfg->i2c_port, cfg->sda_gpio,
                                   cfg->scl_gpio,
-                                  BM_VENDOR_ENCODER_I2C_CLK_HZ);
+                                  (cfg->id == 0u)
+                                      ? BM_VENDOR_ENCODER_M0_I2C_CLK_HZ
+                                      : BM_VENDOR_ENCODER_M1_I2C_CLK_HZ);
     if (rc == BM_OK) {
         ctx->initialized = 1;
     }

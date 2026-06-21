@@ -22,7 +22,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-19       1.0            zeh            新增双电机 PWM 实现
- * 2026-06-19       1.1            Codex          改为裸机静态 GPIO 实现
+ * 2026-06-19       1.1            zeh          改为裸机静态 GPIO 实现
  * 2026-06-19       2.0            zeh            重写为硬件 MCPWM + ISR 驱动（Phase 2）
  *
  */
