@@ -26,6 +26,7 @@
  * 2026-06-19       2.0            zeh            重写为硬件 MCPWM + ISR 驱动（Phase 2）
  * 2026-06-21       2.1            zeh            修复惰性初始化中断重入窗口导致的崩溃
  * 2026-06-21       2.2            zeh        ISR 回调加 FPU 协处理器守卫，支持中断内浮点
+ * 2026-06-21       2.3            zeh            诊断埋点：ISR 有效负载段耗时统计
  *
  */
 #include "bm_vendor_pwm_esp32_idf.h"
@@ -43,6 +44,20 @@
 #include "soc/interrupts.h"
 #include "esp_attr.h"
 #include "esp_intr_alloc.h"
+#include "esp_cpu.h"           /**< esp_cpu_get_cycle_count()：CCOUNT 寄存器，ISR 安全。 */
+
+/* ---------- 诊断埋点：PWM ISR 有效负载段耗时统计 ----------
+ * 有效负载段 = bm_vendor_adc_esp32_idf_isr_sample + FPU 守卫内两个回调。
+ * ISR 写（32 位对齐原子）；主循环读后清零。
+ * 摘除方法：删除本段及 bm_vendor_pwm_isr 内的 DIAG_ISR_BEGIN/END 标记块，
+ *            以及 bm_vendor_pwm_esp32_idf_diag_read_clear 函数与其声明。 */
+
+/** @brief PWM ISR 有效负载段单次最大耗时（CPU 周期数，ISR 写）。 */
+static volatile uint32_t g_pwm_isr_diag_cycles_max = 0u;
+/** @brief PWM ISR 有效负载段耗时累计（用于计算 avg）。 */
+static volatile uint32_t g_pwm_isr_diag_cycles_sum = 0u;
+/** @brief PWM ISR 触发总拍数（用于计算 avg）。 */
+static volatile uint32_t g_pwm_isr_diag_isr_cnt = 0u;
 
 /** @brief 电机实例数。 */
 #define BM_VENDOR_PWM_INSTANCE_COUNT  2u
@@ -274,6 +289,10 @@ static void IRAM_ATTR bm_vendor_pwm_isr(void *arg)
     mcpwm_dev_t             *hw;
     uint32_t                 motor_id;
     uint32_t                 status;
+    /* [DIAG_ISR_BEGIN] ISR 有效负载段耗时诊断埋点 */
+    uint32_t                 diag_t0;
+    uint32_t                 diag_dt;
+    /* [DIAG_ISR_END] */
 
     ctx = (bm_vendor_pwm_context_t *)arg;
     if (ctx == NULL) {
@@ -289,6 +308,10 @@ static void IRAM_ATTR bm_vendor_pwm_isr(void *arg)
     if ((status & MCPWM_LL_EVENT_TIMER_EMPTY(BM_VENDOR_PWM_TIMER_ID)) == 0u) {
         return;
     }
+
+    /* [DIAG_ISR_BEGIN] 有效负载段起始时间戳（TEZ 确认后、ADC 采样前）*/
+    diag_t0 = esp_cpu_get_cycle_count();
+    /* [DIAG_ISR_END] */
 
     /* ADC 在 ISR 内软触发采样（ESP32 经典无 ETM 硬触发路径） */
     bm_vendor_adc_esp32_idf_isr_sample(motor_id);
@@ -314,6 +337,17 @@ static void IRAM_ATTR bm_vendor_pwm_isr(void *arg)
 
         bm_vendor_esp32_isr_fpu_exit(ctx->cp0_sa, cp_prev);
     }
+
+    /* [DIAG_ISR_BEGIN] 有效负载段结束：更新 M0 ISR 统计（只在 motor_id==0 计入，避免双路重复）。 */
+    if (motor_id == 0u) {
+        diag_dt = esp_cpu_get_cycle_count() - diag_t0;
+        if (diag_dt > g_pwm_isr_diag_cycles_max) {
+            g_pwm_isr_diag_cycles_max = diag_dt;
+        }
+        g_pwm_isr_diag_cycles_sum += diag_dt;
+        g_pwm_isr_diag_isr_cnt++;
+    }
+    /* [DIAG_ISR_END] */
 }
 
 /**
@@ -600,6 +634,47 @@ void bm_vendor_pwm_esp32_idf_bind_adc_complete(uint32_t motor_id,
         return;
     }
     ctx->adc_complete_binding = *binding;
+}
+
+/**
+ * @brief 诊断埋点：读取并清零 PWM ISR 有效负载段耗时统计（主循环每秒调用）。
+ *
+ * 返回自上次调用以来（约 1s 内）ISR 有效负载段（ADC 采样 + 两个回调）的
+ * cycle 最大值、平均值，以及 ISR 触发总拍数（约等于实际 current_step 执行率 Hz）。
+ * 调用后内部统计清零，供主循环每秒打印一次。
+ * 仅在主循环（SRT）调用，绝不在 ISR 内调用（含 printf/log）。
+ *
+ * @note 诊断埋点（DIAG_ISR_BEGIN/END 标记块），ENERGIZE=1 后按需摘除。
+ *
+ * @param[out] cycles_max  本窗口内单次最大耗时（CPU 周期数）。
+ * @param[out] cycles_avg  本窗口内单次平均耗时（CPU 周期数）；cnt=0 时输出 0。
+ * @param[out] isr_cnt     本窗口内 ISR 触发总拍数（约等于 current_step 实际率 Hz）。
+ */
+void bm_vendor_pwm_esp32_idf_diag_read_clear(uint32_t *cycles_max,
+                                             uint32_t *cycles_avg,
+                                             uint32_t *isr_cnt)
+{
+    uint32_t cmax;
+    uint32_t csum;
+    uint32_t cnt;
+
+    cmax = g_pwm_isr_diag_cycles_max;
+    csum = g_pwm_isr_diag_cycles_sum;
+    cnt  = g_pwm_isr_diag_isr_cnt;
+
+    g_pwm_isr_diag_cycles_max = 0u;
+    g_pwm_isr_diag_cycles_sum = 0u;
+    g_pwm_isr_diag_isr_cnt    = 0u;
+
+    if (cycles_max != NULL) {
+        *cycles_max = cmax;
+    }
+    if (cycles_avg != NULL) {
+        *cycles_avg = (cnt > 0u) ? (csum / cnt) : 0u;
+    }
+    if (isr_cnt != NULL) {
+        *isr_cnt = cnt;
+    }
 }
 
 /** @brief PWM HAL 驱动 API 表。 */
