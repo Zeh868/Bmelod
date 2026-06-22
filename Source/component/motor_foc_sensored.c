@@ -2,13 +2,14 @@
  * @file motor_foc_sensored.c
  * @brief 有感 FOC 伺服轴领域组件实现
  * @author zeh (china_qzh@163.com)
- * @version 0.1
- * @date 2026-06-13
+ * @version 0.2
+ * @date 2026-06-22
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
+ * 2026-06-22       0.2            zeh            B3 诊断：current_step 读 ADC 后回填 ia_raw/ib_raw 到遥测
  *
  */
 #include "bm/component/motor_foc_sensored.h"
@@ -36,9 +37,24 @@ static float read_theta_elec(const bm_motor_foc_sensored_axis_t *axis) {
         cfg->electrical_offset_rad);
 }
 
+/**
+ * @brief 读取双相电流 ADC 并转换为实际电流（A）。
+ *
+ * B3 诊断扩展：新增 raw_ia_out / raw_ib_out 可选参数，非 NULL 时回传 Clarke
+ * 变换前的原始 ADC 计数（uint16，0~65535）；NULL 则忽略（保持原有调用兼容）。
+ *
+ * @param[in]  axis       轴句柄。
+ * @param[out] ia         换算后 ia（A）。
+ * @param[out] ib         换算后 ib（A）。
+ * @param[out] raw_ia_out B3 诊断：原始 ia ADC 计数（可为 NULL）。
+ * @param[out] raw_ib_out B3 诊断：原始 ib ADC 计数（可为 NULL）。
+ * @return 0 成功；-1 失败（ADC 为空 / scale 非法 / HAL 错误）。
+ */
 static int read_current_ab(const bm_motor_foc_sensored_axis_t *axis,
                            float *ia,
-                           float *ib) {
+                           float *ib,
+                           uint16_t *raw_ia_out,
+                           uint16_t *raw_ib_out) {
     const bm_motor_foc_sensored_resources_t *res = &axis->resources;
     uint16_t raw_ia = 0u;
     uint16_t raw_ib = 0u;
@@ -55,13 +71,32 @@ static int read_current_ab(const bm_motor_foc_sensored_axis_t *axis,
     }
     *ia = adc_to_current(res->current_adc_scale, raw_ia);
     *ib = adc_to_current(res->current_adc_scale, raw_ib);
+    /* B3 诊断：可选回传原始计数（NULL 则跳过）。 */
+    if (raw_ia_out != NULL) { *raw_ia_out = raw_ia; }
+    if (raw_ib_out != NULL) { *raw_ib_out = raw_ib; }
     return 0;
 }
 
+/**
+ * @brief 读取 dq 反馈电流（支持 sim_fb 注入路径 + 真实 ADC 路径）。
+ *
+ * B3 诊断扩展：新增 raw_ia_out / raw_ib_out 可选参数，非 NULL 时在真实 ADC
+ * 路径里把 Clarke 变换前的原始计数透传给调用方；sim_fb 注入路径不填（置 0）。
+ *
+ * @param[in]  axis       轴句柄。
+ * @param[in]  theta_elec 本拍电角度（rad）。
+ * @param[out] id         d 轴实测电流（A）。
+ * @param[out] iq         q 轴实测电流（A）。
+ * @param[out] raw_ia_out B3 诊断：原始 ia ADC 计数（可为 NULL）。
+ * @param[out] raw_ib_out B3 诊断：原始 ib ADC 计数（可为 NULL）。
+ * @return 0 成功；-1 失败。
+ */
 static int read_id_iq_feedback(const bm_motor_foc_sensored_axis_t *axis,
                                float theta_elec,
                                float *id,
-                               float *iq) {
+                               float *iq,
+                               uint16_t *raw_ia_out,
+                               uint16_t *raw_ib_out) {
     const bm_motor_foc_sensored_resources_t *res = &axis->resources;
     bm_algo_alphabeta_t i_ab;
     bm_algo_dq_t      i_dq;
@@ -69,6 +104,9 @@ static int read_id_iq_feedback(const bm_motor_foc_sensored_axis_t *axis,
     if (res->sim_fb.id_a != NULL && res->sim_fb.iq_a != NULL) {
         *id = *res->sim_fb.id_a;
         *iq = *res->sim_fb.iq_a;
+        /* sim_fb 路径无真实 ADC，raw 置 0。 */
+        if (raw_ia_out != NULL) { *raw_ia_out = 0u; }
+        if (raw_ib_out != NULL) { *raw_ib_out = 0u; }
         return 0;
     }
 
@@ -76,7 +114,7 @@ static int read_id_iq_feedback(const bm_motor_foc_sensored_axis_t *axis,
         float ia;
         float ib;
 
-        if (read_current_ab(axis, &ia, &ib) != 0) {
+        if (read_current_ab(axis, &ia, &ib, raw_ia_out, raw_ib_out) != 0) {
             return -1;
         }
         bm_algo_clarke_2shunt(ia, ib, &i_ab);
@@ -222,11 +260,22 @@ void bm_motor_foc_sensored_current_step(bm_motor_foc_sensored_axis_t *axis) {
     }
 
     theta_elec = read_theta_elec(axis);
-    if (read_id_iq_feedback(axis, theta_elec, &id_meas, &iq_meas) != 0) {
-        latch_fault(axis);
-        set_fault_telemetry(st);
-        st->current.loop_count++;
-        return;
+    {
+        /* B3 诊断：顺路采集原始 ADC 计数（Clarke 变换前），回填到遥测供应用层录入黑匣子。
+         * 对控制路径无任何新增开销：raw_ia/ib 只是把 read_current_ab 内已有的局部变量
+         * 透传出来，不增加任何额外 HAL 调用或浮点运算。 */
+        uint16_t raw_ia = 0u;
+        uint16_t raw_ib = 0u;
+        if (read_id_iq_feedback(axis, theta_elec, &id_meas, &iq_meas,
+                                &raw_ia, &raw_ib) != 0) {
+            latch_fault(axis);
+            set_fault_telemetry(st);
+            st->current.loop_count++;
+            return;
+        }
+        /* 回填原始计数到遥测（始终写，开关在应用层 publish_telemetry 处管控）。 */
+        tel->ia_raw = raw_ia;
+        tel->ib_raw = raw_ib;
     }
 
     vd = bm_algo_pi_step(&st->current.pi_d, &cfg->pi_d,

@@ -15,7 +15,7 @@
  *       性能为待硬件验证项。
  *
  * @author zeh (china_qzh@163.com)
- * @version 3.1
+ * @version 3.2
  * @date 2026-06-22
  *
  * @par 修改日志:
@@ -31,6 +31,7 @@
  * 2026-06-21       2.5            zeh            补 RTCIO 数字域切换(hal LL)修复 GPIO32/33/25 RTC 域未释放致 MCPWM 无输出
  * 2026-06-22       3.0            zeh            FOC 混合架构：新增 bm_vendor_pwm_hw_init_isr_only（仅挂 ISR）
  * 2026-06-22       3.1            zeh            清 B2 诊断埋点（DIAG_ISR 计时/diag_read_clear/diag_get_duty）
+ * 2026-06-22       3.2            zeh            ISR 分频：新增 isr_decimate/isr_div_count 字段与 set_isr_decimate API，ADC+回调按 N 抽稀降 CPU 负载
  *
  */
 #include "bm_vendor_pwm_esp32_idf.h"
@@ -107,6 +108,21 @@ typedef struct {
      * 无 FPU 芯片上 BM_VENDOR_ESP32_ISR_FPU_SA_SIZE=1，仅占位、守卫为 no-op。
      */
     uint8_t cp0_sa[BM_VENDOR_ESP32_ISR_FPU_SA_SIZE] __attribute__((aligned(16)));
+    /**
+     * @brief ISR ADC 采样+回调的分频因子（CPU 预算调节）。
+     *
+     * 每 isr_decimate 次 TEZ 才执行一次 ADC oneshot 转换与后续回调链，降低
+     * ADC 轮询对 CPU 的占用。默认 1（每拍均采样），与旧版行为完全兼容。
+     * 清中断动作不受此分频影响（每拍必清）。
+     * 由 bm_vendor_pwm_set_isr_decimate() 写入，ISR 只读。
+     */
+    uint32_t isr_decimate;
+    /**
+     * @brief ISR 分频计数器（每次 TEZ 自增，满 isr_decimate 后清零执行 ADC）。
+     *
+     * 仅在 bm_vendor_pwm_isr 内读写，单核确定性访问，无需同步原语。
+     */
+    uint32_t isr_div_count;
 } bm_vendor_pwm_context_t;
 
 /** @brief 两个电机的 PWM 上下文。 */
@@ -338,10 +354,17 @@ static void bm_vendor_pwm_operator_init(mcpwm_dev_t *hw, int operator_id)
  * @brief MCPWM TEZ 中断服务函数（motor_id 通过 arg 传入）。
  *
  * 在 TEZ 事件（计数到零）时执行：
- *   1. 清除中断标志
- *   2. 软触发 ADC 采样
- *   3. 调用 ADC 完成 HRT 回调
- *   4. 调用 PWM 更新 HRT 回调
+ *   1. 清除中断标志（每拍必做，不受分频影响）
+ *   2. 分频判断：未到第 isr_decimate 拍则提前返回（跳过 ADC/FPU/回调）
+ *   3. 软触发 ADC 采样（仅在该跑的拍执行）
+ *   4. 调用 ADC 完成 HRT 回调
+ *   5. 调用 PWM 更新 HRT 回调
+ *
+ * 铁律：清中断（步骤 1）绝对在分频 return（步骤 2）之前，否则漏清导致
+ * 中断重入/挂死。ADC 采样+FPU+回调（步骤 3-5）仅在分频后的拍执行，
+ * 降低 CPU 占用约 (1 - 1/isr_decimate) 倍。
+ *
+ * isr_decimate 默认为 1（每拍均采样），default 路径行为与旧版逐字相同。
  *
  * @param arg 指向 bm_vendor_pwm_context_t 的指针。
  */
@@ -359,7 +382,11 @@ static void IRAM_ATTR bm_vendor_pwm_isr(void *arg)
     motor_id = (ctx == &g_pwm_context[0]) ? 0u : 1u;
     hw = MCPWM_LL_GET_HW((int)motor_id);
 
-    /* 读取并清除 TEZ 中断（timer0 empty event = bit 3） */
+    /*
+     * 铁律步骤 1：每拍读取并清除 TEZ 中断（timer0 empty event = bit 3）。
+     * 此操作必须在任何 return 之前完成，绝不可被分频跳过，否则中断标志
+     * 残留→下一次 TEZ 触发时旧标志未清→重入/挂死。
+     */
     status = mcpwm_ll_intr_get_status(hw);
     mcpwm_ll_intr_clear_status(hw, status);
 
@@ -367,7 +394,18 @@ static void IRAM_ATTR bm_vendor_pwm_isr(void *arg)
         return;
     }
 
-    /* ADC 在 ISR 内软触发采样（ESP32 经典无 ETM 硬触发路径） */
+    /*
+     * 步骤 2：分频抽稀——未到第 isr_decimate 拍跳过 ADC/FPU/回调。
+     * isr_decimate 默认 1，++isr_div_count(=1) < 1 为假，每拍均执行（旧行为）。
+     * isr_decimate=4 时，前 3 拍跳过（节省 ADC ~24µs×3/4 ≈ 56% CPU），
+     * 第 4 拍（isr_div_count 归零后）执行完整 ADC+FPU+回调。
+     */
+    if (++ctx->isr_div_count < ctx->isr_decimate) {
+        return;
+    }
+    ctx->isr_div_count = 0u;
+
+    /* ADC 在 ISR 内软触发采样（ESP32 经典无 ETM 硬触发路径，仅在该跑的拍执行） */
     bm_vendor_adc_esp32_idf_isr_sample(motor_id);
 
     /*
@@ -412,6 +450,11 @@ static int bm_vendor_pwm_hw_init(bm_vendor_pwm_context_t *ctx)
     if (ctx->initialized != 0) {
         return BM_OK;
     }
+
+    /* 分频因子默认 1（每拍均采样，与旧版等价）；调用方可在 init 后调
+     * bm_vendor_pwm_set_isr_decimate 覆盖，ISR 使能前写入安全。 */
+    ctx->isr_decimate  = 1u;
+    ctx->isr_div_count = 0u;
 
     motor_id = (ctx == &g_pwm_context[0]) ? 0u : 1u;
     hw       = MCPWM_LL_GET_HW((int)motor_id);
@@ -684,6 +727,34 @@ void bm_vendor_pwm_esp32_idf_bind_adc_complete(uint32_t motor_id,
 }
 
 /**
+ * @brief 设置 MCPWM TEZ ISR 内 ADC 采样+回调的分频因子（CPU 预算调节）。
+ *
+ * 每 n 次 TEZ 才执行一次 ADC oneshot 转换与后续 FPU 回调链：
+ *   - n=1（默认）：每拍均执行，与修改前行为逐字相同（向后兼容）。
+ *   - n=4（FOC 2.5kHz）：ADC 采样从 10kHz 降至 2.5kHz，CPU 占用降约 75%。
+ *
+ * 清中断操作始终每拍执行，不受分频影响（铁律，见 bm_vendor_pwm_isr 注释）。
+ * 分频计数器 isr_div_count 随 isr_decimate 一同归零，确保下一拍计数从 0 重启。
+ *
+ * 调用时机：在 bm_vendor_pwm_hw_init_isr_only / bm_vendor_pwm_hw_init 之后、
+ * TEZ ISR 开始出力之前（或运行时动态调整均安全，ISR 内只读 isr_decimate）。
+ *
+ * @param motor_id 电机编号（0 或 1）；越界时直接返回。
+ * @param n        分频因子（≥1；传入 0 时视为 1，每拍均采样）。
+ */
+void bm_vendor_pwm_set_isr_decimate(uint32_t motor_id, uint32_t n)
+{
+    bm_vendor_pwm_context_t *ctx;
+
+    if (motor_id >= BM_VENDOR_PWM_INSTANCE_COUNT) {
+        return;
+    }
+    ctx = &g_pwm_context[motor_id];
+    ctx->isr_decimate  = (n < 1u) ? 1u : n;
+    ctx->isr_div_count = 0u;
+}
+
+/**
  * @brief FOC 混合架构：仅挂载 TEZ ISR，不配 timer/operator/GPIO。
  *
  * 在 app 层 hover_board_pwm_esp32_init + hover_board_pwm_esp32_enable(true) 之后、
@@ -718,6 +789,11 @@ int bm_vendor_pwm_hw_init_isr_only(uint32_t motor_id)
     if (ctx->initialized != 0) {
         return BM_OK;
     }
+
+    /* 分频因子默认 1（每拍均采样，与旧版等价）；调用方可在 init 后调
+     * bm_vendor_pwm_set_isr_decimate 覆盖，ISR 使能前写入安全。 */
+    ctx->isr_decimate  = 1u;
+    ctx->isr_div_count = 0u;
 
     hw = MCPWM_LL_GET_HW((int)motor_id);
 

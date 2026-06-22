@@ -9,7 +9,7 @@
  *     直写 app 已配好的 comparator（量程 BOARD_FOC_PWM_MAX=1000）。
  *
  * @author zeh (china_qzh@163.com)
- * @version 3.1
+ * @version 3.2
  * @date 2026-06-22
  *
  * @par 修改日志:
@@ -19,6 +19,7 @@
  * 2026-06-19       2.0            zeh            Phase 2：改为 MCPWM 硬件驱动接口
  * 2026-06-22       3.0            zeh            FOC 混合架构：新增 hw_init_isr_only
  * 2026-06-22       3.1            zeh            清 B2 诊断埋点（diag_read_clear/diag_get_duty）
+ * 2026-06-22       3.2            zeh            新增 ISR 分频 API（set_isr_decimate），将 ADC 采样+回调按 N 抽稀降 CPU 负载
  *
  */
 #ifndef BM_VENDOR_PWM_ESP32_IDF_H
@@ -60,5 +61,25 @@ int bm_vendor_pwm_hw_init_isr_only(uint32_t motor_id);
  */
 void bm_vendor_pwm_esp32_idf_bind_adc_complete(uint32_t motor_id,
                                                 const bm_hal_hrt_binding_t *binding);
+
+/**
+ * @brief 设置 MCPWM TEZ ISR 内 ADC 采样+回调的分频因子（CPU 预算调节）。
+ *
+ * 将 ADC oneshot 转换（ia/ib 两通道，约 24µs）与后续 FPU 回调链的触发频率降至
+ * TEZ 频率的 1/n，使 CPU 负载从 ADC_µs × TEZ_Hz 降低 n 倍；清中断动作仍每拍
+ * （每次 TEZ）执行，不受此分频影响。
+ *
+ * 典型用法（app 层在 bind 之前调用）：
+ * @code
+ *   bm_vendor_pwm_set_isr_decimate(motor_id, 4);  // ADC+回调降至 TEZ/4
+ * @endcode
+ *
+ * 默认值（初始化后）为 1（每拍都做 ADC），与原行为完全兼容，无需主动调用
+ * 即可保持旧行为。
+ *
+ * @param motor_id 电机编号（0 或 1）。
+ * @param n        分频因子（≥1；传入 0 时视为 1，每拍均做 ADC）。
+ */
+void bm_vendor_pwm_set_isr_decimate(uint32_t motor_id, uint32_t n);
 
 #endif /* BM_VENDOR_PWM_ESP32_IDF_H */

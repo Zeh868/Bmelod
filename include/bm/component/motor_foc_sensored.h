@@ -4,13 +4,14 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.1
- * @date 2026-06-13
+ * @version 0.2
+ * @date 2026-06-22
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
+ * 2026-06-22       0.2            zeh            B3 诊断：遥测加 ia_raw/ib_raw 原始 ADC 字段
  *
  * 单实例包含双 HRT 槽语义：快环电流、慢环速度。命令/遥测由应用经 snapshot 注入。
  * HAL 句柄经 resources 注入，不包含板级初始化。
@@ -47,7 +48,14 @@ typedef struct {
     float    id_ref_a;
 } bm_motor_foc_cmd_t;
 
-/** HRT → SRT 遥测（由组件写入 state.telemetry） */
+/**
+ * @brief HRT → SRT 遥测（由组件写入 state.telemetry）。
+ *
+ * B3 诊断字段（由 current_step 在读取 ADC 后回填）：
+ *   ia_raw / ib_raw：Clarke 变换前的原始 ADC 计数（uint16，0~65535，中心~32768）。
+ *   用于量化 M0（SENSOR_VP/VN 噪声脚）vs M1（普通 GPIO）的噪声底差异。
+ *   应用层通过 publish_telemetry 回调把这两个字段录入黑匣子帧。
+ */
 typedef struct {
     uint32_t sequence;
     uint32_t status;
@@ -56,6 +64,8 @@ typedef struct {
     float    speed_rad_s;
     float    theta_elec_rad;
     float    iq_ref_a;
+    uint16_t ia_raw;  /**< B3 诊断：ia 原始 ADC 计数（Clarke 变换前，ADC 读值）。 */
+    uint16_t ib_raw;  /**< B3 诊断：ib 原始 ADC 计数（Clarke 变换前，ADC 读值）。 */
 } bm_motor_foc_telemetry_t;
 
 /**
