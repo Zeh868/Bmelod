@@ -1,16 +1,19 @@
 /**
  * @file estimation_fusion.h
- * @brief 姿态/状态估算融合选择器（互补 / Mahony / EKF）
+ * @brief 姿态/状态估算融合选择器（互补 / Mahony / EKF-CV）
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.1
+ * @version 0.2
  * @date 2026-06-13
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
+ * 2026-06-23       0.2            zeh            落地 EKF_CV 融合模式；补 SPDX 头
+ *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 #ifndef BM_ESTIMATION_FUSION_H
 #define BM_ESTIMATION_FUSION_H
@@ -28,11 +31,22 @@ extern "C" {
 #define BM_EST_FUSION_TEL_NO_IMU  (1u << 1u)
 #define BM_EST_FUSION_TEL_STALE   (1u << 2u)
 
+/**
+ * @brief 融合模式枚举
+ *
+ * - BM_EST_FUSION_COMPLEMENTARY：互补滤波，输出 roll/pitch，yaw 固定为 0。
+ * - BM_EST_FUSION_MAHONY：Mahony AHRS，输出 roll/pitch/yaw（四元数转欧拉）。
+ * - BM_EST_FUSION_EKF_CV：EKF 匀速模型单轴 pitch 跟踪。
+ *   使用要点：
+ *   (1) config.ekf_cv.q_pos / q_vel 控制过程噪声（建议 0.001～0.1）；
+ *   (2) config.ekf_cv.r_pos 控制加速度计测量噪声（建议 0.01～1.0）；
+ *   (3) 仅跟踪 pitch 角，roll 与 yaw 输出固定为 0；
+ *   (4) 需在 reset 后调用 init，由 validate_config 检查噪声参数合法性。
+ */
 typedef enum {
-    BM_EST_FUSION_COMPLEMENTARY = 0,
-    BM_EST_FUSION_MAHONY
-    /** @deprecated 占位枚举，validate 将拒绝；保留仅为 ABI 兼容 */
-    , BM_EST_FUSION_EKF_CV
+    BM_EST_FUSION_COMPLEMENTARY = 0, /**< 互补滤波（roll/pitch） */
+    BM_EST_FUSION_MAHONY,            /**< Mahony AHRS（roll/pitch/yaw） */
+    BM_EST_FUSION_EKF_CV             /**< EKF 匀速模型单轴 pitch 跟踪 */
 } bm_estimation_fusion_mode_t;
 
 typedef struct {
@@ -81,10 +95,41 @@ typedef struct {
     bm_estimation_fusion_state_t     state;
 } bm_estimation_fusion_axis_t;
 
+/**
+ * @brief 校验融合组件配置参数
+ *
+ * 检查公共字段（dt_s > 0）及各模式专属约束：
+ * EKF_CV 模式需要 q_pos、q_vel、r_pos 均为非负有限值。
+ *
+ * @param config 指向配置结构体的只读指针
+ * @return BM_OK 校验通过；BM_ERR_INVALID 参数非法
+ */
 int  bm_estimation_fusion_validate_config(
     const bm_estimation_fusion_config_t *config);
+
+/**
+ * @brief 初始化融合轴（先 validate 再 reset）
+ *
+ * @param axis 指向轴实例，config 须已填充
+ * @return BM_OK 成功；BM_ERR_INVALID axis 为 NULL 或配置非法
+ */
 int  bm_estimation_fusion_init(bm_estimation_fusion_axis_t *axis);
+
+/**
+ * @brief 复位融合轴内部状态（不修改 config/resources）
+ *
+ * @param axis 指向轴实例；为 NULL 时静默返回
+ */
 void bm_estimation_fusion_reset(bm_estimation_fusion_axis_t *axis);
+
+/**
+ * @brief 执行一个控制周期的融合计算
+ *
+ * 从 resources.read_imu 读取 IMU 数据，依据 config.mode 分发到对应算法，
+ * 更新 state.euler，并通过 resources.publish_telemetry 上报遥测。
+ *
+ * @param axis 指向已初始化的轴实例；为 NULL 时静默返回
+ */
 void bm_estimation_fusion_step(bm_estimation_fusion_axis_t *axis);
 
 #ifdef __cplusplus

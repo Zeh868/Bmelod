@@ -3,7 +3,7 @@
  * @brief 电源算法：SOGI-PLL、MPPT 与 RMS 实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.2
+ * @version 1.3
  * @date 2026-06-13
  *
  * @par 修改日志:
@@ -14,6 +14,8 @@
  *                                                bm_algo_sogi_pll_step 积分器增加对称限幅
  * 2026-06-23       1.2            zeh            SOGI 离散由前向欧拉改为双线性（Tustin）；
  *                                                bm_algo_sogi_pll_reset 新增导数缓存清零
+ * 2026-06-23       1.3            zeh            修复 Tustin 历史导数项系数错误（h→T/2），
+ *                                                消除 SOGI 递推发散（test_sogi_states_decay 回归）
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -77,20 +79,22 @@ void bm_algo_sogi_pll_step(bm_algo_sogi_pll_state_t *state,
      * Tustin 梯形积分：x[n] = x[n-1] + T/2·(f[n] + f[n-1])
      * 令 h = ω·dt_s/2，展开后联立求解 x1[n]、x2[n]：
      *
-     *   (1 + h·k + h²)·x1[n] = (x1[n-1] + h·d_alpha_prev
+     *   (1 + h·k + h²)·x1[n] = (x1[n-1] + (T/2)·d_alpha_prev
      *                           + h·k·v_in[n])
-     *                          − h·(x2[n-1] + h·d_beta_prev)
-     *   x2[n] = x2[n-1] + h·d_beta_prev + h·x1[n]
+     *                          − h·(x2[n-1] + (T/2)·d_beta_prev)
+     *   x2[n] = x2[n-1] + (T/2)·d_beta_prev + h·x1[n]
      *
-     * 其中 d_alpha_prev、d_beta_prev 为前一拍导数缓存（状态字段）。
+     * 其中 h = ω·T/2。注意：历史导数缓存 d_alpha_prev/d_beta_prev 存的是
+     * 连续域真实导数 ẋ（已含 ω，见下方更新式），故其梯形积分项系数为 T/2，
+     * 而非 h——若误用 h 等于把历史导数额外放大 ω 倍，会导致递推发散。
      * 行列式 denom = 1 + h·k + h²，对任意 h > 0 均正定，无条件稳定。
-     * 离散极点模长满足 |z| < 1（可由双线性变换保留连续系统 Hurwitz 性质得证）。
+     * 离散极点模长满足 |z| < 1（双线性变换保留连续系统 Hurwitz 性质）。
      * ------------------------------------------------------------------ */
     h = omega * dt_s * 0.5f;
     denom = 1.0f + h * k + h * h;
 
-    b1 = state->v_alpha + h * state->d_alpha_prev + h * k * v_input;
-    b2 = state->v_beta  + h * state->d_beta_prev;
+    b1 = state->v_alpha + (dt_s * 0.5f) * state->d_alpha_prev + h * k * v_input;
+    b2 = state->v_beta  + (dt_s * 0.5f) * state->d_beta_prev;
 
     new_alpha = (b1 - h * b2) / denom;
     new_beta  = b2 + h * new_alpha;

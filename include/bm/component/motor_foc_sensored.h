@@ -4,17 +4,21 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.2
- * @date 2026-06-22
+ * @version 0.3
+ * @date 2026-06-23
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-22       0.2            zeh            B3 诊断：遥测加 ia_raw/ib_raw 原始 ADC 字段
+ * 2026-06-23       0.3            zeh            MTPA/弱磁支持：config 加 enable_mtpa/enable_fw
+ *                                                及电机参数字段，state 加 last_vd/vq_pu
  *
  * 单实例包含双 HRT 槽语义：快环电流、慢环速度。命令/遥测由应用经 snapshot 注入。
  * HAL 句柄经 resources 注入，不包含板级初始化。
+ *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 #ifndef BM_MOTOR_FOC_SENSORED_H
 #define BM_MOTOR_FOC_SENSORED_H
@@ -119,6 +123,27 @@ typedef struct {
     float    current_dt_s;
     float    speed_dt_s;
     float    iq_max_a;
+    /**
+     * @brief 使能 MTPA（最大转矩电流比）电流分配。
+     *
+     * 非零时由 bm_algo_mtpa_id_ref() 按 iq_ref 自动计算最优 id_ref，
+     * 充分利用凸极效应降低铜损；零时 id_ref 沿用命令层传入值（默认行为不变）。
+     * 启用时须同时配置 ld_h / lq_h / psi_f_wb。
+     */
+    int      enable_mtpa;
+    /**
+     * @brief 使能弱磁（Field Weakening）电压饱和时 id 调节。
+     *
+     * 非零时当电压矢量接近 v_max_pu 时由 bm_algo_fw_id_adjust() 下调 id_ref，
+     * 扩展高速转速范围；零时不调整（默认行为不变）。
+     */
+    int      enable_fw;
+    /** @brief d 轴电感（H），MTPA 计算所需；enable_mtpa=0 时可置 0。 */
+    float    ld_h;
+    /** @brief q 轴电感（H），MTPA 计算所需；enable_mtpa=0 时可置 0。 */
+    float    lq_h;
+    /** @brief 永磁体磁链（Wb），MTPA 计算所需；enable_mtpa=0 时可置 0。 */
+    float    psi_f_wb;
     bm_algo_pi_config_t pi_d;
     bm_algo_pi_config_t pi_q;
     bm_algo_pi_config_t pi_speed;
@@ -131,6 +156,10 @@ typedef struct {
     bm_algo_pi_state_t pi_d;
     bm_algo_pi_state_t pi_q;
     uint32_t           loop_count;
+    /** @brief 上一拍 d 轴输出电压（pu），弱磁算法输入，由 current_step 更新。 */
+    float              last_vd_pu;
+    /** @brief 上一拍 q 轴输出电压（pu），弱磁算法输入，由 current_step 更新。 */
+    float              last_vq_pu;
 } bm_motor_foc_current_state_t;
 
 /** 慢环状态（仅速度槽写） */

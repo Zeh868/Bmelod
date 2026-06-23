@@ -2,15 +2,20 @@
  * @file motor_foc_sensored.c
  * @brief 有感 FOC 伺服轴领域组件实现
  * @author zeh (china_qzh@163.com)
- * @version 0.2
- * @date 2026-06-22
+ * @version 0.3
+ * @date 2026-06-23
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-22       0.2            zeh            B3 诊断：current_step 读 ADC 后回填 ia_raw/ib_raw 到遥测
+ * 2026-06-23       0.3            zeh            MTPA/弱磁：电流环前按 config 开关接入
+ *                                                bm_algo_mtpa_id_ref / bm_algo_fw_id_adjust；
+ *                                                validate_config 新增 MTPA 参数校验；
+ *                                                current_step 更新 last_vd/vq_pu 供弱磁使用
  *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 #include "bm/component/motor_foc_sensored.h"
 #include "bm/algorithm/bm_algo_common.h"
@@ -185,6 +190,11 @@ int bm_motor_foc_sensored_validate_config(
     if (config->encoder.counts_per_rev == 0u) {
         return BM_ERR_INVALID;
     }
+    /* MTPA 启用时，电机电感/磁链参数须有效（与 sensorless 校验逻辑对齐）。 */
+    if (config->enable_mtpa &&
+        (config->ld_h <= 0.0f || config->lq_h <= 0.0f)) {
+        return BM_ERR_INVALID;
+    }
     return BM_OK;
 }
 
@@ -278,16 +288,43 @@ void bm_motor_foc_sensored_current_step(bm_motor_foc_sensored_axis_t *axis) {
         tel->ib_raw = raw_ib;
     }
 
-    vd = bm_algo_pi_step(&st->current.pi_d, &cfg->pi_d,
-                         st->cmd.id_ref_a - id_meas, cfg->current_dt_s);
     {
-        float vq_ff = cfg->phase_r_ohm * st->speed.iq_ref_a / cfg->vbus_v;
-        float vq_pi = bm_algo_pi_step(&st->current.pi_q, &cfg->pi_q,
-                                      st->speed.iq_ref_a - iq_meas,
-                                      cfg->current_dt_s);
-        vq = vq_ff + vq_pi;
+        /* ---------- id_ref / iq_ref 分配（MTPA + 弱磁，与 sensorless 逻辑对齐）---------- */
+        float id_ref;
+        float iq_ref;
+
+        iq_ref = st->speed.iq_ref_a;
+
+        /* MTPA：按 iq_ref 计算最优 id_ref，降低铜损；未启用时沿用命令层传入值。 */
+        if (cfg->enable_mtpa) {
+            id_ref = bm_algo_mtpa_id_ref(iq_ref, cfg->ld_h, cfg->lq_h,
+                                         cfg->psi_f_wb);
+        } else {
+            id_ref = st->cmd.id_ref_a;
+        }
+
+        /* 弱磁：电压饱和时下调 id_ref，扩展高速转速范围；未启用时不调整。 */
+        if (cfg->enable_fw) {
+            id_ref = bm_algo_fw_id_adjust(id_ref,
+                                          st->current.last_vd_pu,
+                                          st->current.last_vq_pu,
+                                          cfg->v_max_pu);
+        }
+
+        vd = bm_algo_pi_step(&st->current.pi_d, &cfg->pi_d,
+                             id_ref - id_meas, cfg->current_dt_s);
+        {
+            float vq_ff = cfg->phase_r_ohm * iq_ref / cfg->vbus_v;
+            float vq_pi = bm_algo_pi_step(&st->current.pi_q, &cfg->pi_q,
+                                          iq_ref - iq_meas,
+                                          cfg->current_dt_s);
+            vq = vq_ff + vq_pi;
+        }
     }
     bm_algo_voltage_limit(&vd, &vq, cfg->v_max_pu);
+    /* 更新上一拍电压，供下一拍弱磁算法读取。 */
+    st->current.last_vd_pu = vd;
+    st->current.last_vq_pu = vq;
     saturated = (fabsf(vd) >= cfg->v_max_pu - 1e-4f) ||
                 (fabsf(vq) >= cfg->v_max_pu - 1e-4f);
 

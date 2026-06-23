@@ -4,7 +4,7 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.2
+ * @version 1.3
  * @date 2026-06-13
  *
  * @par 修改日志:
@@ -17,6 +17,7 @@
  * 2026-06-23       1.2            zeh            SOGI 离散由前向欧拉改为双线性（Tustin）；
  *                                                bm_algo_sogi_pll_state_t 新增
  *                                                d_alpha_prev/d_beta_prev 缓存字段
+ * 2026-06-23       1.3            zeh            修复 Tustin 历史导数项系数错误，消除 SOGI 递推发散
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

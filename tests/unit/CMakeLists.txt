@@ -104,6 +104,15 @@ if(TARGET bm_component_bms)
     bm_add_test(test_bms_estimation test_bms_estimation.c bm_component_bms)
 endif()
 
+if(TARGET bm_component_fusion)
+    bm_add_test(test_estimation_fusion
+        test_estimation_fusion.c
+        bm_component_fusion)
+    if(NOT MSVC)
+        target_link_libraries(test_estimation_fusion PRIVATE m)
+    endif()
+endif()
+
 if(TARGET bm_component_power)
     bm_add_test(test_power_control test_power_control.c bm_component_power)
 endif()
