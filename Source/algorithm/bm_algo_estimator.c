@@ -3,14 +3,15 @@
  * @brief 固定维度状态估算实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-17
+ * @version 1.2
+ * @date 2026-06-23
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-17       1.1            zeh            增加 1D UKF 与 EKF 创新门控
+ * 2026-06-23       1.2            zeh            KF 更新分母阈值放宽为 1e-9f；UKF β 修正项补注释
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -82,7 +83,9 @@ float bm_algo_kalman1d_update(bm_algo_kalman1d_state_t *state,
         return state->x;
     }
     denom = state->p + config->r;
-    if (denom <= 1e-12f || !bm_algo_is_finite_f(denom)) {
+    /* 阈值放宽至 1e-9f：原值 1e-12f 在 r=0 且 P 趋零时易误拒更新；
+     * 配置校验应保证 r > 0，此处作为最后防线。 */
+    if (denom <= 1e-9f || !bm_algo_is_finite_f(denom)) {
         return state->x;
     }
     k = state->p / denom;
@@ -261,6 +264,14 @@ int bm_algo_ukf1d_update(bm_algo_ukf1d_state_t *state,
     state->x += k * innov;
     state->p -= k * pzz * k;
     ukf1d_sanitize_p(&state->p);
+
+    /* 注意：标准 UKF 协方差更新中，W0_cov 应加入 β 修正项
+     * (1 - alpha² + beta)，用于捕获高阶矩（Gaussian 分布 beta=2 最优）。
+     * 当前实现 pzz 权重均使用均值权（w0/w1），等效 beta=0，
+     * 对 Gaussian 噪声场景精度略低。在 E1 阶段维持简化实现，
+     * 待传感器特性明确后可在 pzz 计算中对 zp[0] 项补加
+     * (1 - BM_UKF1D_ALPHA*BM_UKF1D_ALPHA + BM_UKF1D_BETA) * dz0*dz0。
+     * 未决项：参见版本 1.2 修改日志。 */
     (void)BM_UKF1D_BETA;
     return BM_ALGO_EKF_UPDATE_OK;
 }

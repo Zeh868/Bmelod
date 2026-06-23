@@ -3,13 +3,14 @@
  * @brief 执行器非线性补偿实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.1
- * @date 2026-06-13
+ * @version 1.2
+ * @date 2026-06-23
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
+ * 2026-06-23       1.2            zeh            修正背隙补偿只增不减缺陷：换向时重置 backlash_offset 为 0 后重新渐进，保持渐进语义
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -116,11 +117,19 @@ float bm_algo_backlash_inverse(float command,
 
     if (direction != 0 && direction != state->last_direction &&
         state->last_direction != 0) {
-        if (state->backlash_offset < width) {
-            state->backlash_offset += slope;
-            if (state->backlash_offset > width) {
-                state->backlash_offset = width;
-            }
+        /*
+         * 策略：检测到换向时将偏移重置为 0，随后每步调用渐进累加 slope，
+         * 直至达到 width。这样每次换向均从零开始重新渐补间隙，
+         * 保持渐进语义，避免"只增不减"导致的过补偿。
+         */
+        state->backlash_offset = 0.0f;
+    }
+
+    /* 渐进累加：每步最多增加 slope，上限为 width */
+    if (state->backlash_offset < width) {
+        state->backlash_offset += slope;
+        if (state->backlash_offset > width) {
+            state->backlash_offset = width;
         }
     }
 

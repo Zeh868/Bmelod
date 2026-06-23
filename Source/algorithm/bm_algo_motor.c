@@ -3,13 +3,14 @@
  * @brief 电机数学核：Clarke/Park 与 SVPWM 实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-13
+ * @version 1.2
+ * @date 2026-06-23
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
+ * 2026-06-23       1.2            zeh            磁链观测器纯积分改为带衰减积分，消除低速/静止时 DC 漂移
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -264,8 +265,21 @@ float bm_algo_flux_observer_step(bm_algo_flux_observer_state_t *state,
 
     v_alpha_emf = v_alpha - config->rs_ohm * i_alpha;
     v_beta_emf = v_beta - config->rs_ohm * i_beta;
-    state->flux_alpha += v_alpha_emf * dt_s;
-    state->flux_beta += v_beta_emf * dt_s;
+
+    /* 带衰减积分：flux = flux*(1 - wc*dt) + v_emf*dt
+     * 相比纯积分，增加一阶高通衰减项，截止频率 wc（rad/s）由配置决定，
+     * 可有效抑制低速/静止时的 DC 偏置漂移。wc=0 时退化为纯积分。
+     * wc < 0 属配置错误，截断为 0 以保持稳定性。 */
+    {
+        float wc = config->flux_observer_wc_rad_s;
+        float decay;
+        if (wc < 0.0f) {
+            wc = 0.0f;
+        }
+        decay = wc * dt_s;
+        state->flux_alpha = state->flux_alpha * (1.0f - decay) + v_alpha_emf * dt_s;
+        state->flux_beta  = state->flux_beta  * (1.0f - decay) + v_beta_emf  * dt_s;
+    }
 
     flux_alpha = state->flux_alpha - config->ls_h * i_alpha;
     flux_beta = state->flux_beta - config->ls_h * i_beta;

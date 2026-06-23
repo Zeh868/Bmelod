@@ -4,13 +4,16 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-06-13
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
+ * 2026-06-23       1.1            zeh            SOGI 前向欧拉稳定条件文档化（ω·dt < 2）；
+ *                                                bm_algo_sogi_pll_config_t 新增
+ *                                                integrator_limit_ratio 字段用于积分器限幅
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -24,10 +27,24 @@ extern "C" {
 #endif
 
 /* ---------- SOGI-PLL ---------- */
+/**
+ * @brief SOGI-PLL 配置
+ *
+ * @note SOGI 前向欧拉稳定性约束：omega_rad_s * dt_s < 2。
+ *       在 50 Hz（ω ≈ 314 rad/s）下要求 dt_s < 6.37 ms（即采样率 > 157 Hz）。
+ *       若步长可能超出此约束，请改用 Tustin（双线性）离散化以保证无条件稳定。
+ *
+ * @note integrator_limit_ratio：PLL 积分器限幅比，限幅值 =
+ *       nominal_omega_rad_s * integrator_limit_ratio。
+ *       建议 0.2（即允许偏差 ±20% 额定频率），0 时使用默认值 0.2。
+ */
 typedef struct {
-    float nominal_omega_rad_s;
-    float k_sogi;
-    float k_pll;
+    float nominal_omega_rad_s;      /**< 额定角频率（rad/s），如 50 Hz 对应 2π×50 ≈ 314.16 */
+    float k_sogi;                   /**< SOGI 带宽增益，典型值 √2 ≈ 1.414 */
+    float k_pll;                    /**< PLL 比例增益，决定锁相带宽 */
+    float integrator_limit_ratio;   /**< PLL 积分器限幅比（相对 nominal_omega_rad_s），
+                                     *   限幅值 = nominal_omega_rad_s × ratio，
+                                     *   建议 0.1~0.3，0 时自动取 0.2 */
 } bm_algo_sogi_pll_config_t;
 
 typedef struct {

@@ -3,18 +3,20 @@
  * @brief 信号质量监控实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-13
+ * @version 1.1
+ * @date 2026-06-23
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
+ * 2026-06-23       1.1            zeh            stable_count 自增前加饱和保护，防止 uint32_t 绕回导致误复位
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_signal_quality.h"
 #include <stddef.h>
+#include <stdint.h>
 
 #include <math.h>
 
@@ -39,7 +41,10 @@ int bm_algo_debounce_analog_step(bm_algo_debounce_analog_state_t *state,
 
     diff = fabsf(sample - state->candidate);
     if (diff <= config->tolerance) {
-        state->stable_count++;
+        /* 饱和加法，防止 uint32_t 绕回 */
+        if (state->stable_count < UINT32_MAX) {
+            state->stable_count++;
+        }
     } else {
         state->candidate = sample;
         state->stable_count = 0u;

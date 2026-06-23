@@ -6,14 +6,15 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-17
+ * @version 1.2
+ * @date 2026-06-23
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            初始版本
  * 2026-06-17       1.1            zeh            背隙逆补偿
+ * 2026-06-23       1.2            zeh            bm_algo_backlash_inverse 换向时重置偏移，修复只增不减缺陷
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

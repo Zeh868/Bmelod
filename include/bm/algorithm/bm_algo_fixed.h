@@ -7,8 +7,8 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 2.2
- * @date 2026-06-17
+ * @version 2.3
+ * @date 2026-06-23
  *
  * @par 修改日志:
  *
@@ -26,6 +26,7 @@
  * 2026-06-17       2.0            zeh            定点第十一批：PI/PR/斜坡/梯形/冗余/速率/SOC 融合 Q15/Q31
  * 2026-06-17       2.1            zeh            定点第十二批：S 曲线/MPPT/信号质量/Wh 积分 Q15/Q31
  * 2026-06-17       2.2            zeh            定点第十四批：全族 Q31/Q15 后缀 API 收口
+ * 2026-06-23       2.3            zeh            缺陷修复：Mahony Q15/Q31 state 新增 Ki 积分持久化字段
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -1491,10 +1492,13 @@ typedef struct {
 } bm_algo_mahony_q15_config_t;
 
 typedef struct {
-    bm_algo_q15_t qw_q15;
-    bm_algo_q15_t qx_q15;
-    bm_algo_q15_t qy_q15;
-    bm_algo_q15_t qz_q15;
+    bm_algo_q15_t qw_q15;      /**< 四元数 w 分量（Q15） */
+    bm_algo_q15_t qx_q15;      /**< 四元数 x 分量（Q15） */
+    bm_algo_q15_t qy_q15;      /**< 四元数 y 分量（Q15） */
+    bm_algo_q15_t qz_q15;      /**< 四元数 z 分量（Q15） */
+    float integral_x;           /**< Ki 积分项 x（浮点保存帧间状态，对应 bm_algo_mahony_state_t.integral_x） */
+    float integral_y;           /**< Ki 积分项 y（浮点保存帧间状态） */
+    float integral_z;           /**< Ki 积分项 z（浮点保存帧间状态） */
 } bm_algo_mahony_q15_state_t;
 
 void bm_algo_mahony_q15_reset(bm_algo_mahony_q15_state_t *state);
@@ -1516,10 +1520,13 @@ typedef struct {
 } bm_algo_mahony_q31_config_t;
 
 typedef struct {
-    bm_algo_q31_t qw_q31;
-    bm_algo_q31_t qx_q31;
-    bm_algo_q31_t qy_q31;
-    bm_algo_q31_t qz_q31;
+    bm_algo_q31_t qw_q31;      /**< 四元数 w 分量（Q31） */
+    bm_algo_q31_t qx_q31;      /**< 四元数 x 分量（Q31） */
+    bm_algo_q31_t qy_q31;      /**< 四元数 y 分量（Q31） */
+    bm_algo_q31_t qz_q31;      /**< 四元数 z 分量（Q31） */
+    float integral_x;           /**< Ki 积分项 x（浮点保存帧间状态，对应 bm_algo_mahony_state_t.integral_x） */
+    float integral_y;           /**< Ki 积分项 y（浮点保存帧间状态） */
+    float integral_z;           /**< Ki 积分项 z（浮点保存帧间状态） */
 } bm_algo_mahony_q31_state_t;
 
 void bm_algo_mahony_q31_reset(bm_algo_mahony_q31_state_t *state);

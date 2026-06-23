@@ -3,21 +3,32 @@
  * @brief 姿态融合算法实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-17
+ * @version 1.2
+ * @date 2026-06-23
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-17       1.1            zeh            增加 IMU 偏置/比例标定
+ * 2026-06-23       1.2            zeh            NaN 拦截改用 bm_algo_is_finite_f；Mahony 积分项增加对称限幅
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_fusion.h"
+#include "bm/algorithm/bm_algo_common.h"
 #include <stddef.h>
 
 #include <math.h>
+
+/**
+ * @brief Mahony 积分项对称限幅上界（rad/s²·s 等效）
+ *
+ * 限幅依据：kp 典型值 2.0，ki 典型值 0.005；在 ki 最大 0.1、最差误差 π rad 且
+ * 连续 100 s 积分的极端场景下积分项上界约为 31.4。取 50 留有余量，足以覆盖
+ * 实际 AHRS 工作范围，同时防止积分无界发散。
+ */
+#define BM_MAHONY_INTEGRAL_LIMIT 50.0f
 
 #ifndef BM_ALGO_PI_F
 #define BM_ALGO_PI_F 3.14159265358979323846f
@@ -105,7 +116,9 @@ void bm_algo_mahony_step(bm_algo_mahony_state_t *state,
     q2 = state->q.y;
     q3 = state->q.z;
 
-    if (ax != 0.0f || ay != 0.0f || az != 0.0f) {
+    /* 使用 bm_algo_is_finite_f 同时拦截 NaN 与 Inf；纯零向量跳过加速度修正 */
+    if (bm_algo_is_finite_f(ax) && bm_algo_is_finite_f(ay) && bm_algo_is_finite_f(az) &&
+        (ax != 0.0f || ay != 0.0f || az != 0.0f)) {
         recip_norm = inv_sqrt(ax * ax + ay * ay + az * az);
         ax *= recip_norm;
         ay *= recip_norm;
@@ -122,6 +135,17 @@ void bm_algo_mahony_step(bm_algo_mahony_state_t *state,
         state->integral_x += config->ki * ex * dt_s;
         state->integral_y += config->ki * ey * dt_s;
         state->integral_z += config->ki * ez * dt_s;
+
+        /* 对称限幅：防止积分项在长时间低速或传感器故障时无界增长 */
+        state->integral_x = bm_algo_clamp_f(state->integral_x,
+                                            -BM_MAHONY_INTEGRAL_LIMIT,
+                                             BM_MAHONY_INTEGRAL_LIMIT);
+        state->integral_y = bm_algo_clamp_f(state->integral_y,
+                                            -BM_MAHONY_INTEGRAL_LIMIT,
+                                             BM_MAHONY_INTEGRAL_LIMIT);
+        state->integral_z = bm_algo_clamp_f(state->integral_z,
+                                            -BM_MAHONY_INTEGRAL_LIMIT,
+                                             BM_MAHONY_INTEGRAL_LIMIT);
 
         gx += config->kp * ex + state->integral_x;
         gy += config->kp * ey + state->integral_y;
@@ -182,7 +206,9 @@ void bm_algo_madgwick_step(bm_algo_madgwick_state_t *state,
     q2 = state->q.y;
     q3 = state->q.z;
 
-    if (ax != 0.0f || ay != 0.0f || az != 0.0f) {
+    /* 使用 bm_algo_is_finite_f 同时拦截 NaN 与 Inf；纯零向量跳过梯度修正 */
+    if (bm_algo_is_finite_f(ax) && bm_algo_is_finite_f(ay) && bm_algo_is_finite_f(az) &&
+        (ax != 0.0f || ay != 0.0f || az != 0.0f)) {
         recip_norm = inv_sqrt(ax * ax + ay * ay + az * az);
         ax *= recip_norm;
         ay *= recip_norm;

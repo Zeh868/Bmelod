@@ -3,13 +3,15 @@
  * @brief 电源算法：SOGI-PLL、MPPT 与 RMS 实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-06-13
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
+ * 2026-06-23       1.1            zeh            SOGI 前向欧拉稳定条件注释补充；
+ *                                                bm_algo_sogi_pll_step 积分器增加对称限幅
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -55,7 +57,10 @@ void bm_algo_sogi_pll_step(bm_algo_sogi_pll_state_t *state,
     k = config->k_sogi;
     omega = state->omega_rad_s;
 
-    /* Continuous SOGI state equations, integrated with forward Euler. */
+    /* SOGI 连续状态方程，前向欧拉离散。
+     * 稳定性约束：omega * dt_s < 2；
+     * 50 Hz（ω≈314 rad/s）下要求 dt_s < 6.37 ms（采样率 > 157 Hz）。
+     * 若无法满足此约束，应改用 Tustin（双线性）离散化。*/
     d_alpha = omega * (k * (v_input - state->v_alpha) - state->v_beta);
     d_beta = omega * state->v_alpha;
     state->v_alpha += d_alpha * dt_s;
@@ -65,6 +70,21 @@ void bm_algo_sogi_pll_step(bm_algo_sogi_pll_state_t *state,
     vq = -sinf(state->theta_rad) * state->v_alpha
          + cosf(state->theta_rad) * state->v_beta;
     state->integrator += config->k_pll * vq * dt_s;
+
+    /* 积分器对称限幅：防止频率估计无限漂移。
+     * 限幅比由 config->integrator_limit_ratio 配置（建议 0.2），
+     * 0 时自动取 0.2，即允许偏差 ±20% 额定角频率。*/
+    {
+        float limit_ratio;
+        float int_limit;
+
+        limit_ratio = (config->integrator_limit_ratio > 0.0f)
+                      ? config->integrator_limit_ratio : 0.2f;
+        int_limit = config->nominal_omega_rad_s * limit_ratio;
+        state->integrator = bm_algo_clamp_f(state->integrator,
+                                            -int_limit, int_limit);
+    }
+
     state->omega_rad_s = config->nominal_omega_rad_s + state->integrator;
     state->theta_rad += state->omega_rad_s * dt_s;
 

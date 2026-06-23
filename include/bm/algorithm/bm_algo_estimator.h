@@ -4,14 +4,15 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-17
+ * @version 1.2
+ * @date 2026-06-23
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-17       1.1            zeh            增加 1D UKF 与 EKF 创新门控
+ * 2026-06-23       1.2            zeh            KF 更新分母阈值放宽为 1e-9f；UKF β 修正项补注释
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
