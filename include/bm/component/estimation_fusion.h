@@ -2,9 +2,12 @@
  * @file estimation_fusion.h
  * @brief 姿态/状态估算融合选择器（互补 / Mahony / EKF-CV）
  *
+ * 支持三种融合模式，并提供 bm_exec_ops_t 调度封装。
+ * run 回调驱动 IMU 读取→step→publish 全流程。
+ *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.2
+ * @version 0.3
  * @date 2026-06-13
  *
  * @par 修改日志:
@@ -12,6 +15,7 @@
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            落地 EKF_CV 融合模式；补 SPDX 头
+ * 2026-06-23       0.3            zeh            补 exec_ops 声明；完善公共函数 Doxygen
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -20,6 +24,7 @@
 
 #include "bm/algorithm/bm_algo_estimator.h"
 #include "bm/algorithm/bm_algo_fusion.h"
+#include "bm/hybrid/bm_exec.h"
 
 #include <stdint.h>
 
@@ -127,10 +132,44 @@ void bm_estimation_fusion_reset(bm_estimation_fusion_axis_t *axis);
  *
  * 从 resources.read_imu 读取 IMU 数据，依据 config.mode 分发到对应算法，
  * 更新 state.euler，并通过 resources.publish_telemetry 上报遥测。
+ * read_imu 为 NULL 或读取失败时打对应 status 标志后直接发布上一拍数据。
  *
  * @param axis 指向已初始化的轴实例；为 NULL 时静默返回
  */
 void bm_estimation_fusion_step(bm_estimation_fusion_axis_t *axis);
+
+/**
+ * @brief exec_ops run 回调：将 instance->state 转发至 bm_estimation_fusion_step
+ *
+ * @param instance bm_exec_t 实例（state 指向 bm_estimation_fusion_axis_t）
+ */
+void bm_estimation_fusion_exec_run(const bm_exec_t *instance);
+
+/**
+ * @brief exec_ops init 回调：校验配置并完成初始化
+ *
+ * @param instance bm_exec_t 实例
+ * @return BM_OK 成功；BM_ERR_INVALID 配置非法或指针为 NULL
+ */
+int  bm_estimation_fusion_exec_init(const bm_exec_t *instance);
+
+/**
+ * @brief exec_ops start 回调（当前无需额外操作）
+ *
+ * @param instance bm_exec_t 实例
+ * @return BM_OK
+ */
+int  bm_estimation_fusion_exec_start(const bm_exec_t *instance);
+
+/**
+ * @brief exec_ops safe_stop 回调：清零欧拉角输出
+ *
+ * @param instance bm_exec_t 实例
+ */
+void bm_estimation_fusion_exec_safe_stop(const bm_exec_t *instance);
+
+/** @brief estimation_fusion exec_ops 表，可直接赋给 bm_exec_t.ops */
+extern const bm_exec_ops_t bm_estimation_fusion_exec_ops;
 
 #ifdef __cplusplus
 }

@@ -6,7 +6,7 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-06-17
  *
  * @par 修改日志:
@@ -22,6 +22,9 @@
  * 2026-06-17       0.8            zeh            DEPTHWISE 3x3 stride1 算子
  * 2026-06-17       0.9            zeh            CONV2D 1x1 NCHW 算子
  * 2026-06-23       1.0            zeh            通用 CONV2D（任意核/步长/padding）
+ * 2026-06-23       1.1            zeh            补 SPDX 与函数级 Doxygen
+ *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 #ifndef BM_TINYML_ADAPTER_H
 #define BM_TINYML_ADAPTER_H
@@ -112,24 +115,63 @@ typedef struct {
     uint32_t               tensor_count;
 } bm_tinyml_graph_t;
 
+/**
+ * @brief 复位静态 arena（偏移归零，峰值清零）
+ * @param arena arena 实例（NULL 时直接返回）
+ */
 void bm_tinyml_arena_reset(bm_tinyml_arena_t *arena);
 
+/**
+ * @brief 查询 arena 当前已分配字节数
+ * @param arena arena 实例（可为 NULL，返回 0）
+ * @return 当前 offset 值（字节）
+ */
 uint32_t bm_tinyml_arena_bytes_used(const bm_tinyml_arena_t *arena);
 
+/**
+ * @brief 从 arena 按对齐分配内存（bump pointer，不可释放单块）
+ * @param arena arena 实例（不可为 NULL）
+ * @param size  需分配字节数（不可为 0）
+ * @param align 对齐字节数（0 时默认 4 字节对齐）
+ * @return 成功返回对齐后的指针；空间不足返回 NULL
+ */
 void *bm_tinyml_arena_alloc(bm_tinyml_arena_t *arena,
                             uint32_t size,
                             uint32_t align);
 
+/**
+ * @brief 在 arena 中分配 int8 tensor 并填写元数据
+ * @param arena  arena 实例（不可为 NULL）
+ * @param tensor 输出 tensor 描述符（不可为 NULL）
+ * @param dims   各维度大小数组（不可为 NULL；每个维度须 ≥1）
+ * @param ndim   维度数，范围 [1, 4]
+ * @param quant  量化参数（可为 NULL，则 scale=1.0 zero_point=0）
+ * @return 0 成功；-1 参数无效或空间不足
+ */
 int bm_tinyml_tensor_alloc_i8(bm_tinyml_arena_t *arena,
                               bm_tinyml_tensor_t *tensor,
                               const uint32_t *dims,
                               uint32_t ndim,
                               const bm_tinyml_quant_params_t *quant);
 
+/**
+ * @brief 将 float32 缓冲量化写入 tensor 的 int8 数据区
+ * @param tensor 目标 tensor（不可为 NULL；data 须已分配）
+ * @param src    源 float32 缓冲（不可为 NULL）
+ * @param count  量化元素数，须 ≤ tensor->byte_count
+ * @return 0 成功；-1 参数无效
+ */
 int bm_tinyml_tensor_quantize_f32(const bm_tinyml_tensor_t *tensor,
                                   const float *src,
                                   uint32_t count);
 
+/**
+ * @brief 将 tensor 的 int8 数据反量化为 float32 并写入 dst
+ * @param tensor 源 tensor（不可为 NULL；data 须已分配）
+ * @param dst    目标 float32 缓冲（不可为 NULL）
+ * @param count  反量化元素数，须 ≤ tensor->byte_count
+ * @return 0 成功；-1 参数无效
+ */
 int bm_tinyml_tensor_dequantize_f32(const bm_tinyml_tensor_t *tensor,
                                     float *dst,
                                     uint32_t count);

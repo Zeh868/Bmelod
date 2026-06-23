@@ -1,15 +1,21 @@
 /**
  * @file transport_qos.c
  * @brief 传输延迟与抖动监控实现
+ *
+ * 基于 on_tx/on_rx 钩子测量单程延迟，EMA 滤波后触发报警；
+ * 同时集成 token bucket 令牌桶对出队字节进行整形。
+ *
  * @author zeh (china_qzh@163.com)
- * @version 0.1
+ * @version 0.2
  * @date 2026-06-13
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
+ * 2026-06-23       0.2            zeh            补 SPDX 与函数级 Doxygen
  *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 #include "bm/component/transport_qos.h"
 #include "bm/algorithm/bm_algo_common.h"
@@ -18,6 +24,12 @@
 #include <math.h>
 #include <string.h>
 
+/**
+ * @brief 校验 QoS 配置参数
+ *
+ * @param config 配置结构指针（不可为 NULL）
+ * @return BM_OK 合法；BM_ERR_INVALID 参数无效（ema_alpha 超范围）
+ */
 int bm_transport_qos_validate_config(const bm_transport_qos_config_t *config) {
     if (config == NULL || config->ema_alpha <= 0.0f ||
         config->ema_alpha > 1.0f) {
@@ -26,6 +38,11 @@ int bm_transport_qos_validate_config(const bm_transport_qos_config_t *config) {
     return BM_OK;
 }
 
+/**
+ * @brief 复位 QoS 状态（清零延迟/抖动/令牌与遥测）
+ *
+ * @param axis QoS 轴实例（NULL 时直接返回）
+ */
 void bm_transport_qos_reset(bm_transport_qos_axis_t *axis) {
     if (axis == NULL) {
         return;
@@ -41,6 +58,12 @@ void bm_transport_qos_reset(bm_transport_qos_axis_t *axis) {
     memset(&axis->state.telemetry, 0, sizeof(axis->state.telemetry));
 }
 
+/**
+ * @brief 初始化 QoS 轴（校验配置后复位，并按 burst 容量预填令牌）
+ *
+ * @param axis QoS 轴实例（不可为 NULL；config 须预先填写）
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效
+ */
 int bm_transport_qos_init(bm_transport_qos_axis_t *axis) {
     if (axis == NULL ||
         bm_transport_qos_validate_config(&axis->config) != BM_OK) {
@@ -53,6 +76,11 @@ int bm_transport_qos_init(bm_transport_qos_axis_t *axis) {
     return BM_OK;
 }
 
+/**
+ * @brief 记录当前时刻为发送时间戳（在数据包发出时调用）
+ *
+ * @param axis QoS 轴实例（NULL 或无 now_ms 回调时直接返回）
+ */
 void bm_transport_qos_on_tx(bm_transport_qos_axis_t *axis) {
     if (axis == NULL || axis->resources.now_ms == NULL) {
         return;
@@ -61,6 +89,11 @@ void bm_transport_qos_on_tx(bm_transport_qos_axis_t *axis) {
         axis->resources.now_ms(axis->resources.now_ms_user);
 }
 
+/**
+ * @brief 在收到数据包时计算延迟与抖动，并更新 EMA（在数据包到达时调用）
+ *
+ * @param axis QoS 轴实例（NULL 或无 now_ms 回调时直接返回）
+ */
 void bm_transport_qos_on_rx(bm_transport_qos_axis_t *axis) {
     const bm_transport_qos_config_t *cfg;
     float latency;
@@ -94,6 +127,14 @@ void bm_transport_qos_on_rx(bm_transport_qos_axis_t *axis) {
     axis->state.prev_tx_ms = 0u;
 }
 
+/**
+ * @brief 周期性步进：超时检测、报警判断、更新遥测并发布
+ *
+ * 若自发送起超过 latency_alarm_ms 未收到 on_rx，则视为超时并清除 prev_tx_ms。
+ * 遥测状态字 status 含 BM_TRANSPORT_QOS_TEL_VALID 及可选 BM_TRANSPORT_QOS_TEL_ALARM。
+ *
+ * @param axis QoS 轴实例（NULL 时直接返回）
+ */
 void bm_transport_qos_step(bm_transport_qos_axis_t *axis) {
     const bm_transport_qos_config_t *cfg;
     bm_transport_qos_state_t *st;
@@ -134,6 +175,16 @@ void bm_transport_qos_step(bm_transport_qos_axis_t *axis) {
     }
 }
 
+/**
+ * @brief token bucket 入队整形（消耗令牌）
+ *
+ * 若令牌充足则扣除 bytes 令牌后返回 0（接受）；
+ * 若 token_rate/burst 未配置则直接放行（返回 0）。
+ *
+ * @param axis  QoS 轴实例（不可为 NULL）
+ * @param bytes 待发送字节数（不可为 0）
+ * @return 0 接受；-1 丢弃（桶空或参数无效）
+ */
 int bm_transport_qos_enqueue(bm_transport_qos_axis_t *axis, uint32_t bytes) {
     const bm_transport_qos_config_t *cfg;
 

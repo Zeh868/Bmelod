@@ -1,21 +1,40 @@
 /**
  * @file spectral_diagnostics.c
  * @brief 振动频谱诊断组件实现
+ *
+ * 支持 Goertzel 单频检测与 STFT 帧幅度谱两种模式。
+ * STFT 模式下 stft_frame_size 须为 bm_algo_fft_is_supported_size
+ * 认可的尺寸（64 / 128 / 256 / 512 / 1024），校验在
+ * bm_spectral_diagnostics_validate_config 中执行。
+ *
  * @author zeh (china_qzh@163.com)
- * @version 0.1
+ * @version 0.2
  * @date 2026-06-13
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
+ * 2026-06-23       0.2            zeh            STFT frame_size FFT 合法尺寸校验；Doxygen；SPDX
  *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 #include "bm/component/spectral_diagnostics.h"
+#include "bm/algorithm/bm_algo_fft.h"
 #include "bm/common/bm_types.h"
 
 #include <string.h>
 
+/**
+ * @brief 校验频谱诊断配置参数合法性
+ *
+ * STFT 模式额外检查：
+ *   - stft_frame_size 须为 FFT 支持的点数（64/128/256/512/1024）；
+ *   - stft_frame / stft_window / stft_magnitude 缓冲指针均须非 NULL。
+ *
+ * @param config 配置指针，NULL 时返回 BM_ERR_INVALID
+ * @return BM_OK 合法；BM_ERR_INVALID 非法
+ */
 int bm_spectral_diagnostics_validate_config(
     const bm_spectral_diagnostics_config_t *config) {
     if (config == NULL || config->sample_hz <= 0.0f) {
@@ -24,6 +43,10 @@ int bm_spectral_diagnostics_validate_config(
     if (config->mode == BM_SPECTRAL_MODE_STFT) {
         if (config->stft_frame_size == 0u || config->stft_frame == NULL ||
             config->stft_window == NULL || config->stft_magnitude == NULL) {
+            return BM_ERR_INVALID;
+        }
+        /* 校验 stft_frame_size 是否为 FFT 支持的合法点数 */
+        if (!bm_algo_fft_is_supported_size(config->stft_frame_size)) {
             return BM_ERR_INVALID;
         }
     }

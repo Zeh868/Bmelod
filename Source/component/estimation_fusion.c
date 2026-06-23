@@ -1,8 +1,12 @@
 /**
  * @file estimation_fusion.c
  * @brief 估算融合选择器组件实现
+ *
+ * 支持互补滤波、Mahony AHRS、EKF-CV 单轴 pitch 跟踪三种模式，
+ * 并提供 bm_exec_ops_t 调度封装（run 驱动 IMU 读取→step→publish）。
+ *
  * @author zeh (china_qzh@163.com)
- * @version 0.2
+ * @version 0.3
  * @date 2026-06-13
  *
  * @par 修改日志:
@@ -10,6 +14,7 @@
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            落地 EKF_CV 融合模式：放行 validate、补 step 分支
+ * 2026-06-23       0.3            zeh            补 exec_ops 封装；补全公共函数 Doxygen
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -170,3 +175,46 @@ void bm_estimation_fusion_step(bm_estimation_fusion_axis_t *axis) {
             axis->resources.publish_telemetry_user, &st->telemetry);
     }
 }
+
+/* ---------- exec_ops 封装 ---------- */
+
+void bm_estimation_fusion_exec_run(const bm_exec_t *instance) {
+    if (instance != NULL && instance->state != NULL) {
+        bm_estimation_fusion_step(
+            (bm_estimation_fusion_axis_t *)instance->state);
+    }
+}
+
+int bm_estimation_fusion_exec_init(const bm_exec_t *instance) {
+    bm_estimation_fusion_axis_t *axis;
+
+    if (instance == NULL || instance->state == NULL) {
+        return BM_ERR_INVALID;
+    }
+    axis = (bm_estimation_fusion_axis_t *)instance->state;
+    return bm_estimation_fusion_init(axis);
+}
+
+int bm_estimation_fusion_exec_start(const bm_exec_t *instance) {
+    (void)instance;
+    return BM_OK;
+}
+
+void bm_estimation_fusion_exec_safe_stop(const bm_exec_t *instance) {
+    bm_estimation_fusion_axis_t *axis;
+
+    if (instance == NULL || instance->state == NULL) {
+        return;
+    }
+    axis = (bm_estimation_fusion_axis_t *)instance->state;
+    /* 安全停止：清零欧拉角输出，避免下游读到陈旧姿态 */
+    axis->state.euler.roll_rad  = 0.0f;
+    axis->state.euler.pitch_rad = 0.0f;
+    axis->state.euler.yaw_rad   = 0.0f;
+}
+
+const bm_exec_ops_t bm_estimation_fusion_exec_ops = {
+    bm_estimation_fusion_exec_init,
+    bm_estimation_fusion_exec_start,
+    bm_estimation_fusion_exec_safe_stop
+};

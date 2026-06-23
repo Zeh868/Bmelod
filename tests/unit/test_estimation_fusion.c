@@ -3,16 +3,17 @@
  * @brief estimation_fusion 组件单元测试
  *
  * 覆盖 validate_config 放行逻辑、EKF_CV 融合模式 step 分支可用性
- * 及数值合理性（pitch 角收敛到加速度计测量值附近）。
+ * 及数值合理性（pitch 角收敛到加速度计测量值附近）、exec_ops 生命周期。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-06-23
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-23       1.0            zeh            首版：EKF_CV 模式最小单测
+ * 2026-06-23       1.1            zeh            补 exec_ops 生命周期测试
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -220,6 +221,87 @@ void test_complementary_mode_still_works(void) {
     TEST_ASSERT_TRUE(isfinite(axis.state.euler.roll_rad));
 }
 
+/* ================================================================
+ * exec_ops 生命周期测试
+ * ================================================================ */
+
+/**
+ * @brief exec_ops init/start/safe_stop 全路径
+ */
+void test_estimation_fusion_exec_ops_lifecycle(void) {
+    bm_estimation_fusion_axis_t axis;
+    bm_exec_t                   exec;
+
+    memset(&axis, 0, sizeof(axis));
+    axis.config.mode            = BM_EST_FUSION_EKF_CV;
+    axis.config.dt_s            = 0.01f;
+    axis.config.ekf_cv.q_pos    = 0.01f;
+    axis.config.ekf_cv.q_vel    = 0.01f;
+    axis.config.ekf_cv.r_pos    = 0.1f;
+    axis.resources.read_imu     = read_imu_stub;
+    axis.resources.publish_telemetry = publish_tel_stub;
+
+    memset(&exec, 0, sizeof(exec));
+    exec.state = &axis;
+
+    /* init 应成功 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_estimation_fusion_exec_ops.init(&exec));
+    /* start 应返回 BM_OK */
+    TEST_ASSERT_EQUAL(BM_OK, bm_estimation_fusion_exec_ops.start(&exec));
+
+    /* safe_stop 应清零欧拉角 */
+    axis.state.euler.roll_rad  = 1.0f;
+    axis.state.euler.pitch_rad = 0.5f;
+    axis.state.euler.yaw_rad   = 0.3f;
+    bm_estimation_fusion_exec_ops.safe_stop(&exec);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, axis.state.euler.roll_rad);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, axis.state.euler.pitch_rad);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, axis.state.euler.yaw_rad);
+}
+
+/**
+ * @brief exec_ops init 对非法配置返回 BM_ERR_INVALID
+ */
+void test_estimation_fusion_exec_ops_init_rejects_bad_config(void) {
+    bm_estimation_fusion_axis_t axis;
+    bm_exec_t                   exec;
+
+    memset(&axis, 0, sizeof(axis));
+    axis.config.mode  = BM_EST_FUSION_EKF_CV;
+    axis.config.dt_s  = -1.0f; /* 非法 */
+
+    memset(&exec, 0, sizeof(exec));
+    exec.state = &axis;
+
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_estimation_fusion_exec_ops.init(&exec));
+}
+
+/**
+ * @brief exec_ops run 正确转发给 step（sequence 递增）
+ */
+void test_estimation_fusion_exec_ops_run_forwards_to_step(void) {
+    bm_estimation_fusion_axis_t axis;
+    bm_exec_t                   exec;
+
+    memset(&axis, 0, sizeof(axis));
+    axis.config.mode            = BM_EST_FUSION_EKF_CV;
+    axis.config.dt_s            = 0.01f;
+    axis.config.ekf_cv.q_pos    = 0.01f;
+    axis.config.ekf_cv.q_vel    = 0.01f;
+    axis.config.ekf_cv.r_pos    = 0.1f;
+    axis.resources.read_imu     = read_imu_stub;
+    axis.resources.publish_telemetry = publish_tel_stub;
+
+    memset(&exec, 0, sizeof(exec));
+    exec.state = &axis;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_estimation_fusion_exec_ops.init(&exec));
+    bm_estimation_fusion_exec_run(&exec);
+
+    TEST_ASSERT_EQUAL_UINT32(1u, axis.state.step_count);
+    TEST_ASSERT_EQUAL_UINT32(1u, s_tel_count);
+}
+
 /* ---------- main ---------- */
 
 int main(void) {
@@ -230,5 +312,8 @@ int main(void) {
     RUN_TEST(test_ekf_cv_pitch_converges_to_zero);
     RUN_TEST(test_ekf_cv_pitch_converges_to_30deg);
     RUN_TEST(test_complementary_mode_still_works);
+    RUN_TEST(test_estimation_fusion_exec_ops_lifecycle);
+    RUN_TEST(test_estimation_fusion_exec_ops_init_rejects_bad_config);
+    RUN_TEST(test_estimation_fusion_exec_ops_run_forwards_to_step);
     return UNITY_END();
 }

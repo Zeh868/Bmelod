@@ -6,13 +6,16 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.1
+ * @version 0.2
  * @date 2026-06-17
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-17       0.1            zeh            初始骨架
+ * 2026-06-23       0.2            zeh            补 SPDX 与函数级 Doxygen
+ *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 #ifndef BM_RADAR_FRONTEND_H
 #define BM_RADAR_FRONTEND_H
@@ -53,15 +56,44 @@ typedef struct {
     bm_radar_frontend_state_t  state;
 } bm_radar_frontend_axis_t;
 
+/**
+ * @brief 校验雷达前端配置参数
+ * @param config 配置结构指针（不可为 NULL）
+ * @return BM_OK 合法；BM_ERR_INVALID 无效
+ */
 int  bm_radar_frontend_validate_config(
     const bm_radar_frontend_config_t *config);
+
+/**
+ * @brief 初始化雷达前端（绑定缓冲并初始化 RFFT 实例）
+ * @param axis           轴实例（不可为 NULL；config 须预先填写）
+ * @param profile        距离像输出缓冲，长度 ≥ fft_size
+ * @param profile_len    profile 缓冲元素数
+ * @param clutter_mean   杂波均值缓冲，长度 = fft_size/2
+ * @param fft_work       RFFT 工作缓冲
+ * @param fft_work_count fft_work 元素数，须 ≥ 2*fft_size
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效
+ */
 int  bm_radar_frontend_init(bm_radar_frontend_axis_t *axis,
                             float *profile,
                             uint32_t profile_len,
                             float *clutter_mean,
                             float *fft_work,
                             uint32_t fft_work_count);
+
+/**
+ * @brief 复位雷达前端状态（清零杂波均值缓冲与遥测）
+ * @param axis 轴实例指针（NULL 时直接返回）
+ */
 void bm_radar_frontend_reset(bm_radar_frontend_axis_t *axis);
+
+/**
+ * @brief 馈入一帧 chirp 采样并更新距离像与遥测
+ * @param axis          已初始化的轴实例（不可为 NULL）
+ * @param chirp_samples 输入 chirp 原始采样（不可为 NULL）
+ * @param sample_count  采样点数，须 ≥ config.fft_size
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效或 FFT 执行失败
+ */
 int  bm_radar_frontend_feed_chirp(bm_radar_frontend_axis_t *axis,
                                   const float *chirp_samples,
                                   uint32_t sample_count);

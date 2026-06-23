@@ -2,7 +2,7 @@
  * @file motor_foc_sensorless.c
  * @brief 无感 FOC 领域组件实现
  * @author zeh (china_qzh@163.com)
- * @version 0.2
+ * @version 0.3
  * @date 2026-06-17
  *
  * @par 修改日志:
@@ -10,7 +10,9 @@
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-17       0.2            zeh            启动状态机
+ * 2026-06-23       0.3            zeh            补 SPDX 与函数级 Doxygen
  *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 #include "bm/component/motor_foc_sensorless.h"
 
@@ -20,45 +22,111 @@
 #include <math.h>
 #include <string.h>
 
+/**
+ * @brief 将 ADC 原始值转换为相电流（静态辅助）
+ *
+ * 以 raw=32768 对应零电流，满量程由 scale 决定（A/LSB 的倒数）。
+ *
+ * @param scale ADC 满码对应电流（A）；须 > 0
+ * @param raw   ADC 原始采样值（无符号 16 位）
+ * @return 对应相电流（A），正负号由原始值相对 32768 的偏差决定
+ */
 static float adc_to_current(float scale, uint16_t raw) {
     return ((float)((int32_t)raw - 32768)) / scale;
 }
 
+/**
+ * @brief 判断仿真反馈是否全部激活（静态辅助）
+ *
+ * 三路指针（id_a / iq_a / theta_elec_rad）均非 NULL 时返回真。
+ *
+ * @param res 资源结构体指针
+ * @return 非零：仿真反馈有效；0：使用真实 ADC
+ */
 static int sim_feedback_active(const bm_motor_foc_sensorless_resources_t *res) {
     return res->sim_fb.id_a != NULL &&
            res->sim_fb.iq_a != NULL &&
            res->sim_fb.theta_elec_rad != NULL;
 }
 
+/**
+ * @brief 获取预对齐持续时间（静态辅助，带默认值保护）
+ *
+ * @param cfg 配置指针
+ * @return align_time_s（> 0）；配置值 ≤ 0 时返回 0.2 s
+ */
 static float cfg_align_time_s(const bm_motor_foc_sensorless_config_t *cfg) {
     return (cfg->align_time_s > 0.0f) ? cfg->align_time_s : 0.2f;
 }
 
+/**
+ * @brief 获取开环升速斜坡时间（静态辅助，带默认值保护）
+ *
+ * @param cfg 配置指针
+ * @return open_loop_ramp_s（> 0）；配置值 ≤ 0 时返回 0.5 s
+ */
 static float cfg_open_loop_ramp_s(const bm_motor_foc_sensorless_config_t *cfg) {
     return (cfg->open_loop_ramp_s > 0.0f) ? cfg->open_loop_ramp_s : 0.5f;
 }
 
+/**
+ * @brief 获取开环初始角速度（静态辅助，带默认值保护）
+ *
+ * @param cfg 配置指针
+ * @return open_loop_omega_start（> 0）；配置值 ≤ 0 时返回 20 rad/s
+ */
 static float cfg_omega_start(const bm_motor_foc_sensorless_config_t *cfg) {
     return (cfg->open_loop_omega_start > 0.0f) ? cfg->open_loop_omega_start : 20.0f;
 }
 
+/**
+ * @brief 获取开环目标角速度（静态辅助，带默认值保护）
+ *
+ * @param cfg 配置指针
+ * @return open_loop_omega_end（> 0）；配置值 ≤ 0 时返回 200 rad/s
+ */
 static float cfg_omega_end(const bm_motor_foc_sensorless_config_t *cfg) {
     return (cfg->open_loop_omega_end > 0.0f) ? cfg->open_loop_omega_end : 200.0f;
 }
 
+/**
+ * @brief 获取预对齐注入 d 轴电流（静态辅助，带默认值保护）
+ *
+ * @param cfg 配置指针
+ * @return align_id_a（> 0）；配置值 ≤ 0 时返回 0.3 A
+ */
 static float cfg_align_id_a(const bm_motor_foc_sensorless_config_t *cfg) {
     return (cfg->align_id_a > 0.0f) ? cfg->align_id_a : 0.3f;
 }
 
+/**
+ * @brief 获取观测器锁定判定最小角速度（静态辅助，带默认值保护）
+ *
+ * @param cfg 配置指针
+ * @return observer_lock_omega_rad_s（> 0）；配置值 ≤ 0 时返回 30 rad/s
+ */
 static float cfg_lock_omega(const bm_motor_foc_sensorless_config_t *cfg) {
     return (cfg->observer_lock_omega_rad_s > 0.0f) ?
            cfg->observer_lock_omega_rad_s : 30.0f;
 }
 
+/**
+ * @brief 获取观测器锁定故障触发时间（静态辅助，带默认值保护）
+ *
+ * @param cfg 配置指针
+ * @return observer_lock_time_s（> 0）；配置值 ≤ 0 时返回 0.5 s
+ */
 static float cfg_lock_time_s(const bm_motor_foc_sensorless_config_t *cfg) {
     return (cfg->observer_lock_time_s > 0.0f) ? cfg->observer_lock_time_s : 0.5f;
 }
 
+/**
+ * @brief 将三相 PWM 占空比全置零（静态辅助）
+ *
+ * resources.pwm 为 NULL 时静默跳过。
+ *
+ * @param res 资源结构体指针
+ */
 static void pwm_zero(const bm_motor_foc_sensorless_resources_t *res) {
     if (res->pwm != NULL) {
         (void)bm_hal_pwm_set_duty(res->pwm, 0u, 0u);
@@ -67,6 +135,14 @@ static void pwm_zero(const bm_motor_foc_sensorless_resources_t *res) {
     }
 }
 
+/**
+ * @brief 锁存故障并将 PWM 置安全状态（静态辅助）
+ *
+ * 置相位为 FAULT，递增 fault_count，复位两轴 PI，
+ * 调用 pwm_zero() 后向 HAL 发出安全状态请求。
+ *
+ * @param axis 实例指针
+ */
 static void latch_fault(bm_motor_foc_sensorless_axis_t *axis) {
     bm_motor_foc_sensorless_state_t *st = &axis->state;
 
@@ -83,6 +159,14 @@ static void latch_fault(bm_motor_foc_sensorless_axis_t *axis) {
     }
 }
 
+/**
+ * @brief 从回调读取最新命令并应用（静态辅助）
+ *
+ * read_command 回调返回 0 时调用 bm_motor_foc_sensorless_apply_command()；
+ * 回调为 NULL 或返回非零时保持旧命令。
+ *
+ * @param axis 实例指针
+ */
 static void sync_command(bm_motor_foc_sensorless_axis_t *axis) {
     bm_motor_sl_cmd_t command;
 
@@ -93,6 +177,17 @@ static void sync_command(bm_motor_foc_sensorless_axis_t *axis) {
     }
 }
 
+/**
+ * @brief 从 ADC 读取 A/B 相电流（静态辅助）
+ *
+ * 仿真反馈激活时直接返回 -1 通知调用方使用仿真值；
+ * ADC 句柄为 NULL 或 scale ≤ 0 时同样返回 -1。
+ *
+ * @param axis 实例指针（只读）
+ * @param ia   输出：A 相电流（A）
+ * @param ib   输出：B 相电流（A）
+ * @return 0 成功；-1 应使用仿真反馈或 ADC 不可用
+ */
 static int read_current_ab(const bm_motor_foc_sensorless_axis_t *axis,
                            float *ia,
                            float *ib) {
@@ -117,6 +212,20 @@ static int read_current_ab(const bm_motor_foc_sensorless_axis_t *axis,
     return 0;
 }
 
+/**
+ * @brief 计算 d/q 轴电流（静态辅助）
+ *
+ * 仿真反馈激活时直接读取 sim_fb 中的 id/iq；
+ * 否则对 ia/ib 执行 Clarke（两分流） + Park 变换。
+ *
+ * @param axis       实例指针（只读）
+ * @param theta_elec 当前电气角（rad）
+ * @param ia         A 相电流（A），仿真模式下忽略
+ * @param ib         B 相电流（A），仿真模式下忽略
+ * @param id         输出：d 轴电流（A）
+ * @param iq         输出：q 轴电流（A）
+ * @return 始终返回 0
+ */
 static int read_id_iq(const bm_motor_foc_sensorless_axis_t *axis,
                       float theta_elec,
                       float ia,
@@ -139,6 +248,13 @@ static int read_id_iq(const bm_motor_foc_sensorless_axis_t *axis,
     return 0;
 }
 
+/**
+ * @brief 进入使能序列：置相位为 ALIGN 并初始化开环参数（静态辅助）
+ *
+ * 复位磁链观测器，设置开环初始 omega 与计时器归零。
+ *
+ * @param axis 实例指针
+ */
 static void begin_enable(bm_motor_foc_sensorless_axis_t *axis) {
     bm_motor_foc_sensorless_state_t *st = &axis->state;
     const bm_motor_foc_sensorless_config_t *cfg = &axis->config;
@@ -407,6 +523,15 @@ void bm_motor_foc_sensorless_current_step(bm_motor_foc_sensorless_axis_t *axis) 
     st->loop_count++;
 }
 
+/**
+ * @brief exec 封装：同步命令后执行一步电流环并发布遥测
+ *
+ * 先调用 sync_command() 拉取最新命令，再调用
+ * bm_motor_foc_sensorless_current_step()，最后通过
+ * publish_telemetry 回调发布遥测。
+ *
+ * @param instance exec 实例指针，instance->state 须为 bm_motor_foc_sensorless_axis_t*
+ */
 void bm_motor_foc_sensorless_exec_current(const bm_exec_t *instance) {
     bm_motor_foc_sensorless_axis_t *axis;
 
@@ -423,6 +548,12 @@ void bm_motor_foc_sensorless_exec_current(const bm_exec_t *instance) {
     }
 }
 
+/**
+ * @brief exec 生命周期：初始化（校验配置并复位状态）
+ *
+ * @param instance exec 实例指针
+ * @return BM_OK 成功；BM_ERR_INVALID 配置非法或指针为空
+ */
 int bm_motor_foc_sensorless_exec_init(const bm_exec_t *instance) {
     bm_motor_foc_sensorless_axis_t *axis;
 
@@ -437,6 +568,14 @@ int bm_motor_foc_sensorless_exec_init(const bm_exec_t *instance) {
     return BM_OK;
 }
 
+/**
+ * @brief exec 生命周期：启动（使能 PWM 输出桥臂）
+ *
+ * 若 resources.pwm 非 NULL 则调用 bm_hal_pwm_enable_outputs()。
+ *
+ * @param instance exec 实例指针
+ * @return BM_OK 成功或无 PWM；BM_ERR_INVALID 指针为空
+ */
 int bm_motor_foc_sensorless_exec_start(const bm_exec_t *instance) {
     const bm_motor_foc_sensorless_axis_t *axis;
 
@@ -450,6 +589,13 @@ int bm_motor_foc_sensorless_exec_start(const bm_exec_t *instance) {
     return bm_hal_pwm_enable_outputs(axis->resources.pwm, 1);
 }
 
+/**
+ * @brief exec 生命周期：安全停机（触发 PWM 安全状态）
+ *
+ * 调用 bm_hal_pwm_request_safe_state() 将桥臂置于安全关断/制动状态。
+ *
+ * @param instance exec 实例指针
+ */
 void bm_motor_foc_sensorless_exec_safe_stop(const bm_exec_t *instance) {
     const bm_motor_foc_sensorless_axis_t *axis;
 
@@ -462,6 +608,12 @@ void bm_motor_foc_sensorless_exec_safe_stop(const bm_exec_t *instance) {
     }
 }
 
+/**
+ * @brief motor_foc_sensorless 标准 exec ops 表
+ *
+ * 将此指针赋给 bm_exec_t::ops，即可将 motor_foc_sensorless 实例
+ * 接入调度框架的生命周期管理。
+ */
 const bm_exec_ops_t bm_motor_foc_sensorless_exec_ops = {
     bm_motor_foc_sensorless_exec_init,
     bm_motor_foc_sensorless_exec_start,

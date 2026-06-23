@@ -2,14 +2,17 @@
  * @file motor_current_sense.c
  * @brief 2/3 分流电流重构组件实现
  * @author zeh (china_qzh@163.com)
- * @version 0.1
- * @date 2026-06-13
+ * @version 0.3
+ * @date 2026-06-23
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
+ * 2026-06-17       0.2            zeh            PWM 扇区采样窗口判定
+ * 2026-06-23       0.3            zeh            validate_config 字段校验；公共 API Doxygen；SPDX
  *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 #include "bm/component/motor_current_sense.h"
 #include "bm/common/bm_types.h"
@@ -44,6 +47,20 @@ static int read_adc_pair(const bm_motor_current_sense_axis_t *axis,
 int bm_motor_current_sense_validate_config(
     const bm_motor_current_sense_config_t *config) {
     if (config == NULL) {
+        return BM_ERR_INVALID;
+    }
+    /* topology 枚举合法性 */
+    if (config->topology != BM_MOTOR_CS_2SHUNT &&
+        config->topology != BM_MOTOR_CS_3SHUNT) {
+        return BM_ERR_INVALID;
+    }
+    /* ADC 触发相位：[0, 360) */
+    if (config->adc_phase_deg < 0.0f || config->adc_phase_deg >= 360.0f) {
+        return BM_ERR_INVALID;
+    }
+    /* 采样窗口半宽：0 表示禁用，非零时须 (0, 180) */
+    if (config->sample_window_deg < 0.0f ||
+        config->sample_window_deg >= 180.0f) {
         return BM_ERR_INVALID;
     }
     return BM_OK;

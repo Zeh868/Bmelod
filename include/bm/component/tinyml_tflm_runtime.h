@@ -7,13 +7,16 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.1
+ * @version 0.2
  * @date 2026-06-17
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-17       0.1            zeh            TFLM runtime E1 stub 与回调表
+ * 2026-06-23       0.2            zeh            补 SPDX 与函数级 Doxygen
+ *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 #ifndef BM_TINYML_TFLM_RUNTIME_H
 #define BM_TINYML_TFLM_RUNTIME_H

@@ -3,7 +3,7 @@
  * @brief 麦克风阵列 DAS/MVDR 波束成形实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.2
+ * @version 0.3
  * @date 2026-06-17
  *
  * @par 修改日志:
@@ -11,6 +11,9 @@
  *    Date         Version        Author          Description
  * 2026-06-17       0.1            zeh            初始骨架
  * 2026-06-17       0.2            zeh            MVDR 波束模式
+ * 2026-06-23       0.3            zeh            补 SPDX 与函数级 Doxygen
+ *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 #include "bm/component/audio_array_frontend.h"
 #include "bm/algorithm/bm_algo_audio.h"
@@ -19,6 +22,15 @@
 #include <math.h>
 #include <string.h>
 
+/**
+ * @brief 计算浮点样本序列的均方能量（静态辅助）
+ *
+ * 对 n 个样本求平方和后除以 n；samples 为 NULL 或 n=0 时返回 0。
+ *
+ * @param samples 样本数组指针
+ * @param n       样本个数
+ * @return 均方能量值（≥ 0）
+ */
 static float compute_energy(const float *samples, uint32_t n) {
     uint32_t i;
     float e = 0.0f;
@@ -32,6 +44,15 @@ static float compute_energy(const float *samples, uint32_t n) {
     return e / (float)n;
 }
 
+/**
+ * @brief 更新各通道实际延迟（静态辅助）
+ *
+ * 若 use_fixed_delay 置位则直接复制固定值；否则对每个通道相对通道 0
+ * 调用 GCC-PHAT 估计样本级延迟；工作缓冲区不足时全置零。
+ *
+ * @param axis     实例指针
+ * @param channels 各通道 PCM 帧数组（仅读，不修改）
+ */
 static void update_delays(bm_audio_array_frontend_axis_t *axis,
                           const float *channels[BM_AUDIO_ARRAY_MAX_CHANNELS]) {
     const bm_audio_array_frontend_config_t *cfg = &axis->config;
