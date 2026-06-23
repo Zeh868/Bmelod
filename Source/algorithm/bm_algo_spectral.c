@@ -3,8 +3,8 @@
  * @brief 频谱分析算法实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-13
+ * @version 1.3
+ * @date 2026-06-23
  *
  * @par 修改日志:
  *
@@ -12,6 +12,7 @@
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-13       1.1            zeh            增加 STFT 幅度谱与阶次换算
  * 2026-06-17       1.2            zeh            增加重叠 STFT 状态机
+ * 2026-06-23       1.3            zeh            bm_algo_stft_overlap_init 增加 frame_size>64 上限校验，与 feed 内栈帧约束一致
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -217,7 +218,8 @@ int bm_algo_stft_overlap_init(bm_algo_stft_overlap_t *state,
                               float *ring_buffer,
                               uint32_t ring_buffer_len) {
     if (state == NULL || config == NULL || ring_buffer == NULL ||
-        config->frame_size < 2u || config->hop_size == 0u ||
+        config->frame_size < 2u || config->frame_size > 64u ||
+        config->hop_size == 0u ||
         config->hop_size > config->frame_size ||
         ring_buffer_len < config->frame_size) {
         return -1;

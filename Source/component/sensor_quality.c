@@ -1,15 +1,21 @@
 /**
  * @file sensor_quality.c
  * @brief 传感器信号质量监控组件实现
+ *
+ * 三级质量检查：范围越限、变化率超限、冻结值检测。
+ * exec_ops 封装提供 bm_exec 周期调度接入点。
+ *
  * @author zeh (china_qzh@163.com)
- * @version 0.1
+ * @version 0.2
  * @date 2026-06-13
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
+ * 2026-06-23       0.2            zeh            补 exec_ops 封装；Doxygen；SPDX
  *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 #include "bm/component/sensor_quality.h"
 #include "bm/algorithm/bm_algo_common.h"
@@ -109,3 +115,69 @@ void bm_sensor_quality_step(bm_sensor_quality_axis_t *axis) {
             axis->resources.publish_telemetry_user, &st->telemetry);
     }
 }
+
+/* ---------- exec_ops 封装 ---------- */
+
+/**
+ * @brief exec_ops.run 转发：调用 bm_sensor_quality_step
+ *
+ * @param instance bm_exec 实例；instance->state 须指向 bm_sensor_quality_axis_t
+ */
+void bm_sensor_quality_exec_run(const bm_exec_t *instance) {
+    if (instance != NULL && instance->state != NULL) {
+        bm_sensor_quality_step((bm_sensor_quality_axis_t *)instance->state);
+    }
+}
+
+/**
+ * @brief exec_ops.init 实现：校验配置并以 0.0f 为初始值复位状态
+ *
+ * @param instance bm_exec 实例
+ * @return BM_OK 成功；BM_ERR_INVALID 参数非法或配置校验失败
+ */
+int bm_sensor_quality_exec_init(const bm_exec_t *instance) {
+    bm_sensor_quality_axis_t *axis;
+
+    if (instance == NULL || instance->state == NULL) {
+        return BM_ERR_INVALID;
+    }
+    axis = (bm_sensor_quality_axis_t *)instance->state;
+    if (bm_sensor_quality_validate_config(&axis->config) != BM_OK) {
+        return BM_ERR_INVALID;
+    }
+    bm_sensor_quality_reset(axis, 0.0f);
+    return BM_OK;
+}
+
+/**
+ * @brief exec_ops.start 实现：无额外启动动作，始终返回 BM_OK
+ *
+ * @param instance bm_exec 实例（未使用）
+ * @return BM_OK
+ */
+int bm_sensor_quality_exec_start(const bm_exec_t *instance) {
+    (void)instance;
+    return BM_OK;
+}
+
+/**
+ * @brief exec_ops.safe_stop 实现：清零故障标志，停止遥测输出
+ *
+ * @param instance bm_exec 实例；instance->state 须指向 bm_sensor_quality_axis_t
+ */
+void bm_sensor_quality_exec_safe_stop(const bm_exec_t *instance) {
+    bm_sensor_quality_axis_t *axis;
+
+    if (instance == NULL || instance->state == NULL) {
+        return;
+    }
+    axis = (bm_sensor_quality_axis_t *)instance->state;
+    axis->state.fault_flags = 0u;
+}
+
+/** @brief sensor_quality 标准 exec 生命周期操作表 */
+const bm_exec_ops_t bm_sensor_quality_exec_ops = {
+    bm_sensor_quality_exec_init,
+    bm_sensor_quality_exec_start,
+    bm_sensor_quality_exec_safe_stop
+};

@@ -6,13 +6,14 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-13
+ * @version 1.2
+ * @date 2026-06-23
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
+ * 2026-06-23       1.2            zeh            bm_algo_pr_init 补 Doxygen 设计契约，说明调用方须自行获取并传递 PR 系数
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -126,6 +127,18 @@ typedef struct {
     float output;
 } bm_algo_pr_state_t;
 
+/**
+ * @brief PR 控制器初始化：复位状态并校验配置合法性
+ *
+ * @note 设计契约：本函数 **仅** 做状态复位与配置合法性校验，不输出系数。
+ *       调用方须在每次 step 前自行调用 bm_algo_pr_compute_coeffs() 获取
+ *       b0/b1/b2/a1/a2，并将其显式传入 bm_algo_pr_step()。
+ *
+ * @param state           PR 状态（不可为 NULL）
+ * @param config          PR 配置（不可为 NULL）
+ * @param sample_period_s 采样周期（s，>0）
+ * @return 0 成功；-1 参数无效或系数计算失败（配置不合法）
+ */
 int bm_algo_pr_init(bm_algo_pr_state_t *state,
                     const bm_algo_pr_config_t *config,
                     float sample_period_s);
@@ -136,7 +149,17 @@ float bm_algo_pr_step(bm_algo_pr_state_t *state,
                       float b0, float b1, float b2,
                       float a1, float a2);
 
-/* PR 系数（由 init 写入调用方缓冲） */
+/**
+ * @brief 计算 PR 控制器离散系数（双线性变换）
+ *
+ * @note 调用方须将返回的 b0/b1/b2/a1/a2 保存，并在每次 bm_algo_pr_step 时传入。
+ *
+ * @param config          PR 配置（不可为 NULL）
+ * @param sample_period_s 采样周期（s，>0）
+ * @param b0,b1,b2        分子系数输出指针（均不可为 NULL）
+ * @param a1,a2           分母系数输出指针（均不可为 NULL）
+ * @return 0 成功；-1 参数无效
+ */
 int bm_algo_pr_compute_coeffs(const bm_algo_pr_config_t *config,
                               float sample_period_s,
                               float *b0, float *b1, float *b2,

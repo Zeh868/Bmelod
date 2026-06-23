@@ -104,8 +104,18 @@ if(TARGET bm_component_bms)
     bm_add_test(test_bms_estimation test_bms_estimation.c bm_component_bms)
 endif()
 
+if(TARGET bm_component_fusion)
+    bm_add_test(test_estimation_fusion
+        test_estimation_fusion.c
+        bm_component_fusion)
+    if(NOT MSVC)
+        target_link_libraries(test_estimation_fusion PRIVATE m)
+    endif()
+endif()
+
 if(TARGET bm_component_power)
     bm_add_test(test_power_control test_power_control.c bm_component_power)
+    bm_add_test(test_power_converter test_power_converter.c bm_component_power)
 endif()
 
 if(TARGET bm_component_process)
@@ -120,6 +130,15 @@ if(TARGET bm_component_process)
     bm_add_test(test_transport_qos_token test_transport_qos_token.c bm_component_process)
     bm_add_test(test_mobile_base_control test_mobile_base_control.c bm_component_process)
     bm_add_test(test_additive_motion test_additive_motion.c bm_component_process)
+    bm_add_test(test_grid_control test_grid_control.c bm_component_process)
+    if(NOT MSVC)
+        target_link_libraries(test_grid_control PRIVATE m)
+    endif()
+    bm_add_test(test_process_control test_process_control.c bm_component_process)
+    bm_add_test(test_motion_coordination test_motion_coordination.c bm_component_process)
+    if(NOT MSVC)
+        target_link_libraries(test_motion_coordination PRIVATE m)
+    endif()
 endif()
 
 if(TARGET bm_component_diagnostics AND (BM_ENABLE_COMPONENT_STREAM OR BM_BUILD_TESTS))
@@ -135,6 +154,16 @@ if(TARGET bm_component_diagnostics AND (BM_ENABLE_COMPONENT_STREAM OR BM_BUILD_T
     bm_add_test(test_radar_frontend test_radar_frontend.c bm_component_diagnostics)
     if(NOT MSVC)
         target_link_libraries(test_radar_frontend PRIVATE m)
+    endif()
+    bm_add_test(test_daq_frontend test_daq_frontend.c bm_component_diagnostics)
+    if(NOT MSVC)
+        target_link_libraries(test_daq_frontend PRIVATE m)
+    endif()
+    bm_add_test(test_fault_derating test_fault_derating.c bm_component_diagnostics)
+    bm_add_test(test_sensor_quality test_sensor_quality.c bm_component_diagnostics)
+    bm_add_test(test_spectral_diagnostics test_spectral_diagnostics.c bm_component_diagnostics)
+    if(NOT MSVC)
+        target_link_libraries(test_spectral_diagnostics PRIVATE m)
     endif()
 endif()
 
@@ -183,6 +212,22 @@ if(BM_BUILD_TESTS)
         ${CMAKE_SOURCE_DIR}/tests/unit/unity
         ${CMAKE_SOURCE_DIR}/portable/sim/native)
     add_test(NAME test_snapshot COMMAND test_snapshot)
+
+    add_executable(test_recorder test_recorder.c)
+    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        target_link_libraries(test_recorder PRIVATE
+            "-Wl,--start-group"
+            unity bm_core bm_hal bm_hal_native
+            "-Wl,--end-group")
+    else()
+        target_link_libraries(test_recorder PRIVATE
+            unity bm_core bm_hal bm_hal_native)
+    endif()
+    bm_target_internal_includes(test_recorder)
+    target_include_directories(test_recorder PRIVATE
+        ${CMAKE_SOURCE_DIR}/tests/unit/unity
+        ${CMAKE_SOURCE_DIR}/portable/sim/native)
+    add_test(NAME test_recorder COMMAND test_recorder)
 
     add_executable(test_priority_mask
         test_priority_mask.c

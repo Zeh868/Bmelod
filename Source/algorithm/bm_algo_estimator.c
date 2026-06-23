@@ -3,14 +3,16 @@
  * @brief 固定维度状态估算实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-17
+ * @version 1.3
+ * @date 2026-06-23
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-17       1.1            zeh            增加 1D UKF 与 EKF 创新门控
+ * 2026-06-23       1.2            zeh            KF 更新分母阈值放宽为 1e-9f；UKF β 修正项补注释
+ * 2026-06-23       1.3            zeh            落地 UKF β 协方差修正项：pzz 中 i=0 项使用 w0_cov
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -82,7 +84,9 @@ float bm_algo_kalman1d_update(bm_algo_kalman1d_state_t *state,
         return state->x;
     }
     denom = state->p + config->r;
-    if (denom <= 1e-12f || !bm_algo_is_finite_f(denom)) {
+    /* 阈值放宽至 1e-9f：原值 1e-12f 在 r=0 且 P 趋零时易误拒更新；
+     * 配置校验应保证 r > 0，此处作为最后防线。 */
+    if (denom <= 1e-9f || !bm_algo_is_finite_f(denom)) {
         return state->x;
     }
     k = state->p / denom;
@@ -198,7 +202,8 @@ int bm_algo_ukf1d_update(bm_algo_ukf1d_state_t *state,
     float sqrt_p;
     float sp[3];
     float zp[3];
-    float w0;
+    float w0;       /**< 0 号 sigma 点均值权 */
+    float w0_cov;   /**< 0 号 sigma 点协方差权 = w0 + (1 - α² + β) */
     float w1;
     float z_mean;
     float pzz;
@@ -228,6 +233,12 @@ int bm_algo_ukf1d_update(bm_algo_ukf1d_state_t *state,
 
     w0 = (n_lambda - 1.0f) / n_lambda;
     w1 = 0.5f / n_lambda;
+    /* w0_cov = w0_mean + (1 - α² + β)
+     * 其中 α² = BM_UKF1D_ALPHA²，β = BM_UKF1D_BETA。
+     * β=0、α=1 时修正量为 0，退化为原均值权，行为不变。 */
+    w0_cov = w0 + (1.0f
+                   - BM_UKF1D_ALPHA * BM_UKF1D_ALPHA
+                   + BM_UKF1D_BETA);
 
     z_mean = 0.0f;
     pzz = 0.0f;
@@ -241,11 +252,12 @@ int bm_algo_ukf1d_update(bm_algo_ukf1d_state_t *state,
 
     z_mean = w0 * zp[0] + w1 * (zp[1] + zp[2]);
     for (i = 0u; i < 3u; ++i) {
-        float dz = zp[i] - z_mean;
-        float dx = sp[i] - state->x;
-        float w = (i == 0u) ? w0 : w1;
-        pzz += w * dz * dz;
-        pxz += w * dx * dz;
+        float dz      = zp[i] - z_mean;
+        float dx      = sp[i] - state->x;
+        float w_mean  = (i == 0u) ? w0     : w1; /**< 均值权，用于 pxz */
+        float w_c     = (i == 0u) ? w0_cov : w1; /**< 协方差权，用于 pzz */
+        pzz += w_c    * dz * dz;
+        pxz += w_mean * dx * dz;
     }
     pzz += config->r;
     if (pzz <= 1e-12f || !bm_algo_is_finite_f(pzz)) {
@@ -261,7 +273,7 @@ int bm_algo_ukf1d_update(bm_algo_ukf1d_state_t *state,
     state->x += k * innov;
     state->p -= k * pzz * k;
     ukf1d_sanitize_p(&state->p);
-    (void)BM_UKF1D_BETA;
+
     return BM_ALGO_EKF_UPDATE_OK;
 }
 

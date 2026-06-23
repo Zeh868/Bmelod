@@ -1,15 +1,21 @@
 /**
  * @file bms_supervision.c
  * @brief BMS Pack 监督与降额集成实现
+ *
+ * 封装电压/电流/温度越限检测，驱动 fault_derating 组件进行降额，
+ * 并提供 bm_exec_ops_t 调度封装以接入 bm_exec 生命周期管理。
+ *
  * @author zeh (china_qzh@163.com)
- * @version 0.1
+ * @version 0.2
  * @date 2026-06-13
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
+ * 2026-06-23       0.2            zeh            补 exec_ops 封装；补全公共函数 Doxygen；SPDX 头
  *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 #include "bm/component/bms_supervision.h"
 #include "bm/common/bm_types.h"
@@ -140,3 +146,44 @@ void bm_bms_supervision_step(bm_bms_supervision_axis_t *axis) {
             axis->resources.publish_telemetry_user, &st->telemetry);
     }
 }
+
+/* ---------- exec_ops 封装 ---------- */
+
+void bm_bms_supervision_exec_run(const bm_exec_t *instance) {
+    if (instance != NULL && instance->state != NULL) {
+        bm_bms_supervision_step(
+            (bm_bms_supervision_axis_t *)instance->state);
+    }
+}
+
+int bm_bms_supervision_exec_init(const bm_exec_t *instance) {
+    bm_bms_supervision_axis_t *axis;
+
+    if (instance == NULL || instance->state == NULL) {
+        return BM_ERR_INVALID;
+    }
+    axis = (bm_bms_supervision_axis_t *)instance->state;
+    return bm_bms_supervision_init(axis);
+}
+
+int bm_bms_supervision_exec_start(const bm_exec_t *instance) {
+    (void)instance;
+    return BM_OK;
+}
+
+void bm_bms_supervision_exec_safe_stop(const bm_exec_t *instance) {
+    bm_bms_supervision_axis_t *axis;
+
+    if (instance == NULL || instance->state == NULL) {
+        return;
+    }
+    axis = (bm_bms_supervision_axis_t *)instance->state;
+    /* 安全停止：重置降额状态，使对外输出因子恢复为 1.0 */
+    bm_fault_derating_reset(&axis->state.derating);
+}
+
+const bm_exec_ops_t bm_bms_supervision_exec_ops = {
+    bm_bms_supervision_exec_init,
+    bm_bms_supervision_exec_start,
+    bm_bms_supervision_exec_safe_stop
+};

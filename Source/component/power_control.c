@@ -2,14 +2,16 @@
  * @file power_control.c
  * @brief Buck 双环电源控制组件实现
  * @author zeh (china_qzh@163.com)
- * @version 0.1
+ * @version 0.2
  * @date 2026-06-13
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
+ * 2026-06-23       0.2            zeh            补 SPDX 与函数级 Doxygen
  *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 #include "bm/component/power_control.h"
 #include "bm/algorithm/bm_algo_common.h"
@@ -17,6 +19,14 @@
 
 #include <string.h>
 
+/**
+ * @brief 锁存故障并将占空比降至 duty_min（静态辅助）
+ *
+ * 置 fault_latched，清零 i_ref_a，将占空比设为 duty_min，
+ * 复位两级 PI 积分器，并通过 write_duty 回调写入安全占空比。
+ *
+ * @param axis 实例指针
+ */
 static void latch_fault(bm_power_control_axis_t *axis) {
     bm_power_control_state_t *st = &axis->state;
 
@@ -33,6 +43,14 @@ static void latch_fault(bm_power_control_axis_t *axis) {
     }
 }
 
+/**
+ * @brief 从回调读取最新命令并应用（静态辅助）
+ *
+ * read_command 回调返回 0 时调用 bm_power_control_apply_command()；
+ * 回调为 NULL 或返回非零时保持旧命令。
+ *
+ * @param axis 实例指针
+ */
 static void sync_command(bm_power_control_axis_t *axis) {
     bm_power_ctrl_cmd_t command;
 
@@ -181,18 +199,34 @@ void bm_power_control_current_step(bm_power_control_axis_t *axis) {
     }
 }
 
+/**
+ * @brief exec 封装：执行一步电压环（供调度框架慢时基槽调用）
+ *
+ * @param instance exec 实例指针，instance->state 须为 bm_power_control_axis_t*
+ */
 void bm_power_control_exec_voltage(const bm_exec_t *instance) {
     if (instance != NULL && instance->state != NULL) {
         bm_power_control_voltage_step((bm_power_control_axis_t *)instance->state);
     }
 }
 
+/**
+ * @brief exec 封装：执行一步电流环（供调度框架快时基槽调用）
+ *
+ * @param instance exec 实例指针，instance->state 须为 bm_power_control_axis_t*
+ */
 void bm_power_control_exec_current(const bm_exec_t *instance) {
     if (instance != NULL && instance->state != NULL) {
         bm_power_control_current_step((bm_power_control_axis_t *)instance->state);
     }
 }
 
+/**
+ * @brief exec 生命周期：初始化（校验配置并复位状态）
+ *
+ * @param instance exec 实例指针
+ * @return BM_OK 成功；BM_ERR_INVALID 配置非法或指针为空
+ */
 int bm_power_control_exec_init(const bm_exec_t *instance) {
     bm_power_control_axis_t *axis;
 
@@ -207,11 +241,25 @@ int bm_power_control_exec_init(const bm_exec_t *instance) {
     return BM_OK;
 }
 
+/**
+ * @brief exec 生命周期：启动（当前无额外操作，保留扩展点）
+ *
+ * @param instance exec 实例指针
+ * @return 始终返回 BM_OK
+ */
 int bm_power_control_exec_start(const bm_exec_t *instance) {
     (void)instance;
     return BM_OK;
 }
 
+/**
+ * @brief exec 生命周期：安全停机（电流参考归零，占空比降至 duty_min）
+ *
+ * 清零 i_ref_a，将 duty 设为 duty_min，并通过 write_duty 回调
+ * 写入安全占空比，确保输出安全关断。
+ *
+ * @param instance exec 实例指针
+ */
 void bm_power_control_exec_safe_stop(const bm_exec_t *instance) {
     bm_power_control_axis_t *axis;
 
@@ -227,6 +275,12 @@ void bm_power_control_exec_safe_stop(const bm_exec_t *instance) {
     }
 }
 
+/**
+ * @brief power_control 标准 exec ops 表
+ *
+ * 将此指针赋给 bm_exec_t::ops，即可将 power_control 实例
+ * 接入调度框架的生命周期管理。
+ */
 const bm_exec_ops_t bm_power_control_exec_ops = {
     bm_power_control_exec_init,
     bm_power_control_exec_start,

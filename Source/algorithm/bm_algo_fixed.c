@@ -3,8 +3,8 @@
  * @brief Q31/Q15 定点算法实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 2.2
- * @date 2026-06-17
+ * @version 2.4
+ * @date 2026-06-23
  *
  * @par 修改日志:
  *
@@ -22,6 +22,8 @@
  * 2026-06-17       2.0            zeh            定点第十一批：PI/PR/斜坡/梯形/冗余/速率/SOC 融合
  * 2026-06-17       2.1            zeh            定点第十二批：S 曲线/MPPT/信号质量/Wh 积分
  * 2026-06-17       2.2            zeh            定点第十四批：全族 Q31/Q15 后缀 API 收口
+ * 2026-06-23       2.3            zeh            缺陷修复：abs_q15 INT16_MIN UB、Mahony Ki 积分持久化、rms_q31 溢出防护
+ * 2026-06-23       2.4            zeh            磁链观测器包装启用 wc_rad_s 衰减截止频率；修正 BM_ALGO_SQRT3_Q31 为精确 Q30 值
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -400,7 +402,8 @@ bm_algo_q15_t bm_algo_biquad_q15_step(bm_algo_biquad_q15_state_t *state,
 
 /* ---------- 电机控制 Q31 算法族 ---------- */
 
-#define BM_ALGO_SQRT3_Q31     1861214047 /* 1.732050808 (Q30 effectively, but used as multiplier) */
+#define BM_ALGO_SQRT3_Q31     1860867071 /* √3 的 Q30 定点表示：round(1.7320508075688772 × 2^30)，
+                                          * 与 Q31 信号相乘后右移 30 位得到 Q31 结果（√3·v）。 */
 #define BM_ALGO_INV_SQRT3_Q31 1239850262 /* 1/sqrt(3) in Q31 = 0.577350269 */
 
 void bm_algo_clarke_q31(const bm_algo_abc_q31_t *abc, bm_algo_alphabeta_q31_t *ab) {
@@ -1016,8 +1019,16 @@ bm_algo_q15_t bm_algo_hpf1_q15_step(bm_algo_hpf1_q15_state_t *state,
     return state->prev_output;
 }
 
+/**
+ * @brief Q15 绝对值，对 INT16_MIN 饱和为 INT16_MAX（避免 -(-32768) 溢出 UB）
+ * @param v 输入 Q15 值
+ * @return 绝对值（饱和处理）
+ */
 static bm_algo_q15_t abs_q15(bm_algo_q15_t v) {
-    return (v < 0) ? (bm_algo_q15_t)(-v) : v;
+    if (v == (bm_algo_q15_t)INT16_MIN) {
+        return (bm_algo_q15_t)INT16_MAX;
+    }
+    return (v < 0) ? (bm_algo_q15_t)(-(int32_t)v) : v;
 }
 
 void bm_algo_differentiator_q31_reset(bm_algo_differentiator_q31_state_t *state) {
@@ -1500,12 +1511,15 @@ bm_algo_q31_t bm_algo_rms_q31_step(bm_algo_rms_q31_state_t *state,
         }
     }
 
+    /* 量程说明：BM_ALGO_RMS_Q31_MAX=16，INT32_MAX^2≈4.61e18，16×4.61e18≈7.38e19
+     * 超过 uint64 上限（1.84e19）。对每个样本平方右移 4 位（缩小 16 倍）后累加，
+     * 开方后乘以 4（=sqrt(16)）补回，避免累加器溢出。 */
     for (i = 0u; i < state->count; ++i) {
         int64_t s = (int64_t)state->samples[i];
-        sum_sq += (uint64_t)(s * s);
+        sum_sq += (uint64_t)((s * s) >> 4);
     }
 
-    rms = (uint64_t)sqrt((double)sum_sq / (double)state->count);
+    rms = (uint64_t)(sqrt((double)sum_sq / (double)state->count) * 4.0);
     if (rms > (uint64_t)INT32_MAX) {
         return (bm_algo_q31_t)INT32_MAX;
     }
@@ -2913,6 +2927,7 @@ bm_algo_q15_t bm_algo_flux_observer_q15_step(
     fcfg.ls_h = bm_algo_q15_to_float(config->ls_q15);
     fcfg.pll_kp = bm_algo_q15_to_float(config->pll_kp_q15);
     fcfg.pll_ki = bm_algo_q15_to_float(config->pll_ki_q15);
+    fcfg.flux_observer_wc_rad_s = config->wc_rad_s; /* 衰减截止频率；0.0f 时退化为纯积分 */
     fst.theta_rad = state->theta_rad;
     fst.omega_rad_s = state->omega_rad_s;
     fst.flux_alpha = state->flux_alpha;
@@ -2965,6 +2980,7 @@ bm_algo_q31_t bm_algo_flux_observer_q31_step(
     fcfg.ls_h = bm_algo_q31_to_float(config->ls_q31);
     fcfg.pll_kp = bm_algo_q31_to_float(config->pll_kp_q31);
     fcfg.pll_ki = bm_algo_q31_to_float(config->pll_ki_q31);
+    fcfg.flux_observer_wc_rad_s = config->wc_rad_s; /* 衰减截止频率；0.0f 时退化为纯积分 */
     fst.theta_rad = state->theta_rad;
     fst.omega_rad_s = state->omega_rad_s;
     fst.flux_alpha = state->flux_alpha;
@@ -3191,10 +3207,13 @@ void bm_algo_madgwick_q31_step(bm_algo_madgwick_q31_state_t *state,
 
 void bm_algo_mahony_q15_reset(bm_algo_mahony_q15_state_t *state) {
     if (state != NULL) {
-        state->qw_q15 = BM_ALGO_Q15_ONE;
-        state->qx_q15 = 0;
-        state->qy_q15 = 0;
-        state->qz_q15 = 0;
+        state->qw_q15    = BM_ALGO_Q15_ONE;
+        state->qx_q15    = 0;
+        state->qy_q15    = 0;
+        state->qz_q15    = 0;
+        state->integral_x = 0.0f;
+        state->integral_y = 0.0f;
+        state->integral_z = 0.0f;
     }
 }
 
@@ -3220,9 +3239,10 @@ void bm_algo_mahony_q15_step(bm_algo_mahony_q15_state_t *state,
     fst.q.x = bm_algo_q15_to_float(state->qx_q15);
     fst.q.y = bm_algo_q15_to_float(state->qy_q15);
     fst.q.z = bm_algo_q15_to_float(state->qz_q15);
-    fst.integral_x = 0.0f;
-    fst.integral_y = 0.0f;
-    fst.integral_z = 0.0f;
+    /* 恢复帧间 Ki 积分项，确保积分效果跨帧持久 */
+    fst.integral_x = state->integral_x;
+    fst.integral_y = state->integral_y;
+    fst.integral_z = state->integral_z;
     bm_algo_mahony_step(
         &fst, &fcfg,
         bm_algo_q15_to_float(gx_q15),
@@ -3232,18 +3252,25 @@ void bm_algo_mahony_q15_step(bm_algo_mahony_q15_state_t *state,
         bm_algo_q15_to_float(ay_q15),
         bm_algo_q15_to_float(az_q15),
         bm_algo_q15_to_float(dt_q15));
-    state->qw_q15 = bm_algo_float_to_q15(fst.q.w);
-    state->qx_q15 = bm_algo_float_to_q15(fst.q.x);
-    state->qy_q15 = bm_algo_float_to_q15(fst.q.y);
-    state->qz_q15 = bm_algo_float_to_q15(fst.q.z);
+    state->qw_q15    = bm_algo_float_to_q15(fst.q.w);
+    state->qx_q15    = bm_algo_float_to_q15(fst.q.x);
+    state->qy_q15    = bm_algo_float_to_q15(fst.q.y);
+    state->qz_q15    = bm_algo_float_to_q15(fst.q.z);
+    /* 回写更新后的积分项，供下一帧使用 */
+    state->integral_x = fst.integral_x;
+    state->integral_y = fst.integral_y;
+    state->integral_z = fst.integral_z;
 }
 
 void bm_algo_mahony_q31_reset(bm_algo_mahony_q31_state_t *state) {
     if (state != NULL) {
-        state->qw_q31 = BM_ALGO_Q31_ONE;
-        state->qx_q31 = 0;
-        state->qy_q31 = 0;
-        state->qz_q31 = 0;
+        state->qw_q31    = BM_ALGO_Q31_ONE;
+        state->qx_q31    = 0;
+        state->qy_q31    = 0;
+        state->qz_q31    = 0;
+        state->integral_x = 0.0f;
+        state->integral_y = 0.0f;
+        state->integral_z = 0.0f;
     }
 }
 
@@ -3269,9 +3296,10 @@ void bm_algo_mahony_q31_step(bm_algo_mahony_q31_state_t *state,
     fst.q.x = bm_algo_q31_to_float(state->qx_q31);
     fst.q.y = bm_algo_q31_to_float(state->qy_q31);
     fst.q.z = bm_algo_q31_to_float(state->qz_q31);
-    fst.integral_x = 0.0f;
-    fst.integral_y = 0.0f;
-    fst.integral_z = 0.0f;
+    /* 恢复帧间 Ki 积分项，确保积分效果跨帧持久 */
+    fst.integral_x = state->integral_x;
+    fst.integral_y = state->integral_y;
+    fst.integral_z = state->integral_z;
     bm_algo_mahony_step(
         &fst, &fcfg,
         bm_algo_q31_to_float(gx_q31),
@@ -3281,10 +3309,14 @@ void bm_algo_mahony_q31_step(bm_algo_mahony_q31_state_t *state,
         bm_algo_q31_to_float(ay_q31),
         bm_algo_q31_to_float(az_q31),
         bm_algo_q31_to_float(dt_q31));
-    state->qw_q31 = bm_algo_float_to_q31(fst.q.w);
-    state->qx_q31 = bm_algo_float_to_q31(fst.q.x);
-    state->qy_q31 = bm_algo_float_to_q31(fst.q.y);
-    state->qz_q31 = bm_algo_float_to_q31(fst.q.z);
+    state->qw_q31    = bm_algo_float_to_q31(fst.q.w);
+    state->qx_q31    = bm_algo_float_to_q31(fst.q.x);
+    state->qy_q31    = bm_algo_float_to_q31(fst.q.y);
+    state->qz_q31    = bm_algo_float_to_q31(fst.q.z);
+    /* 回写更新后的积分项，供下一帧使用 */
+    state->integral_x = fst.integral_x;
+    state->integral_y = fst.integral_y;
+    state->integral_z = fst.integral_z;
 }
 
 void bm_algo_median_q15_reset(bm_algo_median_q15_state_t *state) {

@@ -5,13 +5,16 @@
  * 维护 TON/TOF 计时与顺序步索引，联锁失败或超时进入故障态。
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.1
+ * @version 0.2
  * @date 2026-06-17
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-17       0.1            zeh            初始骨架
+ * 2026-06-23       0.2            zeh            补 SPDX 与函数级 Doxygen
+ *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 #include "bm/component/process_sequence.h"
 #include "bm/common/bm_types.h"

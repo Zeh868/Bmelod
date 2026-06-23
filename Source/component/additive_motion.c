@@ -2,17 +2,21 @@
  * @file additive_motion.c
  * @brief Z 轴 ZV 输入整形实现
  *
- * 两脉冲零振动整形器，半周期延迟第二脉冲。
+ * 两脉冲零振动整形器，半周期延迟第二脉冲；提供 exec_ops 表供
+ * bm_exec 周期调度框架接入。
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.1
- * @date 2026-06-17
+ * @version 0.3
+ * @date 2026-06-23
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-17       0.1            zeh            ZV 两脉冲骨架
  * 2026-06-17       0.2            zeh            pressure advance 线性模型
+ * 2026-06-23       0.3            zeh            exec_ops 表；zv_compute_coeffs Doxygen；SPDX
+ *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 #include "bm/component/additive_motion.h"
 #include "bm/algorithm/bm_algo_common.h"
@@ -21,6 +25,18 @@
 #include <math.h>
 #include <string.h>
 
+/**
+ * @brief 计算 ZV 两脉冲整形系数
+ *
+ * 依据固有频率 natural_freq_hz 与阻尼比 damping_ratio 计算：
+ *   - K = exp(-ζπ / √(1-ζ²))
+ *   - a0 = 1/(1+K)，a1 = K/(1+K)
+ *   - 延迟时间 td = π/ωn，离散化为 delay_steps（钳位至 [1, BUFFER_MAX-1]）
+ *
+ * damping_ratio ≤ 0 时自动修正为 0.01。
+ *
+ * @param axis 轴实例指针（已通过 validate_config）
+ */
 static void zv_compute_coeffs(bm_additive_motion_axis_t *axis) {
     const bm_additive_motion_config_t *cfg = &axis->config;
     bm_additive_motion_state_t *st = &axis->state;
@@ -152,3 +168,50 @@ void bm_additive_motion_step(bm_additive_motion_axis_t *axis) {
 float bm_additive_motion_pressure_advance(float velocity_mm_s, float factor) {
     return velocity_mm_s * factor;
 }
+
+/* ---------- exec_ops 实现 ---------- */
+
+void bm_additive_motion_exec_run(const bm_exec_t *instance) {
+    if (instance != NULL && instance->state != NULL) {
+        bm_additive_motion_step((bm_additive_motion_axis_t *)instance->state);
+    }
+}
+
+int bm_additive_motion_exec_init(const bm_exec_t *instance) {
+    bm_additive_motion_axis_t *axis;
+
+    if (instance == NULL || instance->state == NULL) {
+        return BM_ERR_INVALID;
+    }
+    axis = (bm_additive_motion_axis_t *)instance->state;
+    if (bm_additive_motion_validate_config(&axis->config) != BM_OK) {
+        return BM_ERR_INVALID;
+    }
+    bm_additive_motion_reset(axis);
+    return BM_OK;
+}
+
+int bm_additive_motion_exec_start(const bm_exec_t *instance) {
+    (void)instance;
+    return BM_OK;
+}
+
+void bm_additive_motion_exec_safe_stop(const bm_exec_t *instance) {
+    bm_additive_motion_axis_t *axis;
+
+    if (instance == NULL || instance->state == NULL) {
+        return;
+    }
+    axis = (bm_additive_motion_axis_t *)instance->state;
+    axis->state.shaped_mm = 0.0f;
+    axis->state.last_cmd_mm = 0.0f;
+    if (axis->resources.write_z != NULL) {
+        (void)axis->resources.write_z(axis->resources.write_z_user, 0.0f);
+    }
+}
+
+const bm_exec_ops_t bm_additive_motion_exec_ops = {
+    bm_additive_motion_exec_init,
+    bm_additive_motion_exec_start,
+    bm_additive_motion_exec_safe_stop
+};

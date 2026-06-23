@@ -5,13 +5,16 @@
  * 按时间戳选取最新样本，经 EKF 门控更新线速度状态并发布遥测。
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.1
- * @date 2026-06-17
+ * @version 0.2
+ * @date 2026-06-23
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-17       0.1            zeh            初始骨架
+ * 2026-06-23       0.2            zeh            validate_config 噪声/权重校验；SPDX
+ *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 #include "bm/component/navigation_frontend.h"
 #include "bm/common/bm_types.h"
@@ -41,6 +44,15 @@ int bm_navigation_frontend_validate_config(
     const bm_navigation_frontend_config_t *config) {
     if (config == NULL || config->dt_s <= 0.0f ||
         config->wheel_radius_m <= 0.0f) {
+        return BM_ERR_INVALID;
+    }
+    /* 融合权重须非负 */
+    if (config->gnss_weight < 0.0f || config->wheel_weight < 0.0f) {
+        return BM_ERR_INVALID;
+    }
+    /* EKF 噪声参数须正值 */
+    if (config->ekf.q_pos <= 0.0f || config->ekf.q_vel <= 0.0f ||
+        config->ekf.r_pos <= 0.0f) {
         return BM_ERR_INVALID;
     }
     return BM_OK;

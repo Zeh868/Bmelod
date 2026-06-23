@@ -3,13 +3,14 @@
  * @brief 滤波算法实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-13
+ * @version 1.1
+ * @date 2026-06-23
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
+ * 2026-06-23       1.1            zeh            修正 BIQUAD_BPF 系数：去除误混入的 peaking 增益因子 A，改回标准恒幅 BPF
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -304,12 +305,13 @@ int bm_algo_biquad_design(bm_algo_biquad_config_t *config,
         a2 = 1.0f - alpha;
         break;
     case BM_ALGO_BIQUAD_BPF:
-        b0 = alpha * A;
+        /* 标准恒幅 BPF（Audio EQ Cookbook），增益固定为 0 dB，不受 gain_db 影响 */
+        b0 = alpha;
         b1 = 0.0f;
-        b2 = -alpha * A;
-        a0 = 1.0f + alpha / A;
+        b2 = -alpha;
+        a0 = 1.0f + alpha;
         a1 = -2.0f * cos_w0;
-        a2 = 1.0f - alpha / A;
+        a2 = 1.0f - alpha;
         break;
     case BM_ALGO_BIQUAD_PEAKING:
         b0 = 1.0f + alpha * A;

@@ -3,15 +3,19 @@
  * @brief 差速底盘运动学实现
  *
  * v, ω 经轮距换算左右轮线速度，可选坡道前馈叠加。
+ * 通过 bm_mobile_base_control_exec_ops 接入 bm_exec 生命周期。
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.1
+ * @version 0.2
  * @date 2026-06-17
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-17       0.1            zeh            初始骨架
+ * 2026-06-23       0.2            zeh            补 exec_ops、Doxygen、SPDX
+ *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 #include "bm/component/mobile_base_control.h"
 #include "bm/algorithm/bm_algo_common.h"
@@ -24,6 +28,13 @@
 #define BM_ALGO_PI_F 3.14159265358979323846f
 #endif
 
+/**
+ * @brief 将轮速限幅至 [-max_v, +max_v]
+ *
+ * @param v     待限幅轮速，单位 m/s
+ * @param max_v 最大绝对值，必须 > 0
+ * @return 限幅后的轮速
+ */
 static float clamp_wheel(float v, float max_v) {
     return bm_algo_clamp_f(v, -max_v, max_v);
 }
@@ -123,3 +134,52 @@ void bm_mobile_base_control_step(bm_mobile_base_control_axis_t *axis) {
             axis->resources.publish_telemetry_user, &st->telemetry);
     }
 }
+
+void bm_mobile_base_control_exec_step(const bm_exec_t *instance) {
+    if (instance != NULL && instance->state != NULL) {
+        bm_mobile_base_control_step(
+            (bm_mobile_base_control_axis_t *)instance->state);
+    }
+}
+
+int bm_mobile_base_control_exec_init(const bm_exec_t *instance) {
+    bm_mobile_base_control_axis_t *axis;
+
+    if (instance == NULL || instance->state == NULL) {
+        return BM_ERR_INVALID;
+    }
+    axis = (bm_mobile_base_control_axis_t *)instance->state;
+    if (bm_mobile_base_control_validate_config(&axis->config) != BM_OK) {
+        return BM_ERR_INVALID;
+    }
+    bm_mobile_base_control_reset(axis);
+    return BM_OK;
+}
+
+int bm_mobile_base_control_exec_start(const bm_exec_t *instance) {
+    (void)instance;
+    return BM_OK;
+}
+
+void bm_mobile_base_control_exec_safe_stop(const bm_exec_t *instance) {
+    bm_mobile_base_control_axis_t *axis;
+
+    if (instance == NULL || instance->state == NULL) {
+        return;
+    }
+    axis = (bm_mobile_base_control_axis_t *)instance->state;
+    axis->state.linear_cmd_m_s = 0.0f;
+    axis->state.angular_cmd_rad_s = 0.0f;
+    axis->state.left_m_s = 0.0f;
+    axis->state.right_m_s = 0.0f;
+    if (axis->resources.write_wheels != NULL) {
+        (void)axis->resources.write_wheels(
+            axis->resources.write_wheels_user, 0.0f, 0.0f);
+    }
+}
+
+const bm_exec_ops_t bm_mobile_base_control_exec_ops = {
+    bm_mobile_base_control_exec_init,
+    bm_mobile_base_control_exec_start,
+    bm_mobile_base_control_exec_safe_stop
+};

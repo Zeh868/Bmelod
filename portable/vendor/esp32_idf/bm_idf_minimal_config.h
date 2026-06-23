@@ -21,10 +21,6 @@
 #define CONFIG_IDF_TARGET_ESP32 1
 #endif
 
-#ifndef CONFIG_ESP_TASK_WDT_EN
-#define CONFIG_ESP_TASK_WDT_EN 1
-#endif
-
 #ifndef CONFIG_ESP_CONSOLE_UART_NUM
 #define CONFIG_ESP_CONSOLE_UART_NUM 0
 #endif

@@ -2,7 +2,7 @@
  * @file bms_estimation.c
  * @brief BMS Pack SOC 估算组件实现
  * @author zeh (china_qzh@163.com)
- * @version 0.2
+ * @version 0.3
  * @date 2026-06-17
  *
  * @par 修改日志:
@@ -10,7 +10,9 @@
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-17       0.2            zeh            接入 soc_ekf 模式
+ * 2026-06-23       0.3            zeh            补 SPDX 与函数级 Doxygen
  *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 #include "bm/component/bms_estimation.h"
 #include "bm/algorithm/bm_algo_common.h"
@@ -151,6 +153,14 @@ void bm_bms_estimation_step(bm_bms_estimation_axis_t *axis) {
     }
 }
 
+/**
+ * @brief exec 封装：执行一步 SOC 估算（供调度框架调用）
+ *
+ * 通过 instance->state 取得 bm_bms_estimation_axis_t 指针后调用
+ * bm_bms_estimation_step()。
+ *
+ * @param instance exec 实例指针，instance->state 须为 bm_bms_estimation_axis_t*
+ */
 void bm_bms_estimation_exec_step(const bm_exec_t *instance) {
     bm_bms_estimation_axis_t *axis;
 
@@ -161,6 +171,12 @@ void bm_bms_estimation_exec_step(const bm_exec_t *instance) {
     bm_bms_estimation_step(axis);
 }
 
+/**
+ * @brief exec 生命周期：初始化（校验配置并以 soc_init 复位）
+ *
+ * @param instance exec 实例指针
+ * @return BM_OK 成功；BM_ERR_INVALID 配置非法或指针为空
+ */
 int bm_bms_estimation_exec_init(const bm_exec_t *instance) {
     bm_bms_estimation_axis_t *axis;
 
@@ -175,15 +191,34 @@ int bm_bms_estimation_exec_init(const bm_exec_t *instance) {
     return BM_OK;
 }
 
+/**
+ * @brief exec 生命周期：启动（当前无额外操作，保留扩展点）
+ *
+ * @param instance exec 实例指针
+ * @return 始终返回 BM_OK
+ */
 int bm_bms_estimation_exec_start(const bm_exec_t *instance) {
     (void)instance;
     return BM_OK;
 }
 
+/**
+ * @brief exec 生命周期：安全停机（当前无额外操作）
+ *
+ * SOC 估算为纯读取组件，停机不需要写入输出，故本函数为空桩。
+ *
+ * @param instance exec 实例指针
+ */
 void bm_bms_estimation_exec_safe_stop(const bm_exec_t *instance) {
     (void)instance;
 }
 
+/**
+ * @brief bms_estimation 标准 exec ops 表
+ *
+ * 将此指针赋给 bm_exec_t::ops，即可将 bms_estimation 实例
+ * 接入调度框架的生命周期管理。
+ */
 const bm_exec_ops_t bm_bms_estimation_exec_ops = {
     bm_bms_estimation_exec_init,
     bm_bms_estimation_exec_start,

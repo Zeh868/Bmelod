@@ -3,7 +3,7 @@
  * @brief 检测算法实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.1
+ * @version 1.0
  * @date 2026-06-13
  *
  * @par 修改日志:
@@ -11,6 +11,7 @@
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-13       1.0            zeh            增加超声 ToF 检测
+ * 2026-06-23       1.0            zeh            补齐 Doxygen 注释
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

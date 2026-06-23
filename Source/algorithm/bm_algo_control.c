@@ -3,14 +3,15 @@
  * @brief 控制算法：积分器、微分器、PI/PID、PR 与补偿器实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-13
+ * @version 1.2
+ * @date 2026-06-23
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-13       1.1            zeh            增加 Smith 预估器
+ * 2026-06-23       1.2            zeh            bm_algo_pr_init 补 Doxygen 设计契约注释，清理 (void) 死代码，变量改名使意图清晰
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -250,23 +251,35 @@ int bm_algo_pr_compute_coeffs(const bm_algo_pr_config_t *config,
     return 0;
 }
 
+/**
+ * @brief PR 控制器初始化：复位状态并校验配置
+ *
+ * @note 设计契约：本函数 **仅** 做状态复位与配置合法性校验，不向调用方输出系数。
+ *       调用方须在每次 step 前自行调用 bm_algo_pr_compute_coeffs() 获取
+ *       b0/b1/b2/a1/a2，并将其显式传入 bm_algo_pr_step()。
+ *       如果参数校验失败（config->omega_rad_s、bandwidth_rad_s 等导致分母为零），
+ *       本函数返回 -1，调用方不应继续调用 step。
+ *
+ * @param state          PR 状态（不可为 NULL）
+ * @param config         PR 配置（不可为 NULL）
+ * @param sample_period_s 采样周期（s，>0）
+ * @return 0 成功；-1 参数无效或系数计算失败
+ */
 int bm_algo_pr_init(bm_algo_pr_state_t *state,
                     const bm_algo_pr_config_t *config,
                     float sample_period_s) {
-    float b0, b1, b2, a1, a2;
-
-    (void)b0;
-    (void)b1;
-    (void)b2;
-    (void)a1;
-    (void)a2;
+    /* 临时接收 compute_coeffs 输出，用于校验配置合法性；结果由调用方自行保存 */
+    float b0_check, b1_check, b2_check, a1_check, a2_check;
 
     if (state == NULL || config == NULL) {
         return -1;
     }
     bm_algo_pr_reset(state);
+    /* 调用 compute_coeffs 做配置校验（e.g. 分母不为零）；
+     * 调用方须自行再次调用 bm_algo_pr_compute_coeffs 并将系数传入 bm_algo_pr_step */
     return bm_algo_pr_compute_coeffs(config, sample_period_s,
-                                     &b0, &b1, &b2, &a1, &a2);
+                                     &b0_check, &b1_check, &b2_check,
+                                     &a1_check, &a2_check);
 }
 
 void bm_algo_pr_reset(bm_algo_pr_state_t *state) {

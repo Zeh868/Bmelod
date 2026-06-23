@@ -4,15 +4,16 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-17
+ * @version 1.3
+ * @date 2026-06-23
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-13       1.1            zeh            增加 STFT 幅度谱与阶次换算
- * 2026-06-17       1.1            zeh            增加重叠 STFT 状态机
+ * 2026-06-17       1.2            zeh            增加重叠 STFT 状态机
+ * 2026-06-23       1.3            zeh            bm_algo_stft_overlap_init 注释标注 frame_size<=64 上限约束
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -101,6 +102,16 @@ typedef struct {
     uint32_t frame_count;
 } bm_algo_stft_overlap_t;
 
+/**
+ * @brief 初始化重叠 STFT 状态机
+ *
+ * @param state         状态对象（不可为 NULL）
+ * @param config        配置（不可为 NULL）；frame_size 须满足 2 <= frame_size <= 64，
+ *                      超出上限时返回 -1（与 feed 内部 64 点栈帧限制一致）
+ * @param ring_buffer   调用方提供的环形缓冲，长度 >= frame_size
+ * @param ring_buffer_len  ring_buffer 可用长度
+ * @return 0 成功；-1 参数无效或 frame_size 超限
+ */
 int bm_algo_stft_overlap_init(bm_algo_stft_overlap_t *state,
                               const bm_algo_stft_overlap_config_t *config,
                               float *ring_buffer,

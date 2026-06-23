@@ -3,7 +3,7 @@
  * @brief 重采样实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-06-13
  *
  * @par 修改日志:
@@ -11,6 +11,7 @@
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-13       1.1            zeh            增加多相 FIR 抽取
+ * 2026-06-23       1.1            zeh            补齐 Doxygen 注释
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

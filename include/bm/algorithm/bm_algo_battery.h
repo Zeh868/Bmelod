@@ -4,13 +4,15 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-06-13
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
+ * 2026-06-23       1.1            zeh            SOH config 新增学习阈值与平滑系数字段；
+ *                                                charge_ah 语义注释明确为原始 Ah（不含库仑效率）
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -33,7 +35,9 @@ typedef struct {
 
 typedef struct {
     float soc;
-    float charge_ah;
+    float charge_ah; /**< 原始充电量累计（Ah，不含库仑效率），仅用于记录通过量；
+                      *   SOC 积分另行乘以 coulomb_efficiency，两者语义不同，
+                      *   请勿将 charge_ah 与 SOC 直接换算。*/
 } bm_algo_coulomb_state_t;
 
 void bm_algo_coulomb_reset(bm_algo_coulomb_state_t *state, float soc_init);
@@ -62,8 +66,22 @@ float bm_algo_soc_fusion_step(float soc_coulomb,
                               const bm_algo_soc_fusion_config_t *config);
 
 /* ---------- SOH（容量衰减统计） ---------- */
+/**
+ * @brief SOH 算法配置
+ *
+ * @note 学习策略：仅当单次放电量 discharged_ah 达到
+ *       initial_capacity_ah * cycle_threshold_ratio 时才更新容量与循环计数，
+ *       并对 learned_capacity_ah 做指数平滑：
+ *       learned = (1 - smooth_alpha) * learned + smooth_alpha * discharged_ah。
+ *
+ * @note 合理默认值参考：cycle_threshold_ratio = 0.5f，smooth_alpha = 0.1f。
+ */
 typedef struct {
-    float initial_capacity_ah;
+    float initial_capacity_ah;      /**< 出厂额定容量（Ah），用作 SOH 基准 */
+    float cycle_threshold_ratio;    /**< 有效放电循环判定阈值（相对 initial_capacity_ah 的比例，
+                                     *   建议 0.3~0.8，默认 0.5）；低于此值不计入循环也不更新容量 */
+    float smooth_alpha;             /**< learned_capacity_ah 指数平滑系数（0 < alpha <= 1，
+                                     *   建议 0.05~0.2，默认 0.1）；越小学习越保守 */
 } bm_algo_soh_config_t;
 
 typedef struct {

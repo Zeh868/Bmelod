@@ -2,14 +2,16 @@
  * @file power_converter.c
  * @brief Buck 峰值电流模式组件实现
  * @author zeh (china_qzh@163.com)
- * @version 0.1
+ * @version 0.2
  * @date 2026-06-13
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
+ * 2026-06-23       0.2            zeh            补全 Doxygen 中文注释；添加 SPDX 头
  *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 #include "bm/component/power_converter.h"
 #include "bm/algorithm/bm_algo_common.h"
@@ -17,6 +19,13 @@
 
 #include <string.h>
 
+/**
+ * @brief 通过已配置的回调发布遥测快照
+ *
+ * 若 axis 为 NULL 或回调指针为 NULL 则静默返回。
+ *
+ * @param axis 功率变换器轴实例指针
+ */
 static void publish_pwr_conv_telemetry(bm_power_converter_axis_t *axis) {
     if (axis == NULL || axis->resources.publish_telemetry == NULL) {
         return;
@@ -25,6 +34,14 @@ static void publish_pwr_conv_telemetry(bm_power_converter_axis_t *axis) {
         axis->resources.publish_telemetry_user, &axis->state.telemetry);
 }
 
+/**
+ * @brief 内部故障锁存：置位 fault_latched，将 i_ref_a 清零，
+ *        占空比钳至 duty_min，并通过 write_duty 回调立即输出
+ *
+ * 调用方在锁存后应自行填写遥测并发布。
+ *
+ * @param axis 功率变换器轴实例指针（调用方保证非 NULL）
+ */
 static void latch_fault(bm_power_converter_axis_t *axis) {
     bm_power_converter_state_t *st = &axis->state;
 
@@ -40,6 +57,14 @@ static void latch_fault(bm_power_converter_axis_t *axis) {
     }
 }
 
+/**
+ * @brief 通过 read_command 回调同步外部指令到 axis->state.cmd
+ *
+ * 若回调为 NULL 或回调返回非零则跳过本次同步；
+ * 成功读取后调用 @ref bm_power_converter_apply_command 应用。
+ *
+ * @param axis 功率变换器轴实例指针（调用方保证非 NULL）
+ */
 static void sync_command(bm_power_converter_axis_t *axis) {
     bm_pwr_conv_cmd_t command;
 
@@ -50,6 +75,12 @@ static void sync_command(bm_power_converter_axis_t *axis) {
     }
 }
 
+/**
+ * @brief 校验功率变换器配置合法性
+ *
+ * @param config 配置结构体指针（const），NULL 时返回 BM_ERR_INVALID
+ * @return BM_OK 合法；BM_ERR_INVALID 任一字段不合法
+ */
 int bm_power_converter_validate_config(const bm_power_converter_config_t *config) {
     if (config == NULL || config->current_dt_s <= 0.0f) {
         return BM_ERR_INVALID;
@@ -60,6 +91,14 @@ int bm_power_converter_validate_config(const bm_power_converter_config_t *config
     return BM_OK;
 }
 
+/**
+ * @brief 复位功率变换器轴运行状态
+ *
+ * 重置 PI 与斜坡状态，清零 i_ref_a、fault_latched、current_loops 及遥测。
+ * duty 初始化为 duty_min。NULL 时静默返回。
+ *
+ * @param axis 功率变换器轴实例指针，NULL 时静默返回
+ */
 void bm_power_converter_reset(bm_power_converter_axis_t *axis) {
     if (axis == NULL) {
         return;
@@ -74,6 +113,14 @@ void bm_power_converter_reset(bm_power_converter_axis_t *axis) {
     memset(&axis->state.telemetry, 0, sizeof(axis->state.telemetry));
 }
 
+/**
+ * @brief 清除故障锁存，允许重新运行
+ *
+ * 重置 PI 积分器并清除遥测中的 FAULT 位。
+ * axis 为 NULL 或当前未锁存时静默返回。
+ *
+ * @param axis 功率变换器轴实例指针，NULL 时静默返回
+ */
 void bm_power_converter_clear_fault(bm_power_converter_axis_t *axis) {
     if (axis == NULL || !axis->state.fault_latched) {
         return;
@@ -83,6 +130,15 @@ void bm_power_converter_clear_fault(bm_power_converter_axis_t *axis) {
     axis->state.telemetry.status &= (uint32_t)~BM_PWR_CONV_TEL_FAULT;
 }
 
+/**
+ * @brief 应用外部指令到轴状态
+ *
+ * 将 cmd 复制到 state.cmd；若指令中 BM_PWR_CONV_CMD_FAULT 置位则
+ * 立即调用内部 latch_fault。
+ *
+ * @param axis 功率变换器轴实例指针，NULL 时静默返回
+ * @param cmd  外部指令结构体指针（const），NULL 时静默返回
+ */
 void bm_power_converter_apply_command(bm_power_converter_axis_t *axis,
                                       const bm_pwr_conv_cmd_t *cmd) {
     if (axis == NULL || cmd == NULL) {
@@ -95,6 +151,19 @@ void bm_power_converter_apply_command(bm_power_converter_axis_t *axis,
     }
 }
 
+/**
+ * @brief 电流快环单步更新
+ *
+ * 执行流程：
+ * 1. 通过 read_command 回调同步最新指令（可选）。
+ * 2. 若 fault_latched：发布 FAULT 遥测并立即返回。
+ * 3. 若指令未使能：清零 i_ref_a 与 duty，输出 duty_min。
+ * 4. 读取实际电流（失败则锁存故障并返回）。
+ * 5. 电流参考经斜坡限速，PI 调节误差 → 占空比，钳位到 [duty_min, duty_max]。
+ * 6. 输出占空比（失败则锁存故障）；更新遥测并发布。
+ *
+ * @param axis 功率变换器轴实例指针，NULL 时静默返回
+ */
 void bm_power_converter_current_step(bm_power_converter_axis_t *axis) {
     const bm_power_converter_config_t *cfg;
     bm_power_converter_state_t *st;
@@ -183,6 +252,11 @@ void bm_power_converter_current_step(bm_power_converter_axis_t *axis) {
     }
 }
 
+/**
+ * @brief exec_ops 快环包装：从 bm_exec_t 提取轴指针后调用 current_step
+ *
+ * @param instance exec 实例指针，NULL 或 state 为 NULL 时静默返回
+ */
 void bm_power_converter_exec_current(const bm_exec_t *instance) {
     if (instance != NULL && instance->state != NULL) {
         bm_power_converter_current_step(
@@ -190,6 +264,12 @@ void bm_power_converter_exec_current(const bm_exec_t *instance) {
     }
 }
 
+/**
+ * @brief exec_ops init 包装：校验配置并复位轴
+ *
+ * @param instance exec 实例指针，NULL 或 state 为 NULL 时返回 BM_ERR_INVALID
+ * @return BM_OK 成功；BM_ERR_INVALID 参数/配置非法
+ */
 int bm_power_converter_exec_init(const bm_exec_t *instance) {
     bm_power_converter_axis_t *axis;
 
@@ -204,11 +284,22 @@ int bm_power_converter_exec_init(const bm_exec_t *instance) {
     return BM_OK;
 }
 
+/**
+ * @brief exec_ops start 包装：当前无启动动作，直接返回 BM_OK
+ *
+ * @param instance exec 实例指针（未使用）
+ * @return 始终返回 BM_OK
+ */
 int bm_power_converter_exec_start(const bm_exec_t *instance) {
     (void)instance;
     return BM_OK;
 }
 
+/**
+ * @brief exec_ops safe_stop 包装：清零电流参考并将占空比降至 duty_min
+ *
+ * @param instance exec 实例指针，NULL 或 state 为 NULL 时静默返回
+ */
 void bm_power_converter_exec_safe_stop(const bm_exec_t *instance) {
     bm_power_converter_axis_t *axis;
 
@@ -224,6 +315,7 @@ void bm_power_converter_exec_safe_stop(const bm_exec_t *instance) {
     }
 }
 
+/** @brief 功率变换器 exec_ops 表（电流快环） */
 const bm_exec_ops_t bm_power_converter_exec_ops = {
     bm_power_converter_exec_init,
     bm_power_converter_exec_start,

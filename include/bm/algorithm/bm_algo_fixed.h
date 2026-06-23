@@ -7,8 +7,8 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 2.2
- * @date 2026-06-17
+ * @version 2.4
+ * @date 2026-06-23
  *
  * @par 修改日志:
  *
@@ -26,6 +26,8 @@
  * 2026-06-17       2.0            zeh            定点第十一批：PI/PR/斜坡/梯形/冗余/速率/SOC 融合 Q15/Q31
  * 2026-06-17       2.1            zeh            定点第十二批：S 曲线/MPPT/信号质量/Wh 积分 Q15/Q31
  * 2026-06-17       2.2            zeh            定点第十四批：全族 Q31/Q15 后缀 API 收口
+ * 2026-06-23       2.3            zeh            缺陷修复：Mahony Q15/Q31 state 新增 Ki 积分持久化字段
+ * 2026-06-23       2.4            zeh            磁链观测器 Q15/Q31 配置结构体新增 wc_rad_s 衰减截止频率字段；修正 BM_ALGO_SQRT3_Q31 为精确 Q30 值
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -1348,10 +1350,19 @@ bm_algo_q31_t bm_algo_fir_q31_step(bm_algo_fir_q31_state_t *state,
                                    bm_algo_q31_t input_q31);
 
 typedef struct {
-    bm_algo_q15_t rs_q15;
-    bm_algo_q15_t ls_q15;
-    bm_algo_q15_t pll_kp_q15;
-    bm_algo_q15_t pll_ki_q15;
+    bm_algo_q15_t rs_q15;       /**< 定子电阻（Q15 归一化） */
+    bm_algo_q15_t ls_q15;       /**< 定子电感（Q15 归一化） */
+    bm_algo_q15_t pll_kp_q15;   /**< PLL 比例增益（Q15 归一化） */
+    bm_algo_q15_t pll_ki_q15;   /**< PLL 积分增益（Q15 归一化） */
+    /**
+     * @brief 磁链衰减积分截止频率（rad/s，float 物理量）
+     *
+     * 用于带衰减积分：flux = flux*(1 - wc*dt) + v_emf*dt，
+     * 消除纯积分在低速/静止时的 DC 偏置漂移。
+     * 典型取值：5～30 rad/s（对应截止频率约 0.8～5 Hz）；
+     * 设为 0.0f 时退化为纯积分（向后兼容默认值）。
+     */
+    float wc_rad_s;
 } bm_algo_flux_observer_q15_config_t;
 
 typedef struct {
@@ -1377,10 +1388,19 @@ bm_algo_q15_t bm_algo_flux_observer_q15_step(
     bm_algo_q15_t dt_q15);
 
 typedef struct {
-    bm_algo_q31_t rs_q31;
-    bm_algo_q31_t ls_q31;
-    bm_algo_q31_t pll_kp_q31;
-    bm_algo_q31_t pll_ki_q31;
+    bm_algo_q31_t rs_q31;       /**< 定子电阻（Q31 归一化） */
+    bm_algo_q31_t ls_q31;       /**< 定子电感（Q31 归一化） */
+    bm_algo_q31_t pll_kp_q31;   /**< PLL 比例增益（Q31 归一化） */
+    bm_algo_q31_t pll_ki_q31;   /**< PLL 积分增益（Q31 归一化） */
+    /**
+     * @brief 磁链衰减积分截止频率（rad/s，float 物理量）
+     *
+     * 用于带衰减积分：flux = flux*(1 - wc*dt) + v_emf*dt，
+     * 消除纯积分在低速/静止时的 DC 偏置漂移。
+     * 典型取值：5～30 rad/s（对应截止频率约 0.8～5 Hz）；
+     * 设为 0.0f 时退化为纯积分（向后兼容默认值）。
+     */
+    float wc_rad_s;
 } bm_algo_flux_observer_q31_config_t;
 
 typedef struct {
@@ -1491,10 +1511,13 @@ typedef struct {
 } bm_algo_mahony_q15_config_t;
 
 typedef struct {
-    bm_algo_q15_t qw_q15;
-    bm_algo_q15_t qx_q15;
-    bm_algo_q15_t qy_q15;
-    bm_algo_q15_t qz_q15;
+    bm_algo_q15_t qw_q15;      /**< 四元数 w 分量（Q15） */
+    bm_algo_q15_t qx_q15;      /**< 四元数 x 分量（Q15） */
+    bm_algo_q15_t qy_q15;      /**< 四元数 y 分量（Q15） */
+    bm_algo_q15_t qz_q15;      /**< 四元数 z 分量（Q15） */
+    float integral_x;           /**< Ki 积分项 x（浮点保存帧间状态，对应 bm_algo_mahony_state_t.integral_x） */
+    float integral_y;           /**< Ki 积分项 y（浮点保存帧间状态） */
+    float integral_z;           /**< Ki 积分项 z（浮点保存帧间状态） */
 } bm_algo_mahony_q15_state_t;
 
 void bm_algo_mahony_q15_reset(bm_algo_mahony_q15_state_t *state);
@@ -1516,10 +1539,13 @@ typedef struct {
 } bm_algo_mahony_q31_config_t;
 
 typedef struct {
-    bm_algo_q31_t qw_q31;
-    bm_algo_q31_t qx_q31;
-    bm_algo_q31_t qy_q31;
-    bm_algo_q31_t qz_q31;
+    bm_algo_q31_t qw_q31;      /**< 四元数 w 分量（Q31） */
+    bm_algo_q31_t qx_q31;      /**< 四元数 x 分量（Q31） */
+    bm_algo_q31_t qy_q31;      /**< 四元数 y 分量（Q31） */
+    bm_algo_q31_t qz_q31;      /**< 四元数 z 分量（Q31） */
+    float integral_x;           /**< Ki 积分项 x（浮点保存帧间状态，对应 bm_algo_mahony_state_t.integral_x） */
+    float integral_y;           /**< Ki 积分项 y（浮点保存帧间状态） */
+    float integral_z;           /**< Ki 积分项 z（浮点保存帧间状态） */
 } bm_algo_mahony_q31_state_t;
 
 void bm_algo_mahony_q31_reset(bm_algo_mahony_q31_state_t *state);

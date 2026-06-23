@@ -6,14 +6,15 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-17
+ * @version 1.2
+ * @date 2026-06-23
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-17       1.1            zeh            PWM 扇区采样窗口判定
+ * 2026-06-23       1.2            zeh            磁链观测器纯积分改为带衰减积分，新增 flux_observer_wc_rad_s 配置字段
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -112,10 +113,19 @@ float bm_algo_deadtime_comp_v_period(float phase_v,
 
 /* ---------- 无感 FOC 辅助（K0） ---------- */
 typedef struct {
-    float rs_ohm;
-    float ls_h;
-    float pll_kp;
-    float pll_ki;
+    float rs_ohm;   /**< 定子电阻（Ω） */
+    float ls_h;     /**< 定子电感（H） */
+    float pll_kp;   /**< PLL 比例增益 */
+    float pll_ki;   /**< PLL 积分增益 */
+    /**
+     * @brief 磁链积分衰减截止频率（rad/s）
+     *
+     * 用于带衰减积分：flux = flux*(1 - wc*dt) + v_emf*dt，
+     * 消除纯积分在低速/静止时的 DC 偏置漂移。
+     * 典型取值：5～30 rad/s（对应截止频率约 0.8～5 Hz）；
+     * 设为 0 时退化为纯积分（不推荐）。
+     */
+    float flux_observer_wc_rad_s;
 } bm_algo_flux_observer_config_t;
 
 typedef struct {
