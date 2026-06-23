@@ -33,6 +33,7 @@ void setUp(void) {
     s_telemetry_publish_count = 0u;
     bm_hal_pwm_request_safe_state(&BM_HAL_PWM_SIM0);
     bm_hal_encoder_sim_set_count(&BM_HAL_ENC_SIM0, 0);
+    bm_hal_encoder_sim_set_fail(&BM_HAL_ENC_SIM0, 0);
 }
 
 void tearDown(void) {}
@@ -340,6 +341,62 @@ static void test_validate_config_accepts_valid_mtpa_params(void) {
 }
 
 /**
+ * @brief encoder_timeout_s>0：瞬时丢样（累计 < 超时）速度环容忍、不 latch。
+ */
+static void test_encoder_timeout_tolerates_transient_dropout(void) {
+    bm_motor_foc_sensored_axis_t axis = make_axis();
+    axis.config.encoder_timeout_s = 0.05f;          /* 容忍 50 拍 @1ms */
+    axis.state.cmd.status = BM_MOTOR_FOC_CMD_ENABLED;
+    bm_hal_encoder_sim_set_fail(&BM_HAL_ENC_SIM0, 1);
+
+    for (int i = 0; i < 10; ++i) {                  /* 0.01s < 0.05s */
+        bm_motor_foc_sensored_speed_step(&axis);
+    }
+
+    TEST_ASSERT_EQUAL(0, axis.state.fault_latched);
+}
+
+/**
+ * @brief encoder_timeout_s>0：持续丢样累计超阈 → latch_fault 进安全态。
+ */
+static void test_encoder_timeout_latches_after_sustained_dropout(void) {
+    bm_motor_foc_sensored_axis_t axis = make_axis();
+    axis.config.encoder_timeout_s = 0.05f;          /* 50 拍 @1ms */
+    axis.state.cmd.status = BM_MOTOR_FOC_CMD_ENABLED;
+    bm_hal_encoder_sim_set_fail(&BM_HAL_ENC_SIM0, 1);
+
+    for (int i = 0; i < 60; ++i) {                  /* 0.06s > 0.05s */
+        bm_motor_foc_sensored_speed_step(&axis);
+    }
+
+    TEST_ASSERT_EQUAL(1, axis.state.fault_latched);
+}
+
+/**
+ * @brief 读成功清零累计：丢样未超阈→恢复一拍→再丢样仍从零计，不被历史误 latch。
+ */
+static void test_encoder_timeout_resets_on_successful_read(void) {
+    bm_motor_foc_sensored_axis_t axis = make_axis();
+    axis.config.encoder_timeout_s = 0.05f;
+    axis.state.cmd.status = BM_MOTOR_FOC_CMD_ENABLED;
+
+    bm_hal_encoder_sim_set_fail(&BM_HAL_ENC_SIM0, 1);
+    for (int i = 0; i < 40; ++i) {                  /* 0.04s < 0.05s */
+        bm_motor_foc_sensored_speed_step(&axis);
+    }
+    TEST_ASSERT_EQUAL(0, axis.state.fault_latched);
+
+    bm_hal_encoder_sim_set_fail(&BM_HAL_ENC_SIM0, 0);  /* 恢复一拍清零 */
+    bm_motor_foc_sensored_speed_step(&axis);
+
+    bm_hal_encoder_sim_set_fail(&BM_HAL_ENC_SIM0, 1);
+    for (int i = 0; i < 40; ++i) {                  /* 再 0.04s，从零计 → 不 latch */
+        bm_motor_foc_sensored_speed_step(&axis);
+    }
+    TEST_ASSERT_EQUAL(0, axis.state.fault_latched);
+}
+
+/**
  * @brief last_vd/vq_pu 在 current_step 后被更新（供下一拍弱磁使用）。
  */
 static void test_last_vd_vq_updated_after_current_step(void) {
@@ -366,6 +423,9 @@ int main(void) {
     RUN_TEST(test_encoder_failure_latches_fault_and_stops_pwm);
     RUN_TEST(test_encoder_direction_and_electrical_offset_are_applied);
     RUN_TEST(test_speed_step_preserves_current_pi_integrator);
+    RUN_TEST(test_encoder_timeout_tolerates_transient_dropout);
+    RUN_TEST(test_encoder_timeout_latches_after_sustained_dropout);
+    RUN_TEST(test_encoder_timeout_resets_on_successful_read);
     RUN_TEST(test_exec_callbacks_exchange_command_and_telemetry);
     /* MTPA / 弱磁新增路径。 */
     RUN_TEST(test_default_id_ref_used_when_mtpa_disabled);
