@@ -16,6 +16,18 @@
 #include "bm/algorithm/bm_algo_calibration.h"
 #include <stddef.h>
 
+/**
+ * @brief 对一维分段线性 LUT 进行插值查询
+ *
+ * 算法：遍历节点找到包含 x 的区间 [x[i], x[i+1]]，
+ * 计算归一化参数 t = (x - x[i]) / (x[i+1] - x[i])，
+ * 返回 y[i] + t * (y[i+1] - y[i])。
+ * 超出区间时饱和（取端点值）；区间跨度为零时取左端点。
+ *
+ * @param lut 查找表描述符指针
+ * @param x   查询自变量值
+ * @return 插值结果；lut 或内部指针为 NULL、point_count 为 0 时返回 0.0f
+ */
 float bm_algo_lut1d_interp(const bm_algo_lut1d_t *lut, float x) {
     uint32_t i;
 
@@ -47,6 +59,13 @@ float bm_algo_lut1d_interp(const bm_algo_lut1d_t *lut, float x) {
     return lut->y[lut->point_count - 1u];
 }
 
+/**
+ * @brief 应用线性标定：y = gain * raw + offset
+ *
+ * @param cal 标定参数指针（gain/offset）
+ * @param raw 原始输入值
+ * @return 标定后的输出值；cal 为 NULL 时直通返回 raw
+ */
 float bm_algo_linear_cal_apply(const bm_algo_linear_cal_t *cal, float raw) {
     if (cal == NULL) {
         return raw;

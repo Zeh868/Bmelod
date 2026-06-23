@@ -12,6 +12,7 @@
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-17       1.1            zeh            RGB565 转灰度与裁剪
  * 2026-06-17       1.2            zeh            最近邻缩放
+ * 2026-06-23       1.2            zeh            补齐 Doxygen 注释
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -21,6 +22,17 @@
 #include <stddef.h>
 #include <string.h>
 
+/**
+ * @brief 校验图像尺寸并计算像素总数
+ *
+ * 检查 width 和 height 均不为零、乘积不溢出 uint32_t 且不超过 INT32_MAX，
+ * 并将像素总数写入 *count。
+ *
+ * @param width  图像宽度（像素）
+ * @param height 图像高度（像素）
+ * @param count  输出像素总数（width × height）
+ * @return 0 参数合法；-1 参数无效或溢出
+ */
 static int image_pixel_count(uint32_t width, uint32_t height, size_t *count) {
     if (count == NULL || width == 0u || height == 0u ||
         width > UINT32_MAX / height ||
@@ -158,9 +170,9 @@ int bm_algo_image_label_u8(const uint8_t *binary,
                 int changed;
 
                 /*
-                 * labels[] doubles as the visited map. Repeated scans avoid a
-                 * caller-supplied queue while still producing true 4-connected
-                 * components.
+                 * labels[] 同时充当已访问标记。重复扫描策略无需调用者提供队列，
+                 * 仍可正确标记真正的 4 连通域；代价是对大图复杂度偏高，
+                 * 适合嵌入式小分辨率场景（详见 bm_algo_image_label_u8 说明）。
                  */
                 do {
                     uint32_t scan_x;

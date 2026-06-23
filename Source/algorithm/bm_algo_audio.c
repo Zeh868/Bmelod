@@ -3,7 +3,7 @@
  * @brief 音频数学核实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.4
  * @date 2026-06-13
  *
  * @par 修改日志:
@@ -14,6 +14,7 @@
  * 2026-06-17       1.2            zeh            PDM 二阶 CIC 抽取
  * 2026-06-17       1.3            zeh            delay-and-sum 波束成形
  * 2026-06-17       1.4            zeh            对角加载 MVDR
+ * 2026-06-23       1.4            zeh            补齐 Doxygen 注释
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -329,6 +330,15 @@ void bm_algo_noise_gate_process(bm_algo_noise_gate_state_t *state,
 
 #define GCC_PHAT_FFT_MAX BM_ALGO_FFT_SIZE_1024
 
+/**
+ * @brief 根据线性相关长度选取最小满足的 FFT 点数
+ *
+ * 从 64/128/256/512/1024 中选出第一个 ≥ linear_n 的值。
+ * 若 linear_n 超过最大支持点数，返回 0 表示不支持。
+ *
+ * @param linear_n 所需最小 FFT 点数
+ * @return 实际 FFT 点数（BM_ALGO_FFT_SIZE_*），或 0 表示超出范围
+ */
 static uint32_t gcc_phat_pick_fft_size(uint32_t linear_n) {
     if (linear_n <= BM_ALGO_FFT_SIZE_64) {
         return BM_ALGO_FFT_SIZE_64;
@@ -348,6 +358,16 @@ static uint32_t gcc_phat_pick_fft_size(uint32_t linear_n) {
     return 0u;
 }
 
+/**
+ * @brief 计算 GCC-PHAT 所需的线性相关序列长度
+ *
+ * 线性相关长度 = n + max_lag，用于确定 FFT 点数以避免圆形混叠。
+ * 若加法溢出 UINT32_MAX 则返回 0 表示不可计算。
+ *
+ * @param n       信号长度（采样数）
+ * @param max_lag 最大搜索滞后（采样数，须 ≥0）
+ * @return 线性相关序列长度；溢出时返回 0
+ */
 static uint32_t gcc_phat_linear_len(uint32_t n, int32_t max_lag) {
     uint32_t extra = (max_lag > 0) ? (uint32_t)max_lag : 0u;
 
@@ -375,6 +395,17 @@ uint32_t bm_algo_gcc_phat_work_count(uint32_t n, int32_t max_lag) {
     return 4u * fft_n;
 }
 
+/**
+ * @brief 将实数序列填充为零填充复数交错数组
+ *
+ * 前 n 个复数点的实部取自 src[]，虚部补零；超出 n 的点全零填充。
+ * 此步骤实现 FFT 零填充以抑制圆形卷积混叠。
+ *
+ * @param ri    输出复数交错缓冲 [re,im,...]，长度 2*fft_n
+ * @param fft_n FFT 点数
+ * @param src   输入实数数组，长度 n
+ * @param n     有效输入样本数（n ≤ fft_n）
+ */
 static void gcc_phat_fill_time(float *ri, uint32_t fft_n, const float *src,
                                uint32_t n) {
     uint32_t i;
@@ -389,6 +420,17 @@ static void gcc_phat_fill_time(float *ri, uint32_t fft_n, const float *src,
     }
 }
 
+/**
+ * @brief 原址计算归一化互功率谱（PHAT 加权）
+ *
+ * PHAT 加权公式：R(k) = X_ref(k) * conj(X_sig(k)) / |X_ref(k) * conj(X_sig(k))|
+ * 归一化使所有频率分量幅值为 1，增强时延估计对宽带噪声的鲁棒性。
+ * 幅值低于 1e-12 时将该频率箱置零以防止除零。
+ *
+ * @param ref_spec 参考信号频谱（原址修改为归一化互功率谱），长度 2*fft_n
+ * @param sig_spec 信号频谱（只读），长度 2*fft_n
+ * @param fft_n    FFT 点数
+ */
 static void gcc_phat_apply_phat(float *ref_spec, const float *sig_spec,
                                 uint32_t fft_n) {
     uint32_t i;
@@ -412,6 +454,18 @@ static void gcc_phat_apply_phat(float *ref_spec, const float *sig_spec,
     }
 }
 
+/**
+ * @brief 从 IFFT 结果中读取指定滞后处的 GCC-PHAT 相关值
+ *
+ * 正滞后 lag ≥ 0 对应线性索引 lag；
+ * 负滞后 lag < 0 利用循环对称，对应索引 fft_n - |lag|。
+ * 返回该复数点的实部（IFFT 后相关函数实部即为 GCC 值）。
+ *
+ * @param gcc   IFFT 结果（复数交错），长度 2*fft_n
+ * @param fft_n FFT 点数
+ * @param lag   查询滞后（采样数，[-max_lag, max_lag]）
+ * @return 该滞后处的 GCC-PHAT 相关值（实部）；越界返回 0.0
+ */
 static float gcc_phat_corr_at_lag(const float *gcc, uint32_t fft_n,
                                   int32_t lag) {
     uint32_t idx;

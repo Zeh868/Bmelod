@@ -3,7 +3,7 @@
  * @brief 电源算法：SOGI-PLL、MPPT 与 RMS 实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-06-13
  *
  * @par 修改日志:
@@ -12,6 +12,8 @@
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-23       1.1            zeh            SOGI 前向欧拉稳定条件注释补充；
  *                                                bm_algo_sogi_pll_step 积分器增加对称限幅
+ * 2026-06-23       1.2            zeh            SOGI 离散由前向欧拉改为双线性（Tustin）；
+ *                                                bm_algo_sogi_pll_reset 新增导数缓存清零
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -31,10 +33,12 @@ void bm_algo_sogi_pll_reset(bm_algo_sogi_pll_state_t *state,
     if (state == NULL) {
         return;
     }
-    state->v_alpha = 0.0f;
-    state->v_beta = 0.0f;
-    state->theta_rad = 0.0f;
-    state->integrator = 0.0f;
+    state->v_alpha      = 0.0f;
+    state->v_beta       = 0.0f;
+    state->theta_rad    = 0.0f;
+    state->integrator   = 0.0f;
+    state->d_alpha_prev = 0.0f; /* Tustin 导数缓存清零 */
+    state->d_beta_prev  = 0.0f; /* Tustin 导数缓存清零 */
     if (config != NULL) {
         state->omega_rad_s = config->nominal_omega_rad_s;
     }
@@ -49,6 +53,12 @@ void bm_algo_sogi_pll_step(bm_algo_sogi_pll_state_t *state,
     float omega;
     float d_alpha;
     float d_beta;
+    float h;
+    float denom;
+    float b1;
+    float b2;
+    float new_alpha;
+    float new_beta;
 
     if (state == NULL || config == NULL || dt_s <= 0.0f) {
         return;
@@ -57,14 +67,42 @@ void bm_algo_sogi_pll_step(bm_algo_sogi_pll_state_t *state,
     k = config->k_sogi;
     omega = state->omega_rad_s;
 
-    /* SOGI 连续状态方程，前向欧拉离散。
-     * 稳定性约束：omega * dt_s < 2；
-     * 50 Hz（ω≈314 rad/s）下要求 dt_s < 6.37 ms（采样率 > 157 Hz）。
-     * 若无法满足此约束，应改用 Tustin（双线性）离散化。*/
-    d_alpha = omega * (k * (v_input - state->v_alpha) - state->v_beta);
-    d_beta = omega * state->v_alpha;
-    state->v_alpha += d_alpha * dt_s;
-    state->v_beta += d_beta * dt_s;
+    /* ------------------------------------------------------------------
+     * SOGI 双线性（Tustin）离散化
+     *
+     * 连续方程：
+     *   dx1/dt = ω·(k·(v_in − x1) − x2)    [x1 = v_alpha]
+     *   dx2/dt = ω·x1                        [x2 = v_beta ]
+     *
+     * Tustin 梯形积分：x[n] = x[n-1] + T/2·(f[n] + f[n-1])
+     * 令 h = ω·dt_s/2，展开后联立求解 x1[n]、x2[n]：
+     *
+     *   (1 + h·k + h²)·x1[n] = (x1[n-1] + h·d_alpha_prev
+     *                           + h·k·v_in[n])
+     *                          − h·(x2[n-1] + h·d_beta_prev)
+     *   x2[n] = x2[n-1] + h·d_beta_prev + h·x1[n]
+     *
+     * 其中 d_alpha_prev、d_beta_prev 为前一拍导数缓存（状态字段）。
+     * 行列式 denom = 1 + h·k + h²，对任意 h > 0 均正定，无条件稳定。
+     * 离散极点模长满足 |z| < 1（可由双线性变换保留连续系统 Hurwitz 性质得证）。
+     * ------------------------------------------------------------------ */
+    h = omega * dt_s * 0.5f;
+    denom = 1.0f + h * k + h * h;
+
+    b1 = state->v_alpha + h * state->d_alpha_prev + h * k * v_input;
+    b2 = state->v_beta  + h * state->d_beta_prev;
+
+    new_alpha = (b1 - h * b2) / denom;
+    new_beta  = b2 + h * new_alpha;
+
+    /* 更新本拍导数缓存，供下一拍 Tustin 积分使用 */
+    d_alpha = omega * (k * (v_input - new_alpha) - new_beta);
+    d_beta  = omega * new_alpha;
+    state->d_alpha_prev = d_alpha;
+    state->d_beta_prev  = d_beta;
+
+    state->v_alpha = new_alpha;
+    state->v_beta  = new_beta;
 
     /* Park 到 dq，PLL 用 q 轴误差 */
     vq = -sinf(state->theta_rad) * state->v_alpha

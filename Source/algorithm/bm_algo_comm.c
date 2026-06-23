@@ -19,12 +19,15 @@
 
 #include <math.h>
 
+/** DTMF 行频表（Hz）：697 / 770 / 852 / 941 */
 static const float s_dtmf_rows[BM_ALGO_DTMF_ROW_COUNT] = {
     697.0f, 770.0f, 852.0f, 941.0f
 };
+/** DTMF 列频表（Hz）：1209 / 1336 / 1477 / 1633 */
 static const float s_dtmf_cols[BM_ALGO_DTMF_COL_COUNT] = {
     1209.0f, 1336.0f, 1477.0f, 1633.0f
 };
+/** DTMF 符号映射表：[行][列] → ASCII 符号 */
 static const char s_dtmf_map[BM_ALGO_DTMF_ROW_COUNT][BM_ALGO_DTMF_COL_COUNT] = {
     { '1', '2', '3', 'A' },
     { '4', '5', '6', 'B' },
@@ -32,6 +35,16 @@ static const char s_dtmf_map[BM_ALGO_DTMF_ROW_COUNT][BM_ALGO_DTMF_COL_COUNT] = {
     { '*', '0', '#', 'D' }
 };
 
+/**
+ * @brief 计算 CRC-16/CCITT（多项式 0x1021，大端位序）
+ *
+ * 按字节逐位处理，每次左移并与多项式异或。
+ *
+ * @param data 输入数据缓冲区，为 NULL 时返回 init
+ * @param len  数据字节数
+ * @param init CRC 初始值
+ * @return 16 位 CRC 结果
+ */
 uint16_t bm_algo_crc16_ccitt(const uint8_t *data, uint32_t len, uint16_t init) {
     uint32_t i;
     uint32_t crc = init;
@@ -54,6 +67,16 @@ uint16_t bm_algo_crc16_ccitt(const uint8_t *data, uint32_t len, uint16_t init) {
     return (uint16_t)crc;
 }
 
+/**
+ * @brief 计算 CRC-32（多项式 0xEDB88320，小端/反射位序）
+ *
+ * 按字节逐位处理，位序反射兼容 IEEE 802.3/ZIP/zlib 标准。
+ *
+ * @param data 输入数据缓冲区，为 NULL 时返回 init
+ * @param len  数据字节数
+ * @param init CRC 初始值（标准用法传入 0xFFFFFFFF）
+ * @return 32 位 CRC 结果（未取反）
+ */
 uint32_t bm_algo_crc32(const uint8_t *data, uint32_t len, uint32_t init) {
     uint32_t i;
     uint32_t crc = init;
@@ -77,6 +100,11 @@ uint32_t bm_algo_crc32(const uint8_t *data, uint32_t len, uint32_t init) {
     return crc;
 }
 
+/**
+ * @brief 复位 DTMF 检测状态，清零行列频率能量缓存
+ *
+ * @param state 检测状态指针，为 NULL 时静默返回
+ */
 void bm_algo_dtmf_reset(bm_algo_dtmf_state_t *state) {
     uint32_t i;
 
@@ -91,6 +119,17 @@ void bm_algo_dtmf_reset(bm_algo_dtmf_state_t *state) {
     }
 }
 
+/**
+ * @brief 用 Goertzel 算法计算指定频率的能量
+ *
+ * 初始化 Goertzel 状态后逐样本馈入，最后返回能量估计值。
+ *
+ * @param samples   输入浮点样本数组
+ * @param n         样本数
+ * @param freq_hz   目标频率（Hz）
+ * @param sample_hz 采样率（Hz）
+ * @return 目标频率处的 Goertzel 能量估计值
+ */
 static float goertzel_energy(const float *samples, uint32_t n,
                              float freq_hz, float sample_hz) {
     bm_algo_goertzel_config_t cfg;
@@ -108,6 +147,20 @@ static float goertzel_energy(const float *samples, uint32_t n,
     return bm_algo_goertzel_result(&st, &cfg);
 }
 
+/**
+ * @brief 对一块样本执行 DTMF 单音检测
+ *
+ * 分别计算四个行频和四个列频的 Goertzel 能量，
+ * 选取行列各自能量最大的频率组合输出符号。
+ * 行列能量均低于 1e-4 时输出 '\0'（无音）。
+ *
+ * @param state      检测状态指针（存储各频率能量）
+ * @param config     检测配置指针（采样率）
+ * @param samples    输入浮点样本数组
+ * @param n          样本数
+ * @param symbol_out 输出符号（无音时为 '\0'）
+ * @return 1 表示检测到符号；0 表示无音；-1 表示参数无效
+ */
 int bm_algo_dtmf_detect(bm_algo_dtmf_state_t *state,
                         const bm_algo_dtmf_config_t *config,
                         const float *samples,
@@ -154,6 +207,19 @@ int bm_algo_dtmf_detect(bm_algo_dtmf_state_t *state,
     return 1;
 }
 
+/**
+ * @brief 2-FSK 块解调为比特流
+ *
+ * 按 sample_hz/bit_rate_hz 将样本分段，对每段分别计算 mark 与 space 频率
+ * 的 Goertzel 能量，能量较大者决定比特值（mark=1，space=0）。
+ *
+ * @param samples  输入样本数组，为 NULL 时返回 -1
+ * @param n        样本总数
+ * @param config   FSK 配置（采样率、mark/space 频率、比特率），为 NULL 时返回 -1
+ * @param bits_out 输出比特缓冲区（每字节存 1 比特，值为 0 或 1）
+ * @param max_bits 输出缓冲区最大容量（比特数）
+ * @return 写入的比特数；参数无效时返回 -1
+ */
 int bm_algo_fsk2_demod_block(const float *samples,
                              uint32_t n,
                              const bm_algo_fsk2_config_t *config,
@@ -193,6 +259,15 @@ int bm_algo_fsk2_demod_block(const float *samples,
     return (int)bit_idx;
 }
 
+/**
+ * @brief Hamming(7,4) 编码：4 位数据 → 7 位码字
+ *
+ * 校验位位置（1 索引）：p1=1, p2=2, p4=4；数据位：d0=3, d1=5, d2=6, d3=7。
+ * p1 = d0^d1^d3，p2 = d0^d2^d3，p4 = d1^d2^d3。
+ *
+ * @param data_nibble 输入数据半字节（低 4 位有效）
+ * @return 7 位 Hamming 码字（低 7 位有效）
+ */
 uint8_t bm_algo_hamming74_encode(uint8_t data_nibble) {
     uint8_t d0 = data_nibble & 1u;
     uint8_t d1 = (data_nibble >> 1) & 1u;
@@ -206,6 +281,16 @@ uint8_t bm_algo_hamming74_encode(uint8_t data_nibble) {
                      (d1 << 4) | (d2 << 5) | (d3 << 6));
 }
 
+/**
+ * @brief Hamming(7,4) 解码：7 位码字 → 4 位数据（纠 1 bit 错误）
+ *
+ * 计算综合码（syndrome）= s4|s2|s1；非零时翻转对应比特位实现纠错，
+ * 然后提取数据位 b3/b5/b6/b7 重组为 4 位结果。
+ * 双比特及以上错误无法检测。
+ *
+ * @param code 接收到的 7 位码字（低 7 位有效）
+ * @return 解码（并纠错）后的 4 位数据（低 4 位有效）
+ */
 uint8_t bm_algo_hamming74_decode(uint8_t code) {
     uint8_t b1 = code & 1u;
     uint8_t b2 = (code >> 1) & 1u;

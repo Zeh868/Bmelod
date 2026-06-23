@@ -11,6 +11,7 @@
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-17       1.1            zeh            MFCC DCT 近似
+ * 2026-06-23       1.1            zeh            补齐 Doxygen 注释
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

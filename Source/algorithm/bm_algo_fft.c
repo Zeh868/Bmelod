@@ -36,6 +36,16 @@ int bm_algo_fft_is_supported_size(uint32_t size) {
     }
 }
 
+/**
+ * @brief 对整数 x 的低 bits 位执行位反转（比特逆序）
+ *
+ * 用于 radix-2 FFT 中将时域序号映射到位反转序号。
+ * 例如：bits=3，x=0b001 → 返回 0b100。
+ *
+ * @param x    待反转的整数
+ * @param bits 有效位数（即 log2(N)）
+ * @return 位反转后的值
+ */
 static uint32_t bit_reverse(uint32_t x, uint32_t bits) {
     uint32_t y = 0u;
     uint32_t i;
@@ -47,6 +57,15 @@ static uint32_t bit_reverse(uint32_t x, uint32_t bits) {
     return y;
 }
 
+/**
+ * @brief 对复数交错数组执行原址位反转排列
+ *
+ * 将 data[i] 与 data[bit_reverse(i)] 互换，为后续蝶形运算准备输入顺序。
+ * data 格式为 [re0,im0,re1,im1,...,re{n-1},im{n-1}]，实际元素数为 2*n。
+ *
+ * @param data 复数交错缓冲（原址操作），长度 2*n
+ * @param n    复数点数（须为 2 的幂）
+ */
 static void fft_bit_reverse(float *data, uint32_t n) {
     uint32_t bits = 0u;
     uint32_t i;
@@ -71,6 +90,19 @@ static void fft_bit_reverse(float *data, uint32_t n) {
     }
 }
 
+/**
+ * @brief Cooley-Tukey radix-2 DIT FFT 核心（原址，复数交错格式）
+ *
+ * 算法步骤：
+ *  1. 调用 fft_bit_reverse() 完成位反转排列；
+ *  2. 按蝶形级数 log2(n) 迭代，每级蝶形步长 m=2^stage；
+ *  3. 旋转因子 W = e^{sign*j*2π*i/m}，正变换 sign=-1，逆变换 sign=+1；
+ *  4. 逆变换结束后整体乘以 1/N 完成归一化。
+ *
+ * @param data    复数交错缓冲（原址操作），长度 2*n
+ * @param n       复数点数（须为 BM_ALGO_FFT_SIZE_* 之一）
+ * @param inverse 0 正变换；1 逆变换（含 1/N 归一化）
+ */
 static void fft_radix2(float *data, uint32_t n, int inverse) {
     uint32_t stage;
     uint32_t m;
@@ -149,6 +181,17 @@ int bm_algo_rfft_f32_init(bm_algo_rfft_f32_t *fft,
     return bm_algo_cfft_f32_init((bm_algo_cfft_f32_t *)fft, size, work, work_count);
 }
 
+/**
+ * @brief 实数 FFT 执行：时域 → 幅值谱
+ *
+ * 将 time_data 零填充为复数序列存入 work，调用正向 radix-2 FFT，
+ * 对 0..N/2 各频率箱计算幅值 sqrt(re²+im²)/N 并写入 spectrum_mag。
+ *
+ * @param fft         已初始化的 RFFT 实例
+ * @param time_data   时域实数输入，长度 size
+ * @param spectrum_mag 输出幅值谱，长度 size/2+1
+ * @return 0 成功；-1 参数非法
+ */
 int bm_algo_rfft_f32_execute(bm_algo_rfft_f32_t *fft,
                              const float *time_data,
                              float *spectrum_mag) {

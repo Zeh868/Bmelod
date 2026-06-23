@@ -4,7 +4,7 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.2
+ * @version 1.3
  * @date 2026-06-23
  *
  * @par 修改日志:
@@ -13,6 +13,7 @@
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-17       1.1            zeh            增加 1D UKF 与 EKF 创新门控
  * 2026-06-23       1.2            zeh            KF 更新分母阈值放宽为 1e-9f；UKF β 修正项补注释
+ * 2026-06-23       1.3            zeh            落地 UKF β 协方差修正项：pzz 中 i=0 项使用 w0_cov
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -87,6 +88,22 @@ typedef struct {
 void bm_algo_ukf1d_reset(bm_algo_ukf1d_state_t *state, float x0, float p0);
 void bm_algo_ukf1d_predict(bm_algo_ukf1d_state_t *state,
                            const bm_algo_ukf1d_config_t *config);
+
+/**
+ * @brief 1D UKF 测量更新（含 β 协方差修正项）
+ *
+ * 权重定义（n=1，λ = α²·(1+κ)）：
+ *   - 均值权  w0_mean = (λ-1)/λ，w1 = 0.5/λ（i=1,2 共用）
+ *   - 协方差权 w0_cov  = w0_mean + (1 - α² + β)，仅用于 pzz/pxx 中 i=0 项
+ *
+ * 退化条件：β=0、α=1 时 w0_cov = w0_mean，行为与原实现完全一致。
+ * 默认参数 α=1、β=2（高斯分布最优值），此时 w0_cov = w0_mean + 2。
+ *
+ * @param state       滤波器状态（x, p）
+ * @param config      滤波器配置（r, q, measurement_model）
+ * @param measurement 当前测量值
+ * @return BM_ALGO_EKF_UPDATE_OK / BM_ALGO_EKF_UPDATE_INVALID
+ */
 int bm_algo_ukf1d_update(bm_algo_ukf1d_state_t *state,
                          const bm_algo_ukf1d_config_t *config,
                          float measurement);

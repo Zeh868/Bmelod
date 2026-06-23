@@ -10,6 +10,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
+ * 2026-06-23       1.0            zeh            补齐 Doxygen 注释
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -183,7 +184,7 @@ float bm_algo_scurve_step(bm_algo_scurve_state_t *state,
         return state->position;
     }
 
-    /* Brake-distance controller with jerk-limited acceleration changes. */
+    /* 制动距离控制器：根据预估停车距离决策加速/减速，acceleration 变化量受 jerk 限制。 */
     direction = (dist >= 0.0f) ? 1.0f : -1.0f;
     stopping_distance =
         (state->velocity * state->velocity) / (2.0f * config->max_accel);
