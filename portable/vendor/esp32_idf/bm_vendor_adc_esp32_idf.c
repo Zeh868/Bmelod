@@ -17,8 +17,8 @@
  *       高频电流环（20 kHz ISR）的 ADC 采样延迟需待硬件验证。
  *
  * @author zeh (china_qzh@163.com)
- * @version 2.0
- * @date 2026-06-19
+ * @version 2.4
+ * @date 2026-06-22
  *
  * @par 修改日志:
  *
@@ -28,6 +28,8 @@
  * 2026-06-19       2.0            zeh            Phase 2：改为 MCPWM ISR 触发采样
  * 2026-06-21       2.1            zeh            诊断埋点：ISR 内 ADC 采样时间与 wait 计数
  * 2026-06-22       2.2            zeh            清 B2 诊断埋点（DIAG_ADC 计时/diag_read_clear）
+ * 2026-06-22       2.3            zeh            B3-S2a 降噪：每通道滑动中值-of-3（剔单拍脉冲毛刺，不增 ADC 转换次数）
+ * 2026-06-22       2.4            zeh            B3-S2a 降噪二层：中值后串一极点 IIR 低通（α=1/4，压 SENSOR 脚连续底噪）
  *
  */
 #include "bm_vendor_adc_esp32_idf.h"
@@ -69,6 +71,40 @@
  */
 #define BM_VENDOR_ADC_AVG_N           1u
 
+/**
+ * @brief 滑动中值滤波开关（B3-S2a 降噪）：1=每通道对最近 3 拍取中值，0=直通。
+ *
+ * 针对 SENSOR_VP/VN 等噪声脚的**单拍脉冲毛刺**（实测 peak 飙 0.4-0.5A，远超
+ * 真实 0.05A）：中值-of-3（跨连续控制拍）把单拍飞点剔除，3 个里的 1 个异常值
+ * 被中值天然排除。**每拍仍只 1 次 oneshot 转换**（中值取历史而非一拍连采），
+ * 故不增加 ISR 内 ADC 耗时、不重蹈 AVG_N=8 把采样挤出低边窗口的坑。
+ * 群延迟约 1 拍（5kHz 下 0.2ms），对电流环可忽略。
+ */
+#define BM_VENDOR_ADC_MEDIAN3         1u
+
+/**
+ * @brief 三数中值（a+b+c-max-min，免排序，ISR 安全）。
+ */
+static inline uint16_t bm_vendor_adc_median3(uint16_t a, uint16_t b, uint16_t c)
+{
+    uint16_t mx = a > b ? a : b;
+    uint16_t mn = a < b ? a : b;
+    mx = mx > c ? mx : c;
+    mn = mn < c ? mn : c;
+    return (uint16_t)((uint32_t)a + (uint32_t)b + (uint32_t)c - mx - mn);
+}
+
+/**
+ * @brief 一极点 IIR 低通移位量（B3-S2a 第二层降噪）：0=关，N>0 → α=1/2^N。
+ *
+ * 中值剔脉冲毛刺后，对 SENSOR_VP/VN 脚的**连续底噪**再做整数 EMA 低通：
+ *   acc += x − (acc>>N)；y = acc>>N （acc 收敛到 x·2^N）。
+ * shift=2（α=0.25）≈ 2× 降噪、τ≈0.7ms（~230Hz 截止）；电流环 Kp=0.1 保守、
+ * 带宽低，该群延迟可接受。**代价是给电流反馈加相位滞后**，过深会削相位裕度→
+ * 震荡，故起步 2、上板看 iq 跟踪稳定性再决定是否加深。整数运算、ISR 安全。
+ */
+#define BM_VENDOR_ADC_IIR_SHIFT       2u
+
 typedef struct {
     /** @brief 电机编号（0/1）。 */
     uint32_t id;
@@ -77,8 +113,22 @@ typedef struct {
 typedef struct {
     /** @brief 是否已完成硬件初始化。 */
     int initialized;
-    /** @brief ISR 内采样的原始 ADC 缓存值。 */
+    /** @brief ISR 内采样的原始 ADC 缓存值（中值滤波后，供控制环读取）。 */
     uint16_t cached[BM_VENDOR_ADC_RANK_COUNT];
+#if BM_VENDOR_ADC_MEDIAN3
+    /** @brief 每通道最近 3 拍原始采样环（中值滤波用）。 */
+    uint16_t med_buf[BM_VENDOR_ADC_RANK_COUNT][3];
+    /** @brief 每通道环形写指针（0..2）。 */
+    uint8_t  med_pos[BM_VENDOR_ADC_RANK_COUNT];
+    /** @brief 每通道是否已预热（首拍用同值填满 3 槽，避免起始偏斜）。 */
+    uint8_t  med_primed[BM_VENDOR_ADC_RANK_COUNT];
+#endif
+#if BM_VENDOR_ADC_IIR_SHIFT > 0
+    /** @brief 每通道 IIR 累加器（acc 收敛到 y·2^shift）。 */
+    int32_t  iir_acc[BM_VENDOR_ADC_RANK_COUNT];
+    /** @brief 每通道 IIR 是否已预热（首拍用 x<<shift 填充，避免起始爬升）。 */
+    uint8_t  iir_primed[BM_VENDOR_ADC_RANK_COUNT];
+#endif
     /** @brief HRT 完成回调绑定（透传到 MCPWM ISR）。 */
     bm_hal_hrt_binding_t complete_binding;
 } bm_vendor_adc_context_t;
@@ -258,7 +308,38 @@ static int bm_vendor_adc_isr_sample(bm_vendor_adc_context_t *ctx)
                 acc += (uint32_t)adc_oneshot_ll_get_raw_result(ADC_UNIT_1);
                 adc_oneshot_ll_clear_event(ADC_LL_EVENT_ADC1_ONESHOT_DONE);
             }
-            ctx->cached[rank] = (uint16_t)(acc / BM_VENDOR_ADC_AVG_N);
+            {
+                /* 滤波级联：原始 → 中值（剔脉冲毛刺）→ IIR 低通（压连续底噪）。 */
+                uint16_t filt = (uint16_t)(acc / BM_VENDOR_ADC_AVG_N);
+#if BM_VENDOR_ADC_MEDIAN3
+                /* 滑动中值-of-3（跨连续控制拍，剔除单拍脉冲毛刺）。 */
+                if (!ctx->med_primed[rank]) {
+                    /* 首拍：3 槽同值填满，median 即首值，避免起始偏斜。 */
+                    ctx->med_buf[rank][0] = filt;
+                    ctx->med_buf[rank][1] = filt;
+                    ctx->med_buf[rank][2] = filt;
+                    ctx->med_pos[rank]    = 0u;
+                    ctx->med_primed[rank] = 1u;
+                } else {
+                    ctx->med_buf[rank][ctx->med_pos[rank]] = filt;
+                    ctx->med_pos[rank] = (uint8_t)((ctx->med_pos[rank] + 1u) % 3u);
+                }
+                filt = bm_vendor_adc_median3(ctx->med_buf[rank][0],
+                                             ctx->med_buf[rank][1],
+                                             ctx->med_buf[rank][2]);
+#endif
+#if BM_VENDOR_ADC_IIR_SHIFT > 0
+                /* 一极点整数 EMA 低通（acc 收敛到 filt·2^shift）。 */
+                if (!ctx->iir_primed[rank]) {
+                    ctx->iir_acc[rank]    = (int32_t)filt << BM_VENDOR_ADC_IIR_SHIFT;
+                    ctx->iir_primed[rank] = 1u;
+                } else {
+                    ctx->iir_acc[rank] += (int32_t)filt - (ctx->iir_acc[rank] >> BM_VENDOR_ADC_IIR_SHIFT);
+                }
+                filt = (uint16_t)(ctx->iir_acc[rank] >> BM_VENDOR_ADC_IIR_SHIFT);
+#endif
+                ctx->cached[rank] = filt;
+            }
         }
     }
 
