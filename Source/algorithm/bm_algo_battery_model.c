@@ -3,7 +3,7 @@
  * @brief 电池等效模型实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-06-13
  *
  * @par 修改日志:
@@ -11,6 +11,7 @@
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       1.0            zeh            补齐 Doxygen 注释，版本与头文件对齐
+ * 2026-06-23       1.1            zeh            电压更新增加协方差对角元正定性兜底
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -153,4 +154,12 @@ void bm_algo_soc_ekf_update_voltage(bm_algo_soc_ekf_state_t *state,
     /* 对称化处理，保持协方差矩阵数值对称 */
     state->p01 = 0.5f * (state->p01 + state->p10);
     state->p10 = state->p01;
+    /* 对角元正定性兜底：理论上 (I-KH)P 在正定初值下保持非负，
+     * 此处仅防浮点极端边缘出现微小负值，避免后续 S 计算异常。 */
+    if (state->p00 < 0.0f) {
+        state->p00 = 0.0f;
+    }
+    if (state->p11 < 0.0f) {
+        state->p11 = 0.0f;
+    }
 }

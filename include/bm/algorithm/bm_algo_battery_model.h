@@ -6,13 +6,14 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-06-13
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            初始版本
+ * 2026-06-23       1.1            zeh            电压更新增加协方差对角元正定性兜底
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
