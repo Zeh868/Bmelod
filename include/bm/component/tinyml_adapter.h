@@ -6,7 +6,7 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.9
+ * @version 1.0
  * @date 2026-06-17
  *
  * @par 修改日志:
@@ -21,6 +21,7 @@
  * 2026-06-17       0.7            zeh            MAXPOOL 2x2 stride2 算子
  * 2026-06-17       0.8            zeh            DEPTHWISE 3x3 stride1 算子
  * 2026-06-17       0.9            zeh            CONV2D 1x1 NCHW 算子
+ * 2026-06-23       1.0            zeh            通用 CONV2D（任意核/步长/padding）
  */
 #ifndef BM_TINYML_ADAPTER_H
 #define BM_TINYML_ADAPTER_H
@@ -66,18 +67,41 @@ typedef enum {
     BM_TINYML_OP_MUL,
     BM_TINYML_OP_MAXPOOL_2X2,
     BM_TINYML_OP_DEPTHWISE_CONV2D,
-    BM_TINYML_OP_CONV2D_1X1
+    BM_TINYML_OP_CONV2D_1X1,
+    /** 通用标准 CONV2D：Cin→Cout，任意 KhxKw 核、可配 stride 与 explicit padding，NCHW i8 */
+    BM_TINYML_OP_CONV2D
 } bm_tinyml_op_t;
 
 typedef struct {
     bm_tinyml_op_t  op;
     uint32_t        input_tensor;
-    /** ADD 第二输入 tensor 索引；FC 等单输入算子忽略 */
+    /** ADD/MUL 第二输入 tensor 索引；其他单输入算子忽略 */
     uint32_t        input_tensor_b;
     uint32_t        output_tensor;
     const int8_t   *fc_weights;
     uint32_t        fc_in_dim;
     uint32_t        fc_out_dim;
+    /**
+     * @name 通用 CONV2D 超参（BM_TINYML_OP_CONV2D 专用；其余算子置 0 不影响行为）
+     *
+     * - conv_kh / conv_kw：核高/宽，≥1
+     * - conv_sh / conv_sw：步长高/宽，≥1
+     * - conv_pad_top/bottom/left/right：explicit padding 像素数（VALID 时全 0）
+     *   越界像素以 input zero_point 填充（等价于数值 0）
+     *
+     * 权重 layout：[out_ch][in_ch][kh][kw]，行主序；bias 可为 NULL（无 bias）。
+     * @{
+     */
+    uint32_t        conv_kh;       /**< 卷积核高度 */
+    uint32_t        conv_kw;       /**< 卷积核宽度 */
+    uint32_t        conv_sh;       /**< 步长（高方向） */
+    uint32_t        conv_sw;       /**< 步长（宽方向） */
+    uint32_t        conv_pad_top;  /**< 顶部 padding 像素数 */
+    uint32_t        conv_pad_bottom; /**< 底部 padding 像素数 */
+    uint32_t        conv_pad_left; /**< 左侧 padding 像素数 */
+    uint32_t        conv_pad_right;/**< 右侧 padding 像素数 */
+    const int32_t  *conv_bias;     /**< 偏置数组 [out_ch]，i32，可为 NULL */
+    /** @} */
 } bm_tinyml_graph_node_t;
 
 typedef struct {

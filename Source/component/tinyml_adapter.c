@@ -5,7 +5,7 @@
  * bump pointer 分配，tensor 元数据委托 bm_algo_features 量化。
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.9
+ * @version 1.0
  * @date 2026-06-17
  *
  * @par 修改日志:
@@ -20,6 +20,7 @@
  * 2026-06-17       0.7            zeh            MAXPOOL 2x2 stride2 算子
  * 2026-06-17       0.8            zeh            DEPTHWISE 3x3 stride1 算子
  * 2026-06-17       0.9            zeh            CONV2D 1x1 NCHW 算子
+ * 2026-06-23       1.0            zeh            通用 CONV2D（任意核/步长/explicit padding）
  */
 #include "bm/component/tinyml_adapter.h"
 #include "bm/algorithm/bm_algo_features.h"
@@ -517,6 +518,168 @@ static int run_conv2d_1x1_node(const bm_tinyml_graph_node_t *node,
     return 0;
 }
 
+/**
+ * @brief 通用标准 CONV2D（Cin→Cout，任意 KhxKw，可配 stride 与 explicit padding）
+ *
+ * 量化语义（沿用现有算子约定）：
+ *   acc = bias[oc] + Σ_{ic,kh,kw} in[n][ic][ih][iw] * w[oc][ic][kh][kw]
+ *   out[n][oc][oh][ow] = clamp_i8(acc >> 7)
+ * 越界像素以 input zero_point（即 i8 值 0，表示数值 0）填充。
+ *
+ * 输入 tensor：ndim==4，[N][Cin][H][W]，NCHW i8
+ * 输出 tensor：预分配缓冲 ≥ N*Cout*oh*ow 字节
+ *
+ * 节点超参（node 字段）：
+ *   - fc_weights：权重 [Cout][Cin][Kh][Kw]，i8，行主序
+ *   - fc_in_dim ：Cin（输入通道数）
+ *   - fc_out_dim：Cout（输出通道数）
+ *   - conv_kh/conv_kw：核高/宽，≥1
+ *   - conv_sh/conv_sw：步长，≥1
+ *   - conv_pad_top/bottom/left/right：explicit padding，0 = VALID
+ *   - conv_bias：i32 偏置 [Cout]，可为 NULL
+ *
+ * @param node       图节点（含超参与权重指针）
+ * @param in_tensor  输入 tensor，ndim==4，NCHW i8
+ * @param out_tensor 输出 tensor，预分配缓冲需足够容纳结果
+ * @return 0 成功；-1 参数无效或缓冲不足
+ */
+static int run_conv2d_node(const bm_tinyml_graph_node_t *node,
+                           const bm_tinyml_tensor_t *in_tensor,
+                           bm_tinyml_tensor_t *out_tensor) {
+    uint32_t n_dim;
+    uint32_t c_in_dim;
+    uint32_t ih_dim;
+    uint32_t iw_dim;
+    uint32_t c_out_dim;
+    uint32_t kh;
+    uint32_t kw;
+    uint32_t sh;
+    uint32_t sw;
+    uint32_t pad_top;
+    uint32_t pad_bottom;
+    uint32_t pad_left;
+    uint32_t pad_right;
+    uint32_t oh;
+    uint32_t ow;
+    uint32_t n;
+    uint32_t oc;
+    uint32_t ohy;
+    uint32_t owx;
+    uint32_t ic;
+    uint32_t fh;
+    uint32_t fw;
+
+    if (node == NULL || in_tensor == NULL || out_tensor == NULL ||
+        node->fc_weights == NULL || in_tensor->data == NULL ||
+        out_tensor->data == NULL) {
+        return -1;
+    }
+    if (in_tensor->ndim != 4u) {
+        return -1;
+    }
+
+    n_dim    = in_tensor->dims[0];
+    c_in_dim = in_tensor->dims[1];
+    ih_dim   = in_tensor->dims[2];
+    iw_dim   = in_tensor->dims[3];
+    c_out_dim = node->fc_out_dim;
+    kh       = node->conv_kh;
+    kw       = node->conv_kw;
+    sh       = node->conv_sh;
+    sw       = node->conv_sw;
+    pad_top    = node->conv_pad_top;
+    pad_bottom = node->conv_pad_bottom;
+    pad_left   = node->conv_pad_left;
+    pad_right  = node->conv_pad_right;
+
+    /* 参数合法性校验 */
+    if (c_in_dim == 0u || c_out_dim == 0u || n_dim == 0u ||
+        ih_dim == 0u || iw_dim == 0u ||
+        kh == 0u || kw == 0u || sh == 0u || sw == 0u) {
+        return -1;
+    }
+    if (c_in_dim != node->fc_in_dim) {
+        return -1;
+    }
+
+    /* 输出尺寸：oh = (ih + pad_top + pad_bottom - kh) / sh + 1 */
+    if ((ih_dim + pad_top + pad_bottom) < kh ||
+        (iw_dim + pad_left + pad_right) < kw) {
+        return -1;
+    }
+    oh = ((ih_dim + pad_top + pad_bottom) - kh) / sh + 1u;
+    ow = ((iw_dim + pad_left + pad_right) - kw) / sw + 1u;
+    if (oh == 0u || ow == 0u) {
+        return -1;
+    }
+
+    /* 缓冲足够性校验 */
+    if (in_tensor->byte_count < n_dim * c_in_dim * ih_dim * iw_dim ||
+        out_tensor->byte_count < n_dim * c_out_dim * oh * ow) {
+        return -1;
+    }
+
+    for (n = 0u; n < n_dim; ++n) {
+        for (oc = 0u; oc < c_out_dim; ++oc) {
+            for (ohy = 0u; ohy < oh; ++ohy) {
+                for (owx = 0u; owx < ow; ++owx) {
+                    int32_t acc = 0;
+                    uint32_t out_idx;
+
+                    /* 累加 bias（可选） */
+                    if (node->conv_bias != NULL) {
+                        acc = node->conv_bias[oc];
+                    }
+
+                    for (ic = 0u; ic < c_in_dim; ++ic) {
+                        for (fh = 0u; fh < kh; ++fh) {
+                            for (fw = 0u; fw < kw; ++fw) {
+                                /* 输入坐标（加 padding 偏移后减去） */
+                                uint32_t ih_raw = ohy * sh + fh;
+                                uint32_t iw_raw = owx * sw + fw;
+                                int8_t in_val;
+                                uint32_t w_idx;
+
+                                /* 越界像素用 zero_point 填充（等价数值 0） */
+                                if (ih_raw < pad_top ||
+                                    ih_raw >= ih_dim + pad_top ||
+                                    iw_raw < pad_left ||
+                                    iw_raw >= iw_dim + pad_left) {
+                                    in_val = (int8_t)in_tensor->zero_point;
+                                } else {
+                                    uint32_t ihy = ih_raw - pad_top;
+                                    uint32_t iwx = iw_raw - pad_left;
+                                    uint32_t in_idx =
+                                        ((n * c_in_dim + ic) * ih_dim + ihy) *
+                                        iw_dim + iwx;
+                                    in_val = in_tensor->data[in_idx];
+                                }
+
+                                /* 权重 layout: [oc][ic][fh][fw] 行主序 */
+                                w_idx = ((oc * c_in_dim + ic) * kh + fh) *
+                                        kw + fw;
+                                acc += (int32_t)in_val *
+                                       (int32_t)node->fc_weights[w_idx];
+                            }
+                        }
+                    }
+
+                    out_idx = ((n * c_out_dim + oc) * oh + ohy) * ow + owx;
+                    out_tensor->data[out_idx] = clamp_i8(acc >> 7);
+                }
+            }
+        }
+    }
+
+    out_tensor->ndim = 4u;
+    out_tensor->dims[0] = n_dim;
+    out_tensor->dims[1] = c_out_dim;
+    out_tensor->dims[2] = oh;
+    out_tensor->dims[3] = ow;
+    out_tensor->byte_count = n_dim * c_out_dim * oh * ow;
+    return 0;
+}
+
 int bm_tinyml_graph_init(bm_tinyml_graph_t *graph) {
     uint32_t i;
 
@@ -553,6 +716,13 @@ int bm_tinyml_graph_init(bm_tinyml_graph_t *graph) {
         if (node->op == BM_TINYML_OP_CONV2D_1X1 &&
             (node->fc_weights == NULL || node->fc_in_dim == 0u ||
              node->fc_out_dim == 0u)) {
+            return -1;
+        }
+        if (node->op == BM_TINYML_OP_CONV2D &&
+            (node->fc_weights == NULL || node->fc_in_dim == 0u ||
+             node->fc_out_dim == 0u ||
+             node->conv_kh == 0u || node->conv_kw == 0u ||
+             node->conv_sh == 0u || node->conv_sw == 0u)) {
             return -1;
         }
     }
@@ -652,6 +822,11 @@ int bm_tinyml_graph_run(bm_tinyml_graph_t *graph,
             break;
         case BM_TINYML_OP_CONV2D_1X1:
             if (run_conv2d_1x1_node(node, in_tensor, out_tensor) != 0) {
+                return -1;
+            }
+            break;
+        case BM_TINYML_OP_CONV2D:
+            if (run_conv2d_node(node, in_tensor, out_tensor) != 0) {
                 return -1;
             }
             break;
