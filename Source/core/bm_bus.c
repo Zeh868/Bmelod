@@ -5,7 +5,7 @@
  * LATEST / QUEUE / SIGNAL 三种 mode 共用同一套借还逻辑，并发层按
  * BM_CONFIG_CPU_COUNT 切换。零动态分配，写者 O(1) 无阻塞。
  * @author zeh (china_qzh@163.com)
- * @version 0.2
+ * @version 0.3
  * @date 2026-06-25
  *
  * @par 修改日志:
@@ -13,6 +13,7 @@
  *    Date         Version        Author          Description
  * 2026-06-25       0.1            zeh            Phase 1 Task 2 写路径骨架
  * 2026-06-25       0.2            zeh            Phase 1 Task 3 QUEUE 读路径：reader_attach 修正、acquire_read、release、freeze
+ * 2026-06-25       0.3            zeh            Phase 1 Task 4 ready_count 实现；stats Phase 1 注释；SIGNAL 多读者独立游标测试
  *
  */
 #include "bm/core/bm_bus.h"
@@ -521,28 +522,51 @@ int bm_bus_release(bm_bus_reader_t *r) {
 }
 
 /**
- * @brief 查询读者可读槽数（Task 4 补全，此处占位）
+ * @brief 查询当前读者可消费的元素数量
  *
- * @param r 读者句柄指针
- * @return 0（Task 4 补全）
+ * LATEST 恒返回 1（latest_published 始终有效）。
+ * QUEUE/SIGNAL：返回 write_cur - read_cur，超 cap-1 则裁剪为 cap-1（overflow 场景）。
+ *
+ * @param r 读者句柄
+ * @return 可读元素数；句柄无效返回 0
  */
 uint32_t bm_bus_ready_count(const bm_bus_reader_t *r) {
-    (void)r;
-    return 0u;
+    const bm_bus_storage_t *st;
+    uint32_t wc, rc, diff;
+
+    if (!r || !r->storage) {
+        return 0u;
+    }
+    st = r->storage;
+    if (st->mode == BM_BUS_LATEST) {
+        return 1u;
+    }
+    if (r->slot_idx >= st->max_consumers) {
+        return 0u;
+    }
+    wc   = bus_load_cur(&st->write_cur);
+    rc   = bus_load_cur(&st->readers[r->slot_idx].read_cur);
+    diff = wc - rc;
+    /* 超 cap 说明发生 overflow，裁剪为 cap-1（保守可用估计） */
+    return (diff > st->capacity - 1u) ? (st->capacity - 1u) : diff;
 }
 
 /**
- * @brief 获取 bus 统计快照
+ * @brief 获取写侧统计快照
  *
- * @param h   bus 句柄指针
- * @param out 输出统计结构体指针
- * @return BM_OK 成功；BM_ERR_INVALID 参数无效
+ * @param h   bus 句柄
+ * @param out 输出统计结构
+ * @return BM_OK 成功；BM_ERR_INVALID 参数错
  */
 int bm_bus_stats(const bm_bus_t *h, bm_bus_stats_t *out) {
+    /* Phase 1 简化实现：write_count = write_cur */
     if (!h || !h->storage || !out) {
         return BM_ERR_INVALID;
     }
     out->write_count    = bus_load_cur(&h->storage->write_cur);
-    out->overflow_count = 0u;
+    out->overflow_count = 0u;  /* Phase 1 占位：写侧 overflow 计数字段在 bm_bus_storage_t
+                                 * 暂未内置；读者侧 overflow 已存于 readers[i].overflow_count。
+                                 * QUEUE 写满拒绝次数如需统计，由调用方累加 acquire_write
+                                 * 返回 BM_ERR_OVERFLOW 的次数（见未决项） */
     return BM_OK;
 }
