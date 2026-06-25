@@ -1,13 +1,14 @@
 /**
  * @file test_bus.c
- * @brief bm_bus 单元测试（Task 2/3/4：open/validate/acquire_write/commit/abort/reader_attach/acquire_read/release/freeze/ready_count/stats）
+ * @brief bm_bus 单元测试（Task 2/3/4/5：open/validate/acquire_write/commit/abort/reader_attach/acquire_read/release/freeze/ready_count/stats/LATEST三缓冲）
  *
  * TDD 覆盖：open/validate/acquire_write/commit/abort 基本语义，
  * QUEUE 满立即拒绝（test_queue_write_overflow_on_full，仅依赖写路径），
  * QUEUE 读路径：reader_attach 唯一性、acquire_read、release、freeze（Phase 1 Task 3）；
- * SIGNAL 多读者独立游标、overflow 计数、ready_count/stats（Phase 1 Task 4）。
+ * SIGNAL 多读者独立游标、overflow 计数、ready_count/stats（Phase 1 Task 4）；
+ * LATEST 三缓冲选槽语义：写路径实现、单读者约束、读到最新值、release 清 NONE（Phase 1 Task 5）。
  * @author zeh (china_qzh@163.com)
- * @version 0.3
+ * @version 0.4
  * @date 2026-06-25
  */
 
@@ -322,6 +323,105 @@ void test_stats_invalid_params(void) {
     TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_bus_stats(&g_bus_q, NULL));
 }
 
+/* ------------------------------------------------------------------ */
+/* Task 5：LATEST 三缓冲选槽语义，reader_attach 单读者约束             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * @brief LATEST 写入后单读者读到该值（三缓冲写路径基本验证）。
+ *
+ * tb_l cap=4（>= 3），写 111 后 attach 读者，读取必须得到 111。
+ * 此测试验证 acquire_write/commit LATEST 分支基本功能。
+ */
+void test_latest_single_write_read(void) {
+    bm_bus_reader_t r;
+    const uint32_t *s;
+    void *ws;
+
+    /* 先写再 attach，验证读者读到初始发布值 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_l, &ws));
+    *(uint32_t *)ws = 111u;
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_commit(&g_bus_l));
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_reader_attach(&g_bus_l, &r));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_read(&r, (const void **)&s));
+    TEST_ASSERT_EQUAL_UINT32(111u, *s);
+    bm_bus_release(&r);
+}
+
+/**
+ * @brief LATEST 多次覆盖发布后读者读到最新值（三缓冲无损更新验证）。
+ *
+ * 连续写 111 → 222 → 333，每次 commit 覆盖上一次；读者 acquire_read
+ * 必须得到最后写入的 333，而非历史值。
+ */
+void test_latest_read_always_newest(void) {
+    bm_bus_reader_t r;
+    const uint32_t *s;
+    void *ws;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_reader_attach(&g_bus_l, &r));
+
+    /* 写 111 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_l, &ws));
+    *(uint32_t *)ws = 111u;
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_commit(&g_bus_l));
+    /* 写 222（覆盖）*/
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_l, &ws));
+    *(uint32_t *)ws = 222u;
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_commit(&g_bus_l));
+    /* 写 333（再次覆盖）*/
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_l, &ws));
+    *(uint32_t *)ws = 333u;
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_commit(&g_bus_l));
+
+    /* 读：必须得到最新值 333 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_read(&r, (const void **)&s));
+    TEST_ASSERT_EQUAL_UINT32(333u, *s);
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_release(&r));
+}
+
+/**
+ * @brief LATEST reader_attach 单读者约束：第二次 attach 返回 BM_ERR_INVALID。
+ *
+ * 权威规范：LATEST 仅允许 1 个读者，latest_reading == BM_BUS_LATEST_NONE
+ * 表示空闲可 attach，否则已有读者拒绝。
+ */
+void test_latest_only_one_reader(void) {
+    bm_bus_reader_t r0, r1;
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_reader_attach(&g_bus_l, &r0));
+    /* 第二个读者：LATEST 单读者约束，必须返回 BM_ERR_INVALID */
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_bus_reader_attach(&g_bus_l, &r1));
+}
+
+/**
+ * @brief LATEST release 后 latest_reading 清为 BM_BUS_LATEST_NONE。
+ *
+ * release 语义：清 reading 标记，使写者 choose_slot 可重用该槽。
+ * 直接检查 storage 字段 latest_reading。
+ */
+void test_latest_release_clears_reading(void) {
+    bm_bus_reader_t r;
+    const void *s;
+    void *ws;
+
+    /* 写一个值 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_l, &ws));
+    *(uint32_t *)ws = 42u;
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_commit(&g_bus_l));
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_reader_attach(&g_bus_l, &r));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_read(&r, &s));
+    /* acquire_read 后 latest_reading 应已被设为 published 槽 */
+    TEST_ASSERT_NOT_EQUAL(BM_BUS_LATEST_NONE,
+        (uint32_t)bm_atomic_ipc_load_u32(&tb_l_storage.latest_reading));
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_release(&r));
+    /* release 后 latest_reading 必须清为 BM_BUS_LATEST_NONE */
+    TEST_ASSERT_EQUAL_UINT32(BM_BUS_LATEST_NONE,
+        (uint32_t)bm_atomic_ipc_load_u32(&tb_l_storage.latest_reading));
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_open_validate_ok);
@@ -342,5 +442,10 @@ int main(void) {
     RUN_TEST(test_ready_count_null);
     RUN_TEST(test_stats_basic);
     RUN_TEST(test_stats_invalid_params);
+    /* Task 5：LATEST 三缓冲语义 */
+    RUN_TEST(test_latest_single_write_read);
+    RUN_TEST(test_latest_read_always_newest);
+    RUN_TEST(test_latest_only_one_reader);
+    RUN_TEST(test_latest_release_clears_reading);
     return UNITY_END();
 }

@@ -5,7 +5,7 @@
  * LATEST / QUEUE / SIGNAL 三种 mode 共用同一套借还逻辑，并发层按
  * BM_CONFIG_CPU_COUNT 切换。零动态分配，写者 O(1) 无阻塞。
  * @author zeh (china_qzh@163.com)
- * @version 0.3
+ * @version 0.4
  * @date 2026-06-25
  *
  * @par 修改日志:
@@ -14,6 +14,7 @@
  * 2026-06-25       0.1            zeh            Phase 1 Task 2 写路径骨架
  * 2026-06-25       0.2            zeh            Phase 1 Task 3 QUEUE 读路径：reader_attach 修正、acquire_read、release、freeze
  * 2026-06-25       0.3            zeh            Phase 1 Task 4 ready_count 实现；stats Phase 1 注释；SIGNAL 多读者独立游标测试
+ * 2026-06-25       0.4            zeh            Phase 1 Task 5 LATEST 三缓冲选槽实现：acquire_write/commit 真实分支；reader_attach 单读者约束；acquire_read spin-until-stable 循环
  *
  */
 #include "bm/core/bm_bus.h"
@@ -125,7 +126,10 @@ int bm_bus_open(bm_bus_t *h, bm_bus_storage_t *storage,
     }
     /* 重置运行期状态 */
     bus_store_cur(&storage->write_cur, 0u);
-    bus_store_cur(&storage->latest_published, 0u);
+    /* LATEST：初始无发布数据，latest_published 设为 BM_BUS_LATEST_NONE，
+     * acquire_read 检测 NONE 后返回 BM_ERR_WOULD_BLOCK（尚无有效数据）；
+     * 首次 commit 后才设为有效槽索引。QUEUE/SIGNAL 此字段不使用，无副作用。 */
+    bus_store_cur(&storage->latest_published, BM_BUS_LATEST_NONE);
     bus_store_cur(&storage->latest_reading, BM_BUS_LATEST_NONE);
     bus_store_cur(&storage->latest_writing, 0u);
     storage->owner_cpu         = cfg->owner_cpu;
@@ -200,6 +204,34 @@ int bm_bus_validate(const bm_bus_t *h) {
 /* ------------------------------------------------------------------ */
 
 /**
+ * @brief LATEST 模式选写槽（三缓冲选槽，与 bm_snapshot_choose_buffer 等价）
+ *
+ * 避开 published（读者可能正取）与 reading（读者已登记正读）两槽，
+ * 防多核读写撕裂。cap>=3 时必有第三槽可用。published 或 reading 可能为
+ * BM_BUS_LATEST_NONE（0xFFFFFFFF），视为"无此槽"，不参与避开。
+ *
+ * @param published 当前已发布槽索引（或 BM_BUS_LATEST_NONE）
+ * @param reading   读者正在读的槽索引（或 BM_BUS_LATEST_NONE 表示无读者）
+ * @param cap       环容量（建议 3，最小 2）
+ * @return 可写入的槽索引（0..cap-1）
+ */
+static uint32_t bus_latest_choose_write_slot(uint32_t published,
+                                             uint32_t reading,
+                                             uint32_t cap)
+{
+    uint32_t i;
+
+    for (i = 0u; i < cap; i++) {
+        if (i != published && i != reading) {
+            return i;
+        }
+    }
+    /* cap==2 时无第三槽，退化：覆盖非 reading 槽（双缓冲，多核建议 cap>=3） */
+    return (published < cap && published != reading) ?
+           published : ((published + 1u) % cap);
+}
+
+/**
  * @brief QUEUE 满判据：最慢（唯一）读者落后达 cap-1 即视为满
  *
  * 保留一槽区分满/空：实际可存 cap-1 项。QUEUE max_consumers==1，
@@ -242,8 +274,25 @@ int bm_bus_acquire_write(bm_bus_t *h, void **slot_out) {
         return BM_ERR_NOT_SUPPORTED;
     }
     if (st->mode == BM_BUS_LATEST) {
-        /* 占位：Task 5 Step 5.4 替换为三缓冲 choose 分支 */
-        return BM_ERR_NOT_SUPPORTED;
+        /* LATEST 三缓冲：choose 避开 published 与 reading 两槽，选出写槽存入
+         * latest_writing（scratch），commit 时以 release 序拷入 latest_published。
+         * 完全不复用 write_cur。write_in_progress 防重入。 */
+        uint32_t pub, reading, wslot;
+
+        BUS_LOCK(&s);
+        if (st->write_in_progress) {
+            BUS_UNLOCK(s);
+            return BM_ERR_BUSY;
+        }
+        pub     = bus_load_cur(&st->latest_published);
+        reading = bus_load_cur(&st->latest_reading);
+        wslot   = bus_latest_choose_write_slot(pub, reading, st->capacity);
+        st->write_in_progress = 1u;
+        /* 选中槽存入 latest_writing（scratch），commit 时拷入 latest_published */
+        bus_store_cur(&st->latest_writing, wslot);
+        *slot_out = st->data_buf + wslot * st->elem_size;
+        BUS_UNLOCK(s);
+        return BM_OK;
     }
 
     BUS_LOCK(&s);
@@ -284,8 +333,21 @@ int bm_bus_commit(bm_bus_t *h) {
         return BM_ERR_NOT_SUPPORTED;
     }
     if (st->mode == BM_BUS_LATEST) {
-        /* 占位：Task 5 Step 5.4 替换为 latest_published 提交分支 */
-        return BM_ERR_NOT_SUPPORTED;
+        /* LATEST 三缓冲 commit：以 release 序发布 latest_writing 写槽。
+         * 数据写入先于 latest_published 可见，读者 acquire 序读游标后能看到数据。 */
+        uint32_t wslot;
+
+        BUS_LOCK(&s);
+        if (!st->write_in_progress) {
+            BUS_UNLOCK(s);
+            return BM_ERR_INVALID;
+        }
+        wslot = bus_load_cur(&st->latest_writing);   /* acquire_write 时已选好 */
+        /* release 序发布：数据先于 latest_published 可见，读者 acquire 序读到 */
+        bus_store_cur(&st->latest_published, wslot);
+        st->write_in_progress = 0u;
+        BUS_UNLOCK(s);
+        return BM_OK;
     }
 
     BUS_LOCK(&s);
@@ -366,7 +428,14 @@ int bm_bus_reader_attach(bm_bus_t *h, bm_bus_reader_t *r) {
     }
 
     if (st->mode == BM_BUS_LATEST) {
-        /* LATEST：不持游标，不占配额 */
+        /* LATEST：单读者 SPSC 约束——reader_count 追踪是否已有读者 attach。
+         * reader_count == 0 表示空闲可 attach，否则已有读者拒绝（返回 BM_ERR_INVALID）。
+         * LATEST 不持游标，不占 max_consumers 配额，但 reader_count 仍递增以追踪唯一性。 */
+        if (st->reader_count >= 1u) {
+            BUS_UNLOCK(s);
+            return BM_ERR_INVALID;
+        }
+        st->reader_count++;
         r->storage  = st;
         r->slot_idx = UINT32_MAX;
         BUS_UNLOCK(s);
@@ -436,19 +505,23 @@ int bm_bus_acquire_read(bm_bus_reader_t *r, const void **slot_out) {
     st = r->storage;
 
     if (st->mode == BM_BUS_LATEST) {
-        /* LATEST：acquire 序读 latest_published，登记 reading 标记防撕裂 */
-        uint32_t pub = bus_load_cur(&st->latest_published);
-        bus_store_cur(&st->latest_reading, pub);
-        /* 重读 published 确认期间未被写者覆盖（与 bm_snapshot 一致性循环同构）；
-         * 若已变，采用新值并更新 reading 标记 */
-        {
-            uint32_t pub2 = bus_load_cur(&st->latest_published);
-            if (pub2 != pub) {
-                pub = pub2;
-                bus_store_cur(&st->latest_reading, pub);
+        /* LATEST：spin-until-stable 循环（照搬 bm_snapshot READ 逻辑）。
+         * 先读 latest_published（acquire 序），登记 latest_reading（release 序）
+         * 防写者 choose_slot 覆盖正读槽；再次 acquire 读 latest_published 确认
+         * 期间未变，变则重试——直到稳定。
+         * 若 published == BM_BUS_LATEST_NONE（无数据），返回 BM_ERR_WOULD_BLOCK。 */
+        uint32_t p, r_idx;
+
+        do {
+            p = bus_load_cur(&st->latest_published);
+            if (p == BM_BUS_LATEST_NONE) {
+                return BM_ERR_WOULD_BLOCK;
             }
-        }
-        *slot_out = st->data_buf + pub * st->elem_size;
+            r_idx = p;
+            bus_store_cur(&st->latest_reading, (uint32_t)r_idx);
+        } while (bus_load_cur(&st->latest_published) != p);
+
+        *slot_out = st->data_buf + (size_t)p * st->elem_size;
         return BM_OK;
     }
 
@@ -543,7 +616,8 @@ uint32_t bm_bus_ready_count(const bm_bus_reader_t *r) {
     }
     st = r->storage;
     if (st->mode == BM_BUS_LATEST) {
-        return 1u;
+        /* LATEST：有发布数据（latest_published != BM_BUS_LATEST_NONE）返回 1，否则 0 */
+        return (bus_load_cur(&st->latest_published) != BM_BUS_LATEST_NONE) ? 1u : 0u;
     }
     if (r->slot_idx >= st->max_consumers) {
         return 0u;
