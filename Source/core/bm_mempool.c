@@ -12,6 +12,7 @@
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
  * 2026-06-10       1.1            zeh            SIL-2 溢出与双释放检测
+ * 2026-06-26       1.2            zeh            修复 free 跨核争用静默丢弃→自旋等锁
  *
  */
 #include "bm_mempool.h"
@@ -40,8 +41,27 @@ static inline void mempool_unlock(bm_mempool_t *pool, bm_irq_state_t s) {
     bm_atomic_ipc_store_u32(&pool->lock, 0u);
     BM_CRITICAL_EXIT(s);
 }
-#define MEMPOOL_LOCK(p, s)   mempool_lock((p), (s))
-#define MEMPOOL_UNLOCK(p, s) mempool_unlock((p), (s))
+
+/*
+ * 阻塞式获锁：仅供 free 使用——free 必须成功完成，丢弃 free 会永久泄漏槽位。
+ * 不在持本核 IRQ 屏蔽期间自旋：每次尝试失败即退出临界区，让对方核完成其
+ * 有界临界区并释放锁、也让本核 ISR 推进，再重试。对方核仅在有界位图操作
+ * 期间持锁，故自旋有界，WCET = N_cores × 单次临界区时长，仍可分析。
+ * alloc 保持 fail-fast（返回 NULL，调用方可恢复），不走此路径。
+ */
+static inline void mempool_lock_blocking(bm_mempool_t *pool, bm_irq_state_t *s) {
+    for (;;) {
+        *s = BM_CRITICAL_ENTER();
+        if (bm_atomic_ipc_exchange_u32(&pool->lock, 1u) == 0u) {
+            return;
+        }
+        BM_CRITICAL_EXIT(*s);
+    }
+}
+
+#define MEMPOOL_LOCK(p, s)          mempool_lock((p), (s))
+#define MEMPOOL_UNLOCK(p, s)        mempool_unlock((p), (s))
+#define MEMPOOL_LOCK_BLOCKING(p, s) mempool_lock_blocking((p), (s))
 #else
 static inline int mempool_lock(bm_mempool_t *pool, bm_irq_state_t *s) {
     (void)pool;
@@ -49,8 +69,10 @@ static inline int mempool_lock(bm_mempool_t *pool, bm_irq_state_t *s) {
     return BM_OK;
 }
 
-#define MEMPOOL_LOCK(p, s)   mempool_lock((p), (s))
-#define MEMPOOL_UNLOCK(p, s) BM_CRITICAL_EXIT(s)
+#define MEMPOOL_LOCK(p, s)          mempool_lock((p), (s))
+#define MEMPOOL_UNLOCK(p, s)        BM_CRITICAL_EXIT(s)
+/* 非路由单核：mempool_lock 恒成功并屏蔽本核 IRQ，视为阻塞式（无争用）。 */
+#define MEMPOOL_LOCK_BLOCKING(p, s) ((void)mempool_lock((p), (s)))
 #endif
 
 /**
@@ -209,10 +231,7 @@ void bm_mempool_free(bm_mempool_t *pool, void *obj) {
     }
 
     bm_irq_state_t s;
-    if (MEMPOOL_LOCK(pool, &s) != BM_OK) {
-        BM_LOGW("mempool", "free contention slot %u", (unsigned)idx);
-        return;
-    }
+    MEMPOOL_LOCK_BLOCKING(pool, &s);   /* free 必须成功：争用时自旋等锁，绝不丢弃 */
     if (!(pool->bitmap[word] & (1U << bit))) {
         MEMPOOL_UNLOCK(pool, s);
         BM_LOGE("mempool", "free double-free slot %u", (unsigned)idx);
