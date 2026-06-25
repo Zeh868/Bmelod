@@ -2,9 +2,8 @@
  * @file test_bus.c
  * @brief bm_bus 单元测试（Task 2：open/validate/acquire_write/commit/abort）
  *
- * TDD 覆盖：open/validate/acquire_write/commit/abort 基本语义。
- * test_queue_write_overflow_on_full 依赖 Task 3 的 bm_bus_reader_attach，
- * Task 2 阶段先注释，Task 3 完成后整体复跑启用。
+ * TDD 覆盖：open/validate/acquire_write/commit/abort 基本语义，
+ * 以及 QUEUE 满立即拒绝（test_queue_write_overflow_on_full，仅依赖写路径）。
  * @author zeh (china_qzh@163.com)
  * @version 0.1
  * @date 2026-06-25
@@ -66,23 +65,27 @@ void test_acquire_write_reentrancy_guard(void) {
     bm_bus_abort(&g_bus_q);
 }
 
-/* test_queue_write_overflow_on_full:
- * 依赖 Task 3 的 bm_bus_reader_attach（QUEUE 单消费者）。
- * Task 3 完成后取消注释并整体复跑确认。
+/**
+ * @brief QUEUE 满立即拒绝写：唯一读者 attach 不消费，写满 cap-1 项后第 cap 次
+ *        acquire_write 必须返回 BM_ERR_OVERFLOW（不覆盖未读，对齐不丢语义）。
  *
- * void test_queue_write_overflow_on_full(void) {
- *     bm_bus_reader_t r;
- *     void *slot;
- *     TEST_ASSERT_EQUAL(BM_OK, bm_bus_reader_attach(&g_bus_q, &r));
- *     TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_q, &slot));
- *     bm_bus_commit(&g_bus_q);
- *     TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_q, &slot));
- *     bm_bus_commit(&g_bus_q);
- *     TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_q, &slot));
- *     bm_bus_commit(&g_bus_q);
- *     TEST_ASSERT_EQUAL(BM_ERR_OVERFLOW, bm_bus_acquire_write(&g_bus_q, &slot));
- * }
+ * 仅依赖写路径（reader_attach + acquire_write + commit），不依赖 acquire_read，
+ * 故 Task 2 阶段即可启用。覆盖 bus_queue_is_full 满判据 (wc-rc)>=cap-1 的真分支。
  */
+void test_queue_write_overflow_on_full(void) {
+    bm_bus_reader_t r;
+    void *slot;
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_reader_attach(&g_bus_q, &r));
+    /* cap=4，可存 cap-1=3 项 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_q, &slot));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_commit(&g_bus_q));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_q, &slot));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_commit(&g_bus_q));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_q, &slot));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_commit(&g_bus_q));
+    /* 第 4 次：环满（3 项未读，wc-rc=3>=cap-1=3）→ 立即拒绝 */
+    TEST_ASSERT_EQUAL(BM_ERR_OVERFLOW, bm_bus_acquire_write(&g_bus_q, &slot));
+}
 
 int main(void) {
     UNITY_BEGIN();
@@ -91,5 +94,6 @@ int main(void) {
     RUN_TEST(test_acquire_write_commit_basic);
     RUN_TEST(test_acquire_write_abort);
     RUN_TEST(test_acquire_write_reentrancy_guard);
+    RUN_TEST(test_queue_write_overflow_on_full);
     return UNITY_END();
 }

@@ -73,7 +73,7 @@ typedef struct {
     bm_bus_mode_t        mode;              /**< 运行模式（BM_BUS_DEFINE 时固定，运行期只读） */
     uint8_t              owner_cpu;         /**< 拥有写权限的 CPU 核号（open 时由 cfg 写入） */
     uint8_t              frozen;            /**< freeze 后置 1 */
-    uint8_t              write_in_progress; /**< acquire_write 后、commit/abort 前置 1，防重入 */
+    volatile uint8_t     write_in_progress; /**< acquire_write 后、commit/abort 前置 1，防重入（volatile：多核空锁/同核 ISR 重入下禁缓存进寄存器） */
     uint8_t              _pad[1];           /**< 对齐填充，使 reader_count 4 字节对齐 */
     uint32_t             reader_count;      /**< 已 attach 读者数 */
     /* --- 读者游标数组（QUEUE/SIGNAL；LATEST 不使用） --- */

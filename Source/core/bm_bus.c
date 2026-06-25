@@ -31,7 +31,9 @@ static inline uint32_t bus_load_cur(const bm_atomic_ipc_u32_t *p) {
 static inline void bus_store_cur(bm_atomic_ipc_u32_t *p, uint32_t v) {
     bm_atomic_ipc_store_u32(p, v);
 }
-#define BUS_LOCK(s)   do { *(s) = 0u; } while (0)  /* 多核：SPMC 无需关中断 */
+/* 多核 SPMC：写端由 owner_cpu 独占、读端只读各自游标，无需互斥；
+ * 重入保护由 volatile write_in_progress 承担，LOCK/UNLOCK 均为空操作。 */
+#define BUS_LOCK(s)   do { (void)(s); } while (0)
 #define BUS_UNLOCK(s) do { (void)(s); } while (0)
 #else
 static inline uint32_t bus_load_cur(const bm_atomic_ipc_u32_t *p) {
