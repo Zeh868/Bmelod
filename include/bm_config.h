@@ -335,6 +335,20 @@
 #error "BM_CONFIG_ATOMIC_MAX_RETRIES must be at least 1"
 #endif
 
+/*
+ * bm_bus LATEST 读路径 spin-until-stable 的重试上界（DET-01）。
+ * 写者在读窗口内持续覆盖发布时，至多重试 N 次后非阻塞返回
+ * BM_ERR_WOULD_BLOCK，保证 acquire_read 的 WCET 可静态分析。
+ * 与 BM_CONFIG_ATOMIC_MAX_RETRIES 同源策略（CAS 环亦有界）。
+ */
+#ifndef BM_CONFIG_BUS_LATEST_MAX_RETRIES
+#define BM_CONFIG_BUS_LATEST_MAX_RETRIES          8u
+#endif
+
+#if BM_CONFIG_BUS_LATEST_MAX_RETRIES < 1u
+#error "BM_CONFIG_BUS_LATEST_MAX_RETRIES must be at least 1"
+#endif
+
 #ifndef BM_CONFIG_BOOTSTRAP_CPU
 #define BM_CONFIG_BOOTSTRAP_CPU                  0u
 #endif

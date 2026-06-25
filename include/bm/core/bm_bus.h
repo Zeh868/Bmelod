@@ -5,13 +5,14 @@
  * 单写多读（SPMC）有界环后端，三种 mode 共用一份借还 API。
  * 编译期用 BM_BUS_DEFINE 静态分配存储，零动态分配。
  * @author zeh (china_qzh@163.com)
- * @version 0.1
+ * @version 0.2
  * @date 2026-06-25
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-25       0.1            zeh            Phase 1 初稿
+ * 2026-06-25       0.2            zeh            DET-01 新增 BM_ENABLE_BUS_TEST_HOOK 测试缝声明（LATEST 重试上界验证）
  *
  */
 #ifndef BM_BUS_H
@@ -317,5 +318,16 @@ uint32_t bm_bus_ready_count(const bm_bus_reader_t *r);
  * @return BM_OK 成功；BM_ERR_INVALID 参数无效
  */
 int bm_bus_stats(const bm_bus_t *h, bm_bus_stats_t *out);
+
+#ifdef BM_ENABLE_BUS_TEST_HOOK
+/**
+ * @brief 测试钩子：LATEST acquire_read 每次重试迭代调用一次
+ *
+ * 仅在 BM_ENABLE_BUS_TEST_HOOK 下编入；生产构建零开销。测试可注入函数
+ * 模拟写者在读窗口持续发布，强制 spin-until-stable 失稳，从而覆盖并验证
+ * 重试上界（DET-01）：超 BM_CONFIG_BUS_LATEST_MAX_RETRIES 次后非阻塞返回。
+ */
+extern void (*bm_bus_test_latest_read_hook)(bm_bus_storage_t *st);
+#endif
 
 #endif /* BM_BUS_H */

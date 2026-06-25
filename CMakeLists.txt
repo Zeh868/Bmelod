@@ -165,6 +165,7 @@ if(BM_BUILD_TESTS)
     target_compile_definitions(bm_core PRIVATE
         BM_ENABLE_EVENT_TEST_HOOK=1
         BM_ENABLE_ULTRA_TEST_HOOK=1
+        BM_ENABLE_BUS_TEST_HOOK=1
     )
 endif()
 

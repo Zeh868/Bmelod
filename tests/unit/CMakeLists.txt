@@ -34,6 +34,7 @@ endif()
 
 if(BM_ENABLE_BUS)
     bm_add_test(test_bus test_bus.c bm_core)
+    target_compile_definitions(test_bus PRIVATE BM_ENABLE_BUS_TEST_HOOK=1)
     bm_add_test(test_bus_migration test_bus_migration.c bm_core)
 endif()
 

@@ -5,7 +5,7 @@
  * LATEST / QUEUE / SIGNAL 三种 mode 共用同一套借还逻辑，并发层按
  * BM_CONFIG_CPU_COUNT 切换。零动态分配，写者 O(1) 无阻塞。
  * @author zeh (china_qzh@163.com)
- * @version 0.5
+ * @version 0.6
  * @date 2026-06-25
  *
  * @par 修改日志:
@@ -16,6 +16,7 @@
  * 2026-06-25       0.3            zeh            Phase 1 Task 4 ready_count 实现；stats Phase 1 注释；SIGNAL 多读者独立游标测试
  * 2026-06-25       0.4            zeh            Phase 1 Task 5 LATEST 三缓冲选槽实现：acquire_write/commit 真实分支；reader_attach 单读者约束；acquire_read spin-until-stable 循环
  * 2026-06-25       0.5            zeh            Phase 1 Task 6 bus_storage_valid LATEST cap>=3 校验 Doxygen 完善；validate/freeze 边界测试覆盖
+ * 2026-06-25       0.6            zeh            DET-01 LATEST acquire_read spin-until-stable 重试封顶（BM_CONFIG_BUS_LATEST_MAX_RETRIES），超界非阻塞返回，WCET 可静态分析；新增 BM_ENABLE_BUS_TEST_HOOK 测试缝
  *
  */
 #include "bm/core/bm_bus.h"
@@ -24,6 +25,11 @@
 #include "bm_safety.h"
 
 #include <string.h>
+
+#if defined(BM_ENABLE_BUS_TEST_HOOK)
+/* 测试钩子定义（仅测试构建）：见 bm_bus.h 声明与 acquire_read 调用点。 */
+void (*bm_bus_test_latest_read_hook)(bm_bus_storage_t *st) = NULL;
+#endif
 
 /* ------------------------------------------------------------------ */
 /* 并发层抽象（与 bm_channel.c 风格一致）                               */
@@ -524,7 +530,8 @@ int bm_bus_acquire_read(bm_bus_reader_t *r, const void **slot_out) {
         /* LATEST：spin-until-stable 循环（照搬 bm_snapshot READ 逻辑）。
          * 先读 latest_published（acquire 序），登记 latest_reading（release 序）
          * 防写者 choose_slot 覆盖正读槽；再次 acquire 读 latest_published 确认
-         * 期间未变，变则重试——直到稳定。
+         * 期间未变，变则重试；重试至多 BM_CONFIG_BUS_LATEST_MAX_RETRIES 次，
+         * 写者持续抢占致超界则非阻塞返回 BM_ERR_WOULD_BLOCK（DET-01，WCET 有界）。
          * 若 published == BM_BUS_LATEST_NONE（无数据），返回 BM_ERR_WOULD_BLOCK。
          *
          * 并发约束：本路径读者不持 BUS_LOCK，属 SPSC 单读者无锁设计
@@ -532,8 +539,9 @@ int bm_bus_acquire_read(bm_bus_reader_t *r, const void **slot_out) {
          * 无读读竞争；若未来扩展为多读者，latest_reading 单一标记无法区分
          * 多个读者正读槽，须重新设计（如每读者独立 reading 标记）。 */
         uint32_t p;
+        uint32_t retry = 0u;
 
-        do {
+        for (;;) {
             p = bus_load_cur(&st->latest_published);
             if (p == BM_BUS_LATEST_NONE) {
                 /* 防御：无数据早返回前清 reading 标记，避免未来 reset/close
@@ -542,7 +550,25 @@ int bm_bus_acquire_read(bm_bus_reader_t *r, const void **slot_out) {
                 return BM_ERR_WOULD_BLOCK;
             }
             bus_store_cur(&st->latest_reading, p);
-        } while (bus_load_cur(&st->latest_published) != p);
+#if defined(BM_ENABLE_BUS_TEST_HOOK)
+            /* 测试缝：模拟写者在读窗口持续发布，强制下方再读失稳；
+             * 生产构建不编入，零开销（用于 DET-01 重试上界验证）。 */
+            if (bm_bus_test_latest_read_hook != NULL) {
+                bm_bus_test_latest_read_hook(st);
+            }
+#endif
+            if (bus_load_cur(&st->latest_published) == p) {
+                break; /* 期间未变，读槽稳定 */
+            }
+            /* DET-01：写者在读窗口内覆盖发布则重试，但给重试封顶——
+             * 避免写者持续抢占时无界自旋拖垮 acquire_read 的 WCET 可分析性。
+             * 超界视同"暂无稳定快照"，清 reading 标记后非阻塞返回，
+             * 调用方下一 tick 重取（与 BM_ERR_WOULD_BLOCK 语义一致）。 */
+            if (++retry >= BM_CONFIG_BUS_LATEST_MAX_RETRIES) {
+                bus_store_cur(&st->latest_reading, BM_BUS_LATEST_NONE);
+                return BM_ERR_WOULD_BLOCK;
+            }
+        }
 
         *slot_out = st->data_buf + (size_t)p * st->elem_size;
         return BM_OK;

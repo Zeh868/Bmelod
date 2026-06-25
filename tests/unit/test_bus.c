@@ -668,6 +668,54 @@ void test_acquire_write_after_freeze_still_allowed(void) {
     bm_bus_abort(&g_bus_q);
 }
 
+#ifdef BM_ENABLE_BUS_TEST_HOOK
+/* DET-01 验证支撑：模拟写者在每个读窗口持续覆盖发布，使 LATEST
+ * spin-until-stable 始终失稳，从而触达重试上界路径。 */
+static uint32_t s_latest_hook_calls;
+
+static void latest_contention_hook(bm_bus_storage_t *st) {
+    uint32_t cur  = (uint32_t)bm_atomic_ipc_load_u32(&st->latest_published);
+    uint32_t next = (cur + 1u) % st->capacity; /* 0..cap-1，恒为有效非 NONE 槽 */
+    s_latest_hook_calls++;
+    bm_atomic_ipc_store_u32(&st->latest_published, next);
+}
+
+/**
+ * @brief DET-01：LATEST acquire_read 在写者持续抢占下重试有界并非阻塞返回。
+ *
+ * 注入 latest_contention_hook 模拟写者在每次读窗口内覆盖发布，迫使
+ * spin-until-stable 始终失稳。修复前循环无界，本用例会挂死（RED）；
+ * 修复后至多重试 BM_CONFIG_BUS_LATEST_MAX_RETRIES 次即返回 BM_ERR_WOULD_BLOCK，
+ * 钩子恰好被调用 MAX 次，且 reading 标记清回 NONE（GREEN）。
+ */
+void test_latest_read_retry_bounded_under_contention(void) {
+    bm_bus_reader_t r;
+    const void *s = NULL;
+    void *ws;
+
+    /* 先发布一个有效值，使 latest_published != NONE，进入 spin 路径 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_l, &ws));
+    *(uint32_t *)ws = 7u;
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_commit(&g_bus_l));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_reader_attach(&g_bus_l, &r));
+
+    s_latest_hook_calls = 0u;
+    bm_bus_test_latest_read_hook = latest_contention_hook;
+
+    /* 持续抢占：必须有界放弃，返回 WOULD_BLOCK（修复前此调用永不返回）*/
+    TEST_ASSERT_EQUAL(BM_ERR_WOULD_BLOCK, bm_bus_acquire_read(&r, &s));
+
+    bm_bus_test_latest_read_hook = NULL;
+
+    /* 每次重试迭代调用钩子一次，第 MAX 次后放弃 → 钩子恰好被调 MAX 次 */
+    TEST_ASSERT_EQUAL_UINT32(BM_CONFIG_BUS_LATEST_MAX_RETRIES,
+                             s_latest_hook_calls);
+    /* 放弃后 reading 标记应清回 NONE（与无数据早返回一致）*/
+    TEST_ASSERT_EQUAL_UINT32(BM_BUS_LATEST_NONE,
+        (uint32_t)bm_atomic_ipc_load_u32(&tb_l_storage.latest_reading));
+}
+#endif /* BM_ENABLE_BUS_TEST_HOOK */
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_open_validate_ok);
@@ -705,5 +753,9 @@ int main(void) {
     RUN_TEST(test_validate_mode_block_not_supported_for_ring_ops);
     RUN_TEST(test_freeze_idempotent);
     RUN_TEST(test_acquire_write_after_freeze_still_allowed);
+#ifdef BM_ENABLE_BUS_TEST_HOOK
+    /* DET-01：LATEST 重试上界（需 BM_ENABLE_BUS_TEST_HOOK 编入测试缝）*/
+    RUN_TEST(test_latest_read_retry_bounded_under_contention);
+#endif
     return UNITY_END();
 }
