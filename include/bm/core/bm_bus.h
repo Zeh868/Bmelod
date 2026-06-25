@@ -2,7 +2,7 @@
  * @file bm_bus.h
  * @brief bm_bus 统一数据总线门面（Phase 1：LATEST / QUEUE / SIGNAL）
  *
- * 单写多读（SPMC）有界环后端，三种 mode 共用一份借还 API。
+ * 有界环后端，三种 mode 共用一份借还 API：SIGNAL 为单写多读（SPMC），LATEST/QUEUE 为单读者。
  * 编译期用 BM_BUS_DEFINE 静态分配存储，零动态分配。
  * @author zeh (china_qzh@163.com)
  * @version 0.2
@@ -32,7 +32,7 @@
  * 每个 bus 实例在 BM_BUS_DEFINE 时确定 mode，运行期不可改。
  */
 typedef enum {
-    BM_BUS_LATEST = 0,   /**< 最新值，覆盖式，读者不持游标 */
+    BM_BUS_LATEST = 0,   /**< 最新值，覆盖式，读者不持游标；单读者（SPSC），多消费者请用 SIGNAL */
     BM_BUS_QUEUE  = 1,   /**< SPSC 保序队列，单消费者 */
     BM_BUS_SIGNAL = 2,   /**< 多消费者独立游标，保序 */
     BM_BUS_BLOCK  = 3    /**< Phase 2，门面仅声明，LATEST/QUEUE/SIGNAL 调用返回 BM_ERR_NOT_SUPPORTED */
