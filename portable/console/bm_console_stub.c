@@ -12,6 +12,7 @@
  *
  */
 #include "bm_types.h"
+#include <stddef.h>
 
 /**
  * @brief 初始化 stub 后端
