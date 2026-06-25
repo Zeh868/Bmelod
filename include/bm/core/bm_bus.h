@@ -230,8 +230,8 @@ int bm_bus_abort(bm_bus_t *h);
  *
  * @param h bus 句柄指针
  * @param r 读者句柄指针（调用者分配）
- * @return BM_OK 成功；BM_ERR_BUSY 已 freeze；BM_ERR_INVALID 参数无效；
- *         BM_ERR_OVERFLOW 超过 max_consumers
+ * @return BM_OK 成功；BM_ERR_BUSY 已 freeze；
+ *         BM_ERR_INVALID 参数无效、超过 max_consumers 或违反 QUEUE 唯一消费者约束
  */
 int bm_bus_reader_attach(bm_bus_t *h, bm_bus_reader_t *r);
 

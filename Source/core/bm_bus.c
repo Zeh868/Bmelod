@@ -326,7 +326,7 @@ int bm_bus_abort(bm_bus_t *h) {
 }
 
 /* ------------------------------------------------------------------ */
-/* 读者接口桩（Task 3 实现，此处占位避免链接失败）                        */
+/* 读者接口实现（reader_attach / acquire_read / release）               */
 /* ------------------------------------------------------------------ */
 
 /**
@@ -521,10 +521,10 @@ int bm_bus_release(bm_bus_reader_t *r) {
 }
 
 /**
- * @brief 查询读者可读槽数（Task 3 实现，此处占位）
+ * @brief 查询读者可读槽数（Task 4 补全，此处占位）
  *
  * @param r 读者句柄指针
- * @return 0（Task 3 替换）
+ * @return 0（Task 4 补全）
  */
 uint32_t bm_bus_ready_count(const bm_bus_reader_t *r) {
     (void)r;
