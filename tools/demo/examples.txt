@@ -5,6 +5,7 @@ interrupt_demo
 hrt_servo_stub
 hrt_bms_coulomb
 closed_loop_servo
+bus_servo
 foc_current_loop
 motor_foc_sensored
 power_buck_loop
