@@ -15,7 +15,6 @@
 
 - `bm_exec` 双槽：`BM_EXEC_SLOT_HARDWARE`（ADC 触发）+ Periodic（速度环）
 - `bm_hal_adc_sim` / `bm_hal_pwm_sim` 仿真外设
-- `bm_snapshot` 跨槽数据交换
 - `bm_ticker` 低频事件发布
 
 ## 关键机制与组件

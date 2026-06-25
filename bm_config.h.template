@@ -9,7 +9,6 @@
 /* Component switches (align with CMake BM_ENABLE_* / PROFILE) */
 #define BM_CONFIG_ENABLE_ULTRA              0
 #define BM_CONFIG_ENABLE_MODULE             1
-#define BM_CONFIG_ENABLE_CHANNEL            0
 #define BM_CONFIG_ENABLE_SHELL              0
 #define BM_CONFIG_ENABLE_WDG                1
 #define BM_CONFIG_ENABLE_HRT                0
@@ -27,9 +26,6 @@
 
 /* Module system */
 #define BM_CONFIG_MAX_MODULES               8
-
-/* Channel system */
-/* (channels are statically allocated per-instance via BM_CHANNEL_DEFINE) */
 
 /* Shell system */
 #define BM_CONFIG_SHELL_BUF_SIZE            64

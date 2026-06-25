@@ -22,7 +22,6 @@
 #endif
 
 #include "bm/hybrid/bm_hrt.h"
-#include "bm/hybrid/bm_snapshot.h"
 
 #if BM_CONFIG_ENABLE_TICKER
 #include "bm/hybrid/bm_ticker.h"

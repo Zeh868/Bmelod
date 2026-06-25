@@ -11,7 +11,6 @@
 |------|------|------|
 | `BM_BUILD_TESTS` | OFF | 构建 `tests/unit` |
 | `BM_ENABLE_MODULE` | ON | `bm_module` |
-| `BM_ENABLE_CHANNEL` | OFF | `bm_channel` |
 | `BM_ENABLE_SHELL` | OFF | `bm_shell` |
 | `BM_ENABLE_WDG` | ON | `bm_wdg` |
 | `BM_ENABLE_HRT` | OFF | `bm_hrt` |
@@ -35,7 +34,7 @@ BM_ENABLE_PIPELINE → BM_ENABLE_STREAM（或 EXEC）
 | 目标 | 内容 |
 |------|------|
 | `bm_core` | 事件、内存池、临界区 |
-| `bm_module` / `bm_channel` / `bm_shell` / `bm_wdg` | 可选组件 |
+| `bm_module` / `bm_shell` / `bm_wdg` | 可选组件 |
 | `bm_hrt` / `bm_ticker` / `bm_exec` / `bm_resource` / `bm_sync` | 混合域 |
 | `bm_stream` | 静态零拷贝块流（可选，测试默认 ON） |
 | `bm_pipeline` | 编译期线性处理链（可选，测试默认 ON） |

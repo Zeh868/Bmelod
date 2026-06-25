@@ -32,10 +32,6 @@ if(BM_ENABLE_MODULE)
     bm_add_test(test_module test_module.c bm_module)
 endif()
 
-if(BM_ENABLE_CHANNEL)
-    bm_add_test(test_channel test_channel.c bm_channel)
-endif()
-
 if(BM_ENABLE_BUS)
     bm_add_test(test_bus test_bus.c bm_core)
     bm_add_test(test_bus_migration test_bus_migration.c bm_core)
@@ -202,22 +198,6 @@ if(BM_ENABLE_SYNC)
 endif()
 
 if(BM_BUILD_TESTS)
-    add_executable(test_snapshot test_snapshot.c)
-    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
-        target_link_libraries(test_snapshot PRIVATE
-            "-Wl,--start-group"
-            unity bm_core bm_hal bm_hal_native
-            "-Wl,--end-group")
-    else()
-        target_link_libraries(test_snapshot PRIVATE
-            unity bm_core bm_hal bm_hal_native)
-    endif()
-    bm_target_internal_includes(test_snapshot)
-    target_include_directories(test_snapshot PRIVATE
-        ${CMAKE_SOURCE_DIR}/tests/unit/unity
-        ${CMAKE_SOURCE_DIR}/portable/sim/native)
-    add_test(NAME test_snapshot COMMAND test_snapshot)
-
     add_executable(test_recorder test_recorder.c)
     if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
         target_link_libraries(test_recorder PRIVATE

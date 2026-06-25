@@ -67,7 +67,7 @@ docs/
 
 ### 05 API 参考
 
-[05-API参考/](05-API参考/)（`bm_hrt`、`bm_exec`、`bm_snapshot`、`bm_algorithm` 等）
+[05-API参考/](05-API参考/)（`bm_hrt`、`bm_exec`、`bm_bus`、`bm_algorithm` 等）
 
 ---
 

@@ -3,13 +3,7 @@ core_sensor
 full_system
 interrupt_demo
 hrt_servo_stub
-hrt_bms_coulomb
-closed_loop_servo
 bus_servo
-foc_current_loop
-motor_foc_sensored
-power_buck_loop
-bms_estimation_loop
 stream_block_rms
 daq_frontend
 ultrasonic_frontend
@@ -19,7 +13,6 @@ stream_audio_agc
 stream_vibration_diag
 stream_vision_frame
 multi_axis_sync
-multi_channel_bms
 stream_frontend
 stream_array_mvdr
 tinyml_graph
