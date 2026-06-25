@@ -241,7 +241,7 @@ int bm_bus_reader_attach(bm_bus_t *h, bm_bus_reader_t *r);
  *
  * @param r        读者句柄指针
  * @param slot_out 输出：读槽指针（只读）
- * @return BM_OK 成功借到槽；BM_ERR_AGAIN 无新数据；
+ * @return BM_OK 成功借到槽；BM_ERR_WOULD_BLOCK 无新数据；
  *         BM_ERR_OVERFLOW 读者被绕过（游标已跳最旧可用槽）；
  *         BM_ERR_INVALID 句柄无效
  */

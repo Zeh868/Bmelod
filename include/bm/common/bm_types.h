@@ -42,8 +42,6 @@
 #define BM_ERR_NOT_SUPPORTED -9
 /** 操作超时（barrier / watchdog） */
 #define BM_ERR_TIMEOUT      -10
-/** 非阻塞操作暂无新数据（重试） */
-#define BM_ERR_AGAIN        -11
 
 /** 中断屏蔽状态快照 */
 typedef uint32_t bm_irq_state_t;
