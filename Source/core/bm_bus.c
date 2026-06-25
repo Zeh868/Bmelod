@@ -131,7 +131,7 @@ int bm_bus_open(bm_bus_t *h, bm_bus_storage_t *storage,
      * 首次 commit 后才设为有效槽索引。QUEUE/SIGNAL 此字段不使用，无副作用。 */
     bus_store_cur(&storage->latest_published, BM_BUS_LATEST_NONE);
     bus_store_cur(&storage->latest_reading, BM_BUS_LATEST_NONE);
-    bus_store_cur(&storage->latest_writing, 0u);
+    bus_store_cur(&storage->latest_writing, 0u);  /* scratch，commit 前不读取 */
     storage->owner_cpu         = cfg->owner_cpu;
     storage->frozen            = 0u;
     storage->write_in_progress = 0u;
@@ -509,16 +509,23 @@ int bm_bus_acquire_read(bm_bus_reader_t *r, const void **slot_out) {
          * 先读 latest_published（acquire 序），登记 latest_reading（release 序）
          * 防写者 choose_slot 覆盖正读槽；再次 acquire 读 latest_published 确认
          * 期间未变，变则重试——直到稳定。
-         * 若 published == BM_BUS_LATEST_NONE（无数据），返回 BM_ERR_WOULD_BLOCK。 */
-        uint32_t p, r_idx;
+         * 若 published == BM_BUS_LATEST_NONE（无数据），返回 BM_ERR_WOULD_BLOCK。
+         *
+         * 并发约束：本路径读者不持 BUS_LOCK，属 SPSC 单读者无锁设计
+         * （对齐 bm_snapshot READ）。仅在 reader_attach 强制的单读者契约下
+         * 无读读竞争；若未来扩展为多读者，latest_reading 单一标记无法区分
+         * 多个读者正读槽，须重新设计（如每读者独立 reading 标记）。 */
+        uint32_t p;
 
         do {
             p = bus_load_cur(&st->latest_published);
             if (p == BM_BUS_LATEST_NONE) {
+                /* 防御：无数据早返回前清 reading 标记，避免未来 reset/close
+                 * 等路径残留陈旧标记（与 release 语义一致） */
+                bus_store_cur(&st->latest_reading, BM_BUS_LATEST_NONE);
                 return BM_ERR_WOULD_BLOCK;
             }
-            r_idx = p;
-            bus_store_cur(&st->latest_reading, (uint32_t)r_idx);
+            bus_store_cur(&st->latest_reading, p);
         } while (bus_load_cur(&st->latest_published) != p);
 
         *slot_out = st->data_buf + (size_t)p * st->elem_size;

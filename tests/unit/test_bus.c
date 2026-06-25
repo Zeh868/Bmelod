@@ -384,14 +384,26 @@ void test_latest_read_always_newest(void) {
 /**
  * @brief LATEST reader_attach 单读者约束：第二次 attach 返回 BM_ERR_INVALID。
  *
- * 权威规范：LATEST 仅允许 1 个读者，latest_reading == BM_BUS_LATEST_NONE
- * 表示空闲可 attach，否则已有读者拒绝。
+ * 权威规范：LATEST 仅允许 1 个读者，由 reader_count 追踪——reader_count==0
+ * 表示空闲可 attach，>=1 表示已有读者，拒绝。
  */
 void test_latest_only_one_reader(void) {
     bm_bus_reader_t r0, r1;
     TEST_ASSERT_EQUAL(BM_OK, bm_bus_reader_attach(&g_bus_l, &r0));
-    /* 第二个读者：LATEST 单读者约束，必须返回 BM_ERR_INVALID */
+    /* 第二个读者：reader_count 已为 1，LATEST 单读者约束返回 BM_ERR_INVALID */
     TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_bus_reader_attach(&g_bus_l, &r1));
+}
+
+/**
+ * @brief LATEST 未发布即读：attach 后、任何 commit 之前 acquire_read
+ *        应返回 BM_ERR_WOULD_BLOCK（覆盖 latest_published == NONE 安全路径）。
+ */
+void test_latest_read_before_any_write(void) {
+    bm_bus_reader_t r;
+    const void *s;
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_reader_attach(&g_bus_l, &r));
+    /* 尚无 commit，latest_published == BM_BUS_LATEST_NONE → 无数据 */
+    TEST_ASSERT_EQUAL(BM_ERR_WOULD_BLOCK, bm_bus_acquire_read(&r, &s));
 }
 
 /**
@@ -446,6 +458,7 @@ int main(void) {
     RUN_TEST(test_latest_single_write_read);
     RUN_TEST(test_latest_read_always_newest);
     RUN_TEST(test_latest_only_one_reader);
+    RUN_TEST(test_latest_read_before_any_write);
     RUN_TEST(test_latest_release_clears_reading);
     return UNITY_END();
 }
