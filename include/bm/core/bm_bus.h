@@ -19,7 +19,6 @@
 
 #include "bm/common/bm_atomic_ipc.h"
 #include "bm/common/bm_types.h"
-#include <limits.h>
 #include <stdint.h>
 
 /* =========================================================================
@@ -49,7 +48,7 @@ typedef struct {
     bm_atomic_ipc_u32_t  read_cur;       /**< 该读者已消费到的绝对游标（单调递增，取模 cap 得槽索引） */
     uint32_t             overflow_count; /**< 该读者检出的 overflow 次数 */
     uint8_t              attached;       /**< 1=已 attach，0=空闲 */
-    uint8_t              _pad[3];
+    uint8_t              _pad[3];         /**< 对齐填充，保持结构体 4 字节对齐 */
 } bm_bus_reader_slot_t;
 
 /**
@@ -60,7 +59,7 @@ typedef struct {
  */
 typedef struct {
     /* --- 写游标（QUEUE/SIGNAL 专用，绝对单调递增，取模 cap 得槽索引；LATEST 不使用） --- */
-    bm_atomic_ipc_u32_t  write_cur;
+    bm_atomic_ipc_u32_t  write_cur;        /**< QUEUE/SIGNAL 写游标：绝对单调递增，取模 cap 得槽索引 */
     /* --- LATEST 专属三缓冲槽标记（0..cap-1）；QUEUE/SIGNAL 不使用 --- */
     bm_atomic_ipc_u32_t  latest_published; /**< 已发布槽（读者从此处取最新值） */
     bm_atomic_ipc_u32_t  latest_reading;   /**< 读者正在读的槽；BM_BUS_LATEST_NONE 表示无读者 */
@@ -71,11 +70,11 @@ typedef struct {
     uint32_t             elem_size;         /**< 单元素字节数 */
     uint32_t             capacity;          /**< 环槽总数（QUEUE/SIGNAL 实际可用 cap-1，LATEST 等价三缓冲） */
     uint32_t             max_consumers;     /**< 最大读者数（QUEUE 内部强制 1，LATEST 忽略） */
-    bm_bus_mode_t        mode;
-    uint8_t              owner_cpu;
+    bm_bus_mode_t        mode;              /**< 运行模式（BM_BUS_DEFINE 时固定，运行期只读） */
+    uint8_t              owner_cpu;         /**< 拥有写权限的 CPU 核号（open 时由 cfg 写入） */
     uint8_t              frozen;            /**< freeze 后置 1 */
     uint8_t              write_in_progress; /**< acquire_write 后、commit/abort 前置 1，防重入 */
-    uint8_t              _pad[1];
+    uint8_t              _pad[1];           /**< 对齐填充，使 reader_count 4 字节对齐 */
     uint32_t             reader_count;      /**< 已 attach 读者数 */
     /* --- 读者游标数组（QUEUE/SIGNAL；LATEST 不使用） --- */
     bm_bus_reader_slot_t *readers;          /**< 指向 storage 内的 readers[] 区 */
@@ -100,7 +99,7 @@ typedef struct {
  * @brief open 配置
  */
 typedef struct {
-    uint8_t owner_cpu;
+    uint8_t owner_cpu;   /**< 拥有写权限的 CPU 核号 */
 } bm_bus_cfg_t;
 
 /**
