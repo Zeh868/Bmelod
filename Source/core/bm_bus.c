@@ -102,6 +102,14 @@ static int bus_storage_valid(const bm_bus_storage_t *st) {
     if (st->mode == BM_BUS_LATEST && st->capacity < 3u) {
         return BM_ERR_INVALID;
     }
+    /* QUEUE/SIGNAL 自由递增游标取模 cap：cap 非 2 的幂时，2^32 回绕处 cur%cap 不连续
+     * （2^32 mod cap != 0），相邻游标会撞同槽，回绕瞬间发生一次静默错读/lap 误判。
+     * 强制 2 的幂使取模退化为掩码、回绕无缝（Fix 2）。LATEST 用三缓冲 choose 不碰
+     * write_cur、BLOCK 委托块流后端，二者豁免。BM_BUS_DEFINE 已加同义编译期断言。 */
+    if ((st->mode == BM_BUS_QUEUE || st->mode == BM_BUS_SIGNAL) &&
+        (st->capacity & (st->capacity - 1u)) != 0u) {
+        return BM_ERR_INVALID;
+    }
     return BM_OK;
 }
 
@@ -258,12 +266,15 @@ static int bus_queue_is_full(const bm_bus_storage_t *st) {
  * 写路径 O(1) 无阻塞：用 write_in_progress 防重入。
  * QUEUE：满则立即返回 BM_ERR_OVERFLOW 拒绝（不给槽、不推进、不覆盖）。
  * SIGNAL：永不拒绝，直接给当前 write_cur 槽，覆盖最旧（lap 由读者检测）。
- * LATEST：本 Task 占位返回 BM_ERR_NOT_SUPPORTED，Task 5 替换为三缓冲分支。
+ * LATEST：三缓冲 choose 避开 published/reading 两槽选写槽。
+ * BLOCK：Phase 2，返回 BM_ERR_NOT_SUPPORTED。
+ *
+ * owner-only：写路径仅允许 owner_cpu 调用（契约见头文件，框架不强制）。
  *
  * @param h        bus 句柄
  * @param slot_out 输出：写槽指针
  * @return BM_OK 成功；BM_ERR_INVALID 参数错；BM_ERR_BUSY 上次借还未结束；
- *         BM_ERR_OVERFLOW QUEUE 满拒绝；BM_ERR_NOT_SUPPORTED BLOCK（及 Task 5 前的 LATEST 占位）
+ *         BM_ERR_OVERFLOW QUEUE 满拒绝；BM_ERR_NOT_SUPPORTED BLOCK（Phase 2）
  */
 int bm_bus_acquire_write(bm_bus_t *h, void **slot_out) {
     bm_bus_storage_t *st;
@@ -318,10 +329,11 @@ int bm_bus_acquire_write(bm_bus_t *h, void **slot_out) {
 /**
  * @brief 提交写操作：以 release 内存序发布数据，推进 write_cur（QUEUE/SIGNAL）
  *
- * LATEST：本 Task 占位返回 BM_ERR_NOT_SUPPORTED，Task 5 替换为 latest_published 分支。
+ * LATEST：以 release 序把 latest_writing 写槽拷入 latest_published 发布。
+ * BLOCK：Phase 2，返回 BM_ERR_NOT_SUPPORTED。owner-only（见头文件契约）。
  *
  * @param h bus 句柄
- * @return BM_OK 成功；BM_ERR_INVALID 未 acquire；BM_ERR_NOT_SUPPORTED BLOCK/LATEST(Task 5 前占位)
+ * @return BM_OK 成功；BM_ERR_INVALID 未 acquire；BM_ERR_NOT_SUPPORTED BLOCK（Phase 2）
  */
 int bm_bus_commit(bm_bus_t *h) {
     bm_bus_storage_t *st;
@@ -570,13 +582,30 @@ int bm_bus_acquire_read(bm_bus_reader_t *r, const void **slot_out) {
 }
 
 /**
- * @brief 归还读槽；QUEUE/SIGNAL 推进读者游标，LATEST 清 reading 标记
+ * @brief 归还读槽；QUEUE/SIGNAL 推进读者游标（含消费窗口复检），LATEST 清 reading 标记
  *
  * LATEST：将 latest_reading 清为 BM_BUS_LATEST_NONE，使写者 choose 可重新
- *   使用该槽（不再是纯空操作）。
+ *   使用该槽（不再是纯空操作）；恒返回 BM_OK。
+ *
+ * QUEUE/SIGNAL **消费窗口复检（确定性零拷贝借用保护）**：acquire_read 借出槽
+ *   指针后，调用方在 release 之前读取该槽，这段消费窗口内 SIGNAL 写者可能覆盖式
+ *   推进并绕过本槽。release 重读 write_cur 与本读者 read_cur：若 (wc-rc)>=cap，
+ *   说明写者在窗口内已写到/越过本槽，本帧已撕裂——递增 overflow_count、把游标跳到
+ *   最旧可用槽 wc-(cap-1)，返回 **BM_ERR_OVERFLOW** 通知调用方**作废本帧并重取**。
+ *   与 acquire_read 的 lap 检测同构：acquire 挡"读前已被绕过"，release 挡"读中
+ *   被绕过"，两端对称。
+ *   - **QUEUE**：写者满即拒（不覆盖未读），(wc-rc) 永 < cap，复检分支永不触发，
+ *     release 恒返回 BM_OK。
+ *   - **LATEST**：借用窗口由 reading 标记（写者 choose 避让）保护，无需复检。
+ *
+ * @par 多核内存序
+ * 复检以 acquire 序读 write_cur：写者 commit 时以 release 序推进 write_cur（数据
+ * 写先于游标可见），故 release 读到的 wc 是写者进度的可靠下界；本槽若真被覆盖必有
+ * wc-rc>=cap+1，连"正在写未提交"的 wc-rc==cap 也落入复检，无漏判（仅边界保守误判）。
  *
  * @param r 读者句柄
- * @return BM_OK 成功；BM_ERR_INVALID 参数错
+ * @return BM_OK 成功；BM_ERR_OVERFLOW SIGNAL 消费窗口内本帧被覆盖（作废重取）；
+ *         BM_ERR_INVALID 参数错（slot_idx 越界）
  */
 int bm_bus_release(bm_bus_reader_t *r) {
     bm_bus_storage_t *st;
@@ -598,7 +627,19 @@ int bm_bus_release(bm_bus_reader_t *r) {
 
     BUS_LOCK(&s);
     {
+        uint32_t wc = bus_load_cur(&st->write_cur);
         uint32_t rc = bus_load_cur(&st->readers[r->slot_idx].read_cur);
+
+        /* 消费窗口复检：借出后写者推进达 cap，本槽已被覆盖，本帧撕裂。
+         * QUEUE 满即拒，(wc-rc) 永 < cap，此分支恒不触发。 */
+        if ((wc - rc) >= st->capacity) {
+            uint32_t new_rc = wc - (st->capacity - 1u);
+            st->readers[r->slot_idx].overflow_count =
+                bm_u32_saturating_inc(st->readers[r->slot_idx].overflow_count);
+            bus_store_cur(&st->readers[r->slot_idx].read_cur, new_rc);
+            BUS_UNLOCK(s);
+            return BM_ERR_OVERFLOW;
+        }
         bus_store_cur(&st->readers[r->slot_idx].read_cur, rc + 1u);
     }
     BUS_UNLOCK(s);
@@ -608,12 +649,8 @@ int bm_bus_release(bm_bus_reader_t *r) {
 /**
  * @brief 查询当前读者可消费的元素数量
  *
- * LATEST 恒返回 1（latest_published 始终有效）。
+ * LATEST：有已发布数据（latest_published != NONE）返回 1，否则 0。
  * QUEUE/SIGNAL：返回 write_cur - read_cur，超 cap-1 则裁剪为 cap-1（overflow 场景）。
- *
- * @note Phase 1 LATEST 写路径尚未实现（Task 5），此阶段 LATEST 恒返回 1 为
- *       约定行为，并不保证已有有效已发布数据；实际可读性需配合
- *       bm_bus_acquire_read 的返回值判断（Task 5 接入三缓冲写路径后此约定收敛）。
  *
  * @param r 读者句柄
  * @return 可读元素数；句柄无效返回 0
@@ -643,12 +680,15 @@ uint32_t bm_bus_ready_count(const bm_bus_reader_t *r) {
 /**
  * @brief 获取写侧统计快照
  *
+ * @note write_count 取自 write_cur，仅对 QUEUE/SIGNAL 有意义；**LATEST 不使用
+ *       write_cur**（走 latest_published 三缓冲），其 write_count 恒为 0，不反映发布次数。
+ *
  * @param h   bus 句柄
  * @param out 输出统计结构
  * @return BM_OK 成功；BM_ERR_INVALID 参数错
  */
 int bm_bus_stats(const bm_bus_t *h, bm_bus_stats_t *out) {
-    /* Phase 1 简化实现：write_count = write_cur */
+    /* Phase 1 简化实现：write_count = write_cur（QUEUE/SIGNAL；LATEST 恒 0） */
     if (!h || !h->storage || !out) {
         return BM_ERR_INVALID;
     }

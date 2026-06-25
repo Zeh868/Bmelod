@@ -126,13 +126,16 @@ typedef struct {
  *
  * 展开后生成：
  *   - 编译期容量断言（capacity >= 2）
+ *   - 编译期 2 的幂断言（QUEUE/SIGNAL 专属，防 2^32 游标回绕静默损坏）
  *   - 静态数据缓冲区 `_bm_bus_data_<name>`
  *   - 静态读者游标数组 `_bm_bus_readers_<name>`
  *   - 静态存储控制块 `<name>_storage`（类型 bm_bus_storage_t）
  *
- * @note 编译期仅断言 capacity>=2（所有 mode 通用下界）；LATEST 三缓冲的
- *       capacity>=3 约束（多核防撕裂，spec §7）由运行期 bus_storage_valid /
- *       bm_bus_open 校验拦截（mode 虽是宏参，但跨 mode 复用同一断言更简洁）。
+ * @note 编译期断言两条：(1) capacity>=2（所有 mode 通用下界）；
+ *       (2) QUEUE/SIGNAL 的 capacity 须为 2 的幂——自由递增游标取模 cap，
+ *       非 2 的幂在 2^32 回绕处取模不连续会致一次静默错读，强制 2 的幂使回绕无缝
+ *       （LATEST/BLOCK 不用 write_cur，豁免）。LATEST 三缓冲的 capacity>=3 约束
+ *       （多核防撕裂，spec §7）由运行期 bus_storage_valid / bm_bus_open 校验拦截。
  *
  * @param name          bus 实例名（不带引号，展开为 name##_storage）
  * @param type          元素类型
@@ -142,6 +145,9 @@ typedef struct {
  */
 #define BM_BUS_DEFINE(name, type, cap_, maxcons_, mode_)                   \
     typedef char _bm_bus_cap_check_##name[((cap_) >= 2u) ? 1 : -1];       \
+    typedef char _bm_bus_pow2_check_##name[                                \
+        ((mode_) == BM_BUS_LATEST || (mode_) == BM_BUS_BLOCK ||            \
+         (((cap_) & ((cap_) - 1u)) == 0u)) ? 1 : -1];                     \
     static uint8_t _bm_bus_data_##name[(cap_) * sizeof(type)];             \
     static bm_bus_reader_slot_t _bm_bus_readers_##name[(maxcons_)];        \
     static bm_bus_storage_t name##_storage = {                             \
@@ -213,15 +219,25 @@ int bm_bus_validate(const bm_bus_t *h);
 /**
  * @brief 借出写槽（零拷贝），调用者向 *slot_out 写入数据后调用 commit 或 abort
  *
+ * @par 多核契约（owner-only，框架不强制）
+ * bus 为单写者 SPMC：写路径（acquire_write/commit/abort）**仅允许 owner_cpu 调用**。
+ * 多核下重入保护由 `write_in_progress`（volatile，非原子 RMW）承担，其正确性依赖
+ * "同一时刻只有 owner 核进入写路径"这一上层契约——框架**不**校验调用方 CPU，越权
+ * 由非 owner 核写入会破坏重入保护。与 reader_attach 串行契约同构。
+ *
  * @param h        bus 句柄指针
  * @param slot_out 输出：写槽指针（类型强转后使用）
  * @return BM_OK 成功借到槽；BM_ERR_OVERFLOW QUEUE 模式环满；
- *         BM_ERR_BUSY 重入保护；BM_ERR_INVALID 句柄无效
+ *         BM_ERR_BUSY 重入保护；BM_ERR_INVALID 句柄无效；
+ *         BM_ERR_NOT_SUPPORTED BLOCK 模式（Phase 2）
  */
 int bm_bus_acquire_write(bm_bus_t *h, void **slot_out);
 
 /**
  * @brief 提交写操作，发布数据并推进写游标
+ *
+ * @note owner-only：与 acquire_write 同属写路径，仅允许 owner_cpu 调用（契约见
+ *       bm_bus_acquire_write，框架不强制）。
  *
  * @param h bus 句柄指针
  * @return BM_OK 成功；BM_ERR_INVALID 句柄无效或无未完成的 acquire_write
@@ -266,10 +282,15 @@ int bm_bus_acquire_read(bm_bus_reader_t *r, const void **slot_out);
  *
  * @par 返回码差异（mode 相关）
  * - **LATEST**：恒返回 BM_OK，幂等（清 latest_reading=BM_BUS_LATEST_NONE，无论是否持有 acquire）。
- * - **QUEUE/SIGNAL**：推进读者游标；slot_idx 越界时返回 BM_ERR_INVALID。
+ * - **QUEUE**：推进读者游标，恒返回 BM_OK（写者满即拒，消费窗口不会被覆盖）。
+ * - **SIGNAL**：推进读者游标前**复检消费窗口**——借出后写者若覆盖式绕过本槽
+ *   （(write_cur-read_cur)>=cap），本帧已撕裂，返回 **BM_ERR_OVERFLOW** 并把游标跳到
+ *   最旧可用槽；调用方须**作废本帧、重新 acquire**。这是零拷贝借用窗口的确定性保护，
+ *   与 acquire_read 的 lap 检测对称（acquire 挡读前被绕过，release 挡读中被绕过）。
  *
  * @param r 读者句柄指针
- * @return BM_OK 成功；BM_ERR_INVALID 句柄无效（QUEUE/SIGNAL slot_idx 越界）
+ * @return BM_OK 成功；BM_ERR_OVERFLOW SIGNAL 消费窗口内本帧被覆盖（作废重取）；
+ *         BM_ERR_INVALID 句柄无效（QUEUE/SIGNAL slot_idx 越界）
  */
 int bm_bus_release(bm_bus_reader_t *r);
 

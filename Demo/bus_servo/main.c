@@ -207,14 +207,17 @@ void app_bus_servo_read_state(bus_servo_state_t *out) {
 /**
  * @brief 排空一个 SIGNAL 遥测消费者（内部公共逻辑）
  *
- * 循环 acquire_read → release 把当前可读遥测帧全部消费。
- *   - BM_OK         ：正常追赶，计 1 帧
- *   - BM_ERR_OVERFLOW：被绕过，游标已跳最旧可读槽，计 1 帧后继续追赶
- *   - 其它（WOULD_BLOCK）：无更多数据，退出
+ * 循环 acquire_read → release 把当前可读遥测帧全部消费。SIGNAL 零拷贝借用契约：
+ * 先把借出槽拷入本地，再 **检查 release 返回值** 才采信——
+ *   - acquire BM_OK / BM_ERR_OVERFLOW：借出有效槽（OVERFLOW 时游标已跳最旧可读槽），
+ *     拷入本地后 release；
+ *   - release BM_OK         ：消费窗口内未被覆盖，本帧有效，计 1 帧；
+ *   - release BM_ERR_OVERFLOW：消费窗口内被写者覆盖，本帧撕裂 → 作废不计，继续追赶；
+ *   - acquire 其它（WOULD_BLOCK）：无更多数据，退出。
  *
  * @param reader   消费者读者句柄指针
- * @param tel_out  可选输出：最后一帧遥测（NULL 表示不需要）
- * @return 本次消费的遥测帧数
+ * @param tel_out  可选输出：最后一帧 **有效** 遥测（NULL 表示不需要）
+ * @return 本次消费的 **有效** 遥测帧数
  */
 static uint32_t drain_telem_reader(bm_bus_reader_t *reader,
                                    bus_servo_telemetry_t *tel_out) {
@@ -223,17 +226,25 @@ static uint32_t drain_telem_reader(bm_bus_reader_t *reader,
     int rc;
 
     for (;;) {
+        bus_servo_telemetry_t local;
+        int rrc;
+
         rc = bm_bus_acquire_read(reader, &slot);
-        if (rc == BM_OK || rc == BM_ERR_OVERFLOW) {
-            if (tel_out != NULL) {
-                memcpy(tel_out, slot, sizeof(bus_servo_telemetry_t));
-            }
-            (void)bm_bus_release(reader);
-            frames++;
-            /* overflow 后游标已重定位至最旧可读槽，继续循环正常追赶 */
-        } else {
+        if (rc != BM_OK && rc != BM_ERR_OVERFLOW) {
             break; /* BM_ERR_WOULD_BLOCK：本周期无更多遥测 */
         }
+        /* 零拷贝借用：先拷本地，再凭 release 返回值判定本帧是否有效 */
+        memcpy(&local, slot, sizeof(local));
+        rrc = bm_bus_release(reader);
+        if (rrc == BM_ERR_OVERFLOW) {
+            /* 消费窗口内被覆盖，本帧撕裂 → 作废；游标已跳最旧可读槽，继续追赶 */
+            continue;
+        }
+        /* 本帧有效，方可采信 */
+        if (tel_out != NULL) {
+            *tel_out = local;
+        }
+        frames++;
     }
     return frames;
 }

@@ -259,6 +259,65 @@ void test_signal_reader_overflow_independent(void) {
 }
 
 /**
+ * @brief SIGNAL release 复检消费窗口绕圈：读者借出有效帧后，写者在消费窗口内
+ *        灌满一圈覆盖该槽，release 必须返回 BM_ERR_OVERFLOW（本帧作废），
+ *        overflow_count 递增，游标跳到最旧可用槽。
+ *
+ * Fix 1 核心回归：acquire 端 lap 检测挡"读前已被绕过"，release 端复检挡
+ * "读中被绕过"，两端对称防撕裂（零拷贝借用窗口的确定性保护）。
+ */
+void test_signal_release_detects_window_overflow(void) {
+    bm_bus_reader_t r;
+    const uint32_t *s;
+    void *ws;
+    uint32_t i;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_reader_attach(&g_bus_s, &r));
+    /* 写 1 帧并借出：rc=0, wc=1, diff=1<cap，有效帧 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_s, &ws));
+    *(uint32_t *)ws = 7u;
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_commit(&g_bus_s));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_read(&r, (const void **)&s));
+    TEST_ASSERT_EQUAL_UINT32(7u, *s);
+
+    /* 消费窗口内写者灌满一整圈（cap=8）：wc 推进到 9，(wc-rc)=9>=cap，本槽已被覆盖 */
+    for (i = 0u; i < 8u; i++) {
+        TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_s, &ws));
+        *(uint32_t *)ws = 100u + i;
+        TEST_ASSERT_EQUAL(BM_OK, bm_bus_commit(&g_bus_s));
+    }
+
+    /* release 复检：本帧已被绕过 → BM_ERR_OVERFLOW（作废本帧） */
+    TEST_ASSERT_EQUAL(BM_ERR_OVERFLOW, bm_bus_release(&r));
+    TEST_ASSERT_EQUAL_UINT32(1u, tb_s_storage.readers[r.slot_idx].overflow_count);
+    /* 游标跳到最旧可用槽 wc-(cap-1)=9-7=2，下次 acquire 取新数据 */
+    TEST_ASSERT_EQUAL_UINT32(2u,
+        bm_atomic_ipc_load_u32(&tb_s_storage.readers[r.slot_idx].read_cur));
+}
+
+/**
+ * @brief QUEUE release 永不返回 OVERFLOW（回归）：写者满即拒，(wc-rc) 永 < cap，
+ *        release 复检分支永不触发，恒返回 BM_OK 并推进游标。
+ */
+void test_queue_release_never_overflows(void) {
+    bm_bus_reader_t r;
+    const uint32_t *s;
+    void *ws;
+    uint32_t i;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_reader_attach(&g_bus_q, &r));
+    /* 写满 cap-1=3 项；写者第 4 次会被拒（不影响本测试） */
+    for (i = 0u; i < 3u; i++) {
+        TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_q, &ws));
+        *(uint32_t *)ws = i;
+        TEST_ASSERT_EQUAL(BM_OK, bm_bus_commit(&g_bus_q));
+    }
+    /* 借出并 release：即便环满，QUEUE release 仍返回 BM_OK（diff=3<cap=4） */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_read(&r, (const void **)&s));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_release(&r));
+}
+
+/**
  * @brief ready_count 基本语义：QUEUE 写入 2 项后返回 2，消费 1 项后返回 1。
  */
 void test_ready_count_queue(void) {
@@ -517,6 +576,52 @@ void test_validate_latest_cap_3_ok(void) {
 }
 
 /**
+ * @brief Fix 2：SIGNAL/QUEUE 强制容量为 2 的幂（防 2^32 游标回绕静默损坏）。
+ *        构造 mode=SIGNAL、capacity=6（非 2 的幂）的 storage，bm_bus_open 须返回
+ *        BM_ERR_INVALID。自由递增游标在非 2 的幂容量下，2^32 回绕处取模不连续，
+ *        会有一次静默错读；强制 2 的幂使 cur%cap 在回绕处无缝。
+ */
+void test_validate_signal_cap_not_pow2_rejected(void) {
+    bm_bus_storage_t bad_st;
+    bm_bus_t         bad_h;
+    bm_bus_cfg_t     cfg = { .owner_cpu = 0u };
+    uint8_t          data_buf[6u * sizeof(uint32_t)];
+    bm_bus_reader_slot_t readers[3];
+
+    memset(&bad_st, 0, sizeof(bad_st));
+    bad_st.data_buf      = data_buf;
+    bad_st.readers       = readers;
+    bad_st.elem_size     = sizeof(uint32_t);
+    bad_st.capacity      = 6u;   /* 非 2 的幂：SIGNAL/QUEUE 非法 */
+    bad_st.max_consumers = 3u;
+    bad_st.mode          = BM_BUS_SIGNAL;
+
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_bus_open(&bad_h, &bad_st, &cfg));
+}
+
+/**
+ * @brief Fix 2 对照：QUEUE capacity=6 同样被拒（非 2 的幂）；LATEST 不受此约束
+ *        （见 test_validate_latest_cap_3_ok，cap=3 仍合法，不用 write_cur）。
+ */
+void test_validate_queue_cap_not_pow2_rejected(void) {
+    bm_bus_storage_t bad_st;
+    bm_bus_t         bad_h;
+    bm_bus_cfg_t     cfg = { .owner_cpu = 0u };
+    uint8_t          data_buf[6u * sizeof(uint32_t)];
+    bm_bus_reader_slot_t readers[1];
+
+    memset(&bad_st, 0, sizeof(bad_st));
+    bad_st.data_buf      = data_buf;
+    bad_st.readers       = readers;
+    bad_st.elem_size     = sizeof(uint32_t);
+    bad_st.capacity      = 6u;   /* 非 2 的幂：QUEUE 非法 */
+    bad_st.max_consumers = 1u;
+    bad_st.mode          = BM_BUS_QUEUE;
+
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_bus_open(&bad_h, &bad_st, &cfg));
+}
+
+/**
  * @brief BLOCK mode：bm_bus_open 本身合法（mode 合法），
  *        acquire_write 返回 BM_ERR_NOT_SUPPORTED（Phase 2 占位守卫）。
  */
@@ -579,6 +684,8 @@ int main(void) {
     /* Task 4：SIGNAL 多读者 + ready_count/stats */
     RUN_TEST(test_signal_three_readers_independent);
     RUN_TEST(test_signal_reader_overflow_independent);
+    RUN_TEST(test_signal_release_detects_window_overflow);
+    RUN_TEST(test_queue_release_never_overflows);
     RUN_TEST(test_ready_count_queue);
     RUN_TEST(test_ready_count_null);
     RUN_TEST(test_stats_basic);
@@ -593,6 +700,8 @@ int main(void) {
     RUN_TEST(test_validate_cap_less_than_2_rejected_at_macro);
     RUN_TEST(test_validate_latest_cap_2_rejected);
     RUN_TEST(test_validate_latest_cap_3_ok);
+    RUN_TEST(test_validate_signal_cap_not_pow2_rejected);
+    RUN_TEST(test_validate_queue_cap_not_pow2_rejected);
     RUN_TEST(test_validate_mode_block_not_supported_for_ring_ops);
     RUN_TEST(test_freeze_idempotent);
     RUN_TEST(test_acquire_write_after_freeze_still_allowed);
