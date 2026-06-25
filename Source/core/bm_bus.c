@@ -527,6 +527,10 @@ int bm_bus_release(bm_bus_reader_t *r) {
  * LATEST 恒返回 1（latest_published 始终有效）。
  * QUEUE/SIGNAL：返回 write_cur - read_cur，超 cap-1 则裁剪为 cap-1（overflow 场景）。
  *
+ * @note Phase 1 LATEST 写路径尚未实现（Task 5），此阶段 LATEST 恒返回 1 为
+ *       约定行为，并不保证已有有效已发布数据；实际可读性需配合
+ *       bm_bus_acquire_read 的返回值判断（Task 5 接入三缓冲写路径后此约定收敛）。
+ *
  * @param r 读者句柄
  * @return 可读元素数；句柄无效返回 0
  */

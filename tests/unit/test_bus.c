@@ -229,8 +229,29 @@ void test_signal_reader_overflow_independent(void) {
      * 但二者 overflow_count 各自独立累计 */
     TEST_ASSERT_EQUAL(BM_ERR_OVERFLOW, bm_bus_acquire_read(&r_fast, (const void **)&s));
     TEST_ASSERT_EQUAL_UINT32(1u, tb_s_storage.readers[r_fast.slot_idx].overflow_count);
-    /* r_slow 已跳槽，再读得最旧可用数据（值=2），r_fast 不受其 release 影响 */
-    bm_bus_release(&r_slow);
+    /* 两读者各自 overflow 跳槽后游标均落在 wc-(cap-1)=2；release 推进各自游标，
+     * 验证 r_slow 的 release 不影响 r_fast 的独立游标 */
+    bm_bus_release(&r_slow);   /* read_cur[slow]: 2 -> 3 */
+
+    /* r_fast 仍未 release，游标停在跳槽位置 2：再读应得值=2（BM_OK，diff=9-2=7<cap，
+     * 不再 overflow），且 overflow_count 不再增长——证明 r_slow 的推进未污染 r_fast */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_read(&r_fast, (const void **)&s));
+    TEST_ASSERT_EQUAL_UINT32(2u, *s);
+    TEST_ASSERT_EQUAL_UINT32(1u, tb_s_storage.readers[r_fast.slot_idx].overflow_count);
+    bm_bus_release(&r_fast);   /* read_cur[fast]: 2 -> 3 */
+
+    /* 此后两游标都在 3，但各自独立推进：r_slow 读值=3，r_fast 读值=3，
+     * 二者顺序消费互不干扰 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_read(&r_slow, (const void **)&s));
+    TEST_ASSERT_EQUAL_UINT32(3u, *s);
+    bm_bus_release(&r_slow);   /* read_cur[slow]: 3 -> 4 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_read(&r_fast, (const void **)&s));
+    TEST_ASSERT_EQUAL_UINT32(3u, *s);   /* r_fast 不受 r_slow 已推进到 4 的影响 */
+    bm_bus_release(&r_fast);
+
+    /* r_fast 还剩 4..8 共 5 项，r_slow 还剩 4..8 共 5 项，各自独立 */
+    TEST_ASSERT_EQUAL_UINT32(5u, bm_bus_ready_count(&r_fast));
+    TEST_ASSERT_EQUAL_UINT32(5u, bm_bus_ready_count(&r_slow));
 }
 
 /**
@@ -278,7 +299,7 @@ void test_stats_basic(void) {
     TEST_ASSERT_EQUAL(BM_OK, bm_bus_stats(&g_bus_q, &st));
     TEST_ASSERT_EQUAL_UINT32(0u, st.write_count);
 
-    /* attach reader so queue won't refuse */
+    /* 附加读者，避免 QUEUE 写满拒绝 */
     bm_bus_reader_t r;
     TEST_ASSERT_EQUAL(BM_OK, bm_bus_reader_attach(&g_bus_q, &r));
 
