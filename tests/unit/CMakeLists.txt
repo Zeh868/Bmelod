@@ -36,6 +36,10 @@ if(BM_ENABLE_CHANNEL)
     bm_add_test(test_channel test_channel.c bm_channel)
 endif()
 
+if(BM_ENABLE_BUS)
+    bm_add_test(test_bus test_bus.c bm_core)
+endif()
+
 if(BM_ENABLE_SHELL)
     bm_add_test(test_shell test_shell.c bm_shell)
 endif()

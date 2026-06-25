@@ -186,6 +186,12 @@ if(BM_ENABLE_CHANNEL)
     target_link_libraries(bm_framework INTERFACE bm_channel)
 endif()
 
+option(BM_ENABLE_BUS "Enable bm_bus unified data bus" ON)
+if(BM_ENABLE_BUS)
+    target_sources(bm_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Source/core/bm_bus.c)
+    target_compile_definitions(bm_core PUBLIC BM_ENABLE_BUS=1)
+endif()
+
 if(BM_ENABLE_SHELL)
     add_library(bm_shell STATIC Source/core/bm_shell.c)
     target_link_libraries(bm_shell PUBLIC bm_core)

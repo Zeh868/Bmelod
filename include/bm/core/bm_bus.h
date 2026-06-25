@@ -140,25 +140,25 @@ typedef struct {
  * @param max_consumers 最大读者数
  * @param mode          bm_bus_mode_t 枚举值
  */
-#define BM_BUS_DEFINE(name, type, capacity, max_consumers, mode)          \
-    typedef char _bm_bus_cap_check_##name[((capacity) >= 2u) ? 1 : -1];  \
-    static uint8_t _bm_bus_data_##name[(capacity) * sizeof(type)];        \
-    static bm_bus_reader_slot_t _bm_bus_readers_##name[(max_consumers)];  \
-    static bm_bus_storage_t name##_storage = {                            \
-        .write_cur        = BM_ATOMIC_IPC_U32_INIT(0u),                   \
-        .latest_published = BM_ATOMIC_IPC_U32_INIT(0u),                   \
-        .latest_reading   = BM_ATOMIC_IPC_U32_INIT(BM_BUS_LATEST_NONE),   \
-        .latest_writing   = BM_ATOMIC_IPC_U32_INIT(0u),                   \
-        .data_buf         = _bm_bus_data_##name,                          \
-        .elem_size        = sizeof(type),                                  \
-        .capacity         = (uint32_t)(capacity),                         \
-        .max_consumers    = (uint32_t)(max_consumers),                    \
-        .mode             = (mode),                                        \
-        .owner_cpu        = 0u,                                            \
-        .frozen           = 0u,                                            \
-        .write_in_progress= 0u,                                            \
-        .reader_count     = 0u,                                            \
-        .readers          = _bm_bus_readers_##name,                       \
+#define BM_BUS_DEFINE(name, type, cap_, maxcons_, mode_)                   \
+    typedef char _bm_bus_cap_check_##name[((cap_) >= 2u) ? 1 : -1];       \
+    static uint8_t _bm_bus_data_##name[(cap_) * sizeof(type)];             \
+    static bm_bus_reader_slot_t _bm_bus_readers_##name[(maxcons_)];        \
+    static bm_bus_storage_t name##_storage = {                             \
+        .write_cur        = BM_ATOMIC_IPC_U32_INIT(0u),                    \
+        .latest_published = BM_ATOMIC_IPC_U32_INIT(0u),                    \
+        .latest_reading   = BM_ATOMIC_IPC_U32_INIT(BM_BUS_LATEST_NONE),    \
+        .latest_writing   = BM_ATOMIC_IPC_U32_INIT(0u),                    \
+        .data_buf         = _bm_bus_data_##name,                           \
+        .elem_size        = sizeof(type),                                   \
+        .capacity         = (uint32_t)(cap_),                              \
+        .max_consumers    = (uint32_t)(maxcons_),                          \
+        .mode             = (mode_),                                        \
+        .owner_cpu        = 0u,                                             \
+        .frozen           = 0u,                                             \
+        .write_in_progress= 0u,                                             \
+        .reader_count     = 0u,                                             \
+        .readers          = _bm_bus_readers_##name,                        \
     }
 
 /* =========================================================================
