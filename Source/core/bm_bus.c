@@ -5,7 +5,7 @@
  * LATEST / QUEUE / SIGNAL 三种 mode 共用同一套借还逻辑，并发层按
  * BM_CONFIG_CPU_COUNT 切换。零动态分配，写者 O(1) 无阻塞。
  * @author zeh (china_qzh@163.com)
- * @version 0.4
+ * @version 0.5
  * @date 2026-06-25
  *
  * @par 修改日志:
@@ -15,6 +15,7 @@
  * 2026-06-25       0.2            zeh            Phase 1 Task 3 QUEUE 读路径：reader_attach 修正、acquire_read、release、freeze
  * 2026-06-25       0.3            zeh            Phase 1 Task 4 ready_count 实现；stats Phase 1 注释；SIGNAL 多读者独立游标测试
  * 2026-06-25       0.4            zeh            Phase 1 Task 5 LATEST 三缓冲选槽实现：acquire_write/commit 真实分支；reader_attach 单读者约束；acquire_read spin-until-stable 循环
+ * 2026-06-25       0.5            zeh            Phase 1 Task 6 bus_storage_valid LATEST cap>=3 校验 Doxygen 完善；validate/freeze 边界测试覆盖
  *
  */
 #include "bm/core/bm_bus.h"
@@ -95,7 +96,9 @@ static int bus_storage_valid(const bm_bus_storage_t *st) {
     if (st->mode == BM_BUS_QUEUE && st->max_consumers != 1u) {
         return BM_ERR_INVALID;
     }
-    /* LATEST 三缓冲多核防撕裂：需第三槽，强制 cap>=3 */
+    /* LATEST 三缓冲多核防撕裂：需第三槽，强制 cap>=3。
+     * 写者 choose_slot 需避开 published 与 reading 两槽，cap=2 时无第三槽可用，
+     * 双缓冲退化会在多核读写并发时发生数据撕裂，破坏 LATEST 的确定性语义（spec §7）。 */
     if (st->mode == BM_BUS_LATEST && st->capacity < 3u) {
         return BM_ERR_INVALID;
     }

@@ -1,19 +1,22 @@
 /**
  * @file test_bus.c
- * @brief bm_bus 单元测试（Task 2/3/4/5：open/validate/acquire_write/commit/abort/reader_attach/acquire_read/release/freeze/ready_count/stats/LATEST三缓冲）
+ * @brief bm_bus 单元测试（Task 2/3/4/5/6：open/validate/acquire_write/commit/abort/reader_attach/acquire_read/release/freeze/ready_count/stats/LATEST三缓冲/validate边界/freeze守卫）
  *
  * TDD 覆盖：open/validate/acquire_write/commit/abort 基本语义，
  * QUEUE 满立即拒绝（test_queue_write_overflow_on_full，仅依赖写路径），
  * QUEUE 读路径：reader_attach 唯一性、acquire_read、release、freeze（Phase 1 Task 3）；
  * SIGNAL 多读者独立游标、overflow 计数、ready_count/stats（Phase 1 Task 4）；
- * LATEST 三缓冲选槽语义：写路径实现、单读者约束、读到最新值、release 清 NONE（Phase 1 Task 5）。
+ * LATEST 三缓冲选槽语义：写路径实现、单读者约束、读到最新值、release 清 NONE（Phase 1 Task 5）；
+ * validate 边界：cap<2 直接构造拒绝、LATEST cap<3 拒绝、LATEST cap=3 通过、
+ *   BLOCK acquire_write 返回 NOT_SUPPORTED；freeze 守卫：幂等、freeze 后写路径不受阻（Phase 1 Task 6）。
  * @author zeh (china_qzh@163.com)
- * @version 0.4
+ * @version 0.5
  * @date 2026-06-25
  */
 
 #include "unity.h"
 #include "bm/core/bm_bus.h"
+#include <string.h>
 
 BM_BUS_DEFINE(tb_q, uint32_t, 4u, 1u, BM_BUS_QUEUE);
 BM_BUS_DEFINE(tb_s, uint32_t, 8u, 3u, BM_BUS_SIGNAL);
@@ -434,6 +437,132 @@ void test_latest_release_clears_reading(void) {
         (uint32_t)bm_atomic_ipc_load_u32(&tb_l_storage.latest_reading));
 }
 
+/* ------------------------------------------------------------------ */
+/* Task 6：validate 边界 + freeze 守卫 + LATEST cap>=3 强制校验       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * @brief cap<2 直接构造 storage（绕过 BM_BUS_DEFINE 的编译期断言）验证
+ *        运行期 bus_storage_valid 拦截：bm_bus_open 返回 BM_ERR_INVALID。
+ *
+ * BM_BUS_DEFINE 在编译期以 _Static_assert 拦截 cap<2，
+ * 此用例通过手工填充 capacity=1 的 storage 验证运行期校验同样有效
+ * （防御深度：编译期与运行期双层拦截）。
+ */
+void test_validate_cap_less_than_2_rejected_at_macro(void) {
+    bm_bus_storage_t bad_st;
+    bm_bus_t         bad_h;
+    bm_bus_cfg_t     cfg = { .owner_cpu = 0u };
+    uint8_t          data_buf[8];
+    bm_bus_reader_slot_t readers[1];
+
+    memset(&bad_st, 0, sizeof(bad_st));
+    bad_st.data_buf      = data_buf;
+    bad_st.readers       = readers;
+    bad_st.elem_size     = 4u;
+    bad_st.capacity      = 1u;   /* 非法：< 2 */
+    bad_st.max_consumers = 1u;
+    bad_st.mode          = BM_BUS_QUEUE;
+
+    /* open 内 bus_storage_valid 应拦截 capacity<2 */
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_bus_open(&bad_h, &bad_st, &cfg));
+}
+
+/**
+ * @brief LATEST 专属约束：spec §7 三缓冲多核防撕裂需 cap>=3；
+ *        构造 mode=LATEST、capacity=2 的 storage，bm_bus_open 须返回 BM_ERR_INVALID。
+ *
+ * TDD RED 阶段：cap<3 校验注释后此用例断言失败（open 返回 BM_OK）；
+ * TDD GREEN 阶段：恢复校验后通过。
+ */
+void test_validate_latest_cap_2_rejected(void) {
+    bm_bus_storage_t bad_st;
+    bm_bus_t         bad_h;
+    bm_bus_cfg_t     cfg = { .owner_cpu = 0u };
+    uint8_t          data_buf[2u * sizeof(uint32_t)];
+    bm_bus_reader_slot_t readers[1];
+
+    memset(&bad_st, 0, sizeof(bad_st));
+    bad_st.data_buf      = data_buf;
+    bad_st.readers       = readers;
+    bad_st.elem_size     = sizeof(uint32_t);
+    bad_st.capacity      = 2u;   /* LATEST 非法：< 3 */
+    bad_st.max_consumers = 1u;
+    bad_st.mode          = BM_BUS_LATEST;
+
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_bus_open(&bad_h, &bad_st, &cfg));
+}
+
+/**
+ * @brief LATEST capacity=3 合法：bm_bus_open 返回 BM_OK（对照用例）。
+ *
+ * 与 test_validate_latest_cap_2_rejected 形成边界对，确认 cap=3 是最小合法值。
+ */
+void test_validate_latest_cap_3_ok(void) {
+    bm_bus_storage_t ok_st;
+    bm_bus_t         ok_h;
+    bm_bus_cfg_t     cfg = { .owner_cpu = 0u };
+    uint8_t          data_buf[3u * sizeof(uint32_t)];
+    bm_bus_reader_slot_t readers[1];
+
+    memset(&ok_st, 0, sizeof(ok_st));
+    ok_st.data_buf      = data_buf;
+    ok_st.readers       = readers;
+    ok_st.elem_size     = sizeof(uint32_t);
+    ok_st.capacity      = 3u;
+    ok_st.max_consumers = 1u;
+    ok_st.mode          = BM_BUS_LATEST;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&ok_h, &ok_st, &cfg));
+}
+
+/**
+ * @brief BLOCK mode：bm_bus_open 本身合法（mode 合法），
+ *        acquire_write 返回 BM_ERR_NOT_SUPPORTED（Phase 2 占位守卫）。
+ */
+void test_validate_mode_block_not_supported_for_ring_ops(void) {
+    bm_bus_storage_t blk_st;
+    bm_bus_t         blk_h;
+    bm_bus_cfg_t     cfg = { .owner_cpu = 0u };
+    uint8_t          data_buf[16];
+    bm_bus_reader_slot_t readers[1];
+    void            *ws;
+
+    memset(&blk_st, 0, sizeof(blk_st));
+    blk_st.data_buf      = data_buf;
+    blk_st.readers       = readers;
+    blk_st.elem_size     = 4u;
+    blk_st.capacity      = 4u;
+    blk_st.max_consumers = 1u;
+    blk_st.mode          = BM_BUS_BLOCK;
+
+    /* BLOCK mode open 合法 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&blk_h, &blk_st, &cfg));
+    /* acquire_write 在 BLOCK mode 返回 NOT_SUPPORTED（Phase 2 占位）*/
+    TEST_ASSERT_EQUAL(BM_ERR_NOT_SUPPORTED, bm_bus_acquire_write(&blk_h, &ws));
+}
+
+/**
+ * @brief freeze 幂等：连续两次 freeze 均返回 BM_OK，第二次无副作用。
+ */
+void test_freeze_idempotent(void) {
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_freeze(&g_bus_q));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_freeze(&g_bus_q));  /* 幂等：frozen=1 不变 */
+}
+
+/**
+ * @brief freeze 只锁 reader_attach；写路径（acquire_write）在 freeze 后不受阻。
+ *
+ * 验证 freeze 仅影响新读者的接入，不影响已建立拓扑的写者正常发布。
+ */
+void test_acquire_write_after_freeze_still_allowed(void) {
+    void *ws;
+    /* freeze 后写路径应仍然正常 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_freeze(&g_bus_q));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_q, &ws));
+    bm_bus_abort(&g_bus_q);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_open_validate_ok);
@@ -460,5 +589,12 @@ int main(void) {
     RUN_TEST(test_latest_only_one_reader);
     RUN_TEST(test_latest_read_before_any_write);
     RUN_TEST(test_latest_release_clears_reading);
+    /* Task 6：validate 边界 + freeze 守卫 */
+    RUN_TEST(test_validate_cap_less_than_2_rejected_at_macro);
+    RUN_TEST(test_validate_latest_cap_2_rejected);
+    RUN_TEST(test_validate_latest_cap_3_ok);
+    RUN_TEST(test_validate_mode_block_not_supported_for_ring_ops);
+    RUN_TEST(test_freeze_idempotent);
+    RUN_TEST(test_acquire_write_after_freeze_still_allowed);
     return UNITY_END();
 }
