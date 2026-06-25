@@ -190,7 +190,8 @@ int bm_bus_freeze(bm_bus_t *h) {
 }
 
 /**
- * @brief 结构性校验：capacity >= 2，max_consumers 上界，mode 合法，owner 已设
+ * @brief 结构性校验（委托 bus_storage_valid）：cap>=2、LATEST cap>=3、mode 合法、
+ *        QUEUE max_consumers==1
  *
  * @param h 句柄指针
  * @return BM_OK 通过；BM_ERR_INVALID 不通过

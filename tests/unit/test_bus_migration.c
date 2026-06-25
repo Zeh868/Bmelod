@@ -172,7 +172,10 @@ void test_migr_channel_overflow_detected(void) {
  *
  * 原 bm_channel_reset 清空游标使队列归零。
  * QUEUE 等价操作：bm_bus_close + bm_bus_open 重置 storage，read/write 游标归零；
- * 新 reader_attach 后，队列读空返回 BM_ERR_WOULD_BLOCK（与原 bm_channel_recv 空一致）。
+ * 验证两项行为：
+ *   1. 新 reader_attach 后队列读空返回 BM_ERR_WOULD_BLOCK（与原 bm_channel_recv 空一致）；
+ *   2. reset 后 acquire_write/commit 新值，再 acquire_read 能取回该新值
+ *      （验证 reset 后游标归零的正向读写）。
  */
 void test_migr_channel_reset_equivalent(void) {
     bm_bus_reader_t fresh_r;
@@ -187,8 +190,17 @@ void test_migr_channel_reset_equivalent(void) {
     bm_bus_close(&g_ch);
     TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_ch, &migr_ch_storage, &cfg));
     TEST_ASSERT_EQUAL(BM_OK, bm_bus_reader_attach(&g_ch, &fresh_r));
-    /* 重置后队列为空 */
+
+    /* 验证 1：重置后队列为空（游标归零，历史数据不可见） */
     TEST_ASSERT_EQUAL(BM_ERR_WOULD_BLOCK, bm_bus_acquire_read(&fresh_r, (const void **)&s));
+
+    /* 验证 2：reset 后游标归零的正向读写——写入新值 42 后读者能取回 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_ch, &ws));
+    *(uint32_t *)ws = 42u;
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_commit(&g_ch));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_read(&fresh_r, (const void **)&s));
+    TEST_ASSERT_EQUAL_UINT32(42u, *s);
+    bm_bus_release(&fresh_r);
 }
 
 /* ================================================================== */

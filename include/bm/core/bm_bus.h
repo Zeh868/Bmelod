@@ -186,6 +186,11 @@ int bm_bus_close(bm_bus_t *h);
 /**
  * @brief 冻结 bus 拓扑，freeze 后 reader_attach 将返回 BM_ERR_BUSY
  *
+ * @par 多核契约
+ * `frozen` 为普通 uint8_t，跨核可见性依赖上层串行契约（见 reader_attach 约束）。
+ * `reader_attach` 与 `freeze` 仅允许在 freeze 之前、由单一协调流程**串行**调用；
+ * 框架不强制此契约。SIGNAL 跨核多消费者各核登记须由上层串行化（如在 boot 屏障内）。
+ *
  * @param h bus 句柄指针
  * @return BM_OK 成功；BM_ERR_INVALID 句柄无效
  */
@@ -193,6 +198,12 @@ int bm_bus_freeze(bm_bus_t *h);
 
 /**
  * @brief 校验 bus 句柄与 storage 的完整性
+ *
+ * 实际执行的约束（与 bus_storage_valid 一致）：
+ *   - cap >= 2（所有 mode 通用下界）
+ *   - mode 合法（LATEST/QUEUE/SIGNAL/BLOCK）
+ *   - LATEST：cap >= 3（三缓冲多核防撕裂）
+ *   - QUEUE：max_consumers == 1（唯一消费者语义）
  *
  * @param h bus 句柄指针
  * @return BM_OK 通过；BM_ERR_INVALID 未通过
@@ -228,6 +239,10 @@ int bm_bus_abort(bm_bus_t *h);
 /**
  * @brief 登记读者，分配追赶游标（QUEUE/SIGNAL）或标记（LATEST）
  *
+ * @par 多核契约
+ * 多核下 `reader_attach` 仅允许在 freeze 之前、由单一协调流程**串行**调用；
+ * 框架不强制此契约。SIGNAL 跨核多消费者各核登记须由上层串行化（如在 boot 屏障内）。
+ *
  * @param h bus 句柄指针
  * @param r 读者句柄指针（调用者分配）
  * @return BM_OK 成功；BM_ERR_BUSY 已 freeze；
@@ -249,13 +264,21 @@ int bm_bus_acquire_read(bm_bus_reader_t *r, const void **slot_out);
 /**
  * @brief 归还读槽，解除借阅标记
  *
+ * @par 返回码差异（mode 相关）
+ * - **LATEST**：恒返回 BM_OK，幂等（清 latest_reading=BM_BUS_LATEST_NONE，无论是否持有 acquire）。
+ * - **QUEUE/SIGNAL**：推进读者游标；slot_idx 越界时返回 BM_ERR_INVALID。
+ *
  * @param r 读者句柄指针
- * @return BM_OK 成功；BM_ERR_INVALID 句柄无效或无未完成的 acquire_read
+ * @return BM_OK 成功；BM_ERR_INVALID 句柄无效（QUEUE/SIGNAL slot_idx 越界）
  */
 int bm_bus_release(bm_bus_reader_t *r);
 
 /**
  * @brief 查询读者可读的新数据槽数
+ *
+ * @note 多核下返回值为**瞬时估计**、非精确快照：连读多个原子量做差，
+ *       写者并发推进时结果可能偏大，已裁剪至 cap-1 不越界。
+ *       仅用于启发式判断，不可作为精确计数依据。
  *
  * @param r 读者句柄指针
  * @return 可读槽数；r 无效时返回 0
@@ -264,6 +287,9 @@ uint32_t bm_bus_ready_count(const bm_bus_reader_t *r);
 
 /**
  * @brief 获取 bus 统计快照
+ *
+ * @note 多核下为**瞬时估计**、非精确快照：连读多个原子量做差，
+ *       写者并发推进时可能偏大，已裁剪至 cap-1 不越界。
  *
  * @param h   bus 句柄指针
  * @param out 输出统计结构体指针
