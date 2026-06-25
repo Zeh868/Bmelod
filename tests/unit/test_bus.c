@@ -1,11 +1,12 @@
 /**
  * @file test_bus.c
- * @brief bm_bus 单元测试（Task 2：open/validate/acquire_write/commit/abort）
+ * @brief bm_bus 单元测试（Task 2/3：open/validate/acquire_write/commit/abort/reader_attach/acquire_read/release/freeze）
  *
  * TDD 覆盖：open/validate/acquire_write/commit/abort 基本语义，
- * 以及 QUEUE 满立即拒绝（test_queue_write_overflow_on_full，仅依赖写路径）。
+ * QUEUE 满立即拒绝（test_queue_write_overflow_on_full，仅依赖写路径），
+ * QUEUE 读路径：reader_attach 唯一性、acquire_read、release、freeze（Phase 1 Task 3）。
  * @author zeh (china_qzh@163.com)
- * @version 0.1
+ * @version 0.2
  * @date 2026-06-25
  */
 
@@ -87,6 +88,69 @@ void test_queue_write_overflow_on_full(void) {
     TEST_ASSERT_EQUAL(BM_ERR_OVERFLOW, bm_bus_acquire_write(&g_bus_q, &slot));
 }
 
+void test_queue_attach_only_one(void) {
+    bm_bus_reader_t r1, r2;
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_reader_attach(&g_bus_q, &r1));
+    /* QUEUE max_consumers=1，第二次 attach 应返回 BM_ERR_INVALID */
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_bus_reader_attach(&g_bus_q, &r2));
+}
+
+void test_queue_read_no_data(void) {
+    bm_bus_reader_t r;
+    const void *s;
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_reader_attach(&g_bus_q, &r));
+    /* 无数据，返回 BM_ERR_WOULD_BLOCK */
+    TEST_ASSERT_EQUAL(BM_ERR_WOULD_BLOCK, bm_bus_acquire_read(&r, &s));
+}
+
+void test_queue_write_then_read(void) {
+    bm_bus_reader_t r;
+    const uint32_t *s;
+    void *ws;
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_reader_attach(&g_bus_q, &r));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_q, &ws));
+    *(uint32_t *)ws = 0xDEADu;
+    bm_bus_commit(&g_bus_q);
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_read(&r, (const void **)&s));
+    TEST_ASSERT_EQUAL_UINT32(0xDEADu, *s);
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_release(&r));
+    /* release 后再读，无新数据 */
+    TEST_ASSERT_EQUAL(BM_ERR_WOULD_BLOCK, bm_bus_acquire_read(&r, (const void **)&s));
+}
+
+void test_queue_writer_rejected_never_laps_reader(void) {
+    /* QUEUE 不丢语义：写满（cap-1=3 项未读）后 acquire_write 拒绝，
+     * 写者永远无法绕过读者，故 QUEUE 读端永不出现 BM_ERR_OVERFLOW。
+     * 读者消费 1 项后腾出空间，写者方可再写。 */
+    bm_bus_reader_t r;
+    const uint32_t *s;
+    void *ws;
+    uint32_t i;
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_reader_attach(&g_bus_q, &r));
+    /* 写满 3 项 */
+    for (i = 0u; i < 3u; i++) {
+        TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_q, &ws));
+        *(uint32_t *)ws = i;
+        bm_bus_commit(&g_bus_q);
+    }
+    /* 第 4 次：满拒绝 */
+    TEST_ASSERT_EQUAL(BM_ERR_OVERFLOW, bm_bus_acquire_write(&g_bus_q, &ws));
+    /* 读者消费 1 项（最旧 = 0），保序，无 overflow */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_read(&r, (const void **)&s));
+    TEST_ASSERT_EQUAL_UINT32(0u, *s);
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_release(&r));
+    /* 腾出一槽，写者可再写 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_q, &ws));
+    *(uint32_t *)ws = 99u;
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_commit(&g_bus_q));
+}
+
+void test_queue_attach_after_freeze_rejected(void) {
+    bm_bus_reader_t r;
+    bm_bus_freeze(&g_bus_q);
+    TEST_ASSERT_EQUAL(BM_ERR_BUSY, bm_bus_reader_attach(&g_bus_q, &r));
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_open_validate_ok);
@@ -95,5 +159,10 @@ int main(void) {
     RUN_TEST(test_acquire_write_abort);
     RUN_TEST(test_acquire_write_reentrancy_guard);
     RUN_TEST(test_queue_write_overflow_on_full);
+    RUN_TEST(test_queue_attach_only_one);
+    RUN_TEST(test_queue_read_no_data);
+    RUN_TEST(test_queue_write_then_read);
+    RUN_TEST(test_queue_writer_rejected_never_laps_reader);
+    RUN_TEST(test_queue_attach_after_freeze_rejected);
     return UNITY_END();
 }

@@ -5,13 +5,14 @@
  * LATEST / QUEUE / SIGNAL 三种 mode 共用同一套借还逻辑，并发层按
  * BM_CONFIG_CPU_COUNT 切换。零动态分配，写者 O(1) 无阻塞。
  * @author zeh (china_qzh@163.com)
- * @version 0.1
+ * @version 0.2
  * @date 2026-06-25
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-25       0.1            zeh            Phase 1 Task 2 写路径骨架
+ * 2026-06-25       0.2            zeh            Phase 1 Task 3 QUEUE 读路径：reader_attach 修正、acquire_read、release、freeze
  *
  */
 #include "bm/core/bm_bus.h"
@@ -156,16 +157,27 @@ int bm_bus_close(bm_bus_t *h) {
 }
 
 /**
- * @brief 冻结 bus 拓扑，freeze 后 reader_attach 将返回 BM_ERR_BUSY
+ * @brief 冻结总线拓扑，freeze 后 reader_attach 返回 BM_ERR_BUSY
  *
- * @param h bus 句柄指针
- * @return BM_OK 成功；BM_ERR_INVALID 句柄无效
+ * 建议在所有核完成 attach、IRQ release 之后、稳态主循环之前调用。
+ * 与 bm_event_freeze_subscriptions() 同构。幂等（重复 freeze 无副作用）。
+ *
+ * @param h bus 句柄
+ * @return BM_OK 成功（含幂等重复调用）；BM_ERR_INVALID 句柄无效
  */
 int bm_bus_freeze(bm_bus_t *h) {
+    bm_bus_storage_t *st;
+    bm_irq_state_t s;
+
     if (!h || !h->storage) {
         return BM_ERR_INVALID;
     }
-    h->storage->frozen = 1u;
+    st = h->storage;
+    BUS_LOCK(&s);
+    st->frozen = 1u;
+    BUS_UNLOCK(s);
+    BM_LOGD("bus", "frozen mode=%u readers=%u",
+            (unsigned)st->mode, (unsigned)st->reader_count);
     return BM_OK;
 }
 
@@ -318,69 +330,194 @@ int bm_bus_abort(bm_bus_t *h) {
 /* ------------------------------------------------------------------ */
 
 /**
- * @brief 登记读者（Task 3 实现，此处占位）
+ * @brief 登记读者，分配追赶游标
  *
- * @param h bus 句柄指针
- * @param r 读者句柄指针
- * @return BM_ERR_NOT_SUPPORTED（Task 3 替换）
+ * freeze 后拒绝（BM_ERR_BUSY）；超 max_consumers 返回 BM_ERR_INVALID。
+ * LATEST：恒成功，不占 max_consumers 配额，slot_idx 设 UINT32_MAX。
+ * QUEUE：附加校验当前读者数 == 0（唯一消费者），超 1 返回 BM_ERR_INVALID。
+ *
+ * @note 并发约束（多核）：reader_attach 修改 reader_count 与扫描 readers[]，
+ *       多核路径下 BUS_LOCK 为 no-op，故 reader_attach 仅允许在 freeze 之前、
+ *       由单一协调流程串行调用，不得在多核并发路径或 IRQ 中调用。
+ *
+ * @param h  bus 句柄
+ * @param r  读者句柄（输出）
+ * @return BM_OK 成功；负值表示失败
  */
 int bm_bus_reader_attach(bm_bus_t *h, bm_bus_reader_t *r) {
-    uint32_t i;
     bm_bus_storage_t *st;
     bm_irq_state_t s;
+    uint32_t i;
 
     if (!h || !h->storage || !r) {
         return BM_ERR_INVALID;
     }
     st = h->storage;
+
+    if (st->mode == BM_BUS_BLOCK) {
+        return BM_ERR_NOT_SUPPORTED;
+    }
+
     BUS_LOCK(&s);
     if (st->frozen) {
         BUS_UNLOCK(s);
         return BM_ERR_BUSY;
     }
+
+    if (st->mode == BM_BUS_LATEST) {
+        /* LATEST：不持游标，不占配额 */
+        r->storage  = st;
+        r->slot_idx = UINT32_MAX;
+        BUS_UNLOCK(s);
+        return BM_OK;
+    }
+
+    /* QUEUE：最多 1 个读者（唯一消费者语义）*/
+    if (st->mode == BM_BUS_QUEUE && st->reader_count >= 1u) {
+        BUS_UNLOCK(s);
+        return BM_ERR_INVALID;
+    }
+    /* SIGNAL/QUEUE 通用上界：不超 max_consumers */
     if (st->reader_count >= st->max_consumers) {
         BUS_UNLOCK(s);
-        return BM_ERR_OVERFLOW;
+        return BM_ERR_INVALID;
     }
+
+    /* 找空闲槽 */
     for (i = 0u; i < st->max_consumers; i++) {
         if (!st->readers[i].attached) {
-            st->readers[i].attached = 1u;
-            bus_store_cur(&st->readers[i].read_cur,
-                          bus_load_cur(&st->write_cur));
-            st->readers[i].overflow_count = 0u;
-            st->reader_count++;
-            r->storage  = st;
-            r->slot_idx = i;
-            BUS_UNLOCK(s);
-            return BM_OK;
+            break;
         }
     }
+    if (i >= st->max_consumers) {
+        BUS_UNLOCK(s);
+        return BM_ERR_INVALID;
+    }
+
+    /* 初始化游标指向当前 write_cur（不接收历史数据）*/
+    bus_store_cur(&st->readers[i].read_cur,
+                  bus_load_cur(&st->write_cur));
+    st->readers[i].overflow_count = 0u;
+    st->readers[i].attached       = 1u;
+    st->reader_count++;
+    r->storage  = st;
+    r->slot_idx = i;
     BUS_UNLOCK(s);
-    return BM_ERR_OVERFLOW;
+    BM_LOGD("bus", "reader_attach slot=%u mode=%u",
+            (unsigned)i, (unsigned)st->mode);
+    return BM_OK;
 }
 
 /**
- * @brief 借出读槽（Task 3 实现，此处占位）
+ * @brief 借出当前可读槽（零拷贝）
  *
- * @param r        读者句柄指针
- * @param slot_out 输出：读槽指针（只读）
- * @return BM_ERR_NOT_SUPPORTED（Task 3 替换）
+ * QUEUE/SIGNAL：以 acquire 内存序先读 write_cur，再读数据，
+ *   确保读到写者已 commit 发布的内容（多核内存序）。
+ * LATEST：以 acquire 序读 latest_published，将该槽写入 latest_reading 标记
+ *   （供写者 choose 避开，防多核读写撕裂），返回该槽指针；release 清标记。
+ * SIGNAL lap 检测：(write_cur - read_cur) >= cap 表示读者被绕过，
+ *   跳到 write_cur - (cap-1)（最旧可用槽），返回 BM_ERR_OVERFLOW。
+ *   QUEUE 因写端满即拒绝（不丢），读者永不被绕过，该分支对 QUEUE 不触发，
+ *   但保留以共享一份代码（QUEUE/SIGNAL 同构）。
+ *
+ * @param r        读者句柄
+ * @param slot_out 输出：读槽指针（const，不可写）
+ * @return BM_OK / BM_ERR_WOULD_BLOCK / BM_ERR_OVERFLOW / BM_ERR_INVALID
  */
 int bm_bus_acquire_read(bm_bus_reader_t *r, const void **slot_out) {
-    (void)r;
-    (void)slot_out;
-    return BM_ERR_NOT_SUPPORTED;
+    bm_bus_storage_t *st;
+    uint32_t wc, rc;
+    bm_irq_state_t s;
+
+    if (!r || !r->storage || !slot_out) {
+        return BM_ERR_INVALID;
+    }
+    st = r->storage;
+
+    if (st->mode == BM_BUS_LATEST) {
+        /* LATEST：acquire 序读 latest_published，登记 reading 标记防撕裂 */
+        uint32_t pub = bus_load_cur(&st->latest_published);
+        bus_store_cur(&st->latest_reading, pub);
+        /* 重读 published 确认期间未被写者覆盖（与 bm_snapshot 一致性循环同构）；
+         * 若已变，采用新值并更新 reading 标记 */
+        {
+            uint32_t pub2 = bus_load_cur(&st->latest_published);
+            if (pub2 != pub) {
+                pub = pub2;
+                bus_store_cur(&st->latest_reading, pub);
+            }
+        }
+        *slot_out = st->data_buf + pub * st->elem_size;
+        return BM_OK;
+    }
+
+    /* QUEUE / SIGNAL */
+    if (r->slot_idx >= st->max_consumers) {
+        return BM_ERR_INVALID;
+    }
+
+    BUS_LOCK(&s);
+    wc = bus_load_cur(&st->write_cur);
+    rc = bus_load_cur(&st->readers[r->slot_idx].read_cur);
+
+    if (wc == rc) {
+        /* 无新数据 */
+        BUS_UNLOCK(s);
+        return BM_ERR_WOULD_BLOCK;
+    }
+
+    /* SIGNAL lap 检测：差值 >= capacity 表示读者被绕过 */
+    if ((wc - rc) >= st->capacity) {
+        /* 跳到最旧可用槽（write_cur - (cap-1)）*/
+        uint32_t new_rc = wc - (st->capacity - 1u);
+        st->readers[r->slot_idx].overflow_count =
+            bm_u32_saturating_inc(st->readers[r->slot_idx].overflow_count);
+        bus_store_cur(&st->readers[r->slot_idx].read_cur, new_rc);
+        rc = new_rc;
+        BUS_UNLOCK(s);
+        *slot_out = bus_slot_ptr(st, rc);
+        return BM_ERR_OVERFLOW;
+    }
+
+    *slot_out = bus_slot_ptr(st, rc);
+    BUS_UNLOCK(s);
+    return BM_OK;
 }
 
 /**
- * @brief 归还读槽（Task 3 实现，此处占位）
+ * @brief 归还读槽；QUEUE/SIGNAL 推进读者游标，LATEST 清 reading 标记
  *
- * @param r 读者句柄指针
- * @return BM_ERR_NOT_SUPPORTED（Task 3 替换）
+ * LATEST：将 latest_reading 清为 BM_BUS_LATEST_NONE，使写者 choose 可重新
+ *   使用该槽（不再是纯空操作）。
+ *
+ * @param r 读者句柄
+ * @return BM_OK 成功；BM_ERR_INVALID 参数错
  */
 int bm_bus_release(bm_bus_reader_t *r) {
-    (void)r;
-    return BM_ERR_NOT_SUPPORTED;
+    bm_bus_storage_t *st;
+    bm_irq_state_t s;
+
+    if (!r || !r->storage) {
+        return BM_ERR_INVALID;
+    }
+    st = r->storage;
+
+    if (st->mode == BM_BUS_LATEST) {
+        /* 清 reading 标记，释放该槽供写者复用 */
+        bus_store_cur(&st->latest_reading, BM_BUS_LATEST_NONE);
+        return BM_OK;
+    }
+    if (r->slot_idx >= st->max_consumers) {
+        return BM_ERR_INVALID;
+    }
+
+    BUS_LOCK(&s);
+    {
+        uint32_t rc = bus_load_cur(&st->readers[r->slot_idx].read_cur);
+        bus_store_cur(&st->readers[r->slot_idx].read_cur, rc + 1u);
+    }
+    BUS_UNLOCK(s);
+    return BM_OK;
 }
 
 /**
