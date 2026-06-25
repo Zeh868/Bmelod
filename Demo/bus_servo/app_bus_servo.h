@@ -185,6 +185,25 @@ void app_bus_servo_publish_command(const bus_servo_command_t *cmd);
 void app_bus_servo_read_state(bus_servo_state_t *out);
 
 /**
+ * @brief 排空 SIGNAL 遥测导出消费者（监督层 POLL 回调调用）
+ *
+ * 循环 acquire_read → release，把本周期内可读遥测帧全部消费。
+ * 优雅处理 overflow：检出被绕过时跳到最旧可读槽继续（作为边界演示）。
+ *
+ * @return 本次实际读到的遥测帧数（正常 + overflow 帧）
+ */
+uint32_t app_bus_servo_drain_telem_export(void);
+
+/**
+ * @brief 排空 SIGNAL 遥测监控消费者（监督层 POLL 回调调用）
+ *
+ * 与导出消费者独立游标，各自追赶同一 SIGNAL 流。
+ *
+ * @return 本次实际读到的遥测帧数
+ */
+uint32_t app_bus_servo_drain_telem_monitor(void);
+
+/**
  * @brief 向 QUEUE 注入故障指令（测试安全停机路径）
  */
 void app_bus_servo_inject_fault(void);

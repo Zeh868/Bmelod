@@ -100,11 +100,13 @@ BM_BUS_DEFINE(servo_cmd_bus, bus_servo_command_t, 4u, 1u, BM_BUS_QUEUE);
 BM_BUS_DEFINE(servo_state_bus, bus_servo_state_t, 3u, 1u, BM_BUS_LATEST);
 
 /**
- * @brief SIGNAL：遥测流（容量 8，两个独立消费者）
+ * @brief SIGNAL：遥测流（容量 32，两个独立消费者）
  *
- * 控制环每周期发布遥测；导出消费者和监控消费者各自独立追赶。
+ * 控制环每周期（1 ms）发布遥测；导出消费者和监控消费者各自独立追赶。
+ * cap=32 为 POLL 周期（native 10 ms ≈ 10 帧）留足缓冲，使两消费者
+ * 多数 POLL 周期能正常追赶（BM_OK），不必每次走 overflow 分支。
  */
-BM_BUS_DEFINE(servo_telem_bus, bus_servo_telemetry_t, 8u, 2u, BM_BUS_SIGNAL);
+BM_BUS_DEFINE(servo_telem_bus, bus_servo_telemetry_t, 32u, 2u, BM_BUS_SIGNAL);
 
 /* =========================================================================
  * 全局对象（app_bus_servo.h 中 extern 声明）
@@ -200,6 +202,58 @@ void app_bus_servo_read_state(bus_servo_state_t *out) {
         memcpy(out, slot, sizeof(bus_servo_state_t));
         (void)bm_bus_release(&g_state_reader);
     }
+}
+
+/**
+ * @brief 排空一个 SIGNAL 遥测消费者（内部公共逻辑）
+ *
+ * 循环 acquire_read → release 把当前可读遥测帧全部消费。
+ *   - BM_OK         ：正常追赶，计 1 帧
+ *   - BM_ERR_OVERFLOW：被绕过，游标已跳最旧可读槽，计 1 帧后继续追赶
+ *   - 其它（WOULD_BLOCK）：无更多数据，退出
+ *
+ * @param reader   消费者读者句柄指针
+ * @param tel_out  可选输出：最后一帧遥测（NULL 表示不需要）
+ * @return 本次消费的遥测帧数
+ */
+static uint32_t drain_telem_reader(bm_bus_reader_t *reader,
+                                   bus_servo_telemetry_t *tel_out) {
+    const void *slot;
+    uint32_t frames = 0u;
+    int rc;
+
+    for (;;) {
+        rc = bm_bus_acquire_read(reader, &slot);
+        if (rc == BM_OK || rc == BM_ERR_OVERFLOW) {
+            if (tel_out != NULL) {
+                memcpy(tel_out, slot, sizeof(bus_servo_telemetry_t));
+            }
+            (void)bm_bus_release(reader);
+            frames++;
+            /* overflow 后游标已重定位至最旧可读槽，继续循环正常追赶 */
+        } else {
+            break; /* BM_ERR_WOULD_BLOCK：本周期无更多遥测 */
+        }
+    }
+    return frames;
+}
+
+/**
+ * @brief 排空 SIGNAL 遥测导出消费者
+ *
+ * @return 本次读到的遥测帧数
+ */
+uint32_t app_bus_servo_drain_telem_export(void) {
+    return drain_telem_reader(&g_telem_export_reader, NULL);
+}
+
+/**
+ * @brief 排空 SIGNAL 遥测监控消费者
+ *
+ * @return 本次读到的遥测帧数
+ */
+uint32_t app_bus_servo_drain_telem_monitor(void) {
+    return drain_telem_reader(&g_telem_monitor_reader, NULL);
 }
 
 /**
@@ -491,7 +545,9 @@ static const bm_exec_t *const g_instances[] = { &g_bus_servo_axis };
 #if defined(BM_EXAMPLE_QEMU)
 #define SERVO_POLL_MS  10u
 #else
-#define SERVO_POLL_MS  100u
+/* native：5 ms 轮询，控制环 1 ms 发一帧 → 每 POLL 周期约 5 帧，
+ * SIGNAL cap=32 留足缓冲，两消费者多数周期正常追赶（不触发 overflow） */
+#define SERVO_POLL_MS  5u
 #endif
 
 /** 监督层遥测轮询 ticker */
@@ -695,9 +751,9 @@ int main(void) {
         return 1;
     }
 
-    /* --- 验收 C：三 mode 验证 --- */
+    /* --- 验收 C：三 mode 验证（消费/计数均来自监督模块回调） --- */
 
-    /* C1. QUEUE：命令被消费（控制环 cmd_consumed > 0） */
+    /* C1. QUEUE：指令被控制环消费（cmd_consumed > 0） */
     if (g_bus_servo_axis_state.cmd_consumed == 0u) {
         BM_LOGE(TAG, "QUEUE cmd not consumed");
         hybrid_print("EXAMPLE_BUS_SERVO: FAIL queue_not_consumed\n");
@@ -705,60 +761,24 @@ int main(void) {
         return 1;
     }
 
-    /* C2. LATEST：读到最新状态（loop_count > 0） */
-    {
-        bus_servo_state_t latest_state;
-        memset(&latest_state, 0, sizeof(latest_state));
-        app_bus_servo_read_state(&latest_state);
-        if (latest_state.loop_count == 0u) {
-            BM_LOGE(TAG, "LATEST state not updated");
-            hybrid_print("EXAMPLE_BUS_SERVO: FAIL latest_not_updated\n");
-            bm_exec_safe_stop_all(g_instances, 1u);
-            return 1;
-        }
+    /* C2. LATEST：监督层 POLL 回调读到最新状态（state_reads > 0） */
+    if (g_bus_servo_metrics.state_reads == 0u) {
+        BM_LOGE(TAG, "LATEST state not read by supervisor");
+        hybrid_print("EXAMPLE_BUS_SERVO: FAIL latest_not_read\n");
+        bm_exec_safe_stop_all(g_instances, 1u);
+        return 1;
     }
 
-    /* C3. SIGNAL：两消费者各自读到遥测 */
-    {
-        const void *tslot;
-        int export_ok = 0;
-        int monitor_ok = 0;
-        uint32_t drain;
-
-        /* 排干 export 消费者缓冲（BM_OK：正常读；BM_ERR_OVERFLOW：被绕过后跳到最旧可读，视为有数据） */
-        for (drain = 0u; drain < 8u; ++drain) {
-            int rd = bm_bus_acquire_read(&g_telem_export_reader, &tslot);
-            if (rd == BM_OK || rd == BM_ERR_OVERFLOW) {
-                export_ok = 1;
-                (void)bm_bus_release(&g_telem_export_reader);
-                if (rd == BM_ERR_OVERFLOW) {
-                    break; /* overflow 后游标已跳到最新可读位置，后续继续正常读 */
-                }
-            } else {
-                break;
-            }
-        }
-        /* 排干 monitor 消费者缓冲 */
-        for (drain = 0u; drain < 8u; ++drain) {
-            int rd = bm_bus_acquire_read(&g_telem_monitor_reader, &tslot);
-            if (rd == BM_OK || rd == BM_ERR_OVERFLOW) {
-                monitor_ok = 1;
-                (void)bm_bus_release(&g_telem_monitor_reader);
-                if (rd == BM_ERR_OVERFLOW) {
-                    break;
-                }
-            } else {
-                break;
-            }
-        }
-
-        if (!export_ok || !monitor_ok) {
-            BM_LOGE(TAG, "SIGNAL telem: export_ok=%d monitor_ok=%d",
-                    export_ok, monitor_ok);
-            hybrid_print("EXAMPLE_BUS_SERVO: FAIL signal_telem\n");
-            bm_exec_safe_stop_all(g_instances, 1u);
-            return 1;
-        }
+    /* C3. SIGNAL：两个消费者在 POLL 回调里各自持续追赶遥测流。
+     *     要求两者各读到多帧（持续追赶，而非偶发单帧）。 */
+    if (g_bus_servo_metrics.telem_export_reads == 0u ||
+        g_bus_servo_metrics.telem_monitor_reads == 0u) {
+        BM_LOGE(TAG, "SIGNAL telem not consumed: export=%u monitor=%u",
+                (unsigned)g_bus_servo_metrics.telem_export_reads,
+                (unsigned)g_bus_servo_metrics.telem_monitor_reads);
+        hybrid_print("EXAMPLE_BUS_SERVO: FAIL signal_telem\n");
+        bm_exec_safe_stop_all(g_instances, 1u);
+        return 1;
     }
 
     /* 全部通过 */

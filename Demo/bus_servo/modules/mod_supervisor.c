@@ -48,18 +48,30 @@ static void publish_enable_command(float setpoint_rad_s) {
 }
 
 /**
- * @brief 从 LATEST 读取最新轴状态并统计有效样本
+ * @brief POLL 周期回调：读 LATEST 状态 + 排空两路 SIGNAL 遥测
  *
- * 当 loop_count > 0 时认为状态有效（控制环已至少执行一周期）。
+ * 演示 bm_bus 的两个被动消费模式在同一 SRT 周期里协同工作：
+ *   - LATEST：读取轴最新状态（loop_count>0 视为有效样本）
+ *   - SIGNAL：导出/监控两个独立消费者各自追赶遥测流，
+ *     按本次实际读到的帧数累加各自计数器。
  */
 static void poll_state(void) {
     bus_servo_state_t st;
+    uint32_t export_frames;
+    uint32_t monitor_frames;
 
+    /* LATEST：最新轴状态 */
     memset(&st, 0, sizeof(st));
     app_bus_servo_read_state(&st);
     if (st.loop_count > 0u) {
         g_bus_servo_metrics.state_reads++;
     }
+
+    /* SIGNAL：两个独立消费者周期性追赶遥测流 */
+    export_frames = app_bus_servo_drain_telem_export();
+    monitor_frames = app_bus_servo_drain_telem_monitor();
+    g_bus_servo_metrics.telem_export_reads += export_frames;
+    g_bus_servo_metrics.telem_monitor_reads += monitor_frames;
 }
 
 /**
