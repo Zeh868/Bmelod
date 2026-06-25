@@ -38,6 +38,7 @@ endif()
 
 if(BM_ENABLE_BUS)
     bm_add_test(test_bus test_bus.c bm_core)
+    bm_add_test(test_bus_migration test_bus_migration.c bm_core)
 endif()
 
 if(BM_ENABLE_SHELL)
