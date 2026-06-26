@@ -27,6 +27,7 @@
 #include "bm_algorithm.h"
 #include "bm_exec.h"
 #include "bm_hrt.h"
+#include "bm_idle.h"
 #include "bm_log.h"
 #include "bm_module.h"
 #include "bm_ticker.h"
@@ -811,6 +812,9 @@ int main(void) {
     return 0;
 #else
     while (1) {
+        /* 主循环无任务时调用空闲钩子：默认在 ARM 上执行 WFI 进入低功耗等待，
+         * 应用可覆盖 bm_idle() 实现自定义省电策略。 */
+        bm_idle();
     }
 #endif
 }
