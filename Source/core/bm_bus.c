@@ -6,7 +6,7 @@
  * BM_CONFIG_CPU_COUNT 切换。零动态分配，写者 O(1) 无阻塞。
  * BLOCK 模式以控制反转方式透传至 bm_block_backend_iface_t 后端，core 层不引用任何 hybrid 类型。
  * @author zeh (china_qzh@163.com)
- * @version 0.7
+ * @version 0.8
  * @date 2026-06-26
  *
  * @par 修改日志:
@@ -19,6 +19,7 @@
  * 2026-06-25       0.5            zeh            Phase 1 Task 6 bus_storage_valid LATEST cap>=3 校验 Doxygen 完善；validate/freeze 边界测试覆盖
  * 2026-06-25       0.6            zeh            DET-01 LATEST acquire_read spin-until-stable 重试封顶（BM_CONFIG_BUS_LATEST_MAX_RETRIES），超界非阻塞返回，WCET 可静态分析；新增 BM_ENABLE_BUS_TEST_HOOK 测试缝
  * 2026-06-26       0.7            zeh            Phase 2 BLOCK 控制反转：bm_bus_bind_block_backend + 专用 produce/consume 六入口；open 初始化 block 字段
+ * 2026-06-26       0.8            zeh            新增 bm_bus_reset()：freeze 对称解冻/复位，与 bm_event_reset() 语义对称
  *
  */
 #include "bm/core/bm_bus.h"
@@ -205,6 +206,60 @@ int bm_bus_freeze(bm_bus_t *h) {
     BUS_UNLOCK(s);
     BM_LOGD("bus", "frozen mode=%u readers=%u",
             (unsigned)st->mode, (unsigned)st->reader_count);
+    return BM_OK;
+}
+
+/**
+ * @brief 将 bus storage 运行期状态复位到 open 后 pristine 并解冻（frozen=0）
+ *
+ * 与 bm_event_reset() 语义对称：清零所有运行期游标/计数/reader slot，
+ * 置 frozen=0，使 bus 可重新执行 reader_attach/bind/freeze 流程。
+ * 编译期/open 配置（mode/capacity/elem_size/max_consumers/owner_cpu/data_buf/readers/
+ * block_iface/block_ctx）保持不变。
+ *
+ * @note BLOCK 后端不随 reset 自动复位，后端有独立生命周期，调用方须自行处理。
+ * @note 多核契约：仅允许在安全相位（单一协调流程、无并发产消）调用，框架不强制。
+ * @note 幂等：连续多次 reset 无副作用。
+ *
+ * @param h bus 句柄指针
+ * @return BM_OK 成功；BM_ERR_INVALID h 或 h->storage 为空
+ */
+int bm_bus_reset(bm_bus_t *h) {
+    bm_bus_storage_t *st;
+    bm_irq_state_t s;
+    uint32_t i;
+
+    if (!h || !h->storage) {
+        return BM_ERR_INVALID;
+    }
+    st = h->storage;
+
+    BUS_LOCK(&s);
+
+    /* --- 写游标与 LATEST 三缓冲标记 --- */
+    bus_store_cur(&st->write_cur,        0u);
+    bus_store_cur(&st->latest_published, BM_BUS_LATEST_NONE);
+    bus_store_cur(&st->latest_reading,   BM_BUS_LATEST_NONE);
+    bus_store_cur(&st->latest_writing,   0u);
+
+    /* --- 进行中的写操作 --- */
+    st->write_in_progress = 0u;
+
+    /* --- 读者槽 --- */
+    st->reader_count = 0u;
+    for (i = 0u; i < st->max_consumers; i++) {
+        bus_store_cur(&st->readers[i].read_cur, 0u);
+        st->readers[i].overflow_count = 0u;
+        st->readers[i].attached       = 0u;
+    }
+
+    /* --- 解冻：置 frozen=0，与 bm_event_reset 解冻订阅表的语义对称 --- */
+    st->frozen = 0u;
+
+    BUS_UNLOCK(s);
+
+    BM_LOGD("bus", "reset mode=%u cap=%u", (unsigned)st->mode,
+            (unsigned)st->capacity);
     return BM_OK;
 }
 

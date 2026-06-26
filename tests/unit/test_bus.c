@@ -1,6 +1,6 @@
 /**
  * @file test_bus.c
- * @brief bm_bus 单元测试（Task 2/3/4/5/6/7：open/validate/acquire_write/commit/abort/reader_attach/acquire_read/release/freeze/ready_count/stats/LATEST三缓冲/validate边界/freeze守卫/BLOCK IoC API）
+ * @brief bm_bus 单元测试（Task 2/3/4/5/6/7/8：open/validate/acquire_write/commit/abort/reader_attach/acquire_read/release/freeze/ready_count/stats/LATEST三缓冲/validate边界/freeze守卫/BLOCK IoC API/reset生命周期对称）
  *
  * TDD 覆盖：open/validate/acquire_write/commit/abort 基本语义，
  * QUEUE 满立即拒绝（test_queue_write_overflow_on_full，仅依赖写路径），
@@ -11,8 +11,9 @@
  *   BLOCK acquire_write 返回 NOT_SUPPORTED；freeze 守卫：幂等、freeze 后写路径不受阻（Phase 1 Task 6）。
  * BLOCK IoC API：bind_block_backend/produce_acquire/commit/abort/consume_acquire/release、
  *   unbound 返回 INVALID、valid_bytes/ts_ns passthrough、owner_cpu 透传（Task 7）。
+ * bm_bus_reset() 生命周期对称：解冻、游标/计数清零、三模式覆盖、BLOCK 不破坏绑定、幂等（Task 8）。
  * @author zeh (china_qzh@163.com)
- * @version 0.6
+ * @version 0.7
  * @date 2026-06-26
  */
 
@@ -988,6 +989,201 @@ void test_latest_read_retry_bounded_under_contention(void) {
 }
 #endif /* BM_ENABLE_BUS_TEST_HOOK */
 
+/* ------------------------------------------------------------------ */
+/* Task 8：bm_bus_reset() 生命周期对称                                 */
+/* ------------------------------------------------------------------ */
+
+/* BLOCK reset 测试专用存储：独立 storage 防止 frozen 跨测试污染 */
+BM_BUS_DEFINE(tb_blk_reset, uint8_t, 2u, 1u, BM_BUS_BLOCK);
+BM_STREAM_PAYLOADS(g_blk_reset_stream, uint32_t, BLK_STREAM_DEPTH);
+BM_STREAM_BLOCKS(g_blk_reset_stream,             BLK_STREAM_DEPTH);
+BM_STREAM_INSTANCE(g_blk_reset_stream,           BLK_STREAM_DEPTH);
+
+/**
+ * @brief reset 解冻验证：freeze 后 reader_attach 返回 BM_ERR_BUSY；
+ *        reset 后 frozen=0，reader_attach 再次成功。
+ *
+ * 覆盖 bm_bus_reset() 的核心语义：freeze 的对称解冻面。
+ */
+void test_reset_unfreeze_allows_reader_attach(void) {
+    bm_bus_reader_t r;
+
+    /* freeze → attach 被拒 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_freeze(&g_bus_q));
+    TEST_ASSERT_EQUAL(BM_ERR_BUSY, bm_bus_reader_attach(&g_bus_q, &r));
+
+    /* reset → 解冻 → attach 成功 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_reset(&g_bus_q));
+    TEST_ASSERT_EQUAL(0u, (uint32_t)tb_q_storage.frozen);
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_reader_attach(&g_bus_q, &r));
+}
+
+/**
+ * @brief reset 游标归零验证（QUEUE）：写若干项后 reset，write_cur=0、
+ *        reader_count=0、reader slot 全部清空（attached=0、overflow_count=0）。
+ */
+void test_reset_clears_cursors_and_readers_queue(void) {
+    bm_bus_reader_t r;
+    void *ws;
+    uint32_t i;
+
+    /* 写 2 项并 attach 读者 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_reader_attach(&g_bus_q, &r));
+    for (i = 0u; i < 2u; i++) {
+        TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_q, &ws));
+        *(uint32_t *)ws = i;
+        TEST_ASSERT_EQUAL(BM_OK, bm_bus_commit(&g_bus_q));
+    }
+    /* write_cur 应为 2（已 commit 2 次） */
+    TEST_ASSERT_EQUAL_UINT32(2u, bm_atomic_ipc_load_u32(&tb_q_storage.write_cur));
+    TEST_ASSERT_EQUAL_UINT32(1u, tb_q_storage.reader_count);
+
+    /* reset */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_reset(&g_bus_q));
+
+    /* 游标归零 */
+    TEST_ASSERT_EQUAL_UINT32(0u, bm_atomic_ipc_load_u32(&tb_q_storage.write_cur));
+    /* reader_count 归零 */
+    TEST_ASSERT_EQUAL_UINT32(0u, tb_q_storage.reader_count);
+    /* reader slot 全部清空 */
+    TEST_ASSERT_EQUAL_UINT32(0u,
+        bm_atomic_ipc_load_u32(&tb_q_storage.readers[r.slot_idx].read_cur));
+    TEST_ASSERT_EQUAL_UINT32(0u,
+        tb_q_storage.readers[r.slot_idx].overflow_count);
+    TEST_ASSERT_EQUAL_UINT32(0u, (uint32_t)tb_q_storage.readers[r.slot_idx].attached);
+}
+
+/**
+ * @brief reset 游标归零验证（SIGNAL）：三读者写若干项后 reset，
+ *        write_cur=0、reader_count=0、各 slot 全部清空。
+ */
+void test_reset_clears_cursors_and_readers_signal(void) {
+    bm_bus_reader_t r0, r1;
+    void *ws;
+    uint32_t i;
+
+    /* attach 2 个读者并写 3 项 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_reader_attach(&g_bus_s, &r0));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_reader_attach(&g_bus_s, &r1));
+    for (i = 0u; i < 3u; i++) {
+        TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_s, &ws));
+        *(uint32_t *)ws = i;
+        TEST_ASSERT_EQUAL(BM_OK, bm_bus_commit(&g_bus_s));
+    }
+    TEST_ASSERT_EQUAL_UINT32(3u, bm_atomic_ipc_load_u32(&tb_s_storage.write_cur));
+
+    /* reset */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_reset(&g_bus_s));
+
+    TEST_ASSERT_EQUAL_UINT32(0u, bm_atomic_ipc_load_u32(&tb_s_storage.write_cur));
+    TEST_ASSERT_EQUAL_UINT32(0u, tb_s_storage.reader_count);
+    /* 所有 slot（含未 attach 的）已被清零 */
+    for (i = 0u; i < tb_s_storage.max_consumers; i++) {
+        TEST_ASSERT_EQUAL_UINT32(0u,
+            bm_atomic_ipc_load_u32(&tb_s_storage.readers[i].read_cur));
+        TEST_ASSERT_EQUAL_UINT32(0u, tb_s_storage.readers[i].overflow_count);
+        TEST_ASSERT_EQUAL_UINT32(0u, (uint32_t)tb_s_storage.readers[i].attached);
+    }
+}
+
+/**
+ * @brief reset LATEST 模式：latest_published/reading/writing 复位，
+ *        reset 后 acquire_read 返回 BM_ERR_WOULD_BLOCK（无数据），
+ *        reader_attach 成功（reader_count 已清零）。
+ */
+void test_reset_latest_state_cleared(void) {
+    bm_bus_reader_t r;
+    void *ws;
+    const void *s;
+
+    /* 先写一个值并 attach 读者 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_l, &ws));
+    *(uint32_t *)ws = 99u;
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_commit(&g_bus_l));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_reader_attach(&g_bus_l, &r));
+    /* 验证有数据 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_read(&r, &s));
+    bm_bus_release(&r);
+
+    /* reset：清除所有运行期状态 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_reset(&g_bus_l));
+
+    /* latest_published 应为 BM_BUS_LATEST_NONE */
+    TEST_ASSERT_EQUAL_UINT32(BM_BUS_LATEST_NONE,
+        bm_atomic_ipc_load_u32(&tb_l_storage.latest_published));
+    /* latest_reading 应为 BM_BUS_LATEST_NONE */
+    TEST_ASSERT_EQUAL_UINT32(BM_BUS_LATEST_NONE,
+        bm_atomic_ipc_load_u32(&tb_l_storage.latest_reading));
+    /* reader_count 归零，可重新 attach */
+    TEST_ASSERT_EQUAL_UINT32(0u, tb_l_storage.reader_count);
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_reader_attach(&g_bus_l, &r));
+    /* reset 后无数据，acquire_read 应返回 BM_ERR_WOULD_BLOCK */
+    TEST_ASSERT_EQUAL(BM_ERR_WOULD_BLOCK, bm_bus_acquire_read(&r, &s));
+}
+
+/**
+ * @brief BLOCK 模式 reset：core 状态复位，block_iface/block_ctx 绑定保留不变，
+ *        frozen=0（解冻，可重新 bind）。
+ *
+ * 验证 reset 仅复位 bus core 层状态，不触碰后端绑定——后端有独立生命周期。
+ */
+void test_reset_block_preserves_binding(void) {
+    bm_bus_t     h;
+    bm_bus_cfg_t cfg = { .owner_cpu = 0u };
+    const bm_block_backend_iface_t *iface_before;
+
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_stream_init(&g_blk_reset_stream,
+                       _bm_stream_payload_g_blk_reset_stream,
+                       BLK_STREAM_DEPTH,
+                       sizeof(uint32_t)));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&h, &tb_blk_reset_storage, &cfg));
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_bus_bind_block_backend(&h, bm_stream_as_block_backend(), &g_blk_reset_stream));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_freeze(&h));
+
+    /* 记录绑定前的 block_iface 指针 */
+    iface_before = tb_blk_reset_storage.block_iface;
+    TEST_ASSERT_NOT_NULL(iface_before);
+
+    /* reset：core 状态复位，binding 保留 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_reset(&h));
+
+    /* frozen=0（解冻） */
+    TEST_ASSERT_EQUAL_UINT32(0u, (uint32_t)tb_blk_reset_storage.frozen);
+    /* block_iface/block_ctx 保持不变 */
+    TEST_ASSERT_EQUAL_PTR(iface_before, tb_blk_reset_storage.block_iface);
+    TEST_ASSERT_EQUAL_PTR(&g_blk_reset_stream, tb_blk_reset_storage.block_ctx);
+
+    bm_bus_close(&h);
+}
+
+/**
+ * @brief reset 幂等：连续两次 reset 返回 BM_OK，无副作用。
+ */
+void test_reset_idempotent(void) {
+    /* 先写一项，再连续 reset 两次 */
+    void *ws;
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_q, &ws));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_abort(&g_bus_q));
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_reset(&g_bus_q));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_reset(&g_bus_q));
+
+    /* 两次 reset 后游标仍为 0，frozen=0 */
+    TEST_ASSERT_EQUAL_UINT32(0u, bm_atomic_ipc_load_u32(&tb_q_storage.write_cur));
+    TEST_ASSERT_EQUAL_UINT32(0u, (uint32_t)tb_q_storage.frozen);
+}
+
+/**
+ * @brief reset 参数校验：h=NULL 返回 BM_ERR_INVALID；h->storage=NULL 返回 BM_ERR_INVALID。
+ */
+void test_reset_invalid_params(void) {
+    bm_bus_t h_no_storage = { .storage = NULL };
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_bus_reset(NULL));
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_bus_reset(&h_no_storage));
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_open_validate_ok);
@@ -1038,5 +1234,13 @@ int main(void) {
     /* DET-01：LATEST 重试上界（需 BM_ENABLE_BUS_TEST_HOOK 编入测试缝）*/
     RUN_TEST(test_latest_read_retry_bounded_under_contention);
 #endif
+    /* Task 8：bm_bus_reset() 生命周期对称 */
+    RUN_TEST(test_reset_unfreeze_allows_reader_attach);
+    RUN_TEST(test_reset_clears_cursors_and_readers_queue);
+    RUN_TEST(test_reset_clears_cursors_and_readers_signal);
+    RUN_TEST(test_reset_latest_state_cleared);
+    RUN_TEST(test_reset_block_preserves_binding);
+    RUN_TEST(test_reset_idempotent);
+    RUN_TEST(test_reset_invalid_params);
     return UNITY_END();
 }

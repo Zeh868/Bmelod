@@ -7,7 +7,7 @@
  * 依赖方向保持 hybrid→core，bus 核心不引用任何 hybrid 类型。
  * 编译期用 BM_BUS_DEFINE 静态分配存储，零动态分配。
  * @author zeh (china_qzh@163.com)
- * @version 0.3
+ * @version 0.4
  * @date 2026-06-26
  *
  * @par 修改日志:
@@ -16,6 +16,7 @@
  * 2026-06-25       0.1            zeh            Phase 1 初稿
  * 2026-06-25       0.2            zeh            DET-01 新增 BM_ENABLE_BUS_TEST_HOOK 测试缝声明（LATEST 重试上界验证）
  * 2026-06-26       0.3            zeh            Phase 2 BLOCK 控制反转：bm_bus_bind_block_backend + 专用 produce/consume 入口
+ * 2026-06-26       0.4            zeh            新增 bm_bus_reset()：freeze 对称解冻/复位，与 bm_event_reset() 语义对称
  *
  */
 #ifndef BM_BUS_H
@@ -212,6 +213,42 @@ int bm_bus_close(bm_bus_t *h);
  * @return BM_OK 成功；BM_ERR_INVALID 句柄无效
  */
 int bm_bus_freeze(bm_bus_t *h);
+
+/**
+ * @brief 将 bus storage 运行期状态复位到 open 后 pristine 并解冻（frozen=0）
+ *
+ * 与 bm_event_reset() 语义对称：解冻同时清零所有运行期游标、计数与读者槽，
+ * 使 bus 恢复到 open 刚完成后的干净状态，可重新执行 reader_attach/freeze 流程。
+ *
+ * 复位内容（运行期状态）：
+ *   - write_cur=0
+ *   - latest_published=BM_BUS_LATEST_NONE，latest_reading=BM_BUS_LATEST_NONE，latest_writing=0
+ *   - write_in_progress=0
+ *   - reader_count=0
+ *   - 每个 reader slot：read_cur=0、overflow_count=0、attached=0
+ *   - frozen=0（解冻，reader_attach 可再次接受）
+ *
+ * 保留不变（编译期/open 配置）：
+ *   - mode、capacity、elem_size、max_consumers、owner_cpu
+ *   - data_buf、readers 指针
+ *   - BLOCK 模式的 block_iface/block_ctx 绑定
+ *
+ * @par 多核契约
+ * reset 仅允许在安全相位（单一协调流程、无并发产消、稳态之前或恢复期）调用，
+ * 不得在多核产消并发期间调用。此契约与 freeze/reader_attach 串行契约同构；
+ * 框架不强制，由上层保证。
+ *
+ * @par BLOCK 后端
+ * reset 仅复位 bus core 自身运行期状态，不自动复位后端（bm_stream 等）；
+ * 后端有独立生命周期，调用方需自行复位后端。
+ *
+ * @par 幂等
+ * 连续多次 reset 无副作用。
+ *
+ * @param h bus 句柄指针
+ * @return BM_OK 成功；BM_ERR_INVALID h 或 h->storage 为空
+ */
+int bm_bus_reset(bm_bus_t *h);
 
 /**
  * @brief 校验 bus 句柄与 storage 的完整性
