@@ -61,6 +61,12 @@ if(BM_ENABLE_TICKER)
         ${CMAKE_SOURCE_DIR}/portable/sim/native)
 endif()
 
+if(TARGET bm_health)
+    bm_add_test(test_health test_health.c bm_health)
+    target_include_directories(test_health PRIVATE
+        ${CMAKE_SOURCE_DIR}/portable/sim/native)
+endif()
+
 if(TARGET bm_resource)
     bm_add_test(test_resource_claim test_resource_claim.c bm_resource)
 endif()
