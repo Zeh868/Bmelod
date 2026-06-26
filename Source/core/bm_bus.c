@@ -6,7 +6,7 @@
  * BM_CONFIG_CPU_COUNT 切换。零动态分配，写者 O(1) 无阻塞。
  * BLOCK 模式以控制反转方式透传至 bm_block_backend_iface_t 后端，core 层不引用任何 hybrid 类型。
  * @author zeh (china_qzh@163.com)
- * @version 0.8
+ * @version 0.9
  * @date 2026-06-26
  *
  * @par 修改日志:
@@ -20,6 +20,7 @@
  * 2026-06-25       0.6            zeh            DET-01 LATEST acquire_read spin-until-stable 重试封顶（BM_CONFIG_BUS_LATEST_MAX_RETRIES），超界非阻塞返回，WCET 可静态分析；新增 BM_ENABLE_BUS_TEST_HOOK 测试缝
  * 2026-06-26       0.7            zeh            Phase 2 BLOCK 控制反转：bm_bus_bind_block_backend + 专用 produce/consume 六入口；open 初始化 block 字段
  * 2026-06-26       0.8            zeh            新增 bm_bus_reset()：freeze 对称解冻/复位，与 bm_event_reset() 语义对称
+ * 2026-06-26       0.9            zeh            seqlock 多读者 LATEST 读：latest_seq 字段 + bm_bus_latest_read 增量并存方案
  *
  */
 #include "bm/core/bm_bus.h"
@@ -30,8 +31,9 @@
 #include <string.h>
 
 #if defined(BM_ENABLE_BUS_TEST_HOOK)
-/* 测试钩子定义（仅测试构建）：见 bm_bus.h 声明与 acquire_read 调用点。 */
-void (*bm_bus_test_latest_read_hook)(bm_bus_storage_t *st) = NULL;
+/* 测试钩子定义（仅测试构建）：见 bm_bus.h 声明与各调用点。 */
+void (*bm_bus_test_latest_read_hook)(bm_bus_storage_t *st)       = NULL;
+void (*bm_bus_test_latest_multi_read_hook)(bm_bus_storage_t *st) = NULL;
 #endif
 
 /* ------------------------------------------------------------------ */
@@ -152,6 +154,7 @@ int bm_bus_open(bm_bus_t *h, bm_bus_storage_t *storage,
     bus_store_cur(&storage->latest_published, BM_BUS_LATEST_NONE);
     bus_store_cur(&storage->latest_reading, BM_BUS_LATEST_NONE);
     bus_store_cur(&storage->latest_writing, 0u);  /* scratch，commit 前不读取 */
+    bus_store_cur(&storage->latest_seq,     0u);  /* seqlock 序列计数：偶=稳定初态 */
     storage->owner_cpu         = cfg->owner_cpu;
     storage->frozen            = 0u;
     storage->write_in_progress = 0u;
@@ -241,6 +244,7 @@ int bm_bus_reset(bm_bus_t *h) {
     bus_store_cur(&st->latest_published, BM_BUS_LATEST_NONE);
     bus_store_cur(&st->latest_reading,   BM_BUS_LATEST_NONE);
     bus_store_cur(&st->latest_writing,   0u);
+    bus_store_cur(&st->latest_seq,       0u); /* seqlock 序列计数归零 */
 
     /* --- 进行中的写操作 --- */
     st->write_in_progress = 0u;
@@ -415,9 +419,11 @@ int bm_bus_commit(bm_bus_t *h) {
         return BM_ERR_NOT_SUPPORTED;
     }
     if (st->mode == BM_BUS_LATEST) {
-        /* LATEST 三缓冲 commit：以 release 序发布 latest_writing 写槽。
+        /* LATEST 三缓冲 commit：以 release 序发布 latest_writing 写槽，
+         * 同时以 seqlock 屏障保护 bm_bus_latest_read 多观察者拷出路径。
          * 数据写入先于 latest_published 可见，读者 acquire 序读游标后能看到数据。 */
         uint32_t wslot;
+        uint32_t seq;
 
         BUS_LOCK(&s);
         if (!st->write_in_progress) {
@@ -425,8 +431,15 @@ int bm_bus_commit(bm_bus_t *h) {
             return BM_ERR_INVALID;
         }
         wslot = bus_load_cur(&st->latest_writing);   /* acquire_write 时已选好 */
+        /* seqlock 写侧屏障：奇=写进行中 → 发布数据 → 偶=稳定。
+         * 两次 release store 保证：多核读者先看到奇才会重试，待数据完全
+         * 写入后读者看到偶且前后相等才认为拷贝有效（DET-01 seqlock 扩展）。
+         * 单写者在 BUS_LOCK 保护下，无需 CAS，直接 store。 */
+        seq = bus_load_cur(&st->latest_seq);
+        bus_store_cur(&st->latest_seq, seq + 1u);    /* 奇：写进行中 */
         /* release 序发布：数据先于 latest_published 可见，读者 acquire 序读到 */
         bus_store_cur(&st->latest_published, wslot);
+        bus_store_cur(&st->latest_seq, seq + 2u);    /* 偶：写完成、seqlock 稳态 */
         st->write_in_progress = 0u;
         BUS_UNLOCK(s);
         return BM_OK;
@@ -962,4 +975,81 @@ int bm_bus_block_consume_release(bm_bus_t *h, void *block) {
         return rc;
     }
     return st->block_iface->consumer_release(st->block_ctx, block);
+}
+
+/* ------------------------------------------------------------------ */
+/* LATEST 多观察者拷出式读（seqlock 增量并存方案）                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * @brief LATEST 多观察者拷出式读（seqlock + 有界重试，非阻塞）
+ *
+ * 以 seqlock（latest_seq）保证多核下拷贝一致性：
+ *   读 seq1（偶=稳定）→ 读 latest_published → memcpy → 读 seq2；
+ *   seq1==seq2 且均为偶则拷贝有效（写者未在窗口内发布），否则重试；
+ *   重试上界 BM_CONFIG_BUS_LATEST_MAX_RETRIES，超界返回 BM_ERR_WOULD_BLOCK
+ *   （非阻塞，WCET 可静态分析，DET-01 seqlock 扩展）。
+ *
+ * 不使用 latest_reading，与单读者零拷贝借还路径（acquire_read/release）
+ * 完全解耦：两种读法可在同一 bus 上并存互不干扰。
+ *
+ * @param h   bus 句柄指针（只读，不修改运行期状态）
+ * @param dst 目标缓冲区（调用者分配，大小须 >= storage->elem_size）
+ * @return BM_OK 成功；BM_ERR_WOULD_BLOCK 无数据或重试耗尽；
+ *         BM_ERR_NOT_SUPPORTED 非 LATEST；BM_ERR_INVALID 参数非法
+ */
+int bm_bus_latest_read(const bm_bus_t *h, void *dst) {
+    bm_bus_storage_t *st;
+    uint32_t seq1, seq2, p;
+    uint32_t retry = 0u;
+
+    if (!h || !h->storage || !dst) {
+        return BM_ERR_INVALID;
+    }
+    st = h->storage;
+
+    if (st->mode != BM_BUS_LATEST) {
+        return BM_ERR_NOT_SUPPORTED;
+    }
+
+    for (;;) {
+        /* seqlock 读侧第一步：读序号，奇数表示写者正在发布，需等写者完成后重试 */
+        seq1 = bus_load_cur(&st->latest_seq);
+        if (seq1 & 1u) {
+            /* 写者持有写中状态，重试计数器递增 */
+            if (++retry >= BM_CONFIG_BUS_LATEST_MAX_RETRIES) {
+                return BM_ERR_WOULD_BLOCK;
+            }
+            continue;
+        }
+
+        /* 读最新发布槽索引 */
+        p = bus_load_cur(&st->latest_published);
+        if (p == BM_BUS_LATEST_NONE) {
+            /* open/reset 后尚无 commit，无有效数据 */
+            return BM_ERR_WOULD_BLOCK;
+        }
+
+        /* 拷出：从发布槽复制 elem_size 字节到调用者缓冲区 */
+        (void)memcpy(dst, st->data_buf + (size_t)p * st->elem_size, st->elem_size);
+
+#if defined(BM_ENABLE_BUS_TEST_HOOK)
+        /* 测试缝：模拟写者在拷贝完成后推进 seq，强制 seqlock 失稳触发重试；
+         * 生产构建不编入，零开销（DET-01 seqlock 扩展重试上界验证）。 */
+        if (bm_bus_test_latest_multi_read_hook != NULL) {
+            bm_bus_test_latest_multi_read_hook(st);
+        }
+#endif
+
+        /* seqlock 读侧第二步：复读序号，与 seq1 相等说明拷贝期间无写者发布 */
+        seq2 = bus_load_cur(&st->latest_seq);
+        if (seq1 == seq2) {
+            return BM_OK; /* seqlock 验证通过：数据一致 */
+        }
+
+        /* seqlock 失稳：写者在拷贝期间发布新值，重试 */
+        if (++retry >= BM_CONFIG_BUS_LATEST_MAX_RETRIES) {
+            return BM_ERR_WOULD_BLOCK;
+        }
+    }
 }

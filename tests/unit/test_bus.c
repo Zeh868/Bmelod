@@ -1,6 +1,6 @@
 /**
  * @file test_bus.c
- * @brief bm_bus 单元测试（Task 2/3/4/5/6/7/8：open/validate/acquire_write/commit/abort/reader_attach/acquire_read/release/freeze/ready_count/stats/LATEST三缓冲/validate边界/freeze守卫/BLOCK IoC API/reset生命周期对称）
+ * @brief bm_bus 单元测试（Task 2/3/4/5/6/7/8/9：open/validate/acquire_write/commit/abort/reader_attach/acquire_read/release/freeze/ready_count/stats/LATEST三缓冲/validate边界/freeze守卫/BLOCK IoC API/reset生命周期对称/seqlock多读者拷出）
  *
  * TDD 覆盖：open/validate/acquire_write/commit/abort 基本语义，
  * QUEUE 满立即拒绝（test_queue_write_overflow_on_full，仅依赖写路径），
@@ -12,8 +12,9 @@
  * BLOCK IoC API：bind_block_backend/produce_acquire/commit/abort/consume_acquire/release、
  *   unbound 返回 INVALID、valid_bytes/ts_ns passthrough、owner_cpu 透传（Task 7）。
  * bm_bus_reset() 生命周期对称：解冻、游标/计数清零、三模式覆盖、BLOCK 不破坏绑定、幂等（Task 8）。
+ * bm_bus_latest_read seqlock 多观察者拷出：无需 attach、与单读者零拷贝并存、重试有界（Task 9）。
  * @author zeh (china_qzh@163.com)
- * @version 0.7
+ * @version 0.8
  * @date 2026-06-26
  */
 
@@ -1184,6 +1185,181 @@ void test_reset_invalid_params(void) {
     TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_bus_reset(&h_no_storage));
 }
 
+/* ------------------------------------------------------------------ */
+/* Task 9：bm_bus_latest_read() seqlock 多观察者拷出 API               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * @brief 多观察者拷出读基本功能：发布后任意次 bm_bus_latest_read 均返回最新值。
+ *
+ * 连续发布 111 → 222 → 333，三次调用不同 dst 缓冲区，均得到最后发布的值 333；
+ * 验证无需 reader_attach、不影响 latest_published/latest_reading 状态。
+ */
+void test_latest_multi_read_basic(void) {
+    void *ws;
+    uint32_t dst0 = 0u, dst1 = 0u, dst2 = 0u;
+
+    /* 连续发布 111 → 222 → 333 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_l, &ws));
+    *(uint32_t *)ws = 111u;
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_commit(&g_bus_l));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_l, &ws));
+    *(uint32_t *)ws = 222u;
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_commit(&g_bus_l));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_l, &ws));
+    *(uint32_t *)ws = 333u;
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_commit(&g_bus_l));
+
+    /* 三个「观察者」各自拷出，均得到最新值 333 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_latest_read(&g_bus_l, &dst0));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_latest_read(&g_bus_l, &dst1));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_latest_read(&g_bus_l, &dst2));
+    TEST_ASSERT_EQUAL_UINT32(333u, dst0);
+    TEST_ASSERT_EQUAL_UINT32(333u, dst1);
+    TEST_ASSERT_EQUAL_UINT32(333u, dst2);
+}
+
+/**
+ * @brief 尚无发布值时 bm_bus_latest_read 返回 BM_ERR_WOULD_BLOCK。
+ *
+ * open 后、任何 commit 之前 latest_published == BM_BUS_LATEST_NONE。
+ */
+void test_latest_multi_read_no_data(void) {
+    uint32_t dst = 0u;
+    TEST_ASSERT_EQUAL(BM_ERR_WOULD_BLOCK, bm_bus_latest_read(&g_bus_l, &dst));
+}
+
+/**
+ * @brief 单读者零拷贝借还与多观察者拷出并存：同一 LATEST bus 上两种读法各自正确。
+ *
+ * 写 555 后：
+ *   - bm_bus_latest_read 拷出得 555；
+ *   - bm_bus_acquire_read（单读者零拷贝）读到 555；
+ *   - acquire_read 持有 latest_reading 标记期间，bm_bus_latest_read 仍返回 BM_OK；
+ *   - release 后 bm_bus_latest_read 依然正确。
+ */
+void test_latest_multi_read_coexists_with_zero_copy(void) {
+    bm_bus_reader_t r;
+    const uint32_t *slot_ptr;
+    uint32_t dst = 0u;
+    void *ws;
+
+    /* 写 555 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_l, &ws));
+    *(uint32_t *)ws = 555u;
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_commit(&g_bus_l));
+
+    /* 多观察者拷出 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_latest_read(&g_bus_l, &dst));
+    TEST_ASSERT_EQUAL_UINT32(555u, dst);
+
+    /* 单读者零拷贝借还 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_reader_attach(&g_bus_l, &r));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_read(&r, (const void **)&slot_ptr));
+    TEST_ASSERT_EQUAL_UINT32(555u, *slot_ptr);
+
+    /* acquire_read 后 latest_reading 已置槽，bm_bus_latest_read 不依赖 latest_reading，
+     * 仍可并发拷出 */
+    dst = 0u;
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_latest_read(&g_bus_l, &dst));
+    TEST_ASSERT_EQUAL_UINT32(555u, dst);
+
+    /* release：清 latest_reading；多观察者路径不受影响 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_release(&r));
+    dst = 0u;
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_latest_read(&g_bus_l, &dst));
+    TEST_ASSERT_EQUAL_UINT32(555u, dst);
+}
+
+/**
+ * @brief 非 LATEST 模式调用 bm_bus_latest_read 返回 BM_ERR_NOT_SUPPORTED。
+ *
+ * QUEUE / SIGNAL 模式不支持多观察者拷出读。
+ */
+void test_latest_multi_read_wrong_mode(void) {
+    uint32_t dst = 0u;
+    TEST_ASSERT_EQUAL(BM_ERR_NOT_SUPPORTED, bm_bus_latest_read(&g_bus_q, &dst));
+    TEST_ASSERT_EQUAL(BM_ERR_NOT_SUPPORTED, bm_bus_latest_read(&g_bus_s, &dst));
+}
+
+/**
+ * @brief 参数校验：h=NULL 或 dst=NULL 返回 BM_ERR_INVALID。
+ */
+void test_latest_multi_read_invalid_params(void) {
+    uint32_t dst = 0u;
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_bus_latest_read(NULL, &dst));
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_bus_latest_read(&g_bus_l, NULL));
+}
+
+/**
+ * @brief reset 后 latest_seq=0、bm_bus_latest_read 返回 BM_ERR_WOULD_BLOCK。
+ *
+ * 写 42 后 reset：seq 归零、latest_published=NONE，再次拷出读返回无数据。
+ */
+void test_latest_multi_read_after_reset(void) {
+    void *ws;
+    uint32_t dst = 0u;
+
+    /* 写一个值并确认拷出正常 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_l, &ws));
+    *(uint32_t *)ws = 42u;
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_commit(&g_bus_l));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_latest_read(&g_bus_l, &dst));
+    TEST_ASSERT_EQUAL_UINT32(42u, dst);
+
+    /* reset：seq 归零、latest_published=NONE */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_reset(&g_bus_l));
+    TEST_ASSERT_EQUAL_UINT32(0u,
+        (uint32_t)bm_atomic_ipc_load_u32(&tb_l_storage.latest_seq));
+
+    /* reset 后无数据 */
+    dst = 0u;
+    TEST_ASSERT_EQUAL(BM_ERR_WOULD_BLOCK, bm_bus_latest_read(&g_bus_l, &dst));
+}
+
+#ifdef BM_ENABLE_BUS_TEST_HOOK
+/* DET-01 seqlock 扩展：模拟写者在拷贝窗口持续推进 seq，使 seqlock 始终失稳，
+ * 触达重试上界路径（bm_bus_latest_read 有界验证）。 */
+static uint32_t s_multi_read_hook_calls;
+
+static void latest_multi_read_contention_hook(bm_bus_storage_t *st) {
+    uint32_t seq = (uint32_t)bm_atomic_ipc_load_u32(&st->latest_seq);
+    /* +2 保持偶数但改变序号值，使读侧 seq2 != seq1，迫使重试 */
+    bm_atomic_ipc_store_u32(&st->latest_seq, seq + 2u);
+    s_multi_read_hook_calls++;
+}
+
+/**
+ * @brief DET-01 seqlock 扩展：bm_bus_latest_read 写者持续抢占下重试有界并非阻塞返回。
+ *
+ * 注入 latest_multi_read_contention_hook 模拟写者在每次拷贝窗口推进 seq，
+ * 迫使 seqlock 始终失稳。修复前无界循环；修复后至多重试
+ * BM_CONFIG_BUS_LATEST_MAX_RETRIES 次即返回 BM_ERR_WOULD_BLOCK，
+ * 钩子恰好被调用 MAX 次（DET-01 有界验证）。
+ */
+void test_latest_multi_read_retry_bounded_under_contention(void) {
+    void *ws;
+    uint32_t dst = 0u;
+
+    /* 先发布有效值，使 latest_published != NONE，进入 seqlock 循环 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_acquire_write(&g_bus_l, &ws));
+    *(uint32_t *)ws = 77u;
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_commit(&g_bus_l));
+
+    s_multi_read_hook_calls = 0u;
+    bm_bus_test_latest_multi_read_hook = latest_multi_read_contention_hook;
+
+    /* 持续抢占：必须有界放弃，返回 WOULD_BLOCK */
+    TEST_ASSERT_EQUAL(BM_ERR_WOULD_BLOCK, bm_bus_latest_read(&g_bus_l, &dst));
+
+    bm_bus_test_latest_multi_read_hook = NULL;
+
+    /* 钩子恰好被调用 MAX 次（每次 seq 比对失败触发一次） */
+    TEST_ASSERT_EQUAL_UINT32(BM_CONFIG_BUS_LATEST_MAX_RETRIES,
+                             s_multi_read_hook_calls);
+}
+#endif /* BM_ENABLE_BUS_TEST_HOOK */
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_open_validate_ok);
@@ -1242,5 +1418,16 @@ int main(void) {
     RUN_TEST(test_reset_block_preserves_binding);
     RUN_TEST(test_reset_idempotent);
     RUN_TEST(test_reset_invalid_params);
+    /* Task 9：bm_bus_latest_read seqlock 多观察者拷出 API */
+    RUN_TEST(test_latest_multi_read_basic);
+    RUN_TEST(test_latest_multi_read_no_data);
+    RUN_TEST(test_latest_multi_read_coexists_with_zero_copy);
+    RUN_TEST(test_latest_multi_read_wrong_mode);
+    RUN_TEST(test_latest_multi_read_invalid_params);
+    RUN_TEST(test_latest_multi_read_after_reset);
+#ifdef BM_ENABLE_BUS_TEST_HOOK
+    /* DET-01 seqlock 扩展：bm_bus_latest_read 重试上界（需 BM_ENABLE_BUS_TEST_HOOK 编入测试缝）*/
+    RUN_TEST(test_latest_multi_read_retry_bounded_under_contention);
+#endif
     return UNITY_END();
 }
