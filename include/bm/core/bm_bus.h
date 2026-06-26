@@ -331,6 +331,17 @@ int bm_bus_stats(const bm_bus_t *h, bm_bus_stats_t *out);
 
 /* =========================================================================
  * BLOCK 模式专用 API
+ *
+ * @par BLOCK 同核 SPSC 契约（owner-only，框架不强制）
+ * BLOCK 模式经 bm_bus_bind_block_backend 委托给块流后端（如 hybrid 层 bm_stream），
+ * 该后端是**同核 SPSC**：生产路径（block_produce_acquire/commit/abort）与消费路径
+ * （block_consume_acquire/release）**必须由同一 owner_cpu 调用**。
+ * 跨核消费（生产在 A 核、消费在 B 核）属**未定义/非法用法**——后端（bm_stream）以
+ * `BM_CPU_THIS() == owner_cpu` 守卫，越权核调用将被拒（返回 BM_ERR_INVALID），且其
+ * 内部状态机的 SPSC 无锁正确性本就依赖"同一核串行进出产消路径"这一前提。
+ * 与 acquire_write 的 owner-only 写路径契约同构：bus core 层**不**校验调用方 CPU，
+ * 同核约束由上层（及后端的 owner 守卫）保证。经 QEMU -smp 2 实测验证（见
+ * docs/.../evidence/2026-06-26-bm-bus-block-ioc-verification.md）。
  * ========================================================================= */
 
 /**
@@ -342,6 +353,8 @@ int bm_bus_stats(const bm_bus_t *h, bm_bus_stats_t *out);
  *
  * @par 多核契约
  * bind 须在 freeze 之前、由单一协调流程串行调用；与 reader_attach 串行契约同构。
+ * 绑定后的产消须遵守 BLOCK 同核 SPSC 契约（见本段 API 区段头）：produce 与 consume
+ * 必须由同一 owner_cpu 调用，跨核为非法用法。
  *
  * @param h     bus 句柄指针
  * @param iface 后端 vtable 指针（生命期须覆盖 bus 整个运行期）
@@ -359,6 +372,8 @@ int bm_bus_bind_block_backend(bm_bus_t *h,
  * 仅 BLOCK 模式合法；透传至已绑定后端的 producer_acquire。
  * 未绑定后端时返回 BM_ERR_INVALID。
  *
+ * @note owner-only：生产路径仅允许 owner_cpu 调用（BLOCK 同核 SPSC 契约，见 API 区段头）。
+ *
  * @param h         bus 句柄指针
  * @param block_out 输出：不透明 block 指针
  * @return BM_OK 成功；BM_ERR_OVERFLOW 无空闲块；BM_ERR_INVALID 未绑定或参数非法；
@@ -370,6 +385,8 @@ int bm_bus_block_produce_acquire(bm_bus_t *h, void **block_out);
  * @brief BLOCK 生产者：提交块（发布数据）
  *
  * 透传 valid_bytes 与 ts_ns 至后端 producer_commit。
+ *
+ * @note owner-only：生产路径仅允许 owner_cpu 调用（BLOCK 同核 SPSC 契约，见 API 区段头）。
  *
  * @param h           bus 句柄指针
  * @param block       由 bm_bus_block_produce_acquire 借出的块
@@ -383,6 +400,8 @@ int bm_bus_block_produce_commit(bm_bus_t *h, void *block,
 /**
  * @brief BLOCK 生产者：放弃已借块（不发布）
  *
+ * @note owner-only：生产路径仅允许 owner_cpu 调用（BLOCK 同核 SPSC 契约，见 API 区段头）。
+ *
  * @param h     bus 句柄指针
  * @param block 由 bm_bus_block_produce_acquire 借出的块
  * @return BM_OK 成功；BM_ERR_INVALID 未绑定或参数非法；BM_ERR_NOT_SUPPORTED 非 BLOCK 模式
@@ -391,6 +410,9 @@ int bm_bus_block_produce_abort(bm_bus_t *h, void *block);
 
 /**
  * @brief BLOCK 消费者：借出最旧 READY 块
+ *
+ * @note owner-only：消费路径仅允许 owner_cpu 调用（须与生产同核，BLOCK 同核 SPSC
+ *       契约，见 API 区段头）。跨核消费将被后端 owner 守卫拒绝（BM_ERR_INVALID）。
  *
  * @param h         bus 句柄指针
  * @param block_out 输出：不透明 block 指针
@@ -401,6 +423,9 @@ int bm_bus_block_consume_acquire(bm_bus_t *h, void **block_out);
 
 /**
  * @brief BLOCK 消费者：归还块
+ *
+ * @note owner-only：消费路径仅允许 owner_cpu 调用（须与生产同核，BLOCK 同核 SPSC
+ *       契约，见 API 区段头）。
  *
  * @param h     bus 句柄指针
  * @param block 由 bm_bus_block_consume_acquire 借出的块

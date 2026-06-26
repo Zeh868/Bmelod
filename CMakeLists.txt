@@ -129,6 +129,7 @@ add_library(bm_hal STATIC
     Source/hal/bm_hal_comp.c
     Source/hal/bm_hal_encoder.c
     Source/hal/bm_hal_dma_stream.c
+    Source/hal/bm_hal_uptime.c
 )
 option(BM_HAL_USE_CPU_STUB "Link bm_hal_cpu_stub.c into bm_hal" ON)
 if(BM_HAL_USE_CPU_STUB)

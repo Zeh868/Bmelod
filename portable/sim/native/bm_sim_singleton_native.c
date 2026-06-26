@@ -22,9 +22,19 @@
 #include "bm_sim_native_internal.h"
 #include "bm_config.h"
 #include "hal/bm_hal_cpu.h"
+#include "hal/bm_hal_uptime.h"
 
 #include <stdio.h>
 #include <stdint.h>
+
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#else
+#include <time.h>
+#endif
 
 volatile uint8_t g_sim_native_isr_depth[BM_CONFIG_CPU_COUNT];
 
@@ -189,3 +199,52 @@ uint32_t bm_hal_wdg_native_get_feed_count(void) {
 void bm_hal_wdg_native_reset_feed_count(void) {
     g_wdg_feed_count = 0u;
 }
+
+#ifdef _WIN32
+/**
+ * @brief native_sim Windows 单调时钟后端（QueryPerformanceCounter）
+ *
+ * 首次调用时读取 QueryPerformanceFrequency 并缓存；此后每次通过
+ * QueryPerformanceCounter 得到当前计数，换算为纳秒：
+ *   ns = (count - base) * 1e9 / freq
+ *
+ * 同样拆分避免 count * 1e9 的中间溢出。
+ *
+ * @return 自首次调用起经过的纳秒数（uint64_t，单调不减）
+ */
+uint64_t bm_hal_uptime_ns_raw(void) {
+    static LARGE_INTEGER s_freq;
+    static LARGE_INTEGER s_base;
+    static int s_init;
+    LARGE_INTEGER now;
+    uint64_t delta;
+    uint64_t freq;
+
+    if (!s_init) {
+        QueryPerformanceFrequency(&s_freq);
+        QueryPerformanceCounter(&s_base);
+        s_init = 1;
+    }
+    QueryPerformanceCounter(&now);
+    delta = (uint64_t)(now.QuadPart - s_base.QuadPart);
+    freq  = (uint64_t)s_freq.QuadPart;
+    if (freq == 0u) {
+        return 0u;
+    }
+    /* 拆分运算避免 delta * 1e9 中间溢出 */
+    return (delta / freq) * 1000000000u
+         + (delta % freq) * 1000000000u / freq;
+}
+#else /* POSIX */
+/**
+ * @brief native_sim POSIX 单调时钟后端（clock_gettime CLOCK_MONOTONIC）
+ *
+ * @return 自系统启动起经过的纳秒数（uint64_t，单调不减）
+ */
+uint64_t bm_hal_uptime_ns_raw(void) {
+    struct timespec ts;
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000u + (uint64_t)ts.tv_nsec;
+}
+#endif /* _WIN32 */

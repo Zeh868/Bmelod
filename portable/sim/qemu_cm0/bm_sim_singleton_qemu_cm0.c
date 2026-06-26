@@ -1,16 +1,17 @@
 /**
  * @file bm_sim_singleton_qemu_cm0.c
- * @brief QEMU Cortex-M0 仿真单例驱动（定时器 / UART / 看门狗）
+ * @brief QEMU Cortex-M0 仿真单例驱动（定时器 / UART / 看门狗 / 单调时钟）
  *
  * 临界区与内存屏障由 `bm_port_arch_armv6m` 提供。
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-14
+ * @version 1.1
+ * @date 2026-06-26
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            从 qemu_cortex_m0 singleton 拆分
+ * 2026-06-26       1.1            zeh            添加 bm_hal_uptime_ns_raw()（路线图 #9 时间基统一 1a）
  *
  */
 #include "bm_drv_timer.h"
@@ -18,6 +19,7 @@
 #include "bm_drv_wdg.h"
 #include "bm_log.h"
 #include "bm_types.h"
+#include "hal/bm_hal_uptime.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -165,3 +167,20 @@ const struct bm_wdg_driver_api bm_drv_wdg_api = {
     qemu_wdg_init,
     qemu_wdg_feed,
 };
+
+/**
+ * @brief QEMU Cortex-M0 单调时钟后端（tick 计数器换算）
+ *
+ * 以 TIMER1 中断计数（g_qemu_ticks）除以 tick 频率换算为纳秒。
+ * 需先调用 bm_hal_timer_init() 启动 TIMER1；初始化前返回 0。
+ *
+ * @return 自 TIMER1 初始化起经过的纳秒数（uint64_t，单调不减）
+ */
+uint64_t bm_hal_uptime_ns_raw(void) {
+    uint64_t ticks = (uint64_t)g_qemu_ticks;
+    uint64_t freq  = (g_qemu_tick_freq > 0u) ? (uint64_t)g_qemu_tick_freq : 1000u;
+
+    /* 拆分避免 ticks * 1e9 中间溢出（tick 值通常很小，此处仍防御性拆分）*/
+    return (ticks / freq) * 1000000000u
+         + (ticks % freq) * 1000000000u / freq;
+}
