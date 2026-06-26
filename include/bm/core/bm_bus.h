@@ -7,7 +7,7 @@
  * 依赖方向保持 hybrid→core，bus 核心不引用任何 hybrid 类型。
  * 编译期用 BM_BUS_DEFINE 静态分配存储，零动态分配。
  * @author zeh (china_qzh@163.com)
- * @version 0.3
+ * @version 0.5
  * @date 2026-06-26
  *
  * @par 修改日志:
@@ -16,6 +16,8 @@
  * 2026-06-25       0.1            zeh            Phase 1 初稿
  * 2026-06-25       0.2            zeh            DET-01 新增 BM_ENABLE_BUS_TEST_HOOK 测试缝声明（LATEST 重试上界验证）
  * 2026-06-26       0.3            zeh            Phase 2 BLOCK 控制反转：bm_bus_bind_block_backend + 专用 produce/consume 入口
+ * 2026-06-26       0.4            zeh            新增 bm_bus_reset()：freeze 对称解冻/复位，与 bm_event_reset() 语义对称
+ * 2026-06-26       0.5            zeh            seqlock 多读者 LATEST 读：新增 latest_seq + bm_bus_latest_read（增量并存方案）
  *
  */
 #ifndef BM_BUS_H
@@ -73,6 +75,9 @@ typedef struct {
     bm_atomic_ipc_u32_t  latest_reading;   /**< 读者正在读的槽；BM_BUS_LATEST_NONE 表示无读者 */
     bm_atomic_ipc_u32_t  latest_writing;   /**< acquire_write 时 choose 选好的写槽（scratch）；
                                               单写者 + write_in_progress 保护，commit 时拷入 latest_published */
+    bm_atomic_ipc_u32_t  latest_seq;       /**< seqlock 序列计数（偶=稳定，奇=写进行中）；
+                                              bm_bus_latest_read 多观察者拷出读专用；
+                                              QUEUE/SIGNAL/BLOCK 不使用 */
     /* --- 元数据（open 时写入，之后只读） --- */
     uint8_t             *data_buf;          /**< 元素数组首地址（指向 storage 内的 data[] 区） */
     uint32_t             elem_size;         /**< 单元素字节数 */
@@ -166,6 +171,7 @@ typedef struct {
         .latest_published = BM_ATOMIC_IPC_U32_INIT(0u),                    \
         .latest_reading   = BM_ATOMIC_IPC_U32_INIT(BM_BUS_LATEST_NONE),    \
         .latest_writing   = BM_ATOMIC_IPC_U32_INIT(0u),                    \
+        .latest_seq       = BM_ATOMIC_IPC_U32_INIT(0u),                    \
         .data_buf         = _bm_bus_data_##name,                           \
         .elem_size        = sizeof(type),                                   \
         .capacity         = (uint32_t)(cap_),                              \
@@ -212,6 +218,43 @@ int bm_bus_close(bm_bus_t *h);
  * @return BM_OK 成功；BM_ERR_INVALID 句柄无效
  */
 int bm_bus_freeze(bm_bus_t *h);
+
+/**
+ * @brief 将 bus storage 运行期状态复位到 open 后 pristine 并解冻（frozen=0）
+ *
+ * 与 bm_event_reset() 语义对称：解冻同时清零所有运行期游标、计数与读者槽，
+ * 使 bus 恢复到 open 刚完成后的干净状态，可重新执行 reader_attach/freeze 流程。
+ *
+ * 复位内容（运行期状态）：
+ *   - write_cur=0
+ *   - latest_published=BM_BUS_LATEST_NONE，latest_reading=BM_BUS_LATEST_NONE，latest_writing=0
+ *   - latest_seq=0（seqlock 序列计数归零，偶=稳定初态）
+ *   - write_in_progress=0
+ *   - reader_count=0
+ *   - 每个 reader slot：read_cur=0、overflow_count=0、attached=0
+ *   - frozen=0（解冻，reader_attach 可再次接受）
+ *
+ * 保留不变（编译期/open 配置）：
+ *   - mode、capacity、elem_size、max_consumers、owner_cpu
+ *   - data_buf、readers 指针
+ *   - BLOCK 模式的 block_iface/block_ctx 绑定
+ *
+ * @par 多核契约
+ * reset 仅允许在安全相位（单一协调流程、无并发产消、稳态之前或恢复期）调用，
+ * 不得在多核产消并发期间调用。此契约与 freeze/reader_attach 串行契约同构；
+ * 框架不强制，由上层保证。
+ *
+ * @par BLOCK 后端
+ * reset 仅复位 bus core 自身运行期状态，不自动复位后端（bm_stream 等）；
+ * 后端有独立生命周期，调用方需自行复位后端。
+ *
+ * @par 幂等
+ * 连续多次 reset 无副作用。
+ *
+ * @param h bus 句柄指针
+ * @return BM_OK 成功；BM_ERR_INVALID h 或 h->storage 为空
+ */
+int bm_bus_reset(bm_bus_t *h);
 
 /**
  * @brief 校验 bus 句柄与 storage 的完整性
@@ -433,6 +476,38 @@ int bm_bus_block_consume_acquire(bm_bus_t *h, void **block_out);
  */
 int bm_bus_block_consume_release(bm_bus_t *h, void *block);
 
+/**
+ * @brief LATEST 多观察者拷出式读：将最新发布值 memcpy 到调用者缓冲区
+ *
+ * 基于 seqlock（latest_seq）实现，允许任意数量观察者并发调用，各自拷出最新值；
+ * 无需 reader_attach、无需游标，不影响 latest_reading。
+ *
+ * @par 与单读者零拷贝路径的关系
+ * bm_bus_acquire_read / bm_bus_release（单读者零拷贝借还）与本函数互不干扰，可并存：
+ * - 单读者路径通过 latest_reading 防写者 choose 覆盖正读槽；
+ * - 多观察者拷出路径通过 seqlock 保证拷出一致性，不持 latest_reading。
+ * 同一 bus 混用两种读法的语义边界：若单读者正持有某槽（latest_reading != NONE），
+ * 多观察者仍可并发拷出最新发布值（latest_published 指向的槽），二者指向的槽可能相同
+ * 或不同，但各自一致性均由各自保护机制（latest_reading / seqlock）独立保障。
+ *
+ * @par 确定性约束（DET-01 seqlock 扩展）
+ * 非阻塞、有界重试（上界 BM_CONFIG_BUS_LATEST_MAX_RETRIES），WCET 可静态分析；
+ * 零动态分配；单写者契约不变。
+ *
+ * @par 多核可见性
+ * 读侧以 acquire 序读 latest_seq 与 latest_published；
+ * 写侧（bm_bus_commit LATEST 路径）以 release 序维护 seqlock 屏障（奇=写进行中，偶=稳定）。
+ *
+ * @param h   bus 句柄指针（不修改 bus 运行期状态）
+ * @param dst 目标缓冲区（调用者分配，大小须 >= elem_size）
+ * @return BM_OK 成功拷出最新值；
+ *         BM_ERR_WOULD_BLOCK 尚无发布值（latest_published == BM_BUS_LATEST_NONE）
+ *           或重试耗尽（写者持续发布致 seqlock 始终失稳）；
+ *         BM_ERR_NOT_SUPPORTED 非 LATEST 模式；
+ *         BM_ERR_INVALID h、h->storage 或 dst 为空
+ */
+int bm_bus_latest_read(const bm_bus_t *h, void *dst);
+
 #ifdef BM_ENABLE_BUS_TEST_HOOK
 /**
  * @brief 测试钩子：LATEST acquire_read 每次重试迭代调用一次
@@ -442,6 +517,16 @@ int bm_bus_block_consume_release(bm_bus_t *h, void *block);
  * 重试上界（DET-01）：超 BM_CONFIG_BUS_LATEST_MAX_RETRIES 次后非阻塞返回。
  */
 extern void (*bm_bus_test_latest_read_hook)(bm_bus_storage_t *st);
+
+/**
+ * @brief 测试钩子：bm_bus_latest_read seqlock 拷贝完成后、seq2 复读前调用一次
+ *
+ * 仅在 BM_ENABLE_BUS_TEST_HOOK 下编入；生产构建零开销。测试可注入函数
+ * 模拟写者在拷贝窗口修改 seq，强制 seqlock 始终失稳，从而覆盖并验证
+ * 重试上界（DET-01 seqlock 扩展）：超 BM_CONFIG_BUS_LATEST_MAX_RETRIES 次后
+ * 非阻塞返回 BM_ERR_WOULD_BLOCK。
+ */
+extern void (*bm_bus_test_latest_multi_read_hook)(bm_bus_storage_t *st);
 #endif
 
 #endif /* BM_BUS_H */
