@@ -4,7 +4,7 @@
  *
  * 主循环轮询到期槽，向事件总线发布空载荷事件；统计丢弃次数。
  * @author zeh (china_qzh@163.com)
- * @version 1.6
+ * @version 1.7
  * @date 2026-06-26
  *
  * @par 修改日志:
@@ -17,6 +17,7 @@
  * 2026-06-14       1.4            zeh            分域：每 CPU 独立 ticker 槽表
  * 2026-06-15       1.5            zeh            poll 热路径移除格式化日志
  * 2026-06-26       1.6            zeh            #9-2b 时间基迁 bm_uptime_us（µs 域，64 位）
+ * 2026-06-26       1.7            zeh            新增 bm_ticker_get_dropped_total（全槽丢弃计数求和）
  *
  */
 #include "bm_ticker.h"
@@ -242,6 +243,32 @@ void bm_ticker_reset(void) {
     memset(state->slots, 0, sizeof(state->slots));
     BM_CRITICAL_EXIT(irq_state);
     BM_LOGI("ticker", "reset");
+}
+
+/**
+ * @brief 查询所有 slot 累计丢弃事件总计数
+ *
+ * 对当前核所有已注册 slot 的 dropped 计数求和（饱和加法），
+ * 与 bm_hrt_get_deadline_missed_total() 实现对称。
+ * 定长循环（上界 = slot_count），WCET 可静态分析。
+ *
+ * @return 总丢弃计数；未初始化或 CPU 无效时返回 0
+ */
+uint32_t bm_ticker_get_dropped_total(void) {
+    bm_ticker_cpu_state_t *state = bm_ticker_this();
+    bm_irq_state_t irq_state;
+    uint32_t total = 0u;
+    uint32_t i;
+
+    if (!state) {
+        return 0u;
+    }
+    irq_state = BM_CRITICAL_ENTER();
+    for (i = 0u; i < state->slot_count; ++i) {
+        total = bm_u32_saturating_add(total, state->slots[i].dropped);
+    }
+    BM_CRITICAL_EXIT(irq_state);
+    return total;
 }
 
 /**
