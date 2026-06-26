@@ -1,32 +1,32 @@
 /**
  * @file bm_stream_block_adapter.c
- * @brief bm_stream -> bm_block_backend_iface_t adapter
+ * @brief bm_stream -> bm_block_backend_iface_t 适配器
  *
- * bm_stream producer_xxx/consumer_xxx API wrapper as bm_block_backend_iface_t vtable,
- * for bm_bus BLOCK mode via bm_bus_bind_block_backend.
+ * 将 bm_stream 的 producer/consumer 系列 API 包装成 bm_block_backend_iface_t
+ * 函数指针表（vtable），供 bm_bus BLOCK 模式经 bm_bus_bind_block_backend 绑定使用。
  *
- * Dependency: adapter (hybrid) -> bm_stream (hybrid) -> bm_block_backend (core).
- * Reverse (core not referencing hybrid) is achieved via opaque void *.
+ * 依赖方向：adapter（hybrid） -> bm_stream（hybrid） -> bm_block_backend（core）。
+ * 反向解耦（core 不引用 hybrid 类型）通过不透明 void * 实现。
  *
- * bm_block_t * <-> void * conversion:
- *   - producer_acquire / consumer_acquire: return (void *)bm_block_t*
- *   - producer_commit / producer_abort / consumer_release: receive (bm_block_t *)(void *)
+ * bm_block_t * 与 void * 的互转约定：
+ *   - producer_acquire / consumer_acquire：以 (void *) 形式输出 bm_block_t * 指针；
+ *   - producer_commit / producer_abort / consumer_release：从 void * 还原 bm_block_t *。
  *
- * ts_ns (uint64_t ns) -> bm_timestamp_t conversion strategy:
- *   If ts_ns == 0, pass NULL (bm_stream_producer_commit allows NULL timestamp).
- *   Otherwise fill ticks = (uint32_t)(ts_ns / 1000u), rate_hz = 1000000u (us granularity).
- *   Real platforms may construct bm_timestamp_t at a higher level and bypass bus layer.
+ * ts_ns（uint64_t 纳秒）-> bm_timestamp_t 的转换策略：
+ *   若 ts_ns == 0，传 NULL（bm_stream_producer_commit 允许空时间戳）；
+ *   否则填充 ticks = (uint32_t)(ts_ns / 1000u)、rate_hz = 1000000u（微秒粒度）。
+ *   真实平台可在更高层构造 bm_timestamp_t 并绕过 bus 层。
  *
- * @note bm_stream core logic is unchanged; this file only adds a thin adapter layer.
+ * @note bm_stream 核心逻辑保持不变；本文件仅新增一层薄适配。
  *
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-26
  *
- * @par Revision History:
+ * @par 修改日志:
  *
  *    Date         Version        Author          Description
- * 2026-06-26       1.0            zeh            bm_stream adapter for bm_block_backend_iface_t
+ * 2026-06-26       1.0            zeh            初稿：bm_stream 适配为 bm_block_backend_iface_t
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -34,32 +34,32 @@
 #include "bm/core/bm_block_backend.h"
 
 /* ------------------------------------------------------------------ */
-/* static adapter functions (named with adapter_ prefix)              */
+/* 静态适配函数（统一以 adapter_ 前缀命名）                            */
 /* ------------------------------------------------------------------ */
 
 /**
- * @brief Convert uint64_t nanosecond timestamp to bm_timestamp_t (microsecond granularity)
+ * @brief 将 uint64_t 纳秒时间戳转换为 bm_timestamp_t（微秒粒度）
  *
- * 0 means "no timestamp"; callers should pass NULL in that case.
- * Non-zero: fill ticks at 1 MHz (us granularity), clock_id=0 (HRT domain).
+ * 入参为 0 表示"无时间戳"，此时调用方应改传 NULL；
+ * 非零时按 1 MHz（微秒粒度）填充 ticks，clock_id=0（HRT 时钟域）。
  *
- * @param ts_ns nanosecond timestamp (0=invalid)
- * @param out   output bm_timestamp_t
+ * @param ts_ns 纳秒时间戳（0 表示无效）
+ * @param out   输出：bm_timestamp_t
  */
 static void adapter_ts_from_ns(uint64_t ts_ns, bm_timestamp_t *out) {
     out->clock_id    = 0u;
     out->quality     = 0u;
     out->clock_epoch = 0u;
-    out->ticks       = (uint32_t)(ts_ns / 1000u); /* ns -> us */
-    out->rate_hz     = 1000000u;                  /* 1 MHz, matches us granularity */
+    out->ticks       = (uint32_t)(ts_ns / 1000u); /* 纳秒 -> 微秒 */
+    out->rate_hz     = 1000000u;                  /* 1 MHz，对应微秒粒度 */
 }
 
 /**
- * @brief adapter: producer_acquire (wrap bm_block_t * as void *)
+ * @brief 适配器：生产者借块（将 bm_block_t * 包装为 void *）
  *
- * @param ctx       bm_stream_t * context
- * @param block_out output: (void *)bm_block_t*
- * @return bm_stream_producer_acquire return code
+ * @param ctx       后端上下文（bm_stream_t *）
+ * @param block_out 输出：(void *) 形式的 bm_block_t * 指针
+ * @return bm_stream_producer_acquire 的返回码
  */
 static int adapter_producer_acquire(void *ctx, void **block_out) {
     bm_stream_t *stream = (bm_stream_t *)ctx;
@@ -75,13 +75,13 @@ static int adapter_producer_acquire(void *ctx, void **block_out) {
 }
 
 /**
- * @brief adapter: producer_commit (restore bm_block_t * from void *)
+ * @brief 适配器：生产者提交块（从 void * 还原 bm_block_t *）
  *
- * @param ctx         bm_stream_t * context
- * @param block       (bm_block_t *)(void *) block pointer
- * @param valid_bytes valid data byte count
- * @param ts_ns       timestamp (nanoseconds), 0 = no timestamp
- * @return bm_stream_producer_commit return code
+ * @param ctx         后端上下文（bm_stream_t *）
+ * @param block       (void *) 形式的 bm_block_t * 块指针
+ * @param valid_bytes 有效数据字节数
+ * @param ts_ns       时间戳（纳秒），0 表示无时间戳
+ * @return bm_stream_producer_commit 的返回码
  */
 static int adapter_producer_commit(void *ctx, void *block,
                                    uint32_t valid_bytes, uint64_t ts_ns) {
@@ -103,11 +103,11 @@ static int adapter_producer_commit(void *ctx, void *block,
 }
 
 /**
- * @brief adapter: producer_abort (restore bm_block_t * from void *)
+ * @brief 适配器：生产者放弃已借块（从 void * 还原 bm_block_t *）
  *
- * @param ctx   bm_stream_t * context
- * @param block (bm_block_t *)(void *) block pointer
- * @return bm_stream_producer_abort return code
+ * @param ctx   后端上下文（bm_stream_t *）
+ * @param block (void *) 形式的 bm_block_t * 块指针
+ * @return bm_stream_producer_abort 的返回码
  */
 static int adapter_producer_abort(void *ctx, void *block) {
     bm_stream_t *stream = (bm_stream_t *)ctx;
@@ -120,11 +120,11 @@ static int adapter_producer_abort(void *ctx, void *block) {
 }
 
 /**
- * @brief adapter: consumer_acquire (wrap bm_block_t * as void *)
+ * @brief 适配器：消费者借块（将 bm_block_t * 包装为 void *）
  *
- * @param ctx       bm_stream_t * context
- * @param block_out output: (void *)bm_block_t*
- * @return bm_stream_consumer_acquire return code
+ * @param ctx       后端上下文（bm_stream_t *）
+ * @param block_out 输出：(void *) 形式的 bm_block_t * 指针
+ * @return bm_stream_consumer_acquire 的返回码
  */
 static int adapter_consumer_acquire(void *ctx, void **block_out) {
     bm_stream_t *stream = (bm_stream_t *)ctx;
@@ -140,11 +140,11 @@ static int adapter_consumer_acquire(void *ctx, void **block_out) {
 }
 
 /**
- * @brief adapter: consumer_release (restore bm_block_t * from void *)
+ * @brief 适配器：消费者归还块（从 void * 还原 bm_block_t *）
  *
- * @param ctx   bm_stream_t * context
- * @param block (bm_block_t *)(void *) block pointer
- * @return bm_stream_consumer_release return code
+ * @param ctx   后端上下文（bm_stream_t *）
+ * @param block (void *) 形式的 bm_block_t * 块指针
+ * @return bm_stream_consumer_release 的返回码
  */
 static int adapter_consumer_release(void *ctx, void *block) {
     bm_stream_t *stream = (bm_stream_t *)ctx;
@@ -157,11 +157,10 @@ static int adapter_consumer_release(void *ctx, void *block) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Static vtable instance (stateless; multiple bus instances may      */
-/* share the same iface pointer)                                      */
+/* 静态 vtable 实例（无状态；多个 bus 实例可共享同一 iface 指针）      */
 /* ------------------------------------------------------------------ */
 
-/** @brief bm_stream adapter vtable (global singleton, read-only) */
+/** @brief bm_stream 适配器 vtable（全局单例，只读） */
 static const bm_block_backend_iface_t s_stream_backend_iface = {
     adapter_producer_acquire,
     adapter_producer_commit,
@@ -171,23 +170,23 @@ static const bm_block_backend_iface_t s_stream_backend_iface = {
 };
 
 /* ------------------------------------------------------------------ */
-/* Public interface                                                   */
+/* 对外接口                                                            */
 /* ------------------------------------------------------------------ */
 
 /**
- * @brief Get the bm_stream adapter vtable pointer
+ * @brief 获取 bm_stream 适配器 vtable 指针
  *
- * Returns a pointer to the static vtable for use with bm_bus_bind_block_backend,
- * passing a bm_stream_t * as ctx.
+ * 返回静态 vtable 指针，供 bm_bus_bind_block_backend 绑定使用，
+ * 并以 bm_stream_t * 作为 ctx 传入。
  *
- * Usage example:
+ * 用法示例：
  * @code
  * bm_bus_bind_block_backend(&h_block,
  *                            bm_stream_as_block_backend(),
  *                            &my_stream);
  * @endcode
  *
- * @return Pointer to global static bm_block_backend_iface_t (lifetime = process lifetime)
+ * @return 指向全局静态 bm_block_backend_iface_t 的指针（生命周期 = 进程生命周期）
  */
 const bm_block_backend_iface_t *bm_stream_as_block_backend(void) {
     return &s_stream_backend_iface;
