@@ -174,10 +174,15 @@ static int exec_block_is_late(const bm_exec_slot_t *slot,
         /* 跨时钟域：跳过 clock_id/epoch 校验，信任调用方的时间戳 */
     }
     now = bm_hal_timer_get_ticks();
-    if (bm_timestamp_before(now, block->timestamp.ticks)) {
+    if (bm_timestamp_before((uint64_t)now, block->timestamp.ticks)) {
         return 0;
     }
-    elapsed_us = (uint32_t)(((uint64_t)(now - block->timestamp.ticks) *
+    /*
+     * 1b 过渡路径：ticks 已升 64 位，但本核 now 来自 32 位 HRT 计数器。
+     * 先将 ticks 截断至低 32 位再做减法，保持与 bm_hal_timer_get_ticks()
+     * 相同的 32 位回绕语义；1c 改用 bm_uptime_us() 后此处需同步更新。
+     */
+    elapsed_us = (uint32_t)(((uint64_t)(now - (uint32_t)block->timestamp.ticks) *
                              1000000ull) / (uint64_t)timer_freq);
     if (elapsed_us > slot->deadline_us) {
         if (slot->stream != NULL) {

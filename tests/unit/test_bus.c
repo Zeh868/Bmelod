@@ -664,6 +664,7 @@ BM_BUS_DEFINE(tb_blk_freeze,   uint8_t, 2u, 1u, BM_BUS_BLOCK);
 BM_BUS_DEFINE(tb_blk_rt,       uint8_t, 2u, 1u, BM_BUS_BLOCK);
 BM_BUS_DEFINE(tb_blk_abort,    uint8_t, 2u, 1u, BM_BUS_BLOCK);
 BM_BUS_DEFINE(tb_blk_ts,       uint8_t, 2u, 1u, BM_BUS_BLOCK);
+BM_BUS_DEFINE(tb_blk_ts0,      uint8_t, 2u, 1u, BM_BUS_BLOCK);
 BM_BUS_DEFINE(tb_blk_cpu,      uint8_t, 2u, 1u, BM_BUS_BLOCK);
 
 /* stream 存储（每个测试独占，payload=uint32_t，depth=4） */
@@ -683,6 +684,10 @@ BM_STREAM_INSTANCE(g_blk_abort_stream,               BLK_STREAM_DEPTH);
 BM_STREAM_PAYLOADS(g_blk_ts_stream,     uint8_t,  BLK_STREAM_DEPTH);
 BM_STREAM_BLOCKS(g_blk_ts_stream,                    BLK_STREAM_DEPTH);
 BM_STREAM_INSTANCE(g_blk_ts_stream,                  BLK_STREAM_DEPTH);
+
+BM_STREAM_PAYLOADS(g_blk_ts0_stream,    uint8_t,  BLK_STREAM_DEPTH);
+BM_STREAM_BLOCKS(g_blk_ts0_stream,                   BLK_STREAM_DEPTH);
+BM_STREAM_INSTANCE(g_blk_ts0_stream,                 BLK_STREAM_DEPTH);
 
 /**
  * @brief 未绑定 backend 时，所有 BLOCK API 返回 BM_ERR_INVALID。
@@ -818,9 +823,9 @@ void test_block_produce_abort_no_ready(void) {
     bm_bus_close(&h);
 }
 
-/** @brief ts_ns passthrough：commit 带非零 ts_ns，block->timestamp.ticks == ts_ns/1000。
+/** @brief ts_ns passthrough：commit 带非零 ts_ns，block->timestamp.ticks == ts_ns。
  *
- *  adapter_ts_from_ns 以 1 MHz（us 粒度）转换：ticks = ts_ns / 1000。
+ *  #9-1c：adapter 改为 ns 直存（ticks = ts_ns、rate_hz = 1e9），零截断。
  */
 void test_block_ts_ns_passthrough(void) {
     bm_bus_t       h;
@@ -828,7 +833,7 @@ void test_block_ts_ns_passthrough(void) {
     void          *wblk   = NULL;
     void          *rblk   = NULL;
     bm_block_t    *rtyped;
-    const uint64_t TS_NS  = 5000000u; /* 5 ms = 5000 us */
+    const uint64_t TS_NS  = 5000000u; /* 5 ms = 5_000_000 ns */
 
     TEST_ASSERT_EQUAL(BM_OK,
         bm_stream_init(&g_blk_ts_stream,
@@ -846,10 +851,58 @@ void test_block_ts_ns_passthrough(void) {
     TEST_ASSERT_EQUAL(BM_OK, bm_bus_block_consume_acquire(&h, &rblk));
     rtyped = (bm_block_t *)rblk;
 
-    /* timestamp.ticks 应为 TS_NS / 1000 = 5000（us 粒度） */
-    TEST_ASSERT_EQUAL_UINT32((uint32_t)(TS_NS / 1000u), rtyped->timestamp.ticks);
-    /* rate_hz 应为 1 MHz */
-    TEST_ASSERT_EQUAL_UINT32(1000000u, rtyped->timestamp.rate_hz);
+    /* #9-1c：ns 直存，ticks 应为 TS_NS 原值（无 /1000 截断） */
+    TEST_ASSERT_EQUAL_UINT64(TS_NS, rtyped->timestamp.ticks);
+    /* rate_hz 应为 1 GHz（ns 粒度） */
+    TEST_ASSERT_EQUAL_UINT32(1000000000u, rtyped->timestamp.rate_hz);
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_block_consume_release(&h, rblk));
+    bm_bus_close(&h);
+}
+
+/** @brief ts_ns==0 统一时钟兜底：commit 不带时间戳时 adapter 用 bm_uptime_ns() 打戳。
+ *
+ *  #9-1c：缺省时间戳不再留 0，应得到非零 ticks 且 rate_hz=1e9（ns 粒度）。
+ */
+void test_block_ts_ns_zero_uses_uptime(void) {
+    bm_bus_t       h;
+    bm_bus_cfg_t   cfg    = { .owner_cpu = 0u };
+    void          *wblk   = NULL;
+    void          *rblk   = NULL;
+    bm_block_t    *rtyped;
+    uint64_t       t_before;
+
+    /*
+     * 预热单调时钟：首次调用 bm_uptime_ns() 仅建立基线（某些后端首读返回 0），
+     * 后续 bus 建链/打戳调用必晚于此，确保兜底 ticks 单调严格推进。
+     */
+    t_before = bm_uptime_ns();
+
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_stream_init(&g_blk_ts0_stream,
+                       _bm_stream_payload_g_blk_ts0_stream,
+                       BLK_STREAM_DEPTH,
+                       sizeof(uint8_t)));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&h, &tb_blk_ts0_storage, &cfg));
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_bus_bind_block_backend(&h, bm_stream_as_block_backend(), &g_blk_ts0_stream));
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_block_produce_acquire(&h, &wblk));
+    /* ts_ns=0：触发 uptime 兜底 */
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_bus_block_produce_commit(&h, wblk, 1u, 0u));
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_block_consume_acquire(&h, &rblk));
+    rtyped = (bm_block_t *)rblk;
+
+    /*
+     * 兜底打戳证据：
+     *  - rate_hz==1e9 唯一来自 bm_timestamp_from_uptime()（旧 NULL 路径会留 0），
+     *    确定性证明兜底路径已执行；
+     *  - ticks >= 预热时刻，确认用的是单调时钟而非 0。
+     */
+    TEST_ASSERT_EQUAL_UINT32(1000000000u, rtyped->timestamp.rate_hz);
+    TEST_ASSERT_TRUE(rtyped->timestamp.ticks >= t_before);
 
     TEST_ASSERT_EQUAL(BM_OK, bm_bus_block_consume_release(&h, rblk));
     bm_bus_close(&h);
@@ -977,6 +1030,7 @@ int main(void) {
     RUN_TEST(test_block_produce_commit_consume_roundtrip);
     RUN_TEST(test_block_produce_abort_no_ready);
     RUN_TEST(test_block_ts_ns_passthrough);
+    RUN_TEST(test_block_ts_ns_zero_uses_uptime);
     RUN_TEST(test_block_owner_cpu_passthrough);
     RUN_TEST(test_freeze_idempotent);
     RUN_TEST(test_acquire_write_after_freeze_still_allowed);

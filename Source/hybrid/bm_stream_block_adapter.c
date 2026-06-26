@@ -12,10 +12,13 @@
  *   - producer_acquire / consumer_acquire：以 (void *) 形式输出 bm_block_t * 指针；
  *   - producer_commit / producer_abort / consumer_release：从 void * 还原 bm_block_t *。
  *
- * ts_ns（uint64_t 纳秒）-> bm_timestamp_t 的转换策略：
- *   若 ts_ns == 0，传 NULL（bm_stream_producer_commit 允许空时间戳）；
- *   否则填充 ticks = (uint32_t)(ts_ns / 1000u)、rate_hz = 1000000u（微秒粒度）。
- *   真实平台可在更高层构造 bm_timestamp_t 并绕过 bus 层。
+ * ts_ns（uint64_t 纳秒）-> bm_timestamp_t 的转换策略（#9-1c 统一时间基）：
+ *   - ts_ns != 0：纳秒原值直存 ticks、rate_hz = 1000000000u（1 GHz，ns 粒度），
+ *     零截断、零精度损失；
+ *   - ts_ns == 0：用统一单调时钟 bm_uptime_ns() 自动打戳（不再留空/NULL）；
+ *   - clock_id 反映 stream 的 owner_cpu（bm_timestamp_clock_for_cpu）。
+ *   消费端按通用公式 `ticks * 1e6 / rate_hz` 换算微秒，与粒度无关。
+ *   真实平台仍可在更高层构造 bm_timestamp_t 并绕过 bus 层。
  *
  * @note bm_stream 核心逻辑保持不变；本文件仅新增一层薄适配。
  *
@@ -38,20 +41,28 @@
 /* ------------------------------------------------------------------ */
 
 /**
- * @brief 将 uint64_t 纳秒时间戳转换为 bm_timestamp_t（微秒粒度）
+ * @brief 构造 ns 粒度 bm_timestamp_t（#9-1c 统一时间基，清偿精度债）
  *
- * 入参为 0 表示"无时间戳"，此时调用方应改传 NULL；
- * 非零时按 1 MHz（微秒粒度）填充 ticks，clock_id=0（HRT 时钟域）。
+ * - ts_ns != 0：纳秒原值直存 ticks，rate_hz = 1e9（ns 粒度），零截断；
+ * - ts_ns == 0：用统一单调时钟 bm_uptime_ns() 自动打戳兜底；
+ * - clock_id 反映 owner_cpu（HRT 时钟域按核区分）。
  *
- * @param ts_ns 纳秒时间戳（0 表示无效）
- * @param out   输出：bm_timestamp_t
+ * @param ts_ns     纳秒时间戳（0 表示调用方未给，触发 uptime 兜底）
+ * @param owner_cpu stream 的 owner CPU，用于填充 clock_id
+ * @param out       输出：bm_timestamp_t
  */
-static void adapter_ts_from_ns(uint64_t ts_ns, bm_timestamp_t *out) {
-    out->clock_id    = 0u;
-    out->quality     = 0u;
-    out->clock_epoch = 0u;
-    out->ticks       = (uint32_t)(ts_ns / 1000u); /* 纳秒 -> 微秒 */
-    out->rate_hz     = 1000000u;                  /* 1 MHz，对应微秒粒度 */
+static void adapter_ts_from_ns(uint64_t ts_ns, uint8_t owner_cpu,
+                               bm_timestamp_t *out) {
+    if (ts_ns == 0u) {
+        /* 无显式时间戳：统一单调时钟兜底（ns 直存，rate_hz=1e9） */
+        *out = bm_timestamp_from_uptime();
+    } else {
+        out->quality     = 0u;
+        out->clock_epoch = 0u;
+        out->ticks       = ts_ns;          /* 纳秒原值直存，零截断 */
+        out->rate_hz     = 1000000000u;    /* 1 GHz，对应纳秒粒度 */
+    }
+    out->clock_id = bm_timestamp_clock_for_cpu((uint32_t)owner_cpu);
 }
 
 /**
@@ -80,7 +91,7 @@ static int adapter_producer_acquire(void *ctx, void **block_out) {
  * @param ctx         后端上下文（bm_stream_t *）
  * @param block       (void *) 形式的 bm_block_t * 块指针
  * @param valid_bytes 有效数据字节数
- * @param ts_ns       时间戳（纳秒），0 表示无时间戳
+ * @param ts_ns       时间戳（纳秒），0 表示由统一时钟自动打戳
  * @return bm_stream_producer_commit 的返回码
  */
 static int adapter_producer_commit(void *ctx, void *block,
@@ -88,18 +99,13 @@ static int adapter_producer_commit(void *ctx, void *block,
     bm_stream_t    *stream    = (bm_stream_t *)ctx;
     bm_block_t     *blk       = (bm_block_t *)block;
     bm_timestamp_t  ts_val;
-    const bm_timestamp_t *ts_ptr;
 
     if (!stream || !blk) {
         return BM_ERR_INVALID;
     }
-    if (ts_ns == 0u) {
-        ts_ptr = NULL;
-    } else {
-        adapter_ts_from_ns(ts_ns, &ts_val);
-        ts_ptr = &ts_val;
-    }
-    return bm_stream_producer_commit(stream, blk, valid_bytes, ts_ptr);
+    /* #9-1c：始终携带时间戳——显式 ns 直存，缺省时 bm_uptime_ns() 兜底 */
+    adapter_ts_from_ns(ts_ns, stream->owner_cpu, &ts_val);
+    return bm_stream_producer_commit(stream, blk, valid_bytes, &ts_val);
 }
 
 /**
