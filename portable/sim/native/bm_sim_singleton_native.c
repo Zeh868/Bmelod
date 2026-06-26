@@ -200,6 +200,31 @@ void bm_hal_wdg_native_reset_feed_count(void) {
     g_wdg_feed_count = 0u;
 }
 
+/* --- uptime 测试辅助偏移量（#9-2a）--- */
+
+/**
+ * @brief 测试用 uptime 偏移量（纳秒），由 bm_hal_uptime_native_advance_us 操控
+ *
+ * 单调递增，setUp 时通过 bm_hal_uptime_native_reset() 归零。
+ */
+static volatile uint64_t s_uptime_offset_ns;
+
+/**
+ * @brief 测试辅助：将 uptime 偏移量推进 delta_us 微秒
+ *
+ * @param delta_us 推进量（微秒）
+ */
+void bm_hal_uptime_native_advance_us(uint64_t delta_us) {
+    s_uptime_offset_ns += delta_us * 1000u;
+}
+
+/**
+ * @brief 测试辅助：重置 uptime 偏移量为 0
+ */
+void bm_hal_uptime_native_reset(void) {
+    s_uptime_offset_ns = 0u;
+}
+
 #ifdef _WIN32
 /**
  * @brief native_sim Windows 单调时钟后端（QueryPerformanceCounter）
@@ -209,8 +234,9 @@ void bm_hal_wdg_native_reset_feed_count(void) {
  *   ns = (count - base) * 1e9 / freq
  *
  * 同样拆分避免 count * 1e9 的中间溢出。
+ * 测试时可通过 bm_hal_uptime_native_advance_us() 叠加偏移，模拟时间流逝。
  *
- * @return 自首次调用起经过的纳秒数（uint64_t，单调不减）
+ * @return 自首次调用起经过的纳秒数（含测试偏移量，uint64_t，单调不减）
  */
 uint64_t bm_hal_uptime_ns_raw(void) {
     static LARGE_INTEGER s_freq;
@@ -219,6 +245,7 @@ uint64_t bm_hal_uptime_ns_raw(void) {
     LARGE_INTEGER now;
     uint64_t delta;
     uint64_t freq;
+    uint64_t real_ns;
 
     if (!s_init) {
         QueryPerformanceFrequency(&s_freq);
@@ -229,22 +256,27 @@ uint64_t bm_hal_uptime_ns_raw(void) {
     delta = (uint64_t)(now.QuadPart - s_base.QuadPart);
     freq  = (uint64_t)s_freq.QuadPart;
     if (freq == 0u) {
-        return 0u;
+        return s_uptime_offset_ns;
     }
     /* 拆分运算避免 delta * 1e9 中间溢出 */
-    return (delta / freq) * 1000000000u
-         + (delta % freq) * 1000000000u / freq;
+    real_ns = (delta / freq) * 1000000000u
+            + (delta % freq) * 1000000000u / freq;
+    return real_ns + s_uptime_offset_ns;
 }
 #else /* POSIX */
 /**
  * @brief native_sim POSIX 单调时钟后端（clock_gettime CLOCK_MONOTONIC）
  *
- * @return 自系统启动起经过的纳秒数（uint64_t，单调不减）
+ * 测试时可通过 bm_hal_uptime_native_advance_us() 叠加偏移，模拟时间流逝。
+ *
+ * @return 自系统启动起经过的纳秒数（含测试偏移量，uint64_t，单调不减）
  */
 uint64_t bm_hal_uptime_ns_raw(void) {
     struct timespec ts;
 
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1000000000u + (uint64_t)ts.tv_nsec;
+    return (uint64_t)ts.tv_sec * 1000000000u
+         + (uint64_t)ts.tv_nsec
+         + s_uptime_offset_ns;
 }
 #endif /* _WIN32 */

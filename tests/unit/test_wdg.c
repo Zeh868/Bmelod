@@ -16,12 +16,14 @@
 #include "bm_wdg.h"
 #include "bm_hal_timer.h"
 #include "bm_hal_timer_native.h"
+#include "bm_hal_uptime_native.h"
 #include "bm_hal_wdg_native.h"
 #include "bm_log.h"
 
 #include <string.h>
 
 void setUp(void) {
+    bm_hal_uptime_native_reset();
     bm_wdg_reset();
     bm_hal_timer_native_reset_ticks();
     bm_hal_wdg_native_reset_feed_count();
@@ -96,24 +98,35 @@ void test_wdg_feed_at_tick_zero(void) {
 void test_wdg_feed_expired_module_blocks_hw_feed(void) {
     TEST_ASSERT_EQUAL(BM_OK, bm_wdg_register("stale"));
 
-    bm_hal_timer_native_reset_ticks();
+    /* 喂狗后推进 uptime 超过 BM_CONFIG_WDG_MODULE_TIMEOUT_MS（1000 ms = 1000000 µs） */
     bm_wdg_feed_module("stale");
-    bm_hal_timer_native_advance_ticks(1001u);
+    bm_hal_uptime_native_advance_us(1001000u);  /* 1001 ms，超出 1000 ms 超时 */
     bm_wdg_feed();
 
     TEST_ASSERT_EQUAL(0u, bm_hal_wdg_native_get_feed_count());
 }
 
-void test_wdg_feed_blocks_when_timer_not_ready(void) {
+void test_wdg_feed_proceeds_without_hrt_timer_when_module_fed(void) {
+    /*
+     * #9-2a 行为变更说明：
+     * 旧版使用 bm_hal_timer_get_ticks()，HRT 未初始化（freq=0）时
+     * wdg_timeout_ticks 返回 BM_ERR_NOT_INIT，bm_wdg_feed 被阻断。
+     *
+     * 迁移至 bm_uptime_us() 后，超时计算不依赖 HRT，bm_uptime_us() 由
+     * QueryPerformanceCounter/CLOCK_MONOTONIC 提供，不受 bm_hal_timer 状态影响。
+     * 因此 HRT 未初始化不再阻断 hw feed——只要模块已喂且 elapsed < timeout。
+     */
     bm_wdg_reset();
     bm_hal_timer_native_deinit();
     bm_hal_wdg_native_reset_feed_count();
+    bm_hal_uptime_native_reset();
 
     TEST_ASSERT_EQUAL(BM_OK, bm_wdg_register("mod"));
     bm_wdg_feed_module("mod");
     bm_wdg_feed();
 
-    TEST_ASSERT_EQUAL(0u, bm_hal_wdg_native_get_feed_count());
+    /* 模块已喂且 elapsed ≈ 0 << timeout_us，hw feed 应成功 */
+    TEST_ASSERT_EQUAL(1u, bm_hal_wdg_native_get_feed_count());
 }
 
 int main(void) {
@@ -127,6 +140,6 @@ int main(void) {
     RUN_TEST(test_wdg_register_rejected_after_runtime_feed);
     RUN_TEST(test_wdg_feed_at_tick_zero);
     RUN_TEST(test_wdg_feed_expired_module_blocks_hw_feed);
-    RUN_TEST(test_wdg_feed_blocks_when_timer_not_ready);
+    RUN_TEST(test_wdg_feed_proceeds_without_hrt_timer_when_module_fed);
     return UNITY_END();
 }
