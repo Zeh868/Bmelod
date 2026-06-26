@@ -18,11 +18,12 @@ if(BM_DEMO_NATIVE_SIM OR NATIVE_SIM_BUILD)
     set(EXAMPLE_ENABLE_HRT ON)
     set(EXAMPLE_ENABLE_TICKER ON)
     set(EXAMPLE_ENABLE_EXEC ON)
+    set(EXAMPLE_ENABLE_SHELL ON)
     include(../cmake/native_sim_example.cmake)
     file(GLOB BUS_SERVO_MODULES CONFIGURE_DEPENDS modules/*.c)
     bm_add_native_sim_example(bus_servo
-        FRAMEWORK_LIBS bm_core bm_module bm_hrt bm_ticker bm_exec bm_algorithm
-        EXTRA_SOURCES ${BUS_SERVO_MODULES}
+        FRAMEWORK_LIBS bm_core bm_module bm_hrt bm_ticker bm_exec bm_algorithm bm_shell
+        EXTRA_SOURCES ${BUS_SERVO_MODULES} shell_cmds.c
     )
 else()
     if(NOT BM_DEMO_UNIFIED_BUILD)
@@ -32,10 +33,11 @@ else()
     set(EXAMPLE_ENABLE_HRT ON)
     set(EXAMPLE_ENABLE_TICKER ON)
     set(EXAMPLE_ENABLE_EXEC ON)
+    set(EXAMPLE_ENABLE_SHELL ON)
     include(../cmake/qemu_example.cmake)
     file(GLOB BUS_SERVO_MODULES CONFIGURE_DEPENDS modules/*.c)
     bm_add_qemu_example(bus_servo
-        FRAMEWORK_LIBS bm_core bm_module bm_hrt bm_ticker bm_exec bm_algorithm
-        EXTRA_SOURCES ${BUS_SERVO_MODULES}
+        FRAMEWORK_LIBS bm_core bm_module bm_hrt bm_ticker bm_exec bm_algorithm bm_shell
+        EXTRA_SOURCES ${BUS_SERVO_MODULES} shell_cmds.c
     )
 endif()

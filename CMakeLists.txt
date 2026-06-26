@@ -88,6 +88,7 @@ if(BM_BUILD_TESTS)
     set(BM_ENABLE_COMPONENT_STREAM ON CACHE BOOL "" FORCE)
     set(BM_ENABLE_HRT ON CACHE BOOL "" FORCE)
     set(BM_ENABLE_TICKER ON CACHE BOOL "" FORCE)
+    set(BM_ENABLE_SHELL ON CACHE BOOL "" FORCE)   # #11 shell 业务命令集成
     if(NOT BM_BACKEND)
         set(BM_BACKEND "native_sim")
     endif()

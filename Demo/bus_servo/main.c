@@ -24,12 +24,14 @@
  *
  */
 #include "app_bus_servo.h"
+#include "shell_cmds.h"
 #include "bm_algorithm.h"
 #include "bm_exec.h"
 #include "bm_hrt.h"
 #include "bm_idle.h"
 #include "bm_log.h"
 #include "bm_module.h"
+#include "bm_shell.h"
 #include "bm_ticker.h"
 #include "hybrid_print.h"
 
@@ -551,6 +553,18 @@ const bm_exec_t g_bus_servo_axis = {
 static const bm_exec_t *const g_instances[] = { &g_bus_servo_axis };
 
 /* =========================================================================
+ * shell 实例（#11 调试命令接口）
+ * ========================================================================= */
+
+/**
+ * @brief 调试 CLI shell 实例（stats/set/fault 三条命令）
+ *
+ * 使用 BM_SHELL_DEFINE 静态分配；在 main 中 bm_shell_init + shell_cmds_register
+ * 初始化，非嵌入式主循环中通过 bm_shell_poll 非阻塞轮询。
+ */
+BM_SHELL_DEFINE(g_bus_servo_shell);
+
+/* =========================================================================
  * 监督层 ticker
  * ========================================================================= */
 
@@ -703,6 +717,14 @@ int main(void) {
         return 1;
     }
 
+    /* --- Step 5a：shell 初始化（#11 调试命令接口；冻结后、run_sim 前） --- */
+    bm_shell_init(&g_bus_servo_shell);
+    /* 注册 stats/set/fault；失败仅警告，不影响闭环主流程 */
+    rc = shell_cmds_register(&g_bus_servo_shell, &g_cmd_bus, &g_telem_bus);
+    if (rc != BM_OK) {
+        BM_LOGW(TAG, "shell_cmds_register failed rc=%d", rc);
+    }
+
     /* --- Step 5：ticker 初始化 --- */
     rc = bm_ticker_init(g_poll_ticker, 1u);
     if (rc != BM_OK) {
@@ -812,6 +834,8 @@ int main(void) {
     return 0;
 #else
     while (1) {
+        /* #11 调试 CLI：非阻塞轮询串口输入，有完整命令行时立即执行 */
+        bm_shell_poll(&g_bus_servo_shell);
         /* 主循环无任务时调用空闲钩子：默认在 ARM 上执行 WFI 进入低功耗等待，
          * 应用可覆盖 bm_idle() 实现自定义省电策略。 */
         bm_idle();
