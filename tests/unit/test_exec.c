@@ -772,9 +772,15 @@ void test_exec_block_deadline_handles_tick_wraparound(void) {
 
     /*
      * 32 位 tick 回绕在 64 位 bm_uptime_us() 时代不再发生（~584000 年不回绕）。
-     * 此用例已改为验证「超长 elapsed 仍正确判 late」：
-     * block 携带 ns 域时间戳，创建时间约为 10 秒前（或进程刚启动时刻为 0）；
-     * 推进 uptime 2000 µs 保证 elapsed > deadline_us=1000 µs。
+     * 此用例已改为验证「超长 elapsed 仍正确判 late」。
+     *
+     * 注意时间戳取值依进程运行时长分两种情形（见
+     * stream_start_with_wrapped_late_block）：
+     *  - 进程已运行 >10 s：ticks 回拨 10 s，elapsed≈10 s，回拨本身即保证 late；
+     *  - 进程刚启动（单元测试常态，uptime<10 s）：ticks=0 → block_ts_us=0，
+     *    此时 elapsed=now_us，必须靠下面这条推进把 now_us 抬到 >deadline_us，
+     *    否则 now_us 接近 0 会判不出 late（且与真实墙钟竞争而 flaky）。
+     * 故 advance 不是冗余，是该情形下的判定来源；推进 2000 µs > deadline_us=1000 µs。
      */
     bm_hal_uptime_native_advance_us(2000u);
     TEST_ASSERT_EQUAL(BM_OK, bm_exec_init_all(instances, 1u));

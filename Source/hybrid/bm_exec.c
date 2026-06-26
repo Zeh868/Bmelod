@@ -198,9 +198,20 @@ static int exec_block_is_late(const bm_exec_slot_t *slot,
         /* 跨时钟域：跳过 clock_id/epoch 校验，信任调用方的时间戳 */
     }
     /* 统一单调时钟：64 位微秒，无回绕 */
-    now_us      = bm_uptime_us();
-    block_ts_us = block->timestamp.ticks * 1000000ull /
-                  (uint64_t)block->timestamp.rate_hz;
+    now_us = bm_uptime_us();
+    /*
+     * block_ts_us = ticks * 1e6 / rate_hz。直接相乘在高 rate_hz 域（如 ns 域
+     * rate_hz=1e9）下，ticks 超过约 1.8e13 时 ticks*1e6 会 uint64 溢出。
+     * 改用「商 * 1e6 + 余 * 1e6 / rate_hz」拆分（同 bm_hal_uptime 后端的防溢出写法），
+     * 数学等价且中间量始终 < rate_hz * 1e6，不溢出。
+     */
+    {
+        uint64_t ticks = block->timestamp.ticks;
+        uint64_t rate  = (uint64_t)block->timestamp.rate_hz;
+
+        block_ts_us = (ticks / rate) * 1000000ull
+                    + (ticks % rate) * 1000000ull / rate;
+    }
     if (now_us < block_ts_us) {
         /* block 时间戳在未来，尚未到期 */
         return 0;
