@@ -21,6 +21,11 @@ bm_add_test(test_critical test_critical.c bm_core)
 bm_add_test(test_log test_log.c bm_core)
 bm_add_test(test_uptime test_uptime.c bm_core)
 bm_add_test(test_idle test_idle.c bm_core)
+
+# #10 持久化 KV 存储测试
+bm_add_test(test_persist test_persist.c bm_core)
+target_include_directories(test_persist PRIVATE
+    ${CMAKE_SOURCE_DIR}/portable/sim/native)
 bm_add_test(test_ultra test_ultra.c bm_core)
 target_compile_definitions(test_ultra PRIVATE BM_ENABLE_ULTRA_TEST_HOOK=1)
 bm_add_test(test_mempool test_mempool.c bm_core)

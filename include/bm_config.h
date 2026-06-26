@@ -172,6 +172,20 @@
 #define BM_CONFIG_WDG_MAX_NAME_LEN           32
 #endif
 
+/* 持久化 KV 存储（路线图 #10） */
+/** 最大 KV 条目数（RAM 表容量）*/
+#ifndef BM_CONFIG_PERSIST_MAX_ENTRIES
+#define BM_CONFIG_PERSIST_MAX_ENTRIES        16u
+#endif
+/** 键名最大长度（不含 null 终止符，字节数）*/
+#ifndef BM_CONFIG_PERSIST_KEY_MAX_LEN
+#define BM_CONFIG_PERSIST_KEY_MAX_LEN        15u
+#endif
+/** 值最大字节数 */
+#ifndef BM_CONFIG_PERSIST_VAL_MAX_LEN
+#define BM_CONFIG_PERSIST_VAL_MAX_LEN        64u
+#endif
+
 /* Ultra 超轻量剖面（header-only） */
 #ifndef BM_CONFIG_ULTRA_MAX_EVENT_TYPES
 #define BM_CONFIG_ULTRA_MAX_EVENT_TYPES      8

@@ -10,6 +10,7 @@ add_library(bm_backend_native_sim STATIC
     ${_BM_SIM_NATIVE}/bm_drv_encoder_native.c
     ${_BM_SIM_NATIVE}/bm_drv_dma_stream_native.c
     ${_BM_SIM_NATIVE}/bm_hal_irq_affinity_native.c
+    ${_BM_SIM_NATIVE}/bm_drv_nvs_native.c    # #10 NVS 文件仿真后端
 )
 add_subdirectory(${BM_FRAMEWORK_ROOT}/portable/arch/host
     _bm_arch_host_native_pack)
