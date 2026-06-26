@@ -225,6 +225,7 @@ if(BM_ENABLE_EXEC)
     add_library(bm_exec STATIC
         Source/hybrid/bm_exec.c
         Source/hybrid/bm_stream.c
+        Source/hybrid/bm_stream_block_adapter.c
     )
     target_link_libraries(bm_exec PUBLIC bm_hrt bm_core bm_resource)
     bm_target_internal_includes(bm_exec)
@@ -250,6 +251,7 @@ if(BM_ENABLE_EXEC)
 elseif(BM_ENABLE_STREAM)
     add_library(bm_stream STATIC
         Source/hybrid/bm_stream.c
+        Source/hybrid/bm_stream_block_adapter.c
     )
     target_link_libraries(bm_stream PUBLIC bm_core bm_config)
     bm_target_internal_includes(bm_stream)

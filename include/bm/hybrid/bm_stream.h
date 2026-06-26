@@ -29,6 +29,7 @@
 #include "bm/hybrid/bm_block.h"
 #include "bm/common/bm_types.h"
 #include "bm/core/bm_cpu_local.h"
+#include "bm/core/bm_block_backend.h"
 
 #include <stdint.h>
 
@@ -132,5 +133,28 @@ int bm_stream_output_commit(bm_stream_t *stream,
  * @return 实际调用 ready 回调的次数
  */
 int bm_stream_drain(bm_stream_t *stream, uint32_t budget);
+
+/* =========================================================================
+ * bm_bus BLOCK 模式适配器
+ * ========================================================================= */
+
+/**
+ * @brief 获取 bm_stream 的 bm_block_backend_iface_t vtable 指针
+ *
+ * 返回指向全局静态 vtable 的指针，供 bm_bus BLOCK 模式通过
+ * bm_bus_bind_block_backend 绑定，以 bm_stream_t * 作为 ctx 传入。
+ *
+ * 用法示例：
+ * @code
+ * bm_bus_bind_block_backend(&h_block,
+ *                            bm_stream_as_block_backend(),
+ *                            &my_stream);
+ * @endcode
+ *
+ * @note bm_stream 本体零改动；adapter 实现在 bm_stream_block_adapter.c。
+ *
+ * @return 指向全局静态 bm_block_backend_iface_t 的常量指针
+ */
+const bm_block_backend_iface_t *bm_stream_as_block_backend(void);
 
 #endif /* BM_STREAM_H */

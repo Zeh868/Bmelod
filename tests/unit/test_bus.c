@@ -1,6 +1,6 @@
 /**
  * @file test_bus.c
- * @brief bm_bus 单元测试（Task 2/3/4/5/6：open/validate/acquire_write/commit/abort/reader_attach/acquire_read/release/freeze/ready_count/stats/LATEST三缓冲/validate边界/freeze守卫）
+ * @brief bm_bus 单元测试（Task 2/3/4/5/6/7：open/validate/acquire_write/commit/abort/reader_attach/acquire_read/release/freeze/ready_count/stats/LATEST三缓冲/validate边界/freeze守卫/BLOCK IoC API）
  *
  * TDD 覆盖：open/validate/acquire_write/commit/abort 基本语义，
  * QUEUE 满立即拒绝（test_queue_write_overflow_on_full，仅依赖写路径），
@@ -9,13 +9,16 @@
  * LATEST 三缓冲选槽语义：写路径实现、单读者约束、读到最新值、release 清 NONE（Phase 1 Task 5）；
  * validate 边界：cap<2 直接构造拒绝、LATEST cap<3 拒绝、LATEST cap=3 通过、
  *   BLOCK acquire_write 返回 NOT_SUPPORTED；freeze 守卫：幂等、freeze 后写路径不受阻（Phase 1 Task 6）。
+ * BLOCK IoC API：bind_block_backend/produce_acquire/commit/abort/consume_acquire/release、
+ *   unbound 返回 INVALID、valid_bytes/ts_ns passthrough、owner_cpu 透传（Task 7）。
  * @author zeh (china_qzh@163.com)
- * @version 0.5
- * @date 2026-06-25
+ * @version 0.6
+ * @date 2026-06-26
  */
 
 #include "unity.h"
 #include "bm/core/bm_bus.h"
+#include "bm/hybrid/bm_stream.h"
 #include <string.h>
 
 BM_BUS_DEFINE(tb_q, uint32_t, 4u, 1u, BM_BUS_QUEUE);
@@ -647,6 +650,222 @@ void test_validate_mode_block_not_supported_for_ring_ops(void) {
     TEST_ASSERT_EQUAL(BM_ERR_NOT_SUPPORTED, bm_bus_acquire_write(&blk_h, &ws));
 }
 
+/* ------------------------------------------------------------------ */
+/* Task 7: BLOCK IoC API                                               */
+/* 使用 bm_stream 作为 block backend，通过 bm_stream_as_block_backend  */
+/* 绑定到 BLOCK 模式 bus，验证端到端 produce/consume 路径。            */
+/* 每个测试使用独立静态存储，避免 frozen 状态在测试间串扰。            */
+/* ------------------------------------------------------------------ */
+
+/* 每个 BLOCK 测试独占一份 bus storage，防止 frozen/block_iface 跨测试污染 */
+BM_BUS_DEFINE(tb_blk_unbound,  uint8_t, 2u, 1u, BM_BUS_BLOCK);
+BM_BUS_DEFINE(tb_blk_wrong,    uint8_t, 2u, 1u, BM_BUS_BLOCK);
+BM_BUS_DEFINE(tb_blk_freeze,   uint8_t, 2u, 1u, BM_BUS_BLOCK);
+BM_BUS_DEFINE(tb_blk_rt,       uint8_t, 2u, 1u, BM_BUS_BLOCK);
+BM_BUS_DEFINE(tb_blk_abort,    uint8_t, 2u, 1u, BM_BUS_BLOCK);
+BM_BUS_DEFINE(tb_blk_ts,       uint8_t, 2u, 1u, BM_BUS_BLOCK);
+BM_BUS_DEFINE(tb_blk_cpu,      uint8_t, 2u, 1u, BM_BUS_BLOCK);
+
+/* stream 存储（每个测试独占，payload=uint32_t，depth=4） */
+#define BLK_STREAM_DEPTH 4u
+BM_STREAM_PAYLOADS(g_blk_freeze_stream,  uint32_t, BLK_STREAM_DEPTH);
+BM_STREAM_BLOCKS(g_blk_freeze_stream,               BLK_STREAM_DEPTH);
+BM_STREAM_INSTANCE(g_blk_freeze_stream,              BLK_STREAM_DEPTH);
+
+BM_STREAM_PAYLOADS(g_blk_rt_stream,     uint32_t, BLK_STREAM_DEPTH);
+BM_STREAM_BLOCKS(g_blk_rt_stream,                    BLK_STREAM_DEPTH);
+BM_STREAM_INSTANCE(g_blk_rt_stream,                  BLK_STREAM_DEPTH);
+
+BM_STREAM_PAYLOADS(g_blk_abort_stream,  uint32_t, BLK_STREAM_DEPTH);
+BM_STREAM_BLOCKS(g_blk_abort_stream,                 BLK_STREAM_DEPTH);
+BM_STREAM_INSTANCE(g_blk_abort_stream,               BLK_STREAM_DEPTH);
+
+BM_STREAM_PAYLOADS(g_blk_ts_stream,     uint8_t,  BLK_STREAM_DEPTH);
+BM_STREAM_BLOCKS(g_blk_ts_stream,                    BLK_STREAM_DEPTH);
+BM_STREAM_INSTANCE(g_blk_ts_stream,                  BLK_STREAM_DEPTH);
+
+/**
+ * @brief 未绑定 backend 时，所有 BLOCK API 返回 BM_ERR_INVALID。
+ *
+ * 验证 bus_block_check 在 block_iface==NULL 时的保护逻辑。
+ */
+void test_block_unbound_returns_invalid(void) {
+    bm_bus_t     h;
+    bm_bus_cfg_t cfg = { .owner_cpu = 0u };
+    void        *blk = NULL;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&h, &tb_blk_unbound_storage, &cfg));
+    /* 未 bind，所有 BLOCK API 均返回 INVALID */
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_bus_block_produce_acquire(&h, &blk));
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_bus_block_produce_commit(&h, NULL, 0u, 0u));
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_bus_block_produce_abort(&h, NULL));
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_bus_block_consume_acquire(&h, &blk));
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_bus_block_consume_release(&h, NULL));
+    bm_bus_close(&h);
+}
+
+/** @brief bind_block_backend 在非 BLOCK mode bus 上应返回 BM_ERR_NOT_SUPPORTED。 */
+void test_block_bind_wrong_mode_rejected(void) {
+    /* g_bus_q 是 QUEUE mode，bind 应被拒绝（非 BLOCK 模式） */
+    TEST_ASSERT_EQUAL(BM_ERR_NOT_SUPPORTED,
+        bm_bus_bind_block_backend(&g_bus_q, bm_stream_as_block_backend(), NULL));
+}
+
+/** @brief bind 后 freeze，再次 bind 被拒绝（freeze-before-only 语义）。 */
+void test_block_bind_after_freeze_rejected(void) {
+    bm_bus_t     h;
+    bm_bus_cfg_t cfg = { .owner_cpu = 0u };
+
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_stream_init(&g_blk_freeze_stream,
+                       _bm_stream_payload_g_blk_freeze_stream,
+                       BLK_STREAM_DEPTH,
+                       sizeof(uint32_t)));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&h, &tb_blk_freeze_storage, &cfg));
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_bus_bind_block_backend(&h, bm_stream_as_block_backend(), &g_blk_freeze_stream));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_freeze(&h));
+    /* freeze 后再 bind 被拒绝（BM_ERR_BUSY：bus 已冻结） */
+    TEST_ASSERT_EQUAL(BM_ERR_BUSY,
+        bm_bus_bind_block_backend(&h, bm_stream_as_block_backend(), &g_blk_freeze_stream));
+    bm_bus_close(&h);
+}
+
+/** @brief produce_acquire -> commit -> consume_acquire -> release 端到端路径。
+ *
+ *  验证：
+ *  1. produce_acquire 返回非 NULL block
+ *  2. commit 成功（BM_OK）
+ *  3. consume_acquire 获得同一 block（指针相同或数据一致）
+ *  4. consume_release 成功
+ *  5. valid_bytes passthrough
+ */
+void test_block_produce_commit_consume_roundtrip(void) {
+    bm_bus_t        h;
+    bm_bus_cfg_t    cfg = { .owner_cpu = 0u };
+    void           *wblk = NULL;
+    void           *rblk = NULL;
+    bm_block_t     *rblk_typed;
+    const uint32_t *rdata;
+
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_stream_init(&g_blk_rt_stream,
+                       _bm_stream_payload_g_blk_rt_stream,
+                       BLK_STREAM_DEPTH,
+                       sizeof(uint32_t)));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&h, &tb_blk_rt_storage, &cfg));
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_bus_bind_block_backend(&h, bm_stream_as_block_backend(), &g_blk_rt_stream));
+
+    /* produce: acquire */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_block_produce_acquire(&h, &wblk));
+    TEST_ASSERT_NOT_NULL(wblk);
+
+    /* 写入数据到 block->data */
+    *(uint32_t *)((bm_block_t *)wblk)->data = 0xDEADBEEFu;
+
+    /* commit with valid_bytes=4, ts_ns=1000 (1 us) */
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_bus_block_produce_commit(&h, wblk, sizeof(uint32_t), 1000u));
+
+    /* consume: acquire */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_block_consume_acquire(&h, &rblk));
+    TEST_ASSERT_NOT_NULL(rblk);
+
+    rblk_typed = (bm_block_t *)rblk;
+
+    /* 验证 valid_bytes passthrough */
+    TEST_ASSERT_EQUAL_UINT32(sizeof(uint32_t), rblk_typed->valid_bytes);
+
+    /* 验证数据一致 */
+    rdata = (const uint32_t *)rblk_typed->data;
+    TEST_ASSERT_EQUAL_UINT32(0xDEADBEEFu, *rdata);
+
+    /* release */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_block_consume_release(&h, rblk));
+
+    bm_bus_close(&h);
+}
+
+/** @brief produce_acquire -> abort 后，consume_acquire 应返回无数据（非 BM_OK）。
+ *
+ *  abort 不应向 stream 提交数据，消费者不应看到任何 READY block。
+ */
+void test_block_produce_abort_no_ready(void) {
+    bm_bus_t     h;
+    bm_bus_cfg_t cfg  = { .owner_cpu = 0u };
+    void        *wblk = NULL;
+    void        *rblk = NULL;
+
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_stream_init(&g_blk_abort_stream,
+                       _bm_stream_payload_g_blk_abort_stream,
+                       BLK_STREAM_DEPTH,
+                       sizeof(uint32_t)));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&h, &tb_blk_abort_storage, &cfg));
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_bus_bind_block_backend(&h, bm_stream_as_block_backend(), &g_blk_abort_stream));
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_block_produce_acquire(&h, &wblk));
+    TEST_ASSERT_NOT_NULL(wblk);
+    /* abort: 丢弃，不提交 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_block_produce_abort(&h, wblk));
+
+    /* 消费端应看不到数据（stream empty -> 非 BM_OK） */
+    TEST_ASSERT_NOT_EQUAL(BM_OK, bm_bus_block_consume_acquire(&h, &rblk));
+    TEST_ASSERT_NULL(rblk);
+
+    bm_bus_close(&h);
+}
+
+/** @brief ts_ns passthrough：commit 带非零 ts_ns，block->timestamp.ticks == ts_ns/1000。
+ *
+ *  adapter_ts_from_ns 以 1 MHz（us 粒度）转换：ticks = ts_ns / 1000。
+ */
+void test_block_ts_ns_passthrough(void) {
+    bm_bus_t       h;
+    bm_bus_cfg_t   cfg    = { .owner_cpu = 0u };
+    void          *wblk   = NULL;
+    void          *rblk   = NULL;
+    bm_block_t    *rtyped;
+    const uint64_t TS_NS  = 5000000u; /* 5 ms = 5000 us */
+
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_stream_init(&g_blk_ts_stream,
+                       _bm_stream_payload_g_blk_ts_stream,
+                       BLK_STREAM_DEPTH,
+                       sizeof(uint8_t)));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&h, &tb_blk_ts_storage, &cfg));
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_bus_bind_block_backend(&h, bm_stream_as_block_backend(), &g_blk_ts_stream));
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_block_produce_acquire(&h, &wblk));
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_bus_block_produce_commit(&h, wblk, 1u, TS_NS));
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_block_consume_acquire(&h, &rblk));
+    rtyped = (bm_block_t *)rblk;
+
+    /* timestamp.ticks 应为 TS_NS / 1000 = 5000（us 粒度） */
+    TEST_ASSERT_EQUAL_UINT32((uint32_t)(TS_NS / 1000u), rtyped->timestamp.ticks);
+    /* rate_hz 应为 1 MHz */
+    TEST_ASSERT_EQUAL_UINT32(1000000u, rtyped->timestamp.rate_hz);
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_block_consume_release(&h, rblk));
+    bm_bus_close(&h);
+}
+
+/** @brief owner_cpu 透传：bm_bus_open cfg.owner_cpu=1，storage.owner_cpu 应保存为 1。 */
+void test_block_owner_cpu_passthrough(void) {
+    bm_bus_t     h;
+    bm_bus_cfg_t cfg = { .owner_cpu = 1u };
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&h, &tb_blk_cpu_storage, &cfg));
+    /* 验证 storage 中 owner_cpu 被正确保存 */
+    TEST_ASSERT_EQUAL_UINT32(1u, tb_blk_cpu_storage.owner_cpu);
+    bm_bus_close(&h);
+}
+
 /**
  * @brief freeze 幂等：连续两次 freeze 均返回 BM_OK，第二次无副作用。
  */
@@ -751,6 +970,14 @@ int main(void) {
     RUN_TEST(test_validate_signal_cap_not_pow2_rejected);
     RUN_TEST(test_validate_queue_cap_not_pow2_rejected);
     RUN_TEST(test_validate_mode_block_not_supported_for_ring_ops);
+    /* Task 7: BLOCK IoC API */
+    RUN_TEST(test_block_unbound_returns_invalid);
+    RUN_TEST(test_block_bind_wrong_mode_rejected);
+    RUN_TEST(test_block_bind_after_freeze_rejected);
+    RUN_TEST(test_block_produce_commit_consume_roundtrip);
+    RUN_TEST(test_block_produce_abort_no_ready);
+    RUN_TEST(test_block_ts_ns_passthrough);
+    RUN_TEST(test_block_owner_cpu_passthrough);
     RUN_TEST(test_freeze_idempotent);
     RUN_TEST(test_acquire_write_after_freeze_still_allowed);
 #ifdef BM_ENABLE_BUS_TEST_HOOK

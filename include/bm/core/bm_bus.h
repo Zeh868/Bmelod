@@ -1,18 +1,21 @@
 /**
  * @file bm_bus.h
- * @brief bm_bus 统一数据总线门面（Phase 1：LATEST / QUEUE / SIGNAL）
+ * @brief bm_bus 统一数据总线门面（LATEST / QUEUE / SIGNAL / BLOCK）
  *
  * 有界环后端，三种 mode 共用一份借还 API：SIGNAL 为单写多读（SPMC），LATEST/QUEUE 为单读者。
+ * BLOCK 模式以控制反转方式委托 bm_block_backend_iface_t 后端（如 bm_stream adapter）实现，
+ * 依赖方向保持 hybrid→core，bus 核心不引用任何 hybrid 类型。
  * 编译期用 BM_BUS_DEFINE 静态分配存储，零动态分配。
  * @author zeh (china_qzh@163.com)
- * @version 0.2
- * @date 2026-06-25
+ * @version 0.3
+ * @date 2026-06-26
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-25       0.1            zeh            Phase 1 初稿
  * 2026-06-25       0.2            zeh            DET-01 新增 BM_ENABLE_BUS_TEST_HOOK 测试缝声明（LATEST 重试上界验证）
+ * 2026-06-26       0.3            zeh            Phase 2 BLOCK 控制反转：bm_bus_bind_block_backend + 专用 produce/consume 入口
  *
  */
 #ifndef BM_BUS_H
@@ -20,6 +23,7 @@
 
 #include "bm/common/bm_atomic_ipc.h"
 #include "bm/common/bm_types.h"
+#include "bm/core/bm_block_backend.h"
 #include <stdint.h>
 
 /* =========================================================================
@@ -35,7 +39,10 @@ typedef enum {
     BM_BUS_LATEST = 0,   /**< 最新值，覆盖式，读者不持游标；单读者（SPSC），多消费者请用 SIGNAL */
     BM_BUS_QUEUE  = 1,   /**< SPSC 保序队列，单消费者 */
     BM_BUS_SIGNAL = 2,   /**< 多消费者独立游标，保序 */
-    BM_BUS_BLOCK  = 3    /**< Phase 2，门面仅声明，LATEST/QUEUE/SIGNAL 调用返回 BM_ERR_NOT_SUPPORTED */
+    BM_BUS_BLOCK  = 3    /**< 块流模式，以控制反转委托 bm_block_backend_iface_t 后端（如 bm_stream adapter）；
+                              BLOCK 实例不使用 data_buf 三缓冲，存储由后端持有；
+                              SPSC 单读者（继承 bm_stream 语义）；需 freeze 前调用
+                              bm_bus_bind_block_backend 绑定后端，否则 BLOCK 入口返回 BM_ERR_INVALID */
 } bm_bus_mode_t;
 
 /* =========================================================================
@@ -79,6 +86,9 @@ typedef struct {
     uint32_t             reader_count;      /**< 已 attach 读者数 */
     /* --- 读者游标数组（QUEUE/SIGNAL；LATEST 不使用） --- */
     bm_bus_reader_slot_t *readers;          /**< 指向 storage 内的 readers[] 区 */
+    /* --- BLOCK 后端（仅 BLOCK 模式有效；bm_bus_bind_block_backend 写入，之后只读） --- */
+    const bm_block_backend_iface_t *block_iface; /**< BLOCK 后端 vtable 指针；NULL = 未绑定 */
+    void                           *block_ctx;   /**< BLOCK 后端上下文（bm_stream_t * 等） */
 } bm_bus_storage_t;
 
 /**
@@ -230,7 +240,7 @@ int bm_bus_validate(const bm_bus_t *h);
  * @param slot_out 输出：写槽指针（类型强转后使用）
  * @return BM_OK 成功借到槽；BM_ERR_OVERFLOW QUEUE 模式环满；
  *         BM_ERR_BUSY 重入保护；BM_ERR_INVALID 句柄无效；
- *         BM_ERR_NOT_SUPPORTED BLOCK 模式（Phase 2）
+ *         BM_ERR_NOT_SUPPORTED BLOCK 模式（BLOCK 使用专用 produce/consume 入口）
  */
 int bm_bus_acquire_write(bm_bus_t *h, void **slot_out);
 
@@ -318,6 +328,85 @@ uint32_t bm_bus_ready_count(const bm_bus_reader_t *r);
  * @return BM_OK 成功；BM_ERR_INVALID 参数无效
  */
 int bm_bus_stats(const bm_bus_t *h, bm_bus_stats_t *out);
+
+/* =========================================================================
+ * BLOCK 模式专用 API
+ * ========================================================================= */
+
+/**
+ * @brief 绑定 BLOCK 后端（仅 BLOCK 模式合法，必须在 freeze 之前调用）
+ *
+ * 将函数指针表 iface 与上下文 ctx 写入 storage，之后 BLOCK 入口透传至 vtable。
+ * 重复 bind（未 freeze 前）将覆盖旧绑定。freeze 后调用返回 BM_ERR_BUSY。
+ * 非 BLOCK 模式调用返回 BM_ERR_NOT_SUPPORTED。
+ *
+ * @par 多核契约
+ * bind 须在 freeze 之前、由单一协调流程串行调用；与 reader_attach 串行契约同构。
+ *
+ * @param h     bus 句柄指针
+ * @param iface 后端 vtable 指针（生命期须覆盖 bus 整个运行期）
+ * @param ctx   后端上下文（如 bm_stream_t *，传递给 vtable 各函数）
+ * @return BM_OK 成功；BM_ERR_INVALID 参数非法；BM_ERR_BUSY 已 freeze；
+ *         BM_ERR_NOT_SUPPORTED 非 BLOCK 模式
+ */
+int bm_bus_bind_block_backend(bm_bus_t *h,
+                               const bm_block_backend_iface_t *iface,
+                               void *ctx);
+
+/**
+ * @brief BLOCK 生产者：借出空闲块
+ *
+ * 仅 BLOCK 模式合法；透传至已绑定后端的 producer_acquire。
+ * 未绑定后端时返回 BM_ERR_INVALID。
+ *
+ * @param h         bus 句柄指针
+ * @param block_out 输出：不透明 block 指针
+ * @return BM_OK 成功；BM_ERR_OVERFLOW 无空闲块；BM_ERR_INVALID 未绑定或参数非法；
+ *         BM_ERR_NOT_SUPPORTED 非 BLOCK 模式
+ */
+int bm_bus_block_produce_acquire(bm_bus_t *h, void **block_out);
+
+/**
+ * @brief BLOCK 生产者：提交块（发布数据）
+ *
+ * 透传 valid_bytes 与 ts_ns 至后端 producer_commit。
+ *
+ * @param h           bus 句柄指针
+ * @param block       由 bm_bus_block_produce_acquire 借出的块
+ * @param valid_bytes 有效数据字节数
+ * @param ts_ns       时间戳（纳秒），0 表示无时间戳
+ * @return BM_OK 成功；BM_ERR_INVALID 未绑定或参数非法；BM_ERR_NOT_SUPPORTED 非 BLOCK 模式
+ */
+int bm_bus_block_produce_commit(bm_bus_t *h, void *block,
+                                uint32_t valid_bytes, uint64_t ts_ns);
+
+/**
+ * @brief BLOCK 生产者：放弃已借块（不发布）
+ *
+ * @param h     bus 句柄指针
+ * @param block 由 bm_bus_block_produce_acquire 借出的块
+ * @return BM_OK 成功；BM_ERR_INVALID 未绑定或参数非法；BM_ERR_NOT_SUPPORTED 非 BLOCK 模式
+ */
+int bm_bus_block_produce_abort(bm_bus_t *h, void *block);
+
+/**
+ * @brief BLOCK 消费者：借出最旧 READY 块
+ *
+ * @param h         bus 句柄指针
+ * @param block_out 输出：不透明 block 指针
+ * @return BM_OK 成功；BM_ERR_WOULD_BLOCK 无 READY 块；
+ *         BM_ERR_INVALID 未绑定或参数非法；BM_ERR_NOT_SUPPORTED 非 BLOCK 模式
+ */
+int bm_bus_block_consume_acquire(bm_bus_t *h, void **block_out);
+
+/**
+ * @brief BLOCK 消费者：归还块
+ *
+ * @param h     bus 句柄指针
+ * @param block 由 bm_bus_block_consume_acquire 借出的块
+ * @return BM_OK 成功；BM_ERR_INVALID 未绑定或参数非法；BM_ERR_NOT_SUPPORTED 非 BLOCK 模式
+ */
+int bm_bus_block_consume_release(bm_bus_t *h, void *block);
 
 #ifdef BM_ENABLE_BUS_TEST_HOOK
 /**
