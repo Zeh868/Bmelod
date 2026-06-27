@@ -39,8 +39,9 @@ option(BM_SYNC_HAL_QEMU "Link QEMU sync HAL into bm_exec" OFF)
 option(BM_BUILD_TESTS "Build unit tests" ON)
 option(BM_ENABLE_SEGGER_RTT
     "Link SEGGER RTT into bm_hal (embedded targets with J-Link)" OFF)
+option(BM_CONFIG_SMP "Enable SMP/multicore support (bm_ipc + bm_mp)" OFF)
 set(BM_BACKEND "" CACHE STRING
-    "Portable backend: native_sim, sdk_esp32_idf, qemu_cortex_m0, qemu_riscv64, arch_stub, external, ...")
+    "Portable backend: native_sim, sdk_esp32_idf, qemu_cortex_m0, qemu_riscv64, arch_stub, external, native_sim_mp, qemu_riscv64_smp, ...")
 
 if(BM_ENABLE_EXEC AND NOT BM_ENABLE_HRT)
     message(FATAL_ERROR "BM_ENABLE_EXEC requires BM_ENABLE_HRT")
@@ -53,6 +54,14 @@ set(BM_CONFIG_FILE "" CACHE FILEPATH "Configuration header force-included in all
 
 if(NOT BM_CONFIG_FILE AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/bm_config.h)
     set(BM_CONFIG_FILE ${CMAKE_CURRENT_SOURCE_DIR}/bm_config.h)
+endif()
+
+# SMP 测试默认选用 Demo/mp_common/bm_config_mp_demo.h 作为配置头
+if(BM_CONFIG_SMP AND BM_BUILD_TESTS AND NOT BM_CONFIG_FILE)
+    set(BM_CONFIG_FILE
+        "${CMAKE_CURRENT_SOURCE_DIR}/Demo/mp_common/bm_config_mp_demo.h"
+        CACHE FILEPATH "" FORCE)
+    message(STATUS "BM_CONFIG_SMP: using default SMP test config: ${BM_CONFIG_FILE}")
 endif()
 
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/bm_include_dirs.cmake)
@@ -96,6 +105,21 @@ endif()
 
 if(BM_BACKEND STREQUAL "sdk_esp32_idf")
     set(BM_ENABLE_SEGGER_RTT ON CACHE BOOL "" FORCE)
+endif()
+
+# SMP 多核模式：自动启用 HRT/EXEC/STREAM 依赖，切换至 native_sim_mp 后端
+if(BM_CONFIG_SMP)
+    set(BM_ENABLE_MODULE  ON CACHE BOOL "" FORCE)
+    set(BM_ENABLE_HRT     ON CACHE BOOL "" FORCE)
+    set(BM_ENABLE_TICKER  ON CACHE BOOL "" FORCE)
+    set(BM_ENABLE_EXEC    ON CACHE BOOL "" FORCE)
+    set(BM_ENABLE_STREAM  ON CACHE BOOL "" FORCE)
+    set(BM_ENABLE_WDG     ON CACHE BOOL "" FORCE)
+    # SMP 后端自带完整 CPU HAL（bm_hal_cpu_mp_native.c），禁用单核 stub 避免重复定义
+    set(BM_HAL_USE_CPU_STUB OFF CACHE BOOL "" FORCE)
+    if(BM_BUILD_TESTS AND NOT BM_BACKEND)
+        set(BM_BACKEND "native_sim_mp" CACHE STRING "" FORCE)
+    endif()
 endif()
 
 add_library(bm_config INTERFACE)
@@ -459,6 +483,61 @@ if(BM_ENABLE_COMPONENT_TINYML)
     target_link_libraries(bm_component_tinyml PUBLIC bm_algorithm bm_config)
     bm_target_internal_includes(bm_component_tinyml)
     target_link_libraries(bm_framework INTERFACE bm_component_tinyml)
+endif()
+
+# =============================================================
+# SMP 多核扩展（仅 BM_CONFIG_SMP=ON 时编译；单核构建零开销）
+# =============================================================
+if(BM_CONFIG_SMP)
+    # bm_ipc：跨核 IPC 基础层（bm_boot + bm_ipc）
+    if(NOT TARGET bm_ipc)
+        add_library(bm_ipc STATIC
+            Source/core/bm_ipc.c
+            Source/core/bm_boot.c
+        )
+        target_link_libraries(bm_ipc PUBLIC bm_config bm_core)
+        bm_target_internal_includes(bm_ipc)
+        target_include_directories(bm_ipc PUBLIC
+            ${BM_FRAMEWORK_ROOT}/include/bm/mp)
+        target_link_libraries(bm_framework INTERFACE bm_ipc)
+    endif()
+
+    # bm_mp：多核调度/分区/资源/stream-relay 层
+    add_library(bm_mp STATIC
+        Source/mp/bm_mp.c
+        Source/mp/bm_mp_boot.c
+        Source/mp/bm_mp_partition.c
+        Source/mp/bm_mp_resource_topology.c
+        Source/mp/bm_mp_ipc_matrix.c
+        Source/mp/bm_mp_schedule.c
+        Source/mp/bm_mp_stream_gate.c
+        Source/mp/bm_mp_profile.c
+        Source/mp/bm_mp_wdg.c
+        Source/mp/bm_mp_port_impl.c
+        Source/hybrid/bm_stream_relay.c
+        Source/core/bm_profile_epoch.c
+    )
+    target_link_libraries(bm_mp PUBLIC bm_config bm_core bm_ipc)
+    if(TARGET bm_module)
+        target_link_libraries(bm_mp PUBLIC bm_module)
+    endif()
+    if(TARGET bm_exec)
+        target_link_libraries(bm_mp PUBLIC bm_exec)
+    endif()
+    if(TARGET bm_wdg)
+        target_link_libraries(bm_mp PUBLIC bm_wdg)
+    endif()
+    bm_target_internal_includes(bm_mp)
+    target_include_directories(bm_mp PUBLIC
+        ${BM_FRAMEWORK_ROOT}/include/bm/mp)
+    target_compile_definitions(bm_core PUBLIC BM_CONFIG_LOG_RING=1)
+    target_link_libraries(bm_framework INTERFACE bm_mp)
+
+    # bmp_algo：多核算法扩展库（bmp_ 命名空间）
+    option(BM_SMP_ENABLE_ALGO "Build bmp_algo multi-core algorithm library" ON)
+    if(BM_SMP_ENABLE_ALGO)
+        add_subdirectory(Source/algo _bmp_algo)
+    endif()
 endif()
 
 if(BM_BUILD_TESTS)

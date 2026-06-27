@@ -288,3 +288,86 @@ if(BM_BUILD_TESTS)
                 ${CMAKE_SOURCE_DIR}/tests/cmake/check_esp32_backend_configure.py)
     endif()
 endif()
+
+# =============================================================
+# SMP 多核单元测试（仅 BM_CONFIG_SMP=ON 时构建）
+# =============================================================
+if(BM_CONFIG_SMP AND TARGET bm_mp)
+    # 通用辅助函数：链接 bm_mp + bm_core + bm_hal_native
+    function(bm_mp_add_test TEST_NAME TEST_SRC)
+        add_executable(${TEST_NAME} ${TEST_SRC})
+        if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+            target_link_libraries(${TEST_NAME} PRIVATE
+                "-Wl,--start-group"
+                unity bm_mp bm_core bm_hal bm_hal_native
+                "-Wl,--end-group")
+        else()
+            target_link_libraries(${TEST_NAME} PRIVATE
+                unity bm_mp bm_hal bm_hal_native)
+        endif()
+        bm_target_internal_includes(${TEST_NAME})
+        target_include_directories(${TEST_NAME} PRIVATE
+            ${CMAKE_SOURCE_DIR}/tests/unit/unity
+            ${CMAKE_SOURCE_DIR}/portable/sim/native_mp
+            ${CMAKE_SOURCE_DIR}/portable/sim/native)
+        add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
+    endfunction()
+
+    bm_mp_add_test(test_mp test_mp.c)
+    if(TARGET bm_module AND TARGET bm_ticker)
+        target_link_libraries(test_mp PRIVATE bm_module bm_ticker)
+    endif()
+
+    bm_mp_add_test(test_mp_profile test_mp_profile.c)
+    if(TARGET bm_module AND TARGET bm_ticker)
+        target_link_libraries(test_mp_profile PRIVATE bm_module bm_ticker)
+    endif()
+
+    bm_mp_add_test(test_mp_period test_mp_period.c)
+    if(TARGET bm_module AND TARGET bm_ticker)
+        target_link_libraries(test_mp_period PRIVATE bm_module bm_ticker)
+    endif()
+
+    bm_mp_add_test(test_ipc test_ipc.c)
+
+    bm_mp_add_test(test_mp_resource_topology test_mp_resource_topology.c)
+
+    # 单核 IPC 测试：以 CPU_COUNT=1 独立编译 bm_ipc.c，不依赖多核 helper
+    add_executable(test_ipc_single_core
+        test_ipc_single_core.c
+        ${CMAKE_SOURCE_DIR}/Source/core/bm_ipc.c)
+    target_compile_options(test_ipc_single_core PRIVATE
+        "-include" "${CMAKE_CURRENT_SOURCE_DIR}/bm_config_ipc_sc.h")
+    target_include_directories(test_ipc_single_core PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/unity
+        ${CMAKE_SOURCE_DIR}/include/bm/mp
+        ${CMAKE_SOURCE_DIR}/include)
+    target_link_libraries(test_ipc_single_core PRIVATE unity)
+    add_test(NAME test_ipc_single_core COMMAND test_ipc_single_core)
+
+    bm_mp_add_test(test_mp_profile_epoch test_mp_profile_epoch.c)
+
+    if(TARGET bm_stream OR BM_ENABLE_STREAM)
+        bm_mp_add_test(test_stream_relay test_stream_relay.c)
+    endif()
+
+    # test_log_mp 需要额外库链接
+    add_executable(test_log_mp test_log_mp.c)
+    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        target_link_libraries(test_log_mp PRIVATE
+            "-Wl,--start-group"
+            unity bm_mp bm_core bm_hal bm_hal_native
+            "-Wl,--end-group")
+    else()
+        target_link_libraries(test_log_mp PRIVATE
+            unity bm_mp bm_core bm_hal bm_hal_native)
+    endif()
+    bm_target_internal_includes(test_log_mp)
+    target_include_directories(test_log_mp PRIVATE
+        ${CMAKE_SOURCE_DIR}/tests/unit/unity
+        ${CMAKE_SOURCE_DIR}/portable/sim/native_mp
+        ${CMAKE_SOURCE_DIR}/portable/sim/native)
+    add_test(NAME test_log_mp COMMAND test_log_mp)
+
+    bm_mp_add_test(test_console test_console.c)
+endif()
