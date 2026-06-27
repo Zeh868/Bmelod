@@ -53,6 +53,7 @@ int bm_mp_ipc_backend_open(bm_mp_ipc_backend_ctx_t *ctx, bm_mp_ipc_matrix_t *m,
         elem == 0u) {
         return BM_ERR_INVALID;
     }
+    if (elem > sizeof(ctx->scratch)) { return BM_ERR_INVALID; }
     memset(ctx, 0, sizeof(*ctx));
     ctx->m      = m;
     ctx->source = source;
@@ -228,37 +229,30 @@ static int lat_abort(void *c)
 }
 
 /**
- * @brief LATEST acquire_read：seqlock 拷出 + CRC 校验；失稳即返回，不自旋。
+ * @brief LATEST acquire_read：seqlock 拷出 + CRC 校验；可重复读最新已发布值。
  *
- * 复刻 bm_ipc read_channel 语义：
- *   读 seq（奇则失稳→WOULD_BLOCK）→ 无新值则 WOULD_BLOCK →
- *   memcpy → bm_crc32 → acquire fence → 复读 seq（变化则失稳→WOULD_BLOCK）→
- *   CRC 校验 → 更新 *last → 返回暂存指针。
- * 确定性：失稳只返回，不自旋，WCET 有界（DET-01）。
+ * 遥测"最新值通道"语义：只要 seq 为偶（稳定）且非 0（已发布），
+ * 均可读出最新值，支持同帧重复读（无 last_seq 去重）。
+ * 失稳（seq 奇或窗口内变化）即返回 WOULD_BLOCK，不自旋，WCET 有界（DET-01）。
  *
  * @param c        bm_mp_ipc_backend_ctx_t*
  * @param slot_out 输出只读读暂存指针
- * @return BM_OK；BM_ERR_WOULD_BLOCK（奇/无新值/失稳）；BM_ERR_INVALID（CRC 失配）
+ * @return BM_OK；BM_ERR_WOULD_BLOCK（未发布/写进行中/失稳）；BM_ERR_INVALID（CRC 失配）
  */
 static int lat_acq_r(void *c, const void **slot_out)
 {
-    bm_mp_ipc_backend_ctx_t *ctx  = (bm_mp_ipc_backend_ctx_t *)c;
-    bm_mp_ipc_tel_channel_t *t    = &ctx->m->tel_channel[ctx->source][ctx->target];
-    uint32_t *last = &ctx->m->endpoint[ctx->target].tel_last_seq[ctx->source];
-    uint32_t  s;
-    uint32_t  crc;
+    bm_mp_ipc_backend_ctx_t *ctx = (bm_mp_ipc_backend_ctx_t *)c;
+    bm_mp_ipc_tel_channel_t *t   = &ctx->m->tel_channel[ctx->source][ctx->target];
+    uint32_t s   = bm_atomic_ipc_load_u32(&t->seq);
+    uint32_t crc;
 
-    s = bm_atomic_ipc_load_u32(&t->seq);
-    if ((s & 1u) != 0u) { return BM_ERR_WOULD_BLOCK; }   /* 写进行中 */
-    if (s == 0u)         { return BM_ERR_WOULD_BLOCK; }   /* 从未发布 */
-    if (s == *last)      { return BM_ERR_WOULD_BLOCK; }   /* 无新值 */
+    if (s == 0u || (s & 1u) != 0u) { return BM_ERR_WOULD_BLOCK; } /* 未发布/写进行中 */
     memcpy(ctx->scratch_r, t->payload, ctx->elem);
     crc = bm_crc32(ctx->scratch_r, ctx->elem);
     bm_atomic_ipc_fence_acquire();
     /* seqlock 验证：若写者在拷贝窗口内发布新值，seq 已变，失稳即返回，不自旋 */
     if (bm_atomic_ipc_load_u32(&t->seq) != s) { return BM_ERR_WOULD_BLOCK; }
     if (crc != t->crc32)                       { return BM_ERR_INVALID; }
-    *last     = s;
     *slot_out = ctx->scratch_r;
     return BM_OK;
 }

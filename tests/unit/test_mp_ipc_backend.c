@@ -79,11 +79,11 @@ void test_mp_fifo_order_full_empty(void)
 /* ================================================================== */
 
 /**
- * @brief LATEST over tel_channel[1][0]：未发布、发布、覆盖、同帧去重。
+ * @brief LATEST over tel_channel[1][0]：未发布、发布、覆盖、同帧重复读。
  *
  * 1. 首次 acquire_read 应返回 BM_ERR_WOULD_BLOCK（从未发布）。
  * 2. 发布 (a=1, b=2)，读出并校验。
- * 3. release 后同帧再次读（无新写）应返回 BM_ERR_WOULD_BLOCK（去重）。
+ * 3. release 后同帧再次读（无新写）应仍返回 BM_OK 且值不变（可重复读最新值）。
  * 4. 发布 (a=9, b=8) 覆盖，读出并校验新值。
  */
 void test_mp_latest_overwrite(void)
@@ -115,8 +115,10 @@ void test_mp_latest_overwrite(void)
     TEST_ASSERT_EQUAL_UINT32(1u, ((const tel_t *)rs)->a);
     TEST_ASSERT_EQUAL_INT(BM_OK, bm_bus_release(&r));
 
-    /* 同帧去重：无新写，再读应 WOULD_BLOCK */
-    TEST_ASSERT_EQUAL_INT(BM_ERR_WOULD_BLOCK, bm_bus_acquire_read(&r, &rs));
+    /* 同帧重复读：无新写，再读仍 OK，值不变 */
+    TEST_ASSERT_EQUAL_INT(BM_OK, bm_bus_acquire_read(&r, &rs));
+    TEST_ASSERT_EQUAL_UINT32(1u, ((const tel_t *)rs)->a);
+    TEST_ASSERT_EQUAL_INT(BM_OK, bm_bus_release(&r));
 
     /* 发布覆盖帧 */
     TEST_ASSERT_EQUAL_INT(BM_OK, bm_bus_acquire_write(&h, &ws));
