@@ -51,6 +51,26 @@ if(BM_ENABLE_BUS)
     endif()
     target_compile_definitions(test_bus PRIVATE BM_ENABLE_BUS_TEST_HOOK=1)
     bm_add_test(test_bus_migration test_bus_migration.c bm_core)
+
+    # BM_BUS_IPC 模式契约测试：native 桩后端（fifo_stub + latest_stub）覆盖 FIFO 保序/满/空、
+    # LATEST 最新值覆盖、未绑定 INVALID、错误模式 bind；不依赖 bm_mp/SMP。
+    add_executable(test_bus_ipc_mode
+        test_bus_ipc_mode.c
+        ${CMAKE_SOURCE_DIR}/tests/unit/support/ipc_stub_backend.c)
+    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        target_link_libraries(test_bus_ipc_mode PRIVATE
+            "-Wl,--start-group"
+            unity bm_core bm_hal bm_hal_native
+            "-Wl,--end-group")
+    else()
+        target_link_libraries(test_bus_ipc_mode PRIVATE
+            unity bm_core bm_hal bm_hal_native)
+    endif()
+    bm_target_internal_includes(test_bus_ipc_mode)
+    target_include_directories(test_bus_ipc_mode PRIVATE
+        ${CMAKE_SOURCE_DIR}/tests/unit/unity
+        ${CMAKE_SOURCE_DIR}/tests/unit)
+    add_test(NAME test_bus_ipc_mode COMMAND test_bus_ipc_mode)
 endif()
 
 if(BM_ENABLE_SHELL)

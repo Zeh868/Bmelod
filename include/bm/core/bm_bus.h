@@ -1,15 +1,16 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_bus.h
- * @brief bm_bus 统一数据总线门面（LATEST / QUEUE / SIGNAL / BLOCK）
+ * @brief bm_bus 统一数据总线门面（LATEST / QUEUE / SIGNAL / BLOCK / IPC）
  *
  * 有界环后端，三种 mode 共用一份借还 API：SIGNAL 为单写多读（SPMC），LATEST/QUEUE 为单读者。
  * BLOCK 模式以控制反转方式委托 bm_block_backend_iface_t 后端（如 bm_stream adapter）实现，
+ * IPC 模式以控制反转方式委托 bm_ipc_backend_iface_t 后端（跨核暂存 + CRC + seqlock），
  * 依赖方向保持 hybrid→core，bus 核心不引用任何 hybrid 类型。
  * 编译期用 BM_BUS_DEFINE 静态分配存储，零动态分配。
  * @author zeh (china_qzh@163.com)
- * @version 0.5
- * @date 2026-06-26
+ * @version 0.6
+ * @date 2026-06-27
  *
  * @par 修改日志:
  *
@@ -19,6 +20,7 @@
  * 2026-06-26       0.3            zeh            Phase 2 BLOCK 控制反转：bm_bus_bind_block_backend + 专用 produce/consume 入口
  * 2026-06-26       0.4            zeh            新增 bm_bus_reset()：freeze 对称解冻/复位，与 bm_event_reset() 语义对称
  * 2026-06-26       0.5            zeh            seqlock 多读者 LATEST 读：新增 latest_seq + bm_bus_latest_read（增量并存方案）
+ * 2026-06-27       0.6            zeh            BM_BUS_IPC 控制反转：bm_bus_bind_ipc_backend + 五入口 IPC 分流
  *
  */
 #ifndef BM_BUS_H
@@ -27,6 +29,7 @@
 #include "bm/common/bm_atomic_ipc.h"
 #include "bm/common/bm_types.h"
 #include "bm/core/bm_block_backend.h"
+#include "bm/core/bm_ipc_backend.h"
 #include <stdint.h>
 
 /* =========================================================================
@@ -42,10 +45,15 @@ typedef enum {
     BM_BUS_LATEST = 0,   /**< 最新值，覆盖式，读者不持游标；单读者（SPSC），多消费者请用 SIGNAL */
     BM_BUS_QUEUE  = 1,   /**< SPSC 保序队列，单消费者 */
     BM_BUS_SIGNAL = 2,   /**< 多消费者独立游标，保序 */
-    BM_BUS_BLOCK  = 3    /**< 块流模式，以控制反转委托 bm_block_backend_iface_t 后端（如 bm_stream adapter）；
+    BM_BUS_BLOCK  = 3,   /**< 块流模式，以控制反转委托 bm_block_backend_iface_t 后端（如 bm_stream adapter）；
                               BLOCK 实例不使用 data_buf 三缓冲，存储由后端持有；
                               SPSC 单读者（继承 bm_stream 语义）；需 freeze 前调用
                               bm_bus_bind_block_backend 绑定后端，否则 BLOCK 入口返回 BM_ERR_INVALID */
+    BM_BUS_IPC    = 4    /**< IPC 跨核模式，以控制反转委托 bm_ipc_backend_iface_t 后端（暂存 + CRC + seqlock）；
+                              存储与游标由后端持有，bus 仅分流 vtable 调用；
+                              需 freeze 前调用 bm_bus_bind_ipc_backend 绑定后端，
+                              否则 IPC 五入口返回 BM_ERR_INVALID；
+                              cap 约束豁免（bus 不感知后端内部容量） */
 } bm_bus_mode_t;
 
 /* =========================================================================
@@ -95,6 +103,9 @@ typedef struct {
     /* --- BLOCK 后端（仅 BLOCK 模式有效；bm_bus_bind_block_backend 写入，之后只读） --- */
     const bm_block_backend_iface_t *block_iface; /**< BLOCK 后端 vtable 指针；NULL = 未绑定 */
     void                           *block_ctx;   /**< BLOCK 后端上下文（bm_stream_t * 等） */
+    /* --- IPC 后端（仅 IPC 模式有效；bm_bus_bind_ipc_backend 写入，之后只读） --- */
+    const bm_ipc_backend_iface_t   *ipc_iface;  /**< IPC 后端 vtable 指针；NULL = 未绑定 */
+    void                           *ipc_ctx;    /**< IPC 后端上下文（fifo_stub_t / latest_stub_t 等） */
 } bm_bus_storage_t;
 
 /**
@@ -164,6 +175,7 @@ typedef struct {
     typedef char _bm_bus_cap_check_##name[((cap_) >= 2u) ? 1 : -1];       \
     typedef char _bm_bus_pow2_check_##name[                                \
         ((mode_) == BM_BUS_LATEST || (mode_) == BM_BUS_BLOCK ||            \
+         (mode_) == BM_BUS_IPC   ||                                        \
          (((cap_) & ((cap_) - 1u)) == 0u)) ? 1 : -1];                     \
     static uint8_t _bm_bus_data_##name[(cap_) * sizeof(type)];             \
     static bm_bus_reader_slot_t _bm_bus_readers_##name[(maxcons_)];        \
@@ -481,6 +493,30 @@ int bm_bus_block_consume_acquire(bm_bus_t *h, void **block_out);
  * @return BM_OK 成功；BM_ERR_INVALID 未绑定或参数非法；BM_ERR_NOT_SUPPORTED 非 BLOCK 模式
  */
 int bm_bus_block_consume_release(bm_bus_t *h, void *block);
+
+/* =========================================================================
+ * IPC 模式专用 API
+ * ========================================================================= */
+
+/**
+ * @brief 绑定 IPC 后端（仅 IPC 模式合法，必须在 freeze 之前调用）
+ *
+ * 将 vtable 指针与上下文写入 storage->ipc_iface/ipc_ctx。freeze 后拒绝绑定。
+ * 重复 bind（未 freeze 前）覆盖旧绑定。freeze 后调用返回 BM_ERR_BUSY。
+ * 非 IPC 模式调用返回 BM_ERR_NOT_SUPPORTED。
+ *
+ * @par 多核契约
+ * bind 须在 freeze 之前、由单一协调流程串行调用；与 reader_attach 串行契约同构。
+ *
+ * @param h     bus 句柄指针
+ * @param iface IPC 后端 vtable 指针（生命期须覆盖 bus 整个运行期）
+ * @param ctx   IPC 后端上下文（如 fifo_stub_t *，传递给 vtable 各函数）
+ * @return BM_OK 成功；BM_ERR_INVALID 参数非法；BM_ERR_BUSY 已 freeze；
+ *         BM_ERR_NOT_SUPPORTED 非 IPC 模式
+ */
+int bm_bus_bind_ipc_backend(bm_bus_t *h,
+                              const bm_ipc_backend_iface_t *iface,
+                              void *ctx);
 
 /**
  * @brief LATEST 多观察者拷出式读：将最新发布值 memcpy 到调用者缓冲区

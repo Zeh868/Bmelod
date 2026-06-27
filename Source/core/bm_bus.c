@@ -1,14 +1,15 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_bus.c
- * @brief bm_bus 统一数据总线实现（LATEST/QUEUE/SIGNAL 环后端 + BLOCK 控制反转委托）
+ * @brief bm_bus 统一数据总线实现（LATEST/QUEUE/SIGNAL 环后端 + BLOCK/IPC 控制反转委托）
  *
  * LATEST / QUEUE / SIGNAL 三种 mode 共用同一套借还逻辑，并发层按
  * BM_CONFIG_CPU_COUNT 切换。零动态分配，写者 O(1) 无阻塞。
- * BLOCK 模式以控制反转方式透传至 bm_block_backend_iface_t 后端，core 层不引用任何 hybrid 类型。
+ * BLOCK 模式以控制反转方式透传至 bm_block_backend_iface_t 后端，
+ * IPC 模式以控制反转方式透传至 bm_ipc_backend_iface_t 后端，core 层不引用任何 hybrid 类型。
  * @author zeh (china_qzh@163.com)
- * @version 0.9
- * @date 2026-06-26
+ * @version 1.0
+ * @date 2026-06-27
  *
  * @par 修改日志:
  *
@@ -22,6 +23,7 @@
  * 2026-06-26       0.7            zeh            Phase 2 BLOCK 控制反转：bm_bus_bind_block_backend + 专用 produce/consume 六入口；open 初始化 block 字段
  * 2026-06-26       0.8            zeh            新增 bm_bus_reset()：freeze 对称解冻/复位，与 bm_event_reset() 语义对称
  * 2026-06-26       0.9            zeh            seqlock 多读者 LATEST 读：latest_seq 字段 + bm_bus_latest_read 增量并存方案
+ * 2026-06-27       1.0            zeh            BM_BUS_IPC 控制反转：bm_bus_bind_ipc_backend + 五入口 IPC 分流（无分配无循环）
  *
  */
 #include "bm/core/bm_bus.h"
@@ -103,7 +105,8 @@ static int bus_storage_valid(const bm_bus_storage_t *st) {
         return BM_ERR_INVALID;
     }
     if (st->mode != BM_BUS_LATEST && st->mode != BM_BUS_QUEUE &&
-        st->mode != BM_BUS_SIGNAL && st->mode != BM_BUS_BLOCK) {
+        st->mode != BM_BUS_SIGNAL && st->mode != BM_BUS_BLOCK &&
+        st->mode != BM_BUS_IPC) {
         return BM_ERR_INVALID;
     }
     if (st->mode == BM_BUS_QUEUE && st->max_consumers != 1u) {
@@ -164,6 +167,9 @@ int bm_bus_open(bm_bus_t *h, bm_bus_storage_t *storage,
     /* BLOCK 后端字段：open 时清零，bind 后写入，之后只读 */
     storage->block_iface       = NULL;
     storage->block_ctx         = NULL;
+    /* IPC 后端字段：open 时清零，bm_bus_bind_ipc_backend 后写入，之后只读 */
+    storage->ipc_iface         = NULL;
+    storage->ipc_ctx           = NULL;
     for (i = 0u; i < storage->max_consumers; i++) {
         bus_store_cur(&storage->readers[i].read_cur, 0u);
         storage->readers[i].overflow_count = 0u;
@@ -360,6 +366,11 @@ int bm_bus_acquire_write(bm_bus_t *h, void **slot_out) {
     if (st->mode == BM_BUS_BLOCK) {
         return BM_ERR_NOT_SUPPORTED;
     }
+    /* IPC 分流：判 NULL + 透传 vtable，一跳返回；后端自管重入与满判 */
+    if (st->mode == BM_BUS_IPC) {
+        if (!st->ipc_iface) { return BM_ERR_INVALID; }
+        return st->ipc_iface->acquire_write(st->ipc_ctx, slot_out);
+    }
     /* 写路径 owner 守卫：多核下拒绝非 owner 核写入，单核 no-op（bm_cpu_is_owner 编译期内联）。
      * 对应 bm_bus.h §写路径契约：多核由 bm_cpu_is_owner 强制（单核 no-op）。 */
     if (!bm_cpu_is_owner(st->owner_cpu)) {
@@ -425,6 +436,11 @@ int bm_bus_commit(bm_bus_t *h) {
     if (st->mode == BM_BUS_BLOCK) {
         return BM_ERR_NOT_SUPPORTED;
     }
+    /* IPC 分流：判 NULL + 透传 vtable commit，后端执行共享区拷贝+CRC+seqlock */
+    if (st->mode == BM_BUS_IPC) {
+        if (!st->ipc_iface) { return BM_ERR_INVALID; }
+        return st->ipc_iface->commit(st->ipc_ctx);
+    }
     /* 写路径 owner 守卫：与 acquire_write 对称，多核下确保提交方仍为 owner 核。 */
     if (!bm_cpu_is_owner(st->owner_cpu)) {
         return BM_ERR_INVALID;
@@ -484,6 +500,11 @@ int bm_bus_abort(bm_bus_t *h) {
         return BM_ERR_INVALID;
     }
     st = h->storage;
+    /* IPC 分流：判 NULL + 透传 vtable abort，后端清写暂存 */
+    if (st->mode == BM_BUS_IPC) {
+        if (!st->ipc_iface) { return BM_ERR_INVALID; }
+        return st->ipc_iface->abort(st->ipc_ctx);
+    }
     /* 写路径 owner 守卫：abort 属写路径，与 acquire_write/commit 约束对称。 */
     if (!bm_cpu_is_owner(st->owner_cpu)) {
         return BM_ERR_INVALID;
@@ -541,6 +562,20 @@ int bm_bus_reader_attach(bm_bus_t *h, bm_bus_reader_t *r) {
         /* LATEST：单读者 SPSC 约束——reader_count 追踪是否已有读者 attach。
          * reader_count == 0 表示空闲可 attach，否则已有读者拒绝（返回 BM_ERR_INVALID）。
          * LATEST 不持游标，不占 max_consumers 配额，但 reader_count 仍递增以追踪唯一性。 */
+        if (st->reader_count >= 1u) {
+            BUS_UNLOCK(s);
+            return BM_ERR_INVALID;
+        }
+        st->reader_count++;
+        r->storage  = st;
+        r->slot_idx = UINT32_MAX;
+        BUS_UNLOCK(s);
+        return BM_OK;
+    }
+
+    if (st->mode == BM_BUS_IPC) {
+        /* IPC：后端自管游标与存储，bus 仅记录读者唯一性（单读者约束）。
+         * slot_idx = UINT32_MAX 表示不占 readers[] 配额，reader_count 仅追踪唯一性。 */
         if (st->reader_count >= 1u) {
             BUS_UNLOCK(s);
             return BM_ERR_INVALID;
@@ -662,6 +697,12 @@ int bm_bus_acquire_read(bm_bus_reader_t *r, const void **slot_out) {
         return BM_OK;
     }
 
+    /* IPC 分流：判 NULL + 透传 vtable acquire_read；后端负责共享区→暂存 + CRC 校验 */
+    if (st->mode == BM_BUS_IPC) {
+        if (!st->ipc_iface) { return BM_ERR_INVALID; }
+        return st->ipc_iface->acquire_read(st->ipc_ctx, slot_out);
+    }
+
     /* QUEUE / SIGNAL */
     if (r->slot_idx >= st->max_consumers) {
         return BM_ERR_INVALID;
@@ -734,6 +775,11 @@ int bm_bus_release(bm_bus_reader_t *r) {
         /* 清 reading 标记，释放该槽供写者复用 */
         bus_store_cur(&st->latest_reading, BM_BUS_LATEST_NONE);
         return BM_OK;
+    }
+    /* IPC 分流：判 NULL + 透传 vtable release；FIFO 后端推进读游标，LATEST 后端幂等 */
+    if (st->mode == BM_BUS_IPC) {
+        if (!st->ipc_iface) { return BM_ERR_INVALID; }
+        return st->ipc_iface->release(st->ipc_ctx);
     }
     if (r->slot_idx >= st->max_consumers) {
         return BM_ERR_INVALID;
@@ -855,6 +901,51 @@ int bm_bus_bind_block_backend(bm_bus_t *h,
     BUS_UNLOCK(s);
 
     BM_LOGD("bus", "block_backend bound mode=BLOCK owner_cpu=%u",
+            (unsigned)st->owner_cpu);
+    return BM_OK;
+}
+
+/* ------------------------------------------------------------------ */
+/* IPC 模式专用接口实现                                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * @brief 绑定 IPC 后端（仅 IPC 模式合法，必须在 freeze 之前调用）
+ *
+ * 将 vtable 指针与上下文写入 storage->ipc_iface/ipc_ctx。freeze 后拒绝绑定。
+ * 重复 bind（未 freeze 前）覆盖旧绑定。非 IPC 模式返回 BM_ERR_NOT_SUPPORTED。
+ *
+ * @param h     bus 句柄
+ * @param iface IPC 后端 vtable 指针
+ * @param ctx   IPC 后端上下文
+ * @return BM_OK 成功；BM_ERR_INVALID 参数非法；BM_ERR_BUSY 已 freeze；
+ *         BM_ERR_NOT_SUPPORTED 非 IPC 模式
+ */
+int bm_bus_bind_ipc_backend(bm_bus_t *h,
+                              const bm_ipc_backend_iface_t *iface,
+                              void *ctx) {
+    bm_bus_storage_t *st;
+    bm_irq_state_t s;
+
+    if (!h || !h->storage || !iface) {
+        return BM_ERR_INVALID;
+    }
+    st = h->storage;
+
+    if (st->mode != BM_BUS_IPC) {
+        return BM_ERR_NOT_SUPPORTED;
+    }
+
+    BUS_LOCK(&s);
+    if (st->frozen) {
+        BUS_UNLOCK(s);
+        return BM_ERR_BUSY;
+    }
+    st->ipc_iface = iface;
+    st->ipc_ctx   = ctx;
+    BUS_UNLOCK(s);
+
+    BM_LOGD("bus", "ipc_backend bound mode=IPC owner_cpu=%u",
             (unsigned)st->owner_cpu);
     return BM_OK;
 }
