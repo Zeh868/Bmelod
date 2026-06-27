@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_arch_portmacro.h
  * @brief 桩架构宏（CI 无硬件单元测试）

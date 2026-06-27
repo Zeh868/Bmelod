@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_lite.h
  * @brief Lite 层聚合头：核心事件子系统 + 可选应用组件

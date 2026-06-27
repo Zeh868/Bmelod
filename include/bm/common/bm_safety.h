@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_safety.h
  * @brief 框架内部安全算术与范围校验辅助（header-only）

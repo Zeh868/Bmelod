@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal_cpu_qemu_esp32_smp.c
  * @brief QEMU ESP32 Xtensa SMP CPU HAL（PRID / DPORT APP_CPU 释放）

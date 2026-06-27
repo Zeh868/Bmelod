@@ -1,6 +1,6 @@
 /**
  * @file bmp_algo_bms.c
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief BMS SOC 融合实现
  */
 #include "bmp/algo/bmp_algo_bms.h"

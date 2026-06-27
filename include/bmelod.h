@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bmelod.h
  * @brief Bmelod Baremetal 统一对外 API 入口

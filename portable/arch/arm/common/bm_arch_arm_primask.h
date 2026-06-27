@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_arch_arm_primask.h
  * @brief ARMv6-M / ARMv7-M 共享 primask / IPSR 内联原语

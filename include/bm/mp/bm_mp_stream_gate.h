@@ -1,6 +1,6 @@
 /**
  * @file bm_mp_stream_gate.h
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief MP 闭源扩展公共 API · 需 bm_mp
  *
  * 为 hard/block realtime profile 提供 stream 队列深度、服务率与

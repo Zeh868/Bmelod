@@ -17,7 +17,7 @@
  * 2026-06-23       0.2            zeh            落地 EKF_CV 融合模式；补 SPDX 头
  * 2026-06-23       0.3            zeh            补 exec_ops 声明；完善公共函数 Doxygen
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_ESTIMATION_FUSION_H
 #define BM_ESTIMATION_FUSION_H

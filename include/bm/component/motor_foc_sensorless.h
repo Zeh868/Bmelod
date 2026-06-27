@@ -16,7 +16,7 @@
  *
  * 电流环使用磁链观测器角度；命令 iq_ref_a 为 q 轴电流参考（A）。
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_MOTOR_FOC_SENSORLESS_H
 #define BM_MOTOR_FOC_SENSORLESS_H

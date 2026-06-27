@@ -1,6 +1,6 @@
 /**
  * @file bmp_algo_audio.h
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief K2 · 闭源 · 需 bm_mp 的音频 AGC 单段处理链
  */
 #ifndef BMP_ALGO_AUDIO_H

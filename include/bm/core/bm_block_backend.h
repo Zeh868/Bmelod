@@ -22,7 +22,7 @@
  *    Date         Version        Author          Description
  * 2026-06-26       1.0            zeh            初稿：BLOCK 模式控制反转 vtable
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_BLOCK_BACKEND_H
 #define BM_BLOCK_BACKEND_H

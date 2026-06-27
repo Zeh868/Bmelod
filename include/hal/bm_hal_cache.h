@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal_cache.h
  * @brief DMA / IPC payload cache maintenance 与 device barrier

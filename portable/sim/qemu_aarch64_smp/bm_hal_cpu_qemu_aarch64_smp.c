@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal_cpu_qemu_aarch64_smp.c
  * @brief QEMU AArch64 virt SMP CPU HAL（MPIDR / PSCI CPU_ON）

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_drv_nvs_native.c
  * @brief native_sim 非易失存储后端：文件仿真（路线图 #10）

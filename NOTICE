@@ -1,22 +1,22 @@
-Bmelod Baremetal
-Copyright (C) 2026 Bmelod contributors
-SPDX-License-Identifier: LGPL-3.0-or-later
+Bmelod Baremetal Framework
+Copyright (c) 2026 zeh (硬核嵌入式)
 
-This library is free software: you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published
-by the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+本项目采用双授权（dual-licensing）模式：
 
-This library is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
+  GPL-3.0-or-later  OR  商业授权（Commercial License）
 
-You should have received a copy of the GNU Lesser General Public License
-along with this library.  If not, see <https://www.gnu.org/licenses/>.
+- 开源侧：依据 GNU General Public License v3.0 或更新版本（见 LICENSE / COPYING.GPL3）
+  分发与使用。任何基于本项目的衍生作品在以二进制或源码形式分发时，须遵守 GPLv3
+  的传染性（copyleft）义务，包括开放对应完整源码。
+- 商业侧：若你无法或不愿遵守 GPLv3（例如需将本项目集成进闭源产品而不开放源码），
+  可向版权持有人购买商业授权，豁免 GPLv3 的开源义务。
+  商业授权联系邮箱：china_qzh@163.com（详见 COMMERCIAL-LICENSE.md）。
 
-The complete license texts are provided in COPYING.GPL3 and COPYING.LESSER.
+全部自有源码（Source/、include/、portable/ 中本项目文件）均带有
+SPDX-License-Identifier: GPL-3.0-or-later 标识。
 
-Third-party components bundled in this repository may use other
-licenses. See the SPDX-License-Identifier or license headers in
-those files (for example, Unity in tests/unit/unity/ is MIT).
+第三方组件（不在上述双授权范围内，各自保留其原始许可证）：
+- third_party/segger_rtt   —— SEGGER 自有许可证（BSD-1-Clause 式，宽松）
+- tests/unit/unity         —— MIT License
+
+版权所有 (c) 2026 zeh (硬核嵌入式)。保留一切未明确授予的权利。

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_drv_dma_stream.h
  * @brief DMA 块流设备驱动 API

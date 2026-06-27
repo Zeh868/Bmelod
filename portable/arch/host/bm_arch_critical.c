@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_arch_critical.c
  * @brief 宿主架构临界区（与 stub 相同语义，供单核 PC 测试）

@@ -16,7 +16,7 @@
  * 2026-06-17       0.2            zeh            pressure advance 线性模型
  * 2026-06-23       0.3            zeh            exec_ops 表；zv_compute_coeffs Doxygen；SPDX
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/component/additive_motion.h"
 #include "bm/algorithm/bm_algo_common.h"

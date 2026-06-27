@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
     .arm
     .cpu cortex-a15
     .fpu vfpv3-d16

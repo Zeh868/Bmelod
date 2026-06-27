@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal_pwm_sim.h
  * @brief 原生仿真 PWM 实例与测试辅助接口

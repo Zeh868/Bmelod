@@ -14,7 +14,7 @@
  * 2026-06-11       1.1            zeh            claim_count 上界与显式兼容矩阵
  * 2026-06-12       2.0            zeh            resource_class 可扩展 ID
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm_resource.h"
 #include "bm_config.h"

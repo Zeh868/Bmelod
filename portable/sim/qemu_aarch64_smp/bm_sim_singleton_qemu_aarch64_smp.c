@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_sim_singleton_qemu_aarch64_smp.c
  * @brief QEMU AArch64 virt SMP 仿真单例驱动（Generic Timer / PL011 / GICv2）

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal_nvs.h
  * @brief 非易失存储（NVS）后端接口（路线图 #10）

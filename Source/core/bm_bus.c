@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_bus.c
  * @brief bm_bus 统一数据总线实现（LATEST/QUEUE/SIGNAL 环后端 + BLOCK 控制反转委托）

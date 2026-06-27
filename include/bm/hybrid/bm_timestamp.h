@@ -18,7 +18,7 @@
  * 2026-06-14       1.1            zeh            clock_id 辅助
  * 2026-06-26       2.0            zeh            改为转发头（定义已下沉至 common，#9-1b）
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_TIMESTAMP_H
 #define BM_TIMESTAMP_H

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_drv_comp_native.c
  * @brief native_sim 比较器设备驱动

@@ -1,6 +1,6 @@
 /**
  * @file bm_mp_partition.h
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief MP 闭源扩展公共 API · 需 bm_mp
  *
  * `bm_mp_partition_build_and_validate()` 在 Bootstrap 阶段根据注册表与资源拓扑

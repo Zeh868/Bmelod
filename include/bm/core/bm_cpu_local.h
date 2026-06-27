@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_cpu_local.h
  * @brief CPU 本地访问辅助宏

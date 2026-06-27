@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_drv_dma_stream_native.c
  * @brief native_sim DMA 块流驱动（模拟 RX 完成回调）

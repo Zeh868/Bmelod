@@ -17,7 +17,7 @@
  * 2026-06-17       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            validate_config 噪声/权重校验；公共 API Doxygen；SPDX
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_NAVIGATION_FRONTEND_H
 #define BM_NAVIGATION_FRONTEND_H

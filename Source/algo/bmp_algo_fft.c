@@ -1,6 +1,6 @@
 /**
  * @file bmp_algo_fft.c
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief 增强 FFT 实现
  *
  * @author zeh (china_qzh@163.com)

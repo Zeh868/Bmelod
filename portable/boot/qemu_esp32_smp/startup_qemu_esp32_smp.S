@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
     .section .iram1.text, "ax"
     .global _start
     .type _start, @function

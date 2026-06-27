@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_vendor_adc_esp32_idf.h
  * @brief ESP32-WROOM-32E 板级 ADC 实例声明

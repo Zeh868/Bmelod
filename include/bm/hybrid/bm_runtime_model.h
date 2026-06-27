@@ -19,7 +19,7 @@
  * 2026-06-11       1.0            zeh            正式发布
  * 2026-06-12       1.1            zeh            增加 BM_RUNTIME_STREAM
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_RUNTIME_MODEL_H
 #define BM_RUNTIME_MODEL_H

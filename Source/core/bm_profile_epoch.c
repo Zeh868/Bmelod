@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_profile_epoch.c
  * @brief profile 代际查询注册表实现

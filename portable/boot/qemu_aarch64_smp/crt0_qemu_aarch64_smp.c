@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file crt0_qemu_aarch64_smp.c
  * @brief QEMU AArch64 virt SMP 启动：复制 .data 并清零 .bss

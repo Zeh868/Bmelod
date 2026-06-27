@@ -1,6 +1,6 @@
 /**
  * @file bm_mp_wdg.c
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief 多核 heartbeat 聚合监督实现
  *
  * @author zeh (china_qzh@163.com)

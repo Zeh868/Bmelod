@@ -1,6 +1,6 @@
 /**
  * @file bm_mp_cpu.h
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief MP 闭源扩展公共 API · 需 bm_mp
  *
  * 提供 `BM_CPU_THIS()`、`bm_mp_cpu_valid()` 及与 IPC 布局一致的

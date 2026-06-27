@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_log.h
  * @brief 分级日志接口（ERROR / WARN / INFO / DEBUG / TRACE）

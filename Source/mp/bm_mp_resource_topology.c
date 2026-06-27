@@ -1,6 +1,6 @@
 /**
  * @file bm_mp_resource_topology.c
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief 资源拓扑注册与亲和闭包校验实现
  *
  * @author zeh (china_qzh@163.com)

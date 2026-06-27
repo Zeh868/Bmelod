@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal_uptime_native.h
  * @brief native_sim 单调时钟测试辅助接口

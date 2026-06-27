@@ -1,6 +1,6 @@
 /**
  * @file bm_mp_resource_topology.h
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief MP 闭源扩展公共 API · 需 bm_mp
  *
  * 分区器依据只读拓扑表验证 `owner_cpu`、IRQ、DMA 与 claim mask 的交集恰为一位。

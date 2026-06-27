@@ -1,6 +1,6 @@
 /**
  * @file bmp_algo_motor_ekf.h
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief K2 · 闭源 · 需 bm_mp 的高级无感观测器：EKF 扩展卡尔曼滤波
  *
  * 基于 αβ 坐标系电机模型的状态估计，输出转子电角度与角速度。

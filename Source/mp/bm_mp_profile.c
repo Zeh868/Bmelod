@@ -1,6 +1,6 @@
 /**
  * @file bm_mp_profile.c
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief hard/block realtime profile 构建实现
  *
  * @author zeh (china_qzh@163.com)

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal.h
  * @brief HAL 契约聚合入口（核心外设；按需裁剪）

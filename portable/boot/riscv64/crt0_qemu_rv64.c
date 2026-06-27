@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file crt0_qemu_rv64.c
  * @brief QEMU RISC-V64 virt 启动：复制 .data 并清零 .bss

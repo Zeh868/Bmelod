@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_sim_critical_mp_native.c
  * @brief native_sim 多核 per-CPU 临界区（仅 BM_ENABLE_MP 时编译）

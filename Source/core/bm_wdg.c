@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_wdg.c
  * @brief 软件看门狗模块注册与喂狗实现

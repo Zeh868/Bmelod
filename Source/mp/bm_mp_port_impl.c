@@ -1,6 +1,6 @@
 /**
  * @file bm_mp_port_impl.c
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief 多核看门狗放行钩子安装（取代旧 bm_mp_port 弱符号 seam）
  * @author zeh (china_qzh@163.com)
  * @version 1.0

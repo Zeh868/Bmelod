@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_arch_memory.c
  * @brief ARMv7E-M 内存屏障实现

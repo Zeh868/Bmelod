@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hrt.c
  * @brief 高分辨率定时（HRT）调度器实现

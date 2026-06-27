@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_bus.h
  * @brief bm_bus 统一数据总线门面（LATEST / QUEUE / SIGNAL / BLOCK）

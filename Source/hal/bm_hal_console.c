@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal_console.c
  * @brief Console HAL 分发层（按通道选择编译期后端）

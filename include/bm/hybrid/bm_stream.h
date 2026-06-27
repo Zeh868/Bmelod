@@ -21,7 +21,7 @@
  * 2026-06-12       1.0            zeh            正式发布
  * 2026-06-14       1.1            zeh            commit/drain 解耦；owner_cpu / pending_drain
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_STREAM_H
 #define BM_STREAM_H

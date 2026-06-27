@@ -1,6 +1,6 @@
 /**
  * @file bm_mp_partition.c
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief 静态分区表构建与校验
  *
  * 依据 event/module owner 预指定与 round-robin 策略生成只读 `bm_mp_partition_t`。

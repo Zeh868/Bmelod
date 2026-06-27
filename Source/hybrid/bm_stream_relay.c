@@ -12,7 +12,7 @@
  * 2026-06-14       1.0            zeh            正式发布
  * 2026-06-14       1.1            zeh            profile_epoch 钩子
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/hybrid/bm_stream_relay.h"
 #include "bm/common/bm_profile_epoch.h"

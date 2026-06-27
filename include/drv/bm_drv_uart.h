@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_drv_uart.h
  * @brief UART 驱动 API（平台单例后端实现）

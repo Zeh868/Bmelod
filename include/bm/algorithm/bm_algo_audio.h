@@ -15,7 +15,7 @@
  * 2026-06-17       1.2            zeh            delay-and-sum 波束成形
  * 2026-06-17       1.3            zeh            对角加载 MVDR（E1）
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_ALGO_AUDIO_H
 #define BM_ALGO_AUDIO_H

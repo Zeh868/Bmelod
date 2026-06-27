@@ -1,6 +1,6 @@
 /**
  * @file bm_mp_wdg.h
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief MP 闭源扩展公共 API · 需 bm_mp
  *
  * 每核周期性递增 `cpu_hb_seq`；任意核调用 `bm_mp_wdg_bootstrap_check()` 可检

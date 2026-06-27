@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_vendor_encoder_esp32_idf.c
  * @brief ESP32-WROOM-32E 板级 AS5600 编码器硬件 I2C 实现（LL 裸机）

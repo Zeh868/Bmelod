@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_log.c
  * @brief 分级日志实现：按 CPU 分域的 ring 或直写输出钩子

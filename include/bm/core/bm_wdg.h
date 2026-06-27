@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_wdg.h
  * @brief 软件看门狗：由应用 main 主循环统一喂硬件狗

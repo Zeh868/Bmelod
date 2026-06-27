@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_ultra.h
  * @brief 超轻量事件队列（单 TU 队列 + 编译期回调表）

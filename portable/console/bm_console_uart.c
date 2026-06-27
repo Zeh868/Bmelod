@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_console_uart.c
  * @brief Console UART 后端（转发 bm_hal_uart）

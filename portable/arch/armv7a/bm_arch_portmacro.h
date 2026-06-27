@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_arch_portmacro.h
  * @brief ARMv7-A 架构宏（CPSR / 内存屏障 / 让步）

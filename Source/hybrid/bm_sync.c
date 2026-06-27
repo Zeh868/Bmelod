@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_sync.c
  * @brief 控制实例硬件同步域实现

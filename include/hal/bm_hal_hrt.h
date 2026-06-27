@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal_hrt.h
  * @brief HAL 与 HRT 共用的硬件事件回调绑定类型

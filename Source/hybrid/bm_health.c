@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_health.c
  * @brief 运行时健康快照薄聚合层实现

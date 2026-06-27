@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_vendor_singleton_esp32_idf.c
  * @brief ESP32 后端的 timer / UART / WDT 单例实现（Phase 3：驱动层收尾）

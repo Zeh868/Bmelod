@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file tinyml_tflm_bridge.h
  * @brief TinyML 与 TFLite Micro 集成桥接契约（纯头文件，无 TFLM 库依赖）

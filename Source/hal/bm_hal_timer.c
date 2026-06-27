@@ -1,4 +1,5 @@
-﻿/**
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/**
  * @file bm_hal_timer.c
  * @brief 瀹氭椂鍣?HAL 鍒嗗彂灞傦紙濂戠害 鈫?driver API锛?
  *

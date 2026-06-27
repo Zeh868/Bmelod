@@ -16,7 +16,7 @@
  *
  * 对齐路线图 §5.3 pack_estimator：低频 SOC 估算，无 HAL 硬编码。
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_BMS_ESTIMATION_H
 #define BM_BMS_ESTIMATION_H

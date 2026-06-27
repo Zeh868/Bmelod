@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal_memory.c
  * @brief 内存屏障 HAL 分发层（契约 → driver API）

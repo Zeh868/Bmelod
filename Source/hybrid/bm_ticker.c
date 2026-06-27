@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_ticker.c
  * @brief 毫秒级周期事件发布器实现

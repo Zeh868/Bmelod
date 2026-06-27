@@ -12,7 +12,7 @@
  * 2026-06-17       0.2            zeh            接入 soc_ekf 模式
  * 2026-06-23       0.3            zeh            补 SPDX 与函数级 Doxygen
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/component/bms_estimation.h"
 #include "bm/algorithm/bm_algo_common.h"

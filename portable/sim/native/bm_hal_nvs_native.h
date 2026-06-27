@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal_nvs_native.h
  * @brief native_sim NVS 测试辅助接口（路线图 #10）

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_sim_singleton_qemu_rv64_smp.c
  * @brief QEMU RISC-V64 virt SMP 单例驱动（CLINT 定时器 / ns16550a UART / 看门狗桩）

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file crt0_qemu_rv64_smp.c
  * @brief QEMU RISC-V64 virt SMP 启动：.data/.bss 初始化与从核 mailbox

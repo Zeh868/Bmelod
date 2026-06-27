@@ -13,7 +13,7 @@
  * 2026-06-13       1.0            zeh            初始版本
  * 2026-06-17       1.1            zeh            Wh 积分与谐波分组
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_ALGO_POWER_QUALITY_H
 #define BM_ALGO_POWER_QUALITY_H

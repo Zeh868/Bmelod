@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file crt0_qemu_esp32_smp.c
  * @brief QEMU ESP32 Xtensa SMP 启动：.data/.bss 初始化与 APP_CPU 入口桩

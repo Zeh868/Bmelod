@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_sim_singleton_qemu_riscv64.c
  * @brief QEMU RISC-V64 virt 仿真单例驱动（定时器 / UART / 看门狗桩）

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_recorder.h
  * @brief 同核录波环原语（黑匣子）

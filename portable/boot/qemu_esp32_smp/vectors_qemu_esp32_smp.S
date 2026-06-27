@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file vectors_qemu_esp32_smp.S
  * @brief QEMU ESP32 Xtensa SMP Level1 中断向量与 TIMG0 T0 分发

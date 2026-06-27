@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_vendor_adc_esp32_idf.c
  * @brief ESP32-WROOM-32E ADC1 采样实现（Phase 2：ISR 内软触发）

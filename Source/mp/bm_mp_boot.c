@@ -1,6 +1,6 @@
 /**
  * @file bm_mp_boot.c
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief PERCPU 多阶段启动状态机实现
  *
  * native_sim 单核路径简化为本地状态机；多核时通过共享矩阵 boot_phase 同步。

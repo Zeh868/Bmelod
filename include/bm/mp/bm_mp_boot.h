@@ -1,6 +1,6 @@
 /**
  * @file bm_mp_boot.h
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief MP 闭源扩展公共 API · 需 bm_mp
  *
  * 协调 Bootstrap/Secondary 的多阶段 barrier、分区 CRC 校验与 IRQ release 门控。

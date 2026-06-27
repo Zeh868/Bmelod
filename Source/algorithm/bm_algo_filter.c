@@ -12,7 +12,7 @@
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-23       1.1            zeh            修正 BIQUAD_BPF 系数：去除误混入的 peaking 增益因子 A，改回标准恒幅 BPF
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_filter.h"
 #include "bm/algorithm/bm_algo_common.h"

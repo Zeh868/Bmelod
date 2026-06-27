@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_idle.h
  * @brief 应用层空闲钩子（路线图 #8 省电/空闲钩子）

@@ -1,6 +1,6 @@
 /**
  * @file bm_mp_schedule.h
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief MP 闭源扩展公共 API · 需 bm_mp
  *
  * @author zeh (china_qzh@163.com)

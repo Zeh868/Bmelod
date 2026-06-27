@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_arch_critical.c
  * @brief ARMv7-A 临界区实现（CPSR I/F 保存/恢复）

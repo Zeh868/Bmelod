@@ -16,7 +16,7 @@
  * 2026-06-17       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 exec_ops 封装声明；validate_config 字段校验
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_SOLAR_CONTROL_H
 #define BM_SOLAR_CONTROL_H

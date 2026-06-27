@@ -1,6 +1,6 @@
 /**
  * @file bm_mp.h
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief MP 闭源扩展公共 API · 需 bm_mp
  *
  * 单 ELF 多核对称运行时入口：`bm_mp_cpu_main()` 主循环顺序为

@@ -16,7 +16,7 @@
  * 2026-06-23       0.2            zeh            补 validate_config Smith 参数校验；补 exec_ops 封装
  * 2026-06-23       0.3            zeh            修复 Smith 预估器 u_controller 误传 outer_out（应为 inner_out）
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/component/process_control.h"
 #include "bm/common/bm_types.h"

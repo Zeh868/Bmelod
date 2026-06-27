@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_arch_memory.c
  * @brief Xtensa 内存屏障实现（memw）

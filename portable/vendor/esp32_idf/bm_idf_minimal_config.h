@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_idf_minimal_config.h
  * @brief Bmelod 独立 CMake 构建 ESP32 后端时的最小 sdkconfig 占位

@@ -1,6 +1,6 @@
 /**
  * @file bm_mp_profile.h
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief MP 闭源扩展公共 API · 需 bm_mp
  *
  * 未闭合 §11.1 时 `bm_mp_profile_build()` 必须失败；experimental 剖面须显式配置。

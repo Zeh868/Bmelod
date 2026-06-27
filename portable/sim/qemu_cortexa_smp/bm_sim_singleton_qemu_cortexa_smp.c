@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_sim_singleton_qemu_cortexa_smp.c
  * @brief QEMU ARMv7-A virt SMP 仿真单例驱动（Generic Timer / PL011 / GICv2）

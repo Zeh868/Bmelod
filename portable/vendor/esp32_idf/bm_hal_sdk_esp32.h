@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal_sdk_esp32.h
  * @brief ESP32 裸机后端的 IDF 底层头入口

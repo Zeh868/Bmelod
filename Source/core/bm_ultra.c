@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_ultra.c
  * @brief Ultra 剖面事件队列实现（按 CPU 分域）

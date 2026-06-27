@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_persist.h
  * @brief 键值（KV）持久化存储公共 API（路线图 #10）

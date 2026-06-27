@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_uptime.h
  * @brief 全框架统一单调时钟公共 API

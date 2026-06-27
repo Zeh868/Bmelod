@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal_cpu_mp_native.h
  * @brief native_sim 多核 CPU HAL 测试辅助接口

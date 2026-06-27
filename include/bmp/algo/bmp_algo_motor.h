@@ -1,6 +1,6 @@
 /**
  * @file bmp_algo_motor.h
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief K2 · 闭源 · 需 bm_mp 的电机速度观测器（一维卡尔曼平滑）
  */
 #ifndef BMP_ALGO_MOTOR_H

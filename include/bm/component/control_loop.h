@@ -16,7 +16,7 @@
  * 2026-06-17       0.1            zeh            初始 K1 骨架
  * 2026-06-23       0.2            zeh            补 bm_exec_ops_t 标准调度封装接口
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_CONTROL_LOOP_H
 #define BM_CONTROL_LOOP_H

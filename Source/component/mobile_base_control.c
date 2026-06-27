@@ -15,7 +15,7 @@
  * 2026-06-17       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 exec_ops、Doxygen、SPDX
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/component/mobile_base_control.h"
 #include "bm/algorithm/bm_algo_common.h"

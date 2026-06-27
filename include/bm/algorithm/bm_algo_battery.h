@@ -14,7 +14,7 @@
  * 2026-06-23       1.1            zeh            SOH config 新增学习阈值与平滑系数字段；
  *                                                charge_ah 语义注释明确为原始 Ah（不含库仑效率）
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_ALGO_BATTERY_H
 #define BM_ALGO_BATTERY_H

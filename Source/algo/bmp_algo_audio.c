@@ -1,6 +1,6 @@
 /**
  * @file bmp_algo_audio.c
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief 音频 AGC 实现
  */
 #include "bmp/algo/bmp_algo_audio.h"

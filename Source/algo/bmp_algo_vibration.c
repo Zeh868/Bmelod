@@ -1,6 +1,6 @@
 /**
  * @file bmp_algo_vibration.c
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief 振动诊断实现
  */
 #include "bmp/algo/bmp_algo_vibration.h"

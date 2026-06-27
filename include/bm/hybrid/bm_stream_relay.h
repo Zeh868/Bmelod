@@ -17,7 +17,7 @@
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_STREAM_RELAY_H
 #define BM_STREAM_RELAY_H

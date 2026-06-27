@@ -1,6 +1,6 @@
 /**
  * @file bmp_algo_bms.h
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief K2 · 闭源 · 需 bm_mp 的 BMS SOC 融合：库仑计量 + OCV 加权
  */
 #ifndef BMP_ALGO_BMS_H

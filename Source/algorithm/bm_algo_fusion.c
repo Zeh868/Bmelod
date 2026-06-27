@@ -13,7 +13,7 @@
  * 2026-06-17       1.1            zeh            增加 IMU 偏置/比例标定
  * 2026-06-23       1.2            zeh            NaN 拦截改用 bm_algo_is_finite_f；Mahony 积分项增加对称限幅
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_fusion.h"
 #include "bm/algorithm/bm_algo_common.h"

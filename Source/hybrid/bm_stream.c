@@ -18,7 +18,7 @@
  * 2026-06-14       1.2            zeh            按 CPU 约束 on_ready/drain 同步路径
  * 2026-06-15       1.4            zeh            默认禁用 ready 回调并清理旧时间戳
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm_stream.h"
 #include "bm_log.h"

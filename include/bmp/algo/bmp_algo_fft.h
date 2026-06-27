@@ -1,6 +1,6 @@
 /**
  * @file bmp_algo_fft.h
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief K2 · 闭源 · 需 bm_mp 的增强 FFT：Hann 窗 + RFFT + 主峰检测
  *
  * 内部封装开源 K0 `bm_algo_rfft_f32_*`。

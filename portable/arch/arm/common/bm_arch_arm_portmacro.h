@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_arch_arm_portmacro.h
  * @brief ARM 架构层共享宏（primask / basepri 系列）

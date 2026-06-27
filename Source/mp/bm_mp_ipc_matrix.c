@@ -1,6 +1,6 @@
 /**
  * @file bm_mp_ipc_matrix.c
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief PERCPU IPC 矩阵实现
  *
  * N×N 有向 SPSC 事件环；读游标保存在目标核 endpoint 状态。

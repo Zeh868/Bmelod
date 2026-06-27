@@ -13,7 +13,7 @@
  * 2026-06-23       1.2            zeh            修正背隙补偿只增不减缺陷：换向时重置 backlash_offset 为 0 后重新渐进，保持渐进语义
  * 2026-06-23       1.3            zeh            背隙补偿升级为双向独立偏移：正向/反向各维护 offset_fwd/offset_rev，换向时切换至对应偏移继续渐进
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_compensation.h"
 #include <stddef.h>

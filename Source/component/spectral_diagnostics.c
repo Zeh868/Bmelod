@@ -17,7 +17,7 @@
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            STFT frame_size FFT 合法尺寸校验；Doxygen；SPDX
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/component/spectral_diagnostics.h"
 #include "bm/algorithm/bm_algo_fft.h"

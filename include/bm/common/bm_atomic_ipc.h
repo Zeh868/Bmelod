@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_atomic_ipc.h
  * @brief 可移植原子封装

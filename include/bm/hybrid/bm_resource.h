@@ -16,7 +16,7 @@
  * 2026-06-10       1.0            zeh            正式发布
  * 2026-06-12       2.0            zeh            resource_class 可扩展 ID
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_RESOURCE_H
 #define BM_RESOURCE_H

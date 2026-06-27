@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal_wdg.h
  * @brief 硬件看门狗 HAL 接口

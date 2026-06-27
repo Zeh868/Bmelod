@@ -14,7 +14,7 @@
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 validate_config PLL/PR 参数校验；补 exec_ops 封装
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/component/grid_control.h"
 #include "bm/common/bm_types.h"

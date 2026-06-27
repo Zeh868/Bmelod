@@ -16,7 +16,7 @@
  * 2026-06-23       0.2            zeh            落地 EKF_CV 融合模式：放行 validate、补 step 分支
  * 2026-06-23       0.3            zeh            补 exec_ops 封装；补全公共函数 Doxygen
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/component/estimation_fusion.h"
 #include "bm/common/bm_types.h"

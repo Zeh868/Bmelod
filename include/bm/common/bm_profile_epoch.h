@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_profile_epoch.h
  * @brief profile 代际查询钩子（解耦 bm_exec 与 bm_mp）

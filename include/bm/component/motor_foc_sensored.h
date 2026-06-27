@@ -22,7 +22,7 @@
  * 单实例包含双 HRT 槽语义：快环电流、慢环速度。命令/遥测由应用经 snapshot 注入。
  * HAL 句柄经 resources 注入，不包含板级初始化。
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_MOTOR_FOC_SENSORED_H
 #define BM_MOTOR_FOC_SENSORED_H

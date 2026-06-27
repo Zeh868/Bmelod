@@ -15,7 +15,7 @@
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 exec_ops 封装；补全公共函数 Doxygen；SPDX 头
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/component/bms_supervision.h"
 #include "bm/common/bm_types.h"

@@ -12,7 +12,7 @@
  * 2026-06-23       0.2            zeh            补全 Doxygen 中文注释；添加 SPDX 头
  * 2026-06-23       0.3            zeh            恢复计时比较加半个 dt 容差，消除浮点边界差一拍
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/component/fault_derating.h"
 #include "bm/common/bm_types.h"

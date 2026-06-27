@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_arch_portmacro.h
  * @brief AArch64 架构宏（DAIF / 内存屏障 / 让步）

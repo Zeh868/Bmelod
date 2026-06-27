@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_sim_singleton_qemu_esp32_smp.c
  * @brief QEMU ESP32 Xtensa SMP 单例驱动（TIMG0 定时器 / UART0 / 看门狗桩）

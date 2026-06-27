@@ -13,7 +13,7 @@
  * 2026-06-13       1.0            zeh            增加超声 ToF 检测
  * 2026-06-23       1.0            zeh            补齐 Doxygen 注释
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_detection.h"
 #include <stddef.h>

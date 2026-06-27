@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_crc32.h
  * @brief 共享 CRC32（Ethernet 多项式 0xEDB88320）工具

@@ -1,6 +1,6 @@
 /**
  * @file bm_mp.c
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief BM_MP_PERCPU 剖面入口与主循环
  *
  * 主循环顺序：stream drain → IPC drain → ticker → event process。

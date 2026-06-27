@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal_uptime.c
  * @brief 全框架统一单调时钟核心层实现

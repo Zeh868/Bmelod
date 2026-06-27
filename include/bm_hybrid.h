@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hybrid.h
  * @brief Control 层聚合头：HRT / Ticker / 多实例控制 / 同步域

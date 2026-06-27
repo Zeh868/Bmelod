@@ -19,7 +19,7 @@
  * 2026-06-24       0.5            zeh            speed_step 加 opt-in speed_feedback_sign
  *                                                （<0 翻 speed_meas，修镜像轴正反馈跑飞）
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/component/motor_foc_sensored.h"
 #include "bm/algorithm/bm_algo_common.h"

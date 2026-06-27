@@ -21,7 +21,7 @@
  * 2026-06-14       2.4            zeh            deadline miss 可注册处理；按 CPU clock_id
  * 2026-06-26       2.5            zeh            deadline 时间基迁至 bm_uptime_us()（#9-2a）
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm_exec.h"
 #include "bm_stream.h"

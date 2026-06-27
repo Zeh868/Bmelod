@@ -1,6 +1,6 @@
 /**
  * @file bmp_algo_vibration.h
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief K2 · 闭源 · 需 bm_mp 的振动诊断：RMS + Goertzel + 故障分数
  *
  * @author zeh (china_qzh@163.com)

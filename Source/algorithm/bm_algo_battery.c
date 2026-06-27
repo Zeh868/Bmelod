@@ -14,7 +14,7 @@
  *                                                添加有效循环阈值判定，并对学习容量做指数平滑；
  *                                                在 charge_ah 赋值处补充语义注释
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_battery.h"
 #include "bm/algorithm/bm_algo_common.h"

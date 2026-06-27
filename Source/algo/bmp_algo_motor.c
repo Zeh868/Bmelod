@@ -1,6 +1,6 @@
 /**
  * @file bmp_algo_motor.c
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief 电机速度观测器实现
  */
 #include "bmp/algo/bmp_algo_motor.h"

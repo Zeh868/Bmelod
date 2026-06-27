@@ -13,7 +13,7 @@
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-17       1.1            zeh            编码器 index/丢脉冲诊断
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_ALGO_MOTION_H
 #define BM_ALGO_MOTION_H

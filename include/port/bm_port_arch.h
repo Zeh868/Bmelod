@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_port_arch.h
  * @brief 架构 Port ID 字符串常量

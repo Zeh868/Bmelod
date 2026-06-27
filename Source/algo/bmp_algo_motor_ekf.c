@@ -1,6 +1,6 @@
 /**
  * @file bmp_algo_motor_ekf.c
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief 高级无感观测器 (EKF) 实现
  *
  * @author zeh (china_qzh@163.com)

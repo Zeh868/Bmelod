@@ -1,6 +1,6 @@
 /**
  * @file bm_mp_schedule.c
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief WCET / 响应时间静态校验实现
  *
  * @author zeh (china_qzh@163.com)

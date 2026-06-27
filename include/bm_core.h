@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_core.h
  * @brief 核心子系统聚合头（atomic、event、mempool、types）

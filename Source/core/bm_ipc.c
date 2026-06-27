@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_ipc.c
  * @brief 多核 IPC 协议实现

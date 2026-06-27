@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal_cpu_qemu_cortexa_smp.c
  * @brief QEMU ARMv7-A virt SMP CPU HAL（MPIDR / PSCI HVC CPU_ON）

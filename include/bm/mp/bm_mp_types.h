@@ -1,6 +1,6 @@
 /**
  * @file bm_mp_types.h
- * SPDX-License-Identifier: LicenseRef-Bmeflod-Proprietary
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief MP 闭源扩展公共 API · 需 bm_mp
  *
  * 定义 `BM_MP_*` 剖面枚举、`BM_CONFIG_CPU_COUNT` 与 `BM_MP_MULTICORE` 推导宏。

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal_timer_native.h
  * @brief 原生仿真定时器测试辅助接口

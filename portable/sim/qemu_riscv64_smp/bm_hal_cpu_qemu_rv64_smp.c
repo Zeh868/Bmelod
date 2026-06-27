@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal_cpu_qemu_rv64_smp.c
  * @brief QEMU RISC-V64 virt SMP CPU HAL（mhartid / mailbox / CLINT IPI）

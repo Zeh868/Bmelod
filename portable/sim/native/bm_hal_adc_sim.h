@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal_adc_sim.h
  * @brief 原生仿真 ADC 实例与测试辅助接口

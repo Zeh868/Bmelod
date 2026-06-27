@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_sim_singleton_qemu_cm0.c
  * @brief QEMU Cortex-M0 仿真单例驱动（定时器 / UART / 看门狗 / 单调时钟）

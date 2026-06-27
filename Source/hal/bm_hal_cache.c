@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal_cache.c
  * @brief cache maintenance 默认实现（native_sim / 无 D-cache 平台）

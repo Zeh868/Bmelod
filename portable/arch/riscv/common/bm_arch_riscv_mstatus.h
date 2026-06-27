@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_arch_riscv_mstatus.h
  * @brief RISC-V 32/64 共享 mstatus / mcause 内联原语
