@@ -33,6 +33,7 @@
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
+#include <stddef.h>   /* NULL：freestanding 工具链不经其它头隐式提供 */
 #include "bm/hybrid/bm_stream.h"
 #include "bm/core/bm_block_backend.h"
 

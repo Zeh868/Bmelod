@@ -107,7 +107,16 @@ if(BM_BACKEND STREQUAL "sdk_esp32_idf")
     set(BM_ENABLE_SEGGER_RTT ON CACHE BOOL "" FORCE)
 endif()
 
-# SMP 多核模式：自动启用 HRT/EXEC/STREAM 依赖，切换至 native_sim_mp 后端
+# 多核后端（native_sim_mp / *_smp）自带完整 CPU HAL（secondary hart 引导、
+# bm_hal_cpu_* 实现），必须关闭单核 cpu_stub 以避免符号重复定义。该判定只依赖
+# 后端选择，与 BM_CONFIG_SMP 解耦：core/hybrid 层的多核 qemu 测试可在不编译
+# bm_mp（BM_CONFIG_SMP=OFF）的前提下使用 SMP 后端。
+if(BM_BACKEND MATCHES "_smp$" OR BM_BACKEND STREQUAL "native_sim_mp")
+    set(BM_HAL_USE_CPU_STUB OFF CACHE BOOL "" FORCE)
+endif()
+
+# SMP 多核库模式：BM_CONFIG_SMP=ON 时编译 bm_ipc/bm_mp/bmp_algo 调度层，
+# 并自动拉齐其依赖（HRT/EXEC/STREAM/MODULE/WDG）。
 if(BM_CONFIG_SMP)
     set(BM_ENABLE_MODULE  ON CACHE BOOL "" FORCE)
     set(BM_ENABLE_HRT     ON CACHE BOOL "" FORCE)
@@ -115,7 +124,6 @@ if(BM_CONFIG_SMP)
     set(BM_ENABLE_EXEC    ON CACHE BOOL "" FORCE)
     set(BM_ENABLE_STREAM  ON CACHE BOOL "" FORCE)
     set(BM_ENABLE_WDG     ON CACHE BOOL "" FORCE)
-    # SMP 后端自带完整 CPU HAL（bm_hal_cpu_mp_native.c），禁用单核 stub 避免重复定义
     set(BM_HAL_USE_CPU_STUB OFF CACHE BOOL "" FORCE)
     if(BM_BUILD_TESTS AND NOT BM_BACKEND)
         set(BM_BACKEND "native_sim_mp" CACHE STRING "" FORCE)
