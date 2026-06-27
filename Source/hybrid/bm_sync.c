@@ -137,8 +137,10 @@ static int validate_domain(const bm_sync_domain_t *domain) {
         }
     }
 #if BM_CPU_LOCAL_ENABLE_ROUTE
-    if (!have_owner || owner_cpu >= BM_CONFIG_CPU_COUNT ||
-        owner_cpu != (uint8_t)BM_CPU_THIS()) {
+    /* 使用统一 owner 守卫原语代替手写范围 + 核号比较，语义等价：
+     * !have_owner → 未获得任何 owner_cpu（member_count>0 时不应发生）；
+     * !bm_cpu_is_owner(owner_cpu) → 当前核不是该域的 owner 核（多核强制）。 */
+    if (!have_owner || !bm_cpu_is_owner(owner_cpu)) {
         BM_LOGE("sync", "sync domain must be operated by its owner cpu");
         return BM_ERR_INVALID;
     }

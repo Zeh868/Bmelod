@@ -25,6 +25,7 @@
  *
  */
 #include "bm/core/bm_bus.h"
+#include "bm/core/bm_cpu_local.h"
 #include "bm_critical_wrap.h"
 #include "bm_log.h"
 #include "bm_safety.h"
@@ -359,6 +360,11 @@ int bm_bus_acquire_write(bm_bus_t *h, void **slot_out) {
     if (st->mode == BM_BUS_BLOCK) {
         return BM_ERR_NOT_SUPPORTED;
     }
+    /* 写路径 owner 守卫：多核下拒绝非 owner 核写入，单核 no-op（bm_cpu_is_owner 编译期内联）。
+     * 对应 bm_bus.h §写路径契约：多核由 bm_cpu_is_owner 强制（单核 no-op）。 */
+    if (!bm_cpu_is_owner(st->owner_cpu)) {
+        return BM_ERR_INVALID;
+    }
     if (st->mode == BM_BUS_LATEST) {
         /* LATEST 三缓冲：choose 避开 published 与 reading 两槽，选出写槽存入
          * latest_writing（scratch），commit 时以 release 序拷入 latest_published。
@@ -419,6 +425,10 @@ int bm_bus_commit(bm_bus_t *h) {
     if (st->mode == BM_BUS_BLOCK) {
         return BM_ERR_NOT_SUPPORTED;
     }
+    /* 写路径 owner 守卫：与 acquire_write 对称，多核下确保提交方仍为 owner 核。 */
+    if (!bm_cpu_is_owner(st->owner_cpu)) {
+        return BM_ERR_INVALID;
+    }
     if (st->mode == BM_BUS_LATEST) {
         /* LATEST 三缓冲 commit：以 release 序发布 latest_writing 写槽，
          * 同时以 seqlock 屏障保护 bm_bus_latest_read 多观察者拷出路径。
@@ -474,6 +484,10 @@ int bm_bus_abort(bm_bus_t *h) {
         return BM_ERR_INVALID;
     }
     st = h->storage;
+    /* 写路径 owner 守卫：abort 属写路径，与 acquire_write/commit 约束对称。 */
+    if (!bm_cpu_is_owner(st->owner_cpu)) {
+        return BM_ERR_INVALID;
+    }
     BUS_LOCK(&s);
     if (!st->write_in_progress) {
         BUS_UNLOCK(s);

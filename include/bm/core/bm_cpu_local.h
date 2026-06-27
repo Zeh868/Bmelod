@@ -64,4 +64,29 @@ static inline int bm_cpu_local_valid(void) {
     return BM_CPU_THIS() < BM_CONFIG_CPU_COUNT;
 }
 
+/**
+ * @brief 统一 owner 守卫原语：校验当前 CPU 是否有权操作指定 owner 对象。
+ *
+ * 单核（BM_CPU_LOCAL_ENABLE_ROUTE == 0）：编译期 no-op，恒返回 1，零运行开销。
+ * 多核（BM_CPU_LOCAL_ENABLE_ROUTE == 1）：
+ *   - @p owner 为 BM_CPU_ANY（0xFFu）时恒真——表示任意核均可操作；
+ *   - 否则要求 @p owner < BM_CONFIG_CPU_COUNT 且 BM_CPU_THIS() == @p owner。
+ *
+ * 各模块（bm_bus / bm_stream / bm_sync 等）在写路径与 owner-only 入口处统一调用
+ * 此原语替代各自手写的 `#if BM_CPU_LOCAL_ENABLE_ROUTE` owner 检查，避免重复。
+ *
+ * @param owner 待校验的 owner_cpu 字段值（来自 bm_stream_t / bm_bus_storage_t 等）
+ * @return 非 0 表示当前 CPU 是合法 owner；0 表示越权调用（多核）或单核 no-op（恒 1）
+ */
+static inline int bm_cpu_is_owner(uint8_t owner) {
+#if BM_CPU_LOCAL_ENABLE_ROUTE
+    return (owner == (uint8_t)BM_CPU_ANY) ||
+           ((owner < (uint8_t)BM_CONFIG_CPU_COUNT) &&
+            ((uint8_t)BM_CPU_THIS() == owner));
+#else
+    (void)owner;
+    return 1;
+#endif
+}
+
 #endif /* BM_CPU_LOCAL_H */

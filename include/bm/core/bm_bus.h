@@ -274,11 +274,11 @@ int bm_bus_validate(const bm_bus_t *h);
 /**
  * @brief 借出写槽（零拷贝），调用者向 *slot_out 写入数据后调用 commit 或 abort
  *
- * @par 多核契约（owner-only，框架不强制）
+ * @par 多核契约（owner-only，bm_cpu_is_owner 强制）
  * bus 为单写者 SPMC：写路径（acquire_write/commit/abort）**仅允许 owner_cpu 调用**。
  * 多核下重入保护由 `write_in_progress`（volatile，非原子 RMW）承担，其正确性依赖
- * "同一时刻只有 owner 核进入写路径"这一上层契约——框架**不**校验调用方 CPU，越权
- * 由非 owner 核写入会破坏重入保护。与 reader_attach 串行契约同构。
+ * "同一时刻只有 owner 核进入写路径"这一上层契约——多核下由 **bm_cpu_is_owner()** 守卫
+ * 拒绝非 owner 核进入写路径（返回 BM_ERR_INVALID）；单核编译为 no-op（零开销）。
  *
  * @param h        bus 句柄指针
  * @param slot_out 输出：写槽指针（类型强转后使用）
@@ -291,8 +291,8 @@ int bm_bus_acquire_write(bm_bus_t *h, void **slot_out);
 /**
  * @brief 提交写操作，发布数据并推进写游标
  *
- * @note owner-only：与 acquire_write 同属写路径，仅允许 owner_cpu 调用（契约见
- *       bm_bus_acquire_write，框架不强制）。
+ * @note owner-only：与 acquire_write 同属写路径，仅允许 owner_cpu 调用（多核下
+ *       由 bm_cpu_is_owner() 守卫强制，单核 no-op；详见 bm_bus_acquire_write 契约）。
  *
  * @param h bus 句柄指针
  * @return BM_OK 成功；BM_ERR_INVALID 句柄无效或无未完成的 acquire_write
@@ -376,15 +376,16 @@ int bm_bus_stats(const bm_bus_t *h, bm_bus_stats_t *out);
 /* =========================================================================
  * BLOCK 模式专用 API
  *
- * @par BLOCK 同核 SPSC 契约（owner-only，框架不强制）
+ * @par BLOCK 同核 SPSC 契约（owner-only）
  * BLOCK 模式经 bm_bus_bind_block_backend 委托给块流后端（如 hybrid 层 bm_stream），
  * 该后端是**同核 SPSC**：生产路径（block_produce_acquire/commit/abort）与消费路径
  * （block_consume_acquire/release）**必须由同一 owner_cpu 调用**。
  * 跨核消费（生产在 A 核、消费在 B 核）属**未定义/非法用法**——后端（bm_stream）以
- * `BM_CPU_THIS() == owner_cpu` 守卫，越权核调用将被拒（返回 BM_ERR_INVALID），且其
- * 内部状态机的 SPSC 无锁正确性本就依赖"同一核串行进出产消路径"这一前提。
- * 与 acquire_write 的 owner-only 写路径契约同构：bus core 层**不**校验调用方 CPU，
- * 同核约束由上层（及后端的 owner 守卫）保证。经 QEMU -smp 2 实测验证（见
+ * **bm_cpu_is_owner()** 统一守卫（多核强制，单核 no-op），越权核调用将被拒（返回
+ * BM_ERR_INVALID），且其内部状态机的 SPSC 无锁正确性本就依赖"同一核串行进出产消路径"
+ * 这一前提。bus core 层不再额外守卫 BLOCK 入口，避免与后端守卫形成双重拒绝与双重日志；
+ * 同核约束由后端 bm_stream 的 bm_cpu_is_owner() 守卫直接保证。
+ * 经 QEMU -smp 2 实测验证（见
  * docs/.../evidence/2026-06-26-bm-bus-block-ioc-verification.md）。
  * ========================================================================= */
 
@@ -416,7 +417,8 @@ int bm_bus_bind_block_backend(bm_bus_t *h,
  * 仅 BLOCK 模式合法；透传至已绑定后端的 producer_acquire。
  * 未绑定后端时返回 BM_ERR_INVALID。
  *
- * @note owner-only：生产路径仅允许 owner_cpu 调用（BLOCK 同核 SPSC 契约，见 API 区段头）。
+ * @note owner-only：生产路径仅允许 owner_cpu 调用（BLOCK 同核 SPSC 契约，见 API 区段头）；
+ *       多核下由后端（bm_stream）bm_cpu_is_owner() 强制守卫，单核 no-op。
  *
  * @param h         bus 句柄指针
  * @param block_out 输出：不透明 block 指针
@@ -430,7 +432,8 @@ int bm_bus_block_produce_acquire(bm_bus_t *h, void **block_out);
  *
  * 透传 valid_bytes 与 ts_ns 至后端 producer_commit。
  *
- * @note owner-only：生产路径仅允许 owner_cpu 调用（BLOCK 同核 SPSC 契约，见 API 区段头）。
+ * @note owner-only：生产路径仅允许 owner_cpu 调用（BLOCK 同核 SPSC 契约，见 API 区段头）；
+ *       多核下由后端（bm_stream）bm_cpu_is_owner() 强制守卫，单核 no-op。
  *
  * @param h           bus 句柄指针
  * @param block       由 bm_bus_block_produce_acquire 借出的块
@@ -444,7 +447,8 @@ int bm_bus_block_produce_commit(bm_bus_t *h, void *block,
 /**
  * @brief BLOCK 生产者：放弃已借块（不发布）
  *
- * @note owner-only：生产路径仅允许 owner_cpu 调用（BLOCK 同核 SPSC 契约，见 API 区段头）。
+ * @note owner-only：生产路径仅允许 owner_cpu 调用（BLOCK 同核 SPSC 契约，见 API 区段头）；
+ *       多核下由后端（bm_stream）bm_cpu_is_owner() 强制守卫，单核 no-op。
  *
  * @param h     bus 句柄指针
  * @param block 由 bm_bus_block_produce_acquire 借出的块
@@ -456,7 +460,8 @@ int bm_bus_block_produce_abort(bm_bus_t *h, void *block);
  * @brief BLOCK 消费者：借出最旧 READY 块
  *
  * @note owner-only：消费路径仅允许 owner_cpu 调用（须与生产同核，BLOCK 同核 SPSC
- *       契约，见 API 区段头）。跨核消费将被后端 owner 守卫拒绝（BM_ERR_INVALID）。
+ *       契约，见 API 区段头）；多核下由后端（bm_stream）bm_cpu_is_owner() 强制守卫
+ *       拒绝越权核（BM_ERR_INVALID），单核 no-op。
  *
  * @param h         bus 句柄指针
  * @param block_out 输出：不透明 block 指针
@@ -469,7 +474,7 @@ int bm_bus_block_consume_acquire(bm_bus_t *h, void **block_out);
  * @brief BLOCK 消费者：归还块
  *
  * @note owner-only：消费路径仅允许 owner_cpu 调用（须与生产同核，BLOCK 同核 SPSC
- *       契约，见 API 区段头）。
+ *       契约，见 API 区段头）；多核下由后端（bm_stream）bm_cpu_is_owner() 强制守卫，单核 no-op。
  *
  * @param h     bus 句柄指针
  * @param block 由 bm_bus_block_consume_acquire 借出的块

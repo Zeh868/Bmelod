@@ -20,6 +20,8 @@ bm_add_test(test_skeleton test_skeleton.c bm_core)
 bm_add_test(test_critical test_critical.c bm_core)
 bm_add_test(test_log test_log.c bm_core)
 bm_add_test(test_uptime test_uptime.c bm_core)
+# bm_cpu_is_owner() 统一 owner 守卫原语单测（覆盖 no-op 与 BM_CPU_ANY 恒真语义）
+bm_add_test(test_cpu_owner test_cpu_owner.c bm_core)
 bm_add_test(test_idle test_idle.c bm_core)
 
 # #10 持久化 KV 存储测试
