@@ -14,6 +14,6 @@
 #ifndef BM_CONFIG_SMP_H
 #define BM_CONFIG_SMP_H
 
-#include "../../Demo/common/bm_config_mp_demo_qemu_smp.h"
+#include "../../Demo/mp_common/bm_config_mp_demo_qemu_smp.h"
 
 #endif /* BM_CONFIG_SMP_H */
