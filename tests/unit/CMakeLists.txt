@@ -71,6 +71,28 @@ if(BM_ENABLE_BUS)
         ${CMAKE_SOURCE_DIR}/tests/unit/unity
         ${CMAKE_SOURCE_DIR}/tests/unit)
     add_test(NAME test_bus_ipc_mode COMMAND test_bus_ipc_mode)
+
+    # mp IPC backend adapter 契约测试：matrix cmd_ring（FIFO）+ tel_channel（LATEST）
+    # 不链接 bm_mp；adapter 自包含；BM_CONFIG_CPU_COUNT=2u 构造 2×2 矩阵使
+    # cmd_ring[0][1] 与 tel_channel[1][0] 索引有效（SMP=OFF 默认 CPU_COUNT=1 仅有 [0][0]）
+    add_executable(test_mp_ipc_backend
+        test_mp_ipc_backend.c
+        ${CMAKE_SOURCE_DIR}/Source/mp/bm_mp_ipc_backend.c)
+    target_compile_definitions(test_mp_ipc_backend PRIVATE BM_CONFIG_CPU_COUNT=2u)
+    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        target_link_libraries(test_mp_ipc_backend PRIVATE
+            "-Wl,--start-group"
+            unity bm_core bm_hal bm_hal_native
+            "-Wl,--end-group")
+    else()
+        target_link_libraries(test_mp_ipc_backend PRIVATE
+            unity bm_core bm_hal bm_hal_native)
+    endif()
+    bm_target_internal_includes(test_mp_ipc_backend)
+    target_include_directories(test_mp_ipc_backend PRIVATE
+        ${CMAKE_SOURCE_DIR}/tests/unit/unity
+        ${CMAKE_SOURCE_DIR}/include/bm/mp)
+    add_test(NAME test_mp_ipc_backend COMMAND test_mp_ipc_backend)
 endif()
 
 if(BM_ENABLE_SHELL)
