@@ -39,7 +39,7 @@ option(BM_SYNC_HAL_QEMU "Link QEMU sync HAL into bm_exec" OFF)
 option(BM_BUILD_TESTS "Build unit tests" ON)
 option(BM_ENABLE_SEGGER_RTT
     "Link SEGGER RTT into bm_hal (embedded targets with J-Link)" OFF)
-option(BM_CONFIG_SMP "Enable SMP/multicore support (bm_ipc + bm_mp)" OFF)
+option(BM_CONFIG_SMP "Enable SMP/multicore support (bm_mp matrix layer)" OFF)
 set(BM_BACKEND "" CACHE STRING
     "Portable backend: native_sim, sdk_esp32_idf, qemu_cortex_m0, qemu_riscv64, arch_stub, external, native_sim_mp, qemu_riscv64_smp, ...")
 
@@ -115,7 +115,7 @@ if(BM_BACKEND MATCHES "_smp$" OR BM_BACKEND STREQUAL "native_sim_mp")
     set(BM_HAL_USE_CPU_STUB OFF CACHE BOOL "" FORCE)
 endif()
 
-# SMP 多核库模式：BM_CONFIG_SMP=ON 时编译 bm_ipc/bm_mp/bmp_algo 调度层，
+# SMP 多核库模式：BM_CONFIG_SMP=ON 时编译 bm_mp/bmp_algo 调度层，
 # 并自动拉齐其依赖（HRT/EXEC/STREAM/MODULE/WDG）。
 if(BM_CONFIG_SMP)
     set(BM_ENABLE_MODULE  ON CACHE BOOL "" FORCE)
@@ -497,19 +497,6 @@ endif()
 # SMP 多核扩展（仅 BM_CONFIG_SMP=ON 时编译；单核构建零开销）
 # =============================================================
 if(BM_CONFIG_SMP)
-    # bm_ipc：跨核 IPC 基础层（bm_boot + bm_ipc）
-    if(NOT TARGET bm_ipc)
-        add_library(bm_ipc STATIC
-            Source/core/bm_ipc.c
-            Source/core/bm_boot.c
-        )
-        target_link_libraries(bm_ipc PUBLIC bm_config bm_core)
-        bm_target_internal_includes(bm_ipc)
-        target_include_directories(bm_ipc PUBLIC
-            ${BM_FRAMEWORK_ROOT}/include/bm/mp)
-        target_link_libraries(bm_framework INTERFACE bm_ipc)
-    endif()
-
     # bm_mp：多核调度/分区/资源/stream-relay 层
     add_library(bm_mp STATIC
         Source/mp/bm_mp.c
@@ -525,7 +512,7 @@ if(BM_CONFIG_SMP)
         Source/hybrid/bm_stream_relay.c
         Source/core/bm_profile_epoch.c
     )
-    target_link_libraries(bm_mp PUBLIC bm_config bm_core bm_ipc)
+    target_link_libraries(bm_mp PUBLIC bm_config bm_core)
     if(TARGET bm_module)
         target_link_libraries(bm_mp PUBLIC bm_module)
     endif()

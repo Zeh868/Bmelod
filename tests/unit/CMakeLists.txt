@@ -372,22 +372,7 @@ if(BM_CONFIG_SMP AND TARGET bm_mp)
         target_link_libraries(test_mp_period PRIVATE bm_module bm_ticker)
     endif()
 
-    bm_mp_add_test(test_ipc test_ipc.c)
-
     bm_mp_add_test(test_mp_resource_topology test_mp_resource_topology.c)
-
-    # 单核 IPC 测试：以 CPU_COUNT=1 独立编译 bm_ipc.c，不依赖多核 helper
-    add_executable(test_ipc_single_core
-        test_ipc_single_core.c
-        ${CMAKE_SOURCE_DIR}/Source/core/bm_ipc.c)
-    target_compile_options(test_ipc_single_core PRIVATE
-        "-include" "${CMAKE_CURRENT_SOURCE_DIR}/bm_config_ipc_sc.h")
-    target_include_directories(test_ipc_single_core PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/unity
-        ${CMAKE_SOURCE_DIR}/include/bm/mp
-        ${CMAKE_SOURCE_DIR}/include)
-    target_link_libraries(test_ipc_single_core PRIVATE unity)
-    add_test(NAME test_ipc_single_core COMMAND test_ipc_single_core)
 
     bm_mp_add_test(test_mp_profile_epoch test_mp_profile_epoch.c)
 
