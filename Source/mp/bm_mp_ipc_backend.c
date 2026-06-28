@@ -65,6 +65,15 @@ int bm_mp_ipc_backend_open(bm_mp_ipc_backend_ctx_t *ctx, bm_mp_ipc_matrix_t *m,
 /* ================================================================== */
 /* FIFO 后端（cmd_ring[source][target]）                               */
 /* SPSC head/tail+fence；满判 DEPTH-1；无每槽 CRC（速度优先）         */
+/*                                                                    */
+/* [F-5 WCET 边界] 热路径各函数满足 bm_ipc_backend_iface_t 确定性契约：*/
+/*   acquire_write : O(1)——2 次原子 load + 标记写，满时立即返回 ERR   */
+/*   commit        : O(payload)——memcpy(ctx->elem) + release fence +  */
+/*                   原子 store；ctx->elem ≤ sizeof(payload)，编译期界 */
+/*   abort         : O(1)——仅清 wr_pending 标记                        */
+/*   acquire_read  : O(payload)——满/空判断 + acquire fence +           */
+/*                   memcpy(ctx->elem)；空时立即返回 WOULD_BLOCK        */
+/*   release       : O(1)——原子 store 推进 tail 游标                   */
 /* ================================================================== */
 
 /**
@@ -169,6 +178,17 @@ const bm_ipc_backend_iface_t g_mp_ipc_fifo_iface = {
 /* ================================================================== */
 /* LATEST 后端（tel_channel[source][target]）                          */
 /* seqlock：奇=写进行中，偶=稳定；CRC 校验；读失稳即返回，不自旋      */
+/*                                                                    */
+/* [F-5 WCET 边界] 热路径各函数满足 bm_ipc_backend_iface_t 确定性契约：*/
+/*   acquire_write : O(1)——仅设 wr_pending 标记，重入立即返回 BUSY     */
+/*   commit        : O(payload)——seqlock(奇) + memcpy + CRC32 +       */
+/*                   release fence + seqlock(偶)；payload 为编译期界   */
+/*                   CRC32 逐字节：T_crc ≈ 8 cycle/byte × payload_len  */
+/*   abort         : O(1)——仅清 wr_pending 标记                        */
+/*   acquire_read  : O(payload)——seq 奇/未发布立即返回 WOULD_BLOCK；   */
+/*                   稳定时 memcpy + acquire fence + seq 复验 + CRC 验  */
+/*                   seqlock 失稳立即返回 WOULD_BLOCK，禁止自旋重试    */
+/*   release       : O(1)——幂等空操作（LATEST 无读游标）               */
 /* ================================================================== */
 
 /**

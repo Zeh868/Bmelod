@@ -49,6 +49,10 @@ static inline void mempool_unlock(bm_mempool_t *pool, bm_irq_state_t s) {
  * 有界临界区并释放锁、也让本核 ISR 推进，再重试。对方核仅在有界位图操作
  * 期间持锁，故自旋有界，WCET = N_cores × 单次临界区时长，仍可分析。
  * alloc 保持 fail-fast（返回 NULL，调用方可恢复），不走此路径。
+ *
+ * [F-2 WCET 补全] 单次临界区含 alloc 侧 memset(obj_size) 清零操作，因此
+ * free 最坏阻塞 WCET = N_cores × (位图操作 + obj_size 清零)，与 F-1 同源；
+ * 硬实时剖面须将 obj_size 纳入 free 路径的 WCET 预算登记。
  */
 static inline void mempool_lock_blocking(bm_mempool_t *pool, bm_irq_state_t *s) {
     for (;;) {
@@ -151,6 +155,11 @@ void *bm_mempool_alloc(bm_mempool_t *pool) {
         BM_LOGW("mempool", "alloc contention");
         return NULL;
     }
+    /*
+     * [F-3 WCET] 首适配线性扫描，WCET = O(count)——池近满且空槽在末位时须
+     * 全量遍历所有位图字；RTA 预算须按满扫描最坏情况（即 count 次）取值。
+     * 实测典型远小于最坏；但硬实时剖面下禁止用平均情况替代最坏情况估算。
+     */
     for (uint32_t w = 0u; w < bitmap_words; w++) {
         if (pool->bitmap[w] != 0xFFFFFFFFU) {
             for (int b = 0; b < 32; b++) {
@@ -169,6 +178,12 @@ void *bm_mempool_alloc(bm_mempool_t *pool) {
                      * 否则在掩码模式下，同核 HRT ISR 可抢占 unlock 与 memset
                      * 之间，并通过该已置位槽位观察到部分清零对象（撕裂）。
                      * 对象大小固定且有界，临界区时长仍确定。
+                     *
+                     * [F-1 IRQ-off 窗口] BM_CRITICAL 关中断的最坏时长 ∝ 最大
+                     * 池对象 obj_size，会抬高全局最坏中断延迟（IRQ-off latency）；
+                     * 硬实时剖面须对大对象池的 obj_size 设上限，并据此在系统级
+                     * IRQ-off 预算表中登记该临界区的最坏窗口，以确保关键 ISR
+                     * 截止期可达（见 F-2：free 阻塞 WCET 同源）。
                      */
                     memset(obj, 0, pool->obj_size);
                     MEMPOOL_UNLOCK(pool, s);

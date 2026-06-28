@@ -223,12 +223,24 @@ void bm_mp_enforce_main_loop_period(uint32_t iteration_start_ticks) {
         if (freq == 0u) {
             return;
         }
+        /*
+         * [F-4 自旋优化] 消除每轮 u64 除法，改用乘法比较——语义与 us 域判据严格等价：
+         *   elapsed_us >= period_us
+         *   ⟺  (elapsed_ticks * 1000000) / freq >= period_us
+         *   ⟺  elapsed_ticks * 1000000 >= period_us * freq
+         *   （period_us 为整数，floor 除法下严格等价，无舍入差异）
+         * 循环外预计算 threshold_scaled = period_us * freq（一次乘法），
+         * 循环内仅做一次 u64 乘法，去掉每轮 u64 除法，显著降低自旋热路径开销。
+         * uint32_t 减法保留回绕安全语义（与 bm_mp_main_loop_period_elapsed 一致）。
+         * bm_mp_main_loop_period_elapsed 保持不变，供单元测试独立验证语义。
+         */
+        uint64_t threshold_scaled = (uint64_t)period_us * (uint64_t)freq;
         uint32_t spins;
 
         for (spins = 0u; spins < BM_CONFIG_MP_MAIN_LOOP_MAX_SPINS; spins++) {
-            if (bm_mp_main_loop_period_elapsed(iteration_start_ticks,
-                                               bm_hal_timer_get_ticks(),
-                                               freq, period_us)) {
+            uint32_t elapsed_ticks =
+                (uint32_t)(bm_hal_timer_get_ticks() - iteration_start_ticks);
+            if ((uint64_t)elapsed_ticks * 1000000ull >= threshold_scaled) {
                 break;
             }
             bm_hal_cpu_yield();
