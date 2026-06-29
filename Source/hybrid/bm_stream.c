@@ -18,7 +18,7 @@
  * 2026-06-14       1.2            zeh            按 CPU 约束 on_ready/drain 同步路径
  * 2026-06-15       1.4            zeh            默认禁用 ready 回调并清理旧时间戳
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm_stream.h"
 #include "bm_log.h"
@@ -56,25 +56,29 @@ static int stream_valid(const bm_stream_t *stream) {
             stream->block_capacity <= BM_CONFIG_STREAM_MAX_BLOCKS);
 }
 
-/** @brief 校验 stream 的 owner_cpu 字段合法 */
+/**
+ * @brief 校验 stream 的 owner_cpu 字段合法（内部辅助）
+ *
+ * 委托 bm_cpu_is_owner() 统一原语：单核 no-op，多核校验 owner_cpu 范围与当前核匹配。
+ * BM_CPU_ANY（0xFFu）视为任意核，恒真。
+ */
 static int stream_owner_cpu_valid(const bm_stream_t *stream) {
-#if BM_CPU_LOCAL_ENABLE_ROUTE
-    return stream != NULL && stream->owner_cpu < BM_CONFIG_CPU_COUNT;
-#else
-    (void)stream;
-    return 1;
-#endif
+    if (stream == NULL) {
+        return 0;
+    }
+    return bm_cpu_is_owner(stream->owner_cpu);
 }
 
-/** @brief 校验当前 CPU 是否为 stream 的属主 */
+/**
+ * @brief 校验当前 CPU 是否为 stream 的属主（内部辅助）
+ *
+ * 委托 bm_cpu_is_owner() 统一原语：单核 no-op，多核强制 owner 核一致性检查。
+ */
 static int stream_owner_valid(const bm_stream_t *stream) {
-#if BM_CPU_LOCAL_ENABLE_ROUTE
-    return stream_owner_cpu_valid(stream) &&
-           BM_CPU_THIS() == stream->owner_cpu;
-#else
-    (void)stream;
-    return 1;
-#endif
+    if (stream == NULL) {
+        return 0;
+    }
+    return bm_cpu_is_owner(stream->owner_cpu);
 }
 
 /**

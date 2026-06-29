@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_vendor_singleton_esp32_idf.c
  * @brief ESP32 后端的 timer / UART / WDT 单例实现（Phase 3：驱动层收尾）
@@ -24,8 +25,8 @@
  *       待硬件：若日后迁移到 IDF FreeRTOS 应用路径，可切换为 esp_task_wdt_init。
  *
  * @author zeh (china_qzh@163.com)
- * @version 3.0
- * @date 2026-06-19
+ * @version 3.1
+ * @date 2026-06-26
  *
  * @par 修改日志:
  *
@@ -34,6 +35,7 @@
  * 2026-06-19       1.2            zeh            改为裸机底层实现
  * 2026-06-19       2.0            zeh            Phase 2：timer_group LL + ISR 驱动
  * 2026-06-19       3.0            zeh            Phase 3：RCC 宏正规化 + task WDT 类型归档
+ * 2026-06-26       3.1            zeh            添加 bm_hal_uptime_ns_raw()（路线图 #9 时间基统一 1a）
  *
  */
 #include "bm_drv_timer.h"
@@ -41,6 +43,7 @@
 #include "bm_drv_wdg.h"
 #include "bm_hal_instances_esp32wroom32e.h"
 #include "bm_vendor_esp32_idf_compat.h"
+#include "bm_hal_uptime.h"
 #include "bm_types.h"
 
 #include <stddef.h>
@@ -54,6 +57,18 @@
 #include "soc/timer_group_struct.h"
 #include "soc/interrupts.h"
 #include "esp_intr_alloc.h"
+
+/*
+ * 单调时钟后端依赖 esp_timer_get_time()（自启动起的 µs 计数，int64，单调，ISR 安全）。
+ *
+ * 此处对其作前向声明而非 #include "esp_timer.h"：本 vendor 静态库的 IDF 头路径
+ * 由 pack（cmake/bm_sdk_esp32_idf.cmake 的 bm_sdk_esp32_idf_apply）显式注入，
+ * 该清单及独立编译检查（_compilecheck）的 harness 均未纳入 esp_timer 组件的
+ * include 目录，直接 #include 会找不到头文件。esp_timer_get_time 签名稳定
+ * （IDF 5.2.3：int64_t esp_timer_get_time(void)），前向声明即可编译；其符号在
+ * 最终镜像链接期由 esp_timer 核心组件提供（应用 main 已 REQUIRES esp_timer）。
+ */
+extern int64_t esp_timer_get_time(void);
 
 /*
  * IDF 5 Task Watchdog Timer（TWDT）API 类型归档。
@@ -443,3 +458,27 @@ const struct bm_wdg_driver_api bm_drv_wdg_api = {
     esp32_wdg_init,
     esp32_wdg_feed,
 };
+
+/* ---------- 单调时钟后端（路线图 #9 时间基统一 1a） ---------- */
+
+/**
+ * @brief ESP-IDF 单调时钟后端（esp_timer 高精度定时器）。
+ *
+ * 包装 IDF 的 esp_timer_get_time()：该函数返回自系统启动起经过的微秒数
+ * （int64_t，单调不减，ISR 安全），此处换算为纳秒（× 1000u）以满足框架
+ * `bm_hal_uptime_ns_raw()` 契约，供上层 `bm_uptime_ns()` / `bm_uptime_us()` 使用。
+ *
+ * @note esp_timer 上电即非负且单调；防御性钳位负值后强转 uint64_t，
+ *       × 1000u 在 uint64 域不溢出（~584 年级别）。
+ *
+ * @return 自系统启动起经过的纳秒数（uint64_t，单调不减）。
+ */
+uint64_t bm_hal_uptime_ns_raw(void)
+{
+    int64_t us = esp_timer_get_time();
+
+    if (us < 0) {
+        us = 0;
+    }
+    return (uint64_t)us * 1000u;
+}

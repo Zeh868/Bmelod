@@ -16,7 +16,7 @@
  * 2026-06-17       1.1            zeh            PWM 扇区采样窗口判定
  * 2026-06-23       1.2            zeh            磁链观测器纯积分改为带衰减积分，新增 flux_observer_wc_rad_s 配置字段
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_ALGO_MOTOR_H
 #define BM_ALGO_MOTOR_H

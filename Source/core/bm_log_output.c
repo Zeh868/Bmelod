@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_log_output.c
  * @brief 默认日志输出提供者（转发 Console LOG 通道）

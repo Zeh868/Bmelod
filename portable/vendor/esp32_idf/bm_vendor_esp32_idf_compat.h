@@ -1,4 +1,5 @@
-﻿/**
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/**
  * @file bm_vendor_esp32_idf_compat.h
  * @brief ESP32-IDF vendor 兼容宏与局部退化定义
  *

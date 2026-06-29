@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_arch_critical.c
  * @brief ARMv6-M / ARMv7-M 临界区实现（primask，无优先级掩码）

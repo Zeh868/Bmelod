@@ -1,53 +1,28 @@
 /**
  * @file bm_timestamp.h
- * @brief 单调时钟域时间戳（采样/块流用）
+ * @brief 兼容转发头 —— bm_timestamp_t 已下沉至 bm/common/bm_timestamp.h
  *
- * 为块流、融合与多媒体算法提供可比较的采样时刻；支持单调回绕比较辅助函数。
- * 时钟域标识与质量字段供多 ADC、音频与相机时间对齐使用。
+ * 路线图 #9 时间基统一 1b：bm_timestamp_t 定义已移至 common 层，
+ * 本文件保留为兼容转发头，现有 27 个引用文件无需任何改动即可继续编译。
+ *
+ * 如需新引用，建议直接包含 "bm/common/bm_timestamp.h"。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-12
+ * @version 2.0
+ * @date 2026-06-26
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-12       1.0            zeh            正式发布
  * 2026-06-14       1.1            zeh            clock_id 辅助
+ * 2026-06-26       2.0            zeh            改为转发头（定义已下沉至 common，#9-1b）
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_TIMESTAMP_H
 #define BM_TIMESTAMP_H
 
-#include <stdint.h>
-
-/** HRT 定时器时钟域（与调用 CPU 对齐） */
-#define BM_TIMESTAMP_CLOCK_HRT  0u
-
-/**
- * @brief 返回逻辑 CPU 对应的 HRT 时钟域 ID
- *
- * `clock_id == cpu`；默认配置下与 `BM_TIMESTAMP_CLOCK_HRT` 一致。
- */
-static inline uint16_t bm_timestamp_clock_for_cpu(uint32_t cpu) {
-    return (uint16_t)cpu;
-}
-
-typedef struct {
-    uint16_t clock_id;
-    uint16_t quality;
-    uint32_t clock_epoch;
-    uint32_t ticks;
-    uint32_t rate_hz;
-} bm_timestamp_t;
-
-static inline int bm_timestamp_before(uint32_t a, uint32_t b) {
-    return (int32_t)(a - b) < 0;
-}
-
-static inline int bm_timestamp_after(uint32_t a, uint32_t b) {
-    return (int32_t)(a - b) > 0;
-}
+#include "bm/common/bm_timestamp.h"
 
 #endif /* BM_TIMESTAMP_H */

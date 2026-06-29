@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_time.h
  * @brief 毫秒到 HAL 定时器 tick 的公共换算

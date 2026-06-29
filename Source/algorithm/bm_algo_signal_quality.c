@@ -12,7 +12,7 @@
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-23       1.1            zeh            stable_count 自增前加饱和保护，防止 uint32_t 绕回导致误复位
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_signal_quality.h"
 #include <stddef.h>

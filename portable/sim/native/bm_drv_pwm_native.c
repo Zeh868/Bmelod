@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_drv_pwm_native.c
  * @brief native_sim PWM 设备驱动

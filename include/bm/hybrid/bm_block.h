@@ -15,7 +15,7 @@
  * 2026-06-12       1.0            zeh            正式发布
  * 2026-06-14       1.1            zeh            acquire/release 原子状态字
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_BLOCK_H
 #define BM_BLOCK_H

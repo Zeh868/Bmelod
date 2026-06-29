@@ -17,7 +17,7 @@
  * 2026-06-17       0.2            zeh            PWM 扇区采样窗口判定
  * 2026-06-23       0.3            zeh            validate_config 字段校验；公共 API Doxygen；SPDX
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_MOTOR_CURRENT_SENSE_H
 #define BM_MOTOR_CURRENT_SENSE_H

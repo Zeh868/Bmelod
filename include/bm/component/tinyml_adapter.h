@@ -24,7 +24,7 @@
  * 2026-06-23       1.0            zeh            通用 CONV2D（任意核/步长/padding）
  * 2026-06-23       1.1            zeh            补 SPDX 与函数级 Doxygen
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_TINYML_ADAPTER_H
 #define BM_TINYML_ADAPTER_H

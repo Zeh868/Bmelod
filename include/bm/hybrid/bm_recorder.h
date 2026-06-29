@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_recorder.h
  * @brief 同核录波环原语（黑匣子）
@@ -6,7 +7,7 @@
  * capacity 帧历史；消费者（SRT）单读异步导出。生产者写满槽位后发布索引、
  * 消费者读取并做 Lamport 式撕裂读校验，保证"要么拿到一致帧、要么记一次
  * 丢弃"，绝不返回半写帧。生产者与消费者须运行于同一核。
- * 与 bm_snapshot（只留最新一帧）、bm_stream（DMA 块所有权）互补：
+ * 与 bm_bus LATEST（只留最新值）、bm_stream（DMA 块所有权）定位不同：
  * 需要"一段历史帧、ISR 录、SRT 导"时用本原语。
  *
  * @core_affinity 生产者与消费者固定在 owner_cpu（同核 SPSC）。
@@ -33,7 +34,7 @@
 extern "C" {
 #endif
 
-/** 录波环控制块（对齐 bm_channel_t 体例） */
+/** 录波环控制块 */
 typedef struct {
     uint8_t *buf;        /**< 调用方提供的帧数组（capacity*elem_size 字节） */
     uint32_t elem_size;  /**< 单帧字节数 */

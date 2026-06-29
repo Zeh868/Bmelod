@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal_irq_affinity_native.c
  * @brief native_sim IRQ 亲和后端 stub

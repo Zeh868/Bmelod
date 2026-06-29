@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_console_stdio.c
  * @brief Console STDIO 后端（stdout/stdin）

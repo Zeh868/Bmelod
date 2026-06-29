@@ -14,7 +14,7 @@
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            初始描述符与注册表桩
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_EXT_ALGORITHM_H
 #define BM_EXT_ALGORITHM_H

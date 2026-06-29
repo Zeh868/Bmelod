@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal_critical.c
  * @brief 临界区 HAL 分发层（契约 → driver API）

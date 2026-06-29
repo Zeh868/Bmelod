@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal_wdg_native.h
  * @brief 原生仿真看门狗测试辅助接口

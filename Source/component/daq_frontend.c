@@ -12,7 +12,7 @@
  * 2026-06-23       0.2            zeh            补全 Doxygen 中文注释；添加 SPDX 头
  * 2026-06-23       0.3            zeh            修复预触发缓冲在触发后仍写入导致快照被污染
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/component/daq_frontend.h"
 

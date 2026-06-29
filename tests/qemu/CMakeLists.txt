@@ -87,6 +87,17 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm")
     bm_qemu_target_includes(qemu_stream_smoke_cm0.elf)
     target_link_options(qemu_stream_smoke_cm0.elf PRIVATE ${_BM_QEMU_LINK})
 
+    add_executable(qemu_uptime_smoke_cm0.elf
+        test_qemu_uptime_smoke.c
+        ${_BM_QEMU_BOOT}
+    )
+    target_link_libraries(qemu_uptime_smoke_cm0.elf PRIVATE
+        "-Wl,--start-group"
+        bm_backend_qemu_cortex_m0 bm_hal bm_core
+        "-Wl,--end-group")
+    bm_qemu_target_includes(qemu_uptime_smoke_cm0.elf)
+    target_link_options(qemu_uptime_smoke_cm0.elf PRIVATE ${_BM_QEMU_LINK})
+
     find_program(QEMU_ARM qemu-system-arm)
     if(QEMU_ARM)
         message(STATUS "Found qemu-system-arm: ${QEMU_ARM}")
@@ -113,6 +124,18 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm")
             DEPENDS qemu_hybrid_smoke_cm0.elf
             WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
             COMMENT "Running hybrid HRT smoke test in QEMU"
+        )
+
+        add_custom_target(run-uptime-smoke-cm0
+            COMMAND ${QEMU_ARM}
+                -machine microbit
+                -cpu cortex-m0
+                -kernel $<TARGET_FILE:qemu_uptime_smoke_cm0.elf>
+                --semihosting
+                -display none
+            DEPENDS qemu_uptime_smoke_cm0.elf
+            WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+            COMMENT "Running uptime monotonic clock smoke test in QEMU"
         )
     else()
         message(WARNING "qemu-system-arm not found; run-smoke-cm0 target unavailable")

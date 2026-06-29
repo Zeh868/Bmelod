@@ -1,11 +1,12 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_wdg.c
  * @brief 软件看门狗模块注册与喂狗实现
  *
  * 所有已注册模块均按时喂狗后才向硬件 WDG 提交喂狗信号。
  * @author zeh (china_qzh@163.com)
- * @version 1.3
- * @date 2026-06-15
+ * @version 1.4
+ * @date 2026-06-26
  *
  * @par 修改日志:
  *
@@ -14,14 +15,14 @@
  * 2026-06-10       1.1            zeh            模块超时窗口与空指针防护
  * 2026-06-11       1.2            zeh            独立 fed 标志、临界区、防重名注册
  * 2026-06-15       1.3            zeh            运行期喂狗后冻结注册表
+ * 2026-06-26       1.4            zeh            时间基迁至 bm_uptime_us()（#9-2a）
  *
  */
 #include "bm_wdg.h"
 #include "bm_critical_wrap.h"
-#include "bm_hal_timer.h"
 #include "bm_hal_wdg.h"
 #include "bm_log.h"
-#include "bm_time.h"
+#include "bm/common/bm_uptime.h"
 #include "bm/core/bm_cpu_local.h"
 /*
  * 按 CPU 路由启用时的使用条件（Bootstrap CPU 约束）：
@@ -42,7 +43,7 @@
 /** 已注册模块记录 */
 typedef struct {
     char        name[BM_CONFIG_WDG_MAX_NAME_LEN];
-    uint32_t    last_feed_ticks;
+    uint64_t    last_feed_us;   /**< 最近一次喂狗的 bm_uptime_us() 值（微秒） */
     bool        fed;
 } bm_wdg_module_t;
 
@@ -81,49 +82,40 @@ static int wdg_name_length(const char *name, size_t *length_out) {
 }
 
 /**
- * @brief 将毫秒超时转换为定时器 tick（溢出安全）
- */
-/**
- * @brief 将毫秒超时转换为定时器 tick（溢出安全）
+ * @brief 计算看门狗模块超时微秒数（#9-2a：不依赖硬件定时器）
  *
- * @param ticks_out 输出 tick 数
- * @return BM_OK 成功；负值表示失败
+ * 直接将配置的毫秒超时换算为微秒，不再调用 bm_hal_timer_get_freq()。
+ *
+ * @param us_out 输出超时微秒数
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效
  */
-static int wdg_timeout_ticks(uint32_t *ticks_out) {
-    int rc = bm_time_ms_to_ticks(BM_CONFIG_WDG_MODULE_TIMEOUT_MS, ticks_out);
-
-    if (rc == BM_ERR_INVALID) {
-        return BM_ERR_NOT_INIT;
+static int wdg_timeout_us(uint64_t *us_out) {
+    if (us_out == NULL) {
+        return BM_ERR_INVALID;
     }
-    if (rc != BM_OK) {
-        return rc;
-    }
-    if (*ticks_out == 0u) {
-        *ticks_out = 1u;
-    }
+    *us_out = (BM_CONFIG_WDG_MODULE_TIMEOUT_MS == 0u)
+              ? 1u
+              : (uint64_t)BM_CONFIG_WDG_MODULE_TIMEOUT_MS * 1000u;
     return BM_OK;
 }
 
 /**
- * @brief 判断模块在本周期内是否已按时喂狗
- */
-/**
- * @brief 判断模块在本周期内是否已按时喂狗
+ * @brief 判断模块在本周期内是否已按时喂狗（#9-2a：64 位 uptime 微秒）
  *
- * @param mod 模块记录指针
- * @param now 当前 tick
- * @param timeout_ticks 超时 tick 数
- * @return 非零表示新鲜；0 表示已超时或未喂
+ * @param mod        模块记录指针
+ * @param now_us     当前 bm_uptime_us() 值（微秒）
+ * @param timeout_us 超时微秒数
+ * @return 非零表示新鲜（已喂且未超时）；0 表示未喂或已超时
  */
-static int wdg_module_fresh(const bm_wdg_module_t *mod, uint32_t now,
-                            uint32_t timeout_ticks) {
-    uint32_t elapsed;
+static int wdg_module_fresh(const bm_wdg_module_t *mod, uint64_t now_us,
+                            uint64_t timeout_us) {
+    uint64_t elapsed;
 
     if (!mod->fed) {
         return 0;
     }
-    elapsed = now - mod->last_feed_ticks;
-    return elapsed <= timeout_ticks;
+    elapsed = now_us - mod->last_feed_us;
+    return elapsed <= timeout_us;
 }
 
 /**
@@ -187,7 +179,7 @@ int bm_wdg_register(const char *name) {
         return BM_ERR_NO_MEM;
     }
     memcpy(_wdg_modules[count].name, name, name_len + 1u);
-    _wdg_modules[count].last_feed_ticks = 0u;
+    _wdg_modules[count].last_feed_us = 0u;
     _wdg_modules[count].fed = false;
     _wdg_module_count = count + 1u;
     _wdg_generation++;
@@ -210,7 +202,7 @@ void bm_wdg_feed_module(const char *name) {
     uint32_t generation;
     uint32_t found = BM_CONFIG_MAX_WDG_MODULES;
     uint32_t i;
-    uint32_t now;
+    uint64_t now_us;
     bm_irq_state_t s;
 
 #if BM_CPU_LOCAL_ENABLE_ROUTE
@@ -250,7 +242,7 @@ void bm_wdg_feed_module(const char *name) {
         return;
     }
 
-    now = bm_hal_timer_get_ticks();
+    now_us = bm_uptime_us();
     s = BM_CRITICAL_ENTER();
     if (_wdg_generation != generation || _wdg_module_count != count ||
         strcmp(_wdg_modules[found].name, registered_names[found]) != 0) {
@@ -258,7 +250,7 @@ void bm_wdg_feed_module(const char *name) {
         BM_LOGW("wdg", "feed module table changed");
         return;
     }
-    _wdg_modules[found].last_feed_ticks = now;
+    _wdg_modules[found].last_feed_us = now_us;
     _wdg_modules[found].fed = true;
     _wdg_generation++;
     BM_CRITICAL_EXIT(s);
@@ -270,11 +262,11 @@ void bm_wdg_feed_module(const char *name) {
  */
 void bm_wdg_feed(void) {
     bm_wdg_module_t snapshot[BM_CONFIG_MAX_WDG_MODULES];
-    uint32_t timeout_ticks = 0u;
+    uint64_t timeout_us = 0u;
     uint32_t count;
     uint32_t generation;
     int rc;
-    uint32_t now;
+    uint64_t now_us;
     uint32_t i;
     bm_irq_state_t s;
 
@@ -298,7 +290,7 @@ void bm_wdg_feed(void) {
         BM_LOGD("wdg", "hw feed blocked: module table corrupt");
         return;
     }
-    now = bm_hal_timer_get_ticks();
+    now_us = bm_uptime_us();
     for (i = 0u; i < count; i++) {
         snapshot[i] = _wdg_modules[i];
     }
@@ -322,14 +314,14 @@ void bm_wdg_feed(void) {
         return;
     }
 
-    rc = wdg_timeout_ticks(&timeout_ticks);
+    rc = wdg_timeout_us(&timeout_us);
     if (rc != BM_OK) {
-        BM_LOGD("wdg", "hw feed blocked: timer not ready rc=%d", rc);
+        BM_LOGD("wdg", "hw feed blocked: timeout compute failed rc=%d", rc);
         return;
     }
 
     for (i = 0u; i < count; i++) {
-        if (!wdg_module_fresh(&snapshot[i], now, timeout_ticks)) {
+        if (!wdg_module_fresh(&snapshot[i], now_us, timeout_us)) {
             BM_LOGD("wdg", "hw feed blocked: '%s' stale",
                     snapshot[i].name);
             return;
@@ -343,9 +335,9 @@ void bm_wdg_feed(void) {
         BM_LOGD("wdg", "hw feed blocked: module state changed");
         return;
     }
-    now = bm_hal_timer_get_ticks();
+    now_us = bm_uptime_us();
     for (i = 0u; i < count; i++) {
-        if (!wdg_module_fresh(&_wdg_modules[i], now, timeout_ticks)) {
+        if (!wdg_module_fresh(&_wdg_modules[i], now_us, timeout_us)) {
             bm_hal_critical_exit(s);
             BM_LOGD("wdg", "hw feed blocked: module became stale");
             return;
@@ -353,7 +345,7 @@ void bm_wdg_feed(void) {
     }
     for (i = 0u; i < count; i++) {
         _wdg_modules[i].fed = false;
-        _wdg_modules[i].last_feed_ticks = 0u;
+        _wdg_modules[i].last_feed_us = 0u;
     }
     _wdg_generation++;
     bm_hal_wdg_feed();

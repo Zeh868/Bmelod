@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_ticker.h
  * @brief 毫秒级周期事件发布器
@@ -8,13 +9,14 @@
  * 每个 CPU 独立 ticker 槽表，bm_ticker_init/poll 仅操作调用者所在 CPU 的定时器槽。
  * 事件通过 bm_event 发布到本核事件总线；不同 CPU 的订阅由 bm_event 自动转发。
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-10
+ * @version 1.1
+ * @date 2026-06-26
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
+ * 2026-06-26       1.1            zeh            新增 bm_ticker_get_dropped_total（对称 hrt total getter）
  *
  */
 #ifndef BM_TICKER_H
@@ -72,5 +74,16 @@ void bm_ticker_reset(void);
  * @return 1 已初始化；0 未初始化
  */
 int bm_ticker_is_initialized(void);
+
+/**
+ * @brief 查询所有 slot 累计因队列满而丢弃的事件总计数
+ *
+ * 对当前核所有已注册 slot 的 dropped 计数求和（饱和加法），
+ * 与 bm_hrt_get_deadline_missed_total() 语义对称。
+ * 定长循环（上界 = slot_count），WCET 可静态分析。
+ *
+ * @return 各槽 `bm_ticker_get_dropped` 之和；未初始化或 CPU 无效时返回 0
+ */
+uint32_t bm_ticker_get_dropped_total(void);
 
 #endif /* BM_TICKER_H */

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_arch_critical.c
  * @brief AArch64 临界区实现（DAIF 保存/恢复）

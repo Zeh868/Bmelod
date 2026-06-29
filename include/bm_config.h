@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_config.h
  * @brief 框架全局编译期配置宏
@@ -172,6 +173,20 @@
 #define BM_CONFIG_WDG_MAX_NAME_LEN           32
 #endif
 
+/* 持久化 KV 存储（路线图 #10） */
+/** 最大 KV 条目数（RAM 表容量）*/
+#ifndef BM_CONFIG_PERSIST_MAX_ENTRIES
+#define BM_CONFIG_PERSIST_MAX_ENTRIES        16u
+#endif
+/** 键名最大长度（不含 null 终止符，字节数）*/
+#ifndef BM_CONFIG_PERSIST_KEY_MAX_LEN
+#define BM_CONFIG_PERSIST_KEY_MAX_LEN        15u
+#endif
+/** 值最大字节数 */
+#ifndef BM_CONFIG_PERSIST_VAL_MAX_LEN
+#define BM_CONFIG_PERSIST_VAL_MAX_LEN        64u
+#endif
+
 /* Ultra 超轻量剖面（header-only） */
 #ifndef BM_CONFIG_ULTRA_MAX_EVENT_TYPES
 #define BM_CONFIG_ULTRA_MAX_EVENT_TYPES      8
@@ -333,6 +348,20 @@
 
 #if BM_CONFIG_ATOMIC_MAX_RETRIES < 1u
 #error "BM_CONFIG_ATOMIC_MAX_RETRIES must be at least 1"
+#endif
+
+/*
+ * bm_bus LATEST 读路径 spin-until-stable 的重试上界（DET-01）。
+ * 写者在读窗口内持续覆盖发布时，至多重试 N 次后非阻塞返回
+ * BM_ERR_WOULD_BLOCK，保证 acquire_read 的 WCET 可静态分析。
+ * 与 BM_CONFIG_ATOMIC_MAX_RETRIES 同源策略（CAS 环亦有界）。
+ */
+#ifndef BM_CONFIG_BUS_LATEST_MAX_RETRIES
+#define BM_CONFIG_BUS_LATEST_MAX_RETRIES          8u
+#endif
+
+#if BM_CONFIG_BUS_LATEST_MAX_RETRIES < 1u
+#error "BM_CONFIG_BUS_LATEST_MAX_RETRIES must be at least 1"
 #endif
 
 #ifndef BM_CONFIG_BOOTSTRAP_CPU

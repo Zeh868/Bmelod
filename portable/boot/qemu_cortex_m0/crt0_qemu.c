@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file crt0_qemu.c
  * @brief QEMU Cortex-M0 启动代码：复制 .data 并清零 .bss

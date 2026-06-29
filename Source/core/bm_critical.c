@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_critical.c
  * @brief 原子变量读写实现
@@ -56,12 +57,21 @@ void bm_atomic_store(bm_atomic_t *v, uint32_t val) {
 }
 
 /**
- * @brief 原子自增 1
+ * @brief 原子自增 1（多核路由路径：CAS 环，超限饱和）
  *
- * 按 CPU 路由启用时使用 CAS 环实现；超过重试上界则饱和到 UINT32_MAX。
+ * 按 CPU 路由启用时使用 CAS 环实现；若并发争用导致连续 CAS 失败超过
+ * BM_CONFIG_ATOMIC_MAX_RETRIES 次，**直接饱和写入 UINT32_MAX** 并返回，
+ * 不再精确递增。饱和后值为 UINT32_MAX，语义为"争用过载/溢出"。
+ *
+ * @par [F-6 饱和语义] 使用限制
+ *
+ * 此函数**仅适用于可饱和的诊断/统计计数**（超限次数、错误帧计数等）：
+ *   - 路由模式下争用超 BM_CONFIG_ATOMIC_MAX_RETRIES 次即饱和到 UINT32_MAX；
+ *   - 饱和后不再精确，须由调用方容忍（如诊断读取后清零）。
+ * **禁止用于** 环形缓冲区游标、消息序列号或任何需精确单调性的索引/序号语义。
  *
  * @param v 原子变量指针
- * @return 自增后的值；失败或 v 为 NULL 时返回 0 或 UINT32_MAX
+ * @return 自增后的值；v 为 NULL 时返回 0；争用超限或已饱和时返回 UINT32_MAX
  */
 uint32_t bm_atomic_inc(bm_atomic_t *v) {
     uint32_t current;
@@ -130,10 +140,18 @@ void bm_atomic_store(bm_atomic_t *v, uint32_t val) {
 }
 
 /**
- * @brief 单核下以关中断方式原子自增 1
+ * @brief 单核下以关中断方式原子自增 1（默认路径：饱和语义）
+ *
+ * 关中断串行化，值达 UINT32_MAX 时保持不变并返回 UINT32_MAX，严格饱和。
+ *
+ * @par [F-6 饱和语义] 使用限制
+ *
+ * 此函数**仅适用于可饱和的诊断/统计计数**；饱和到 UINT32_MAX 后不再递增。
+ * **禁止用于**环形缓冲区游标、消息序列号或任何需精确单调性的索引/序号语义；
+ * 此约束在多核路由路径下更为关键（见路由路径同名函数注释）。
  *
  * @param v 原子变量指针
- * @return 自增后的值；v 为 NULL 时返回 0
+ * @return 自增后的值；v 为 NULL 时返回 0；已达 UINT32_MAX 时保持并返回 UINT32_MAX
  */
 uint32_t bm_atomic_inc(bm_atomic_t *v) {
     if (!v) {

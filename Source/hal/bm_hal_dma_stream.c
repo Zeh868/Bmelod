@@ -12,7 +12,7 @@
  * 2026-06-12       1.0            zeh            正式发布
  * 2026-06-13       1.1            zeh            分发至 driver API
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "hal/bm_hal_dma_stream.h"
 

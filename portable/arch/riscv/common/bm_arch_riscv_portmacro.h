@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_arch_riscv_portmacro.h
  * @brief RISC-V 架构层共享宏（RV32 / RV64，由 __riscv_xlen 区分宽度）

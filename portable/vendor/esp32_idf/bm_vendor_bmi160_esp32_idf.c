@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_vendor_bmi160_esp32_idf.c
  * @brief ESP32-WROOM-32E vendor 专用 BMI160 硬件 I2C 实现（LL 裸机）

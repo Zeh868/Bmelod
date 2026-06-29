@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 #ifndef BM_SIM_NATIVE_INTERNAL_H
 #define BM_SIM_NATIVE_INTERNAL_H
 

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_arch_portmacro.h
  * @brief 宿主架构宏（PC 单元测试 / native_sim）

@@ -13,7 +13,7 @@
  * 2026-06-17       1.1            zeh            MFCC DCT 近似
  * 2026-06-23       1.1            zeh            补齐 Doxygen 注释
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_features.h"
 #include "bm/algorithm/bm_algo_common.h"

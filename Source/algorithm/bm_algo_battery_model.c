@@ -13,7 +13,7 @@
  * 2026-06-23       1.0            zeh            补齐 Doxygen 注释，版本与头文件对齐
  * 2026-06-23       1.1            zeh            电压更新增加协方差对角元正定性兜底
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_battery_model.h"
 #include "bm/algorithm/bm_algo_common.h"

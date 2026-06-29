@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_arch_critical.c
  * @brief Xtensa 临界区实现（PS 中断级保存/恢复）

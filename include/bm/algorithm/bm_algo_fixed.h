@@ -29,7 +29,7 @@
  * 2026-06-23       2.3            zeh            缺陷修复：Mahony Q15/Q31 state 新增 Ki 积分持久化字段
  * 2026-06-23       2.4            zeh            磁链观测器 Q15/Q31 配置结构体新增 wc_rad_s 衰减截止频率字段；修正 BM_ALGO_SQRT3_Q31 为精确 Q30 值
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_ALGO_FIXED_H
 #define BM_ALGO_FIXED_H

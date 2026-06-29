@@ -13,7 +13,7 @@
  * 2026-06-13       1.1            zeh            增加 Smith 预估器
  * 2026-06-23       1.2            zeh            bm_algo_pr_init 补 Doxygen 设计契约注释，清理 (void) 死代码，变量改名使意图清晰
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_control.h"
 #include "bm/algorithm/bm_algo_common.h"

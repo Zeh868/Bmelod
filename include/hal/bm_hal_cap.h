@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal_cap.h
  * @brief HAL 能力位查询（stream IRQ 屏蔽等确定性契约）

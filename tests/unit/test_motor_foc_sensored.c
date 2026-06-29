@@ -33,6 +33,7 @@ void setUp(void) {
     s_telemetry_publish_count = 0u;
     bm_hal_pwm_request_safe_state(&BM_HAL_PWM_SIM0);
     bm_hal_encoder_sim_set_count(&BM_HAL_ENC_SIM0, 0);
+    bm_hal_encoder_sim_set_fail(&BM_HAL_ENC_SIM0, 0);
 }
 
 void tearDown(void) {}
@@ -340,6 +341,113 @@ static void test_validate_config_accepts_valid_mtpa_params(void) {
 }
 
 /**
+ * @brief encoder_timeout_s>0：瞬时丢样（累计 < 超时）速度环容忍、不 latch。
+ */
+static void test_encoder_timeout_tolerates_transient_dropout(void) {
+    bm_motor_foc_sensored_axis_t axis = make_axis();
+    axis.config.encoder_timeout_s = 0.05f;          /* 容忍 50 拍 @1ms */
+    axis.state.cmd.status = BM_MOTOR_FOC_CMD_ENABLED;
+    bm_hal_encoder_sim_set_fail(&BM_HAL_ENC_SIM0, 1);
+
+    for (int i = 0; i < 10; ++i) {                  /* 0.01s < 0.05s */
+        bm_motor_foc_sensored_speed_step(&axis);
+    }
+
+    TEST_ASSERT_EQUAL(0, axis.state.fault_latched);
+}
+
+/**
+ * @brief encoder_timeout_s>0：持续丢样累计超阈 → latch_fault 进安全态。
+ */
+static void test_encoder_timeout_latches_after_sustained_dropout(void) {
+    bm_motor_foc_sensored_axis_t axis = make_axis();
+    axis.config.encoder_timeout_s = 0.05f;          /* 50 拍 @1ms */
+    axis.state.cmd.status = BM_MOTOR_FOC_CMD_ENABLED;
+    bm_hal_encoder_sim_set_fail(&BM_HAL_ENC_SIM0, 1);
+
+    for (int i = 0; i < 60; ++i) {                  /* 0.06s > 0.05s */
+        bm_motor_foc_sensored_speed_step(&axis);
+    }
+
+    TEST_ASSERT_EQUAL(1, axis.state.fault_latched);
+}
+
+/**
+ * @brief 读成功清零累计：丢样未超阈→恢复一拍→再丢样仍从零计，不被历史误 latch。
+ */
+static void test_encoder_timeout_resets_on_successful_read(void) {
+    bm_motor_foc_sensored_axis_t axis = make_axis();
+    axis.config.encoder_timeout_s = 0.05f;
+    axis.state.cmd.status = BM_MOTOR_FOC_CMD_ENABLED;
+
+    bm_hal_encoder_sim_set_fail(&BM_HAL_ENC_SIM0, 1);
+    for (int i = 0; i < 40; ++i) {                  /* 0.04s < 0.05s */
+        bm_motor_foc_sensored_speed_step(&axis);
+    }
+    TEST_ASSERT_EQUAL(0, axis.state.fault_latched);
+
+    bm_hal_encoder_sim_set_fail(&BM_HAL_ENC_SIM0, 0);  /* 恢复一拍清零 */
+    bm_motor_foc_sensored_speed_step(&axis);
+
+    bm_hal_encoder_sim_set_fail(&BM_HAL_ENC_SIM0, 1);
+    for (int i = 0; i < 40; ++i) {                  /* 再 0.04s，从零计 → 不 latch */
+        bm_motor_foc_sensored_speed_step(&axis);
+    }
+    TEST_ASSERT_EQUAL(0, axis.state.fault_latched);
+}
+
+/* ============================================================
+ * speed_feedback_sign 回归测试
+ * ============================================================ */
+
+/**
+ * @brief 默认符号（不设 speed_feedback_sign，即 0）：正测速 + setpoint 0 → iq_ref < 0。
+ *
+ * 测速原理：
+ *   setUp 已把 sim encoder count 置 0（prev_count=0, position_rad=0）；
+ *   set_count(100) 后执行 speed_step，encoder delta = 100 counts > 0，
+ *   velocity_rad_s = 100 * (2π/4096) / 0.001 ≈ +153 rad/s（正）。
+ *   speed_feedback_sign=0（默认）→ speed_meas 不翻；setpoint=0；
+ *   PI 输入误差 = 0 − (+153) < 0 → iq_ref < 0（刹车）。
+ */
+static void test_speed_feedback_sign_default_no_flip(void) {
+    bm_motor_foc_sensored_axis_t axis = make_axis();
+
+    axis.state.cmd.status = BM_MOTOR_FOC_CMD_ENABLED;
+    axis.state.cmd.speed_setpoint_rad_s = 0.0f;
+    /* speed_feedback_sign 默认 0（make_axis memset 已清零）。 */
+
+    /* 步进 100 counts → 速度约 +153 rad/s（明显非零正值）。 */
+    bm_hal_encoder_sim_set_count(&BM_HAL_ENC_SIM0, 100);
+    bm_motor_foc_sensored_speed_step(&axis);
+
+    /* 正测速 + setpoint 0 + 符号不翻 → iq_ref < 0（制动）。 */
+    TEST_ASSERT_LESS_THAN_FLOAT(0.0f, axis.state.speed.iq_ref_a);
+}
+
+/**
+ * @brief speed_feedback_sign=-1：同一正测速 + setpoint 0 → iq_ref > 0（方向翻转）。
+ *
+ * 与上一用例条件完全相同，仅在 config 中设 speed_feedback_sign=-1.0f；
+ * speed_step 对 speed_meas 取反（−153 rad/s），PI 输入误差 = 0 − (−153) > 0
+ * → iq_ref > 0，方向与 default 用例相反，验证符号翻转逻辑有效。
+ */
+static void test_speed_feedback_sign_negative_flips(void) {
+    bm_motor_foc_sensored_axis_t axis = make_axis();
+
+    axis.state.cmd.status = BM_MOTOR_FOC_CMD_ENABLED;
+    axis.state.cmd.speed_setpoint_rad_s = 0.0f;
+    axis.config.speed_feedback_sign = -1.0f;
+
+    /* 同样步进 100 counts → 测速 +153 rad/s，但取反后喂 PI = −153 rad/s。 */
+    bm_hal_encoder_sim_set_count(&BM_HAL_ENC_SIM0, 100);
+    bm_motor_foc_sensored_speed_step(&axis);
+
+    /* 取反后 setpoint-speed_meas > 0 → iq_ref > 0（与 default 相反）。 */
+    TEST_ASSERT_GREATER_THAN_FLOAT(0.0f, axis.state.speed.iq_ref_a);
+}
+
+/**
  * @brief last_vd/vq_pu 在 current_step 后被更新（供下一拍弱磁使用）。
  */
 static void test_last_vd_vq_updated_after_current_step(void) {
@@ -366,6 +474,9 @@ int main(void) {
     RUN_TEST(test_encoder_failure_latches_fault_and_stops_pwm);
     RUN_TEST(test_encoder_direction_and_electrical_offset_are_applied);
     RUN_TEST(test_speed_step_preserves_current_pi_integrator);
+    RUN_TEST(test_encoder_timeout_tolerates_transient_dropout);
+    RUN_TEST(test_encoder_timeout_latches_after_sustained_dropout);
+    RUN_TEST(test_encoder_timeout_resets_on_successful_read);
     RUN_TEST(test_exec_callbacks_exchange_command_and_telemetry);
     /* MTPA / 弱磁新增路径。 */
     RUN_TEST(test_default_id_ref_used_when_mtpa_disabled);
@@ -375,5 +486,8 @@ int main(void) {
     RUN_TEST(test_validate_config_rejects_mtpa_without_inductance);
     RUN_TEST(test_validate_config_accepts_valid_mtpa_params);
     RUN_TEST(test_last_vd_vq_updated_after_current_step);
+    /* speed_feedback_sign 回归。 */
+    RUN_TEST(test_speed_feedback_sign_default_no_flip);
+    RUN_TEST(test_speed_feedback_sign_negative_flips);
     return UNITY_END();
 }

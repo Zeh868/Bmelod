@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_vendor_i2c_esp32_idf.h
  * @brief ESP32-WROOM-32E vendor 层共享硬件 I2C 接口（LL 寄存器级实现）

@@ -14,7 +14,7 @@
  *                                                fundamental_bin * group_width uint32 乘法溢出：
  *                                                改用 uint64_t 中间量计算后再收窄
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_power_quality.h"
 #include <stddef.h>

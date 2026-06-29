@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_sync_hal_qemu.c
  * @brief QEMU Cortex-M0 同步域 HAL 实现

@@ -1,11 +1,12 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_ticker.c
  * @brief 毫秒级周期事件发布器实现
  *
  * 主循环轮询到期槽，向事件总线发布空载荷事件；统计丢弃次数。
  * @author zeh (china_qzh@163.com)
- * @version 1.5
- * @date 2026-06-15
+ * @version 1.7
+ * @date 2026-06-26
  *
  * @par 修改日志:
  *
@@ -16,24 +17,25 @@
  * 2026-06-11       1.3            zeh            get_dropped 临界区读取
  * 2026-06-14       1.4            zeh            分域：每 CPU 独立 ticker 槽表
  * 2026-06-15       1.5            zeh            poll 热路径移除格式化日志
+ * 2026-06-26       1.6            zeh            #9-2b 时间基迁 bm_uptime_us（µs 域，64 位）
+ * 2026-06-26       1.7            zeh            新增 bm_ticker_get_dropped_total（全槽丢弃计数求和）
  *
  */
 #include "bm_ticker.h"
 #include "bm_critical_wrap.h"
 #include "bm/core/bm_cpu_local.h"
-#include "bm_hal_timer.h"
+#include "bm/common/bm_uptime.h"
 #include "bm_log.h"
 #include "bm_safety.h"
-#include "bm_time.h"
 #include "hal/bm_hal_cpu.h"
 
 #include <string.h>
 
-/** 运行时槽：公开描述 + 周期与丢弃计数 */
+/** 运行时槽：公开描述 + 周期（µs）与丢弃计数 */
 typedef struct {
     bm_ticker_slot_t pub;
-    uint32_t period_ticks;
-    uint32_t next_tick;
+    uint64_t period_us; /**< 发布周期，单位微秒 */
+    uint64_t next_us;   /**< 下次触发的 bm_uptime_us() 目标值 */
     uint32_t dropped;
 } bm_ticker_runtime_slot_t;
 
@@ -67,9 +69,13 @@ static bm_ticker_cpu_state_t *bm_ticker_this(void) {
 }
 
 /**
- * @brief 使用 uint32_t 模加法计算下次 ticker 触发时刻
+ * @brief 计算下次 ticker 触发时刻（µs 域，64 位单调时钟不回绕）
+ *
+ * @param base   当前 next_us 基准值（微秒）
+ * @param period 周期（微秒）
+ * @return 下次触发目标时刻（微秒）
  */
-static uint32_t ticker_deadline_from(uint32_t base, uint32_t period) {
+static uint64_t ticker_deadline_from(uint64_t base, uint64_t period) {
     return base + period;
 }
 
@@ -84,7 +90,7 @@ int bm_ticker_init(const bm_ticker_slot_t *slots, uint32_t slot_count) {
     bm_ticker_cpu_state_t *state = bm_ticker_this();
     bm_irq_state_t irq_state;
     uint32_t i;
-    uint32_t now;
+    uint64_t now;
 
     if (!state) {
         return BM_ERR_INVALID;
@@ -119,11 +125,6 @@ int bm_ticker_init(const bm_ticker_slot_t *slots, uint32_t slot_count) {
         }
     }
 
-    if (bm_hal_timer_get_freq() == 0u) {
-        BM_LOGE("ticker", "init timer not configured");
-        return BM_ERR_NOT_INIT;
-    }
-
     /*
      * 确定性流式安全：整个 slot 填充在临界区内完成。
      * bm_ticker_get_dropped 可来自 ISR 上下文——在 slot 填充
@@ -132,51 +133,20 @@ int bm_ticker_init(const bm_ticker_slot_t *slots, uint32_t slot_count) {
     irq_state = BM_CRITICAL_ENTER();
     memset(state->slots, 0, sizeof(state->slots));
     state->slot_count = 0u;
-    now = bm_hal_timer_get_ticks();
+    /* 使用统一单调时钟（µs 域），不再依赖 HAL timer tick 计数 */
+    now = bm_uptime_us();
 
-    {
-        /*
-         * 失败信息延迟到临界区外再记录：日志格式化不应延长关中断时长。
-         * err_slot/err_conv 仅在临界区内捕获，退出后据此输出对应日志。
-         */
-        int rc = BM_OK;
-        uint32_t err_slot = 0u;
-        int err_conv = 0;
-
-        for (i = 0u; i < slot_count; ++i) {
-            uint32_t period_ticks = 0u;
-            int trc = bm_time_ms_to_ticks(slots[i].period_ms, &period_ticks);
-            if (trc != BM_OK || period_ticks > (uint32_t)INT32_MAX) {
-                memset(state->slots, 0, sizeof(state->slots));
-                state->slot_count = 0u;
-                state->initialized = 0;
-                rc = BM_ERR_INVALID;
-                err_slot = i;
-                err_conv = (trc != BM_OK) ? 1 : 0;
-                break;
-            }
-            state->slots[i].pub = slots[i];
-            state->slots[i].period_ticks = period_ticks;
-            state->slots[i].next_tick = ticker_deadline_from(now, period_ticks);
-        }
-
-        if (rc == BM_OK) {
-            state->slot_count = slot_count;
-            state->initialized = 1;
-        }
-        BM_CRITICAL_EXIT(irq_state);
-
-        if (rc != BM_OK) {
-            if (err_conv) {
-                BM_LOGE("ticker", "init slot %u tick conversion failed",
-                        (unsigned)err_slot);
-            } else {
-                BM_LOGE("ticker", "init slot %u period exceeds timer range",
-                        (unsigned)err_slot);
-            }
-            return rc;
-        }
+    for (i = 0u; i < slot_count; ++i) {
+        /* period_ms != 0 已在入口校验；(uint64_t)period_ms * 1000 不溢出 */
+        uint64_t period_us = (uint64_t)slots[i].period_ms * 1000u;
+        state->slots[i].pub       = slots[i];
+        state->slots[i].period_us = period_us;
+        state->slots[i].next_us   = ticker_deadline_from(now, period_us);
     }
+
+    state->slot_count  = slot_count;
+    state->initialized = 1;
+    BM_CRITICAL_EXIT(irq_state);
 
     BM_LOGI("ticker", "init %u slots", (unsigned)slot_count);
     return BM_OK;
@@ -191,7 +161,7 @@ int bm_ticker_init(const bm_ticker_slot_t *slots, uint32_t slot_count) {
  */
 int bm_ticker_poll(void) {
     bm_ticker_cpu_state_t *state = bm_ticker_this();
-    uint32_t now;
+    uint64_t now;
     uint32_t i;
     int published = 0;
 
@@ -199,22 +169,23 @@ int bm_ticker_poll(void) {
         return BM_ERR_NOT_INIT;
     }
 
-    now = bm_hal_timer_get_ticks();
+    /* 读取统一单调时钟（µs 域），64 位不回绕，直接比较即可 */
+    now = bm_uptime_us();
 
     for (i = 0u; i < state->slot_count; ++i) {
         bm_ticker_runtime_slot_t *slot = &state->slots[i];
 
         {
             uint32_t catchup = 0u;
-            while (bm_time_reached_u32(now, slot->next_tick) &&
+            while (now >= slot->next_us &&
                    catchup < BM_CONFIG_TICKER_MAX_CATCHUP) {
                 int rc = bm_event_publish_copy(slot->pub.event_type,
                                                slot->pub.priority,
                                                NULL, 0u);
                 if (rc == BM_ERR_OVERFLOW) {
                     slot->dropped = bm_u32_saturating_inc(slot->dropped);
-                    slot->next_tick = ticker_deadline_from(
-                        slot->next_tick, slot->period_ticks);
+                    slot->next_us = ticker_deadline_from(
+                        slot->next_us, slot->period_us);
                     break;
                 }
                 if (rc != BM_OK) {
@@ -222,12 +193,12 @@ int bm_ticker_poll(void) {
                 }
                 published++;
                 catchup++;
-                slot->next_tick = ticker_deadline_from(
-                    slot->next_tick, slot->period_ticks);
+                slot->next_us = ticker_deadline_from(
+                    slot->next_us, slot->period_us);
             }
-            if (bm_time_reached_u32(now, slot->next_tick)) {
-                slot->next_tick =
-                    ticker_deadline_from(now, slot->period_ticks);
+            if (now >= slot->next_us) {
+                slot->next_us =
+                    ticker_deadline_from(now, slot->period_us);
             }
         }
     }
@@ -273,6 +244,32 @@ void bm_ticker_reset(void) {
     memset(state->slots, 0, sizeof(state->slots));
     BM_CRITICAL_EXIT(irq_state);
     BM_LOGI("ticker", "reset");
+}
+
+/**
+ * @brief 查询所有 slot 累计丢弃事件总计数
+ *
+ * 对当前核所有已注册 slot 的 dropped 计数求和（饱和加法），
+ * 与 bm_hrt_get_deadline_missed_total() 实现对称。
+ * 定长循环（上界 = slot_count），WCET 可静态分析。
+ *
+ * @return 总丢弃计数；未初始化或 CPU 无效时返回 0
+ */
+uint32_t bm_ticker_get_dropped_total(void) {
+    bm_ticker_cpu_state_t *state = bm_ticker_this();
+    bm_irq_state_t irq_state;
+    uint32_t total = 0u;
+    uint32_t i;
+
+    if (!state) {
+        return 0u;
+    }
+    irq_state = BM_CRITICAL_ENTER();
+    for (i = 0u; i < state->slot_count; ++i) {
+        total = bm_u32_saturating_add(total, state->slots[i].dropped);
+    }
+    BM_CRITICAL_EXIT(irq_state);
+    return total;
 }
 
 /**

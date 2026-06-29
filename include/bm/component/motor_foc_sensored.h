@@ -4,8 +4,8 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.3
- * @date 2026-06-23
+ * @version 0.5
+ * @date 2026-06-24
  *
  * @par 修改日志:
  *
@@ -14,11 +14,15 @@
  * 2026-06-22       0.2            zeh            B3 诊断：遥测加 ia_raw/ib_raw 原始 ADC 字段
  * 2026-06-23       0.3            zeh            MTPA/弱磁支持：config 加 enable_mtpa/enable_fw
  *                                                及电机参数字段，state 加 last_vd/vq_pu
+ * 2026-06-23       0.4            zeh            encoder 丢样容忍：opt-in encoder_timeout_s
+ *                                                （默认 0=旧行为），speed_step 超时才 latch
+ * 2026-06-24       0.5            zeh            config 加 opt-in speed_feedback_sign
+ *                                                （<0 翻 speed_meas，修镜像轴速度环正反馈跑飞）
  *
  * 单实例包含双 HRT 槽语义：快环电流、慢环速度。命令/遥测由应用经 snapshot 注入。
  * HAL 句柄经 resources 注入，不包含板级初始化。
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_MOTOR_FOC_SENSORED_H
 #define BM_MOTOR_FOC_SENSORED_H
@@ -124,6 +128,24 @@ typedef struct {
     float    speed_dt_s;
     float    iq_max_a;
     /**
+     * @brief encoder 读丢样容忍超时（s）。0=旧行为（读失败即 latch_fault）。
+     *
+     * >0 时 speed_step 对编码器读失败短时容忍：保持上次有效机械速度继续算速度环，
+     * 同时累计连续丢样时长，超过本阈值才 latch_fault 进安全态。读成功即清零累计。
+     * 用于滤除 I2C 偶发单拍读失败（总线竞争），避免一次毛刺拖整车进安全态。
+     */
+    float    encoder_timeout_s;
+    /**
+     * @brief 速度环反馈符号修正（0 或 +1=不翻；<0=翻转）。
+     *
+     * encoder 测得的机械速度符号纯由原始计数增减方向决定（bm_algo_encoder_update
+     * 不经 encoder_direction）。镜像安装的轴：+iq 产生的转矩使转子正转，但 encoder
+     * 计数反向递减 → 测速符号与转矩约定相反 → 速度环负反馈变正反馈 → 跑飞。
+     * 本字段 <0 时 speed_step 对 speed_meas 取反，修正该轴反馈极性。
+     * 默认 0（=不翻，向后兼容）；按轴标定（如双轮一轴 +1、镜像轴 -1）。
+     */
+    float    speed_feedback_sign;
+    /**
      * @brief 使能 MTPA（最大转矩电流比）电流分配。
      *
      * 非零时由 bm_algo_mtpa_id_ref() 按 iq_ref 自动计算最优 id_ref，
@@ -169,6 +191,10 @@ typedef struct {
     bm_algo_encoder_state_t encoder;
     float                   iq_ref_a;
     uint32_t                last_cmd_sequence;
+    /** @brief encoder 连续丢样累计时长（s），读成功清零。encoder_timeout_s>0 时用。 */
+    float                   encoder_lost_time_s;
+    /** @brief 上次有效机械速度（rad/s），丢样容忍窗内保持喂速度环。 */
+    float                   last_velocity_rad_s;
 } bm_motor_foc_speed_state_t;
 
 typedef struct {

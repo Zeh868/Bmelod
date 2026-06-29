@@ -15,7 +15,7 @@
  * 2026-06-17       1.2            zeh            增加重叠 STFT 状态机
  * 2026-06-23       1.3            zeh            bm_algo_stft_overlap_init 注释标注 frame_size<=64 上限约束
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_ALGO_SPECTRAL_H
 #define BM_ALGO_SPECTRAL_H

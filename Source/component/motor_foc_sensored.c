@@ -2,8 +2,8 @@
  * @file motor_foc_sensored.c
  * @brief 有感 FOC 伺服轴领域组件实现
  * @author zeh (china_qzh@163.com)
- * @version 0.3
- * @date 2026-06-23
+ * @version 0.5
+ * @date 2026-06-24
  *
  * @par 修改日志:
  *
@@ -14,8 +14,12 @@
  *                                                bm_algo_mtpa_id_ref / bm_algo_fw_id_adjust；
  *                                                validate_config 新增 MTPA 参数校验；
  *                                                current_step 更新 last_vd/vq_pu 供弱磁使用
+ * 2026-06-23       0.4            zeh            encoder 丢样容忍：opt-in encoder_timeout_s
+ *                                                （默认 0=旧行为），speed_step 超时才 latch
+ * 2026-06-24       0.5            zeh            speed_step 加 opt-in speed_feedback_sign
+ *                                                （<0 翻 speed_meas，修镜像轴正反馈跑飞）
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/component/motor_foc_sensored.h"
 #include "bm/algorithm/bm_algo_common.h"
@@ -394,12 +398,30 @@ void bm_motor_foc_sensored_speed_step(bm_motor_foc_sensored_axis_t *axis) {
 
     if (res->encoder == NULL ||
         bm_hal_encoder_read(res->encoder, &enc_raw) != BM_OK) {
-        latch_fault(axis);
-        return;
+        /* 读失败：encoder_timeout_s<=0 维持旧行为（立即 latch）；
+         * >0 则短时容忍——保持上次有效速度，累计连续丢样，超阈才 latch。 */
+        if (cfg->encoder_timeout_s <= 0.0f) {
+            latch_fault(axis);
+            return;
+        }
+        st->speed.encoder_lost_time_s += cfg->speed_dt_s;
+        if (st->speed.encoder_lost_time_s >= cfg->encoder_timeout_s) {
+            latch_fault(axis);
+            return;
+        }
+        speed_meas = st->speed.last_velocity_rad_s;  /* 丢样窗内保持上次速度 */
+    } else {
+        st->speed.encoder_lost_time_s = 0.0f;        /* 读成功清零累计 */
+        (void)bm_algo_encoder_update(&st->speed.encoder, &cfg->encoder,
+                                     enc_raw, cfg->speed_dt_s);
+        speed_meas = st->speed.encoder.velocity_rad_s;
+        st->speed.last_velocity_rad_s = speed_meas;  /* 记录供丢样保持 */
     }
-    (void)bm_algo_encoder_update(&st->speed.encoder, &cfg->encoder,
-                                 enc_raw, cfg->speed_dt_s);
-    speed_meas = st->speed.encoder.velocity_rad_s;
+    /* per-axis 速度反馈符号修正：镜像安装的轴 encoder 原始计数方向与转矩约定相反，
+     * 致速度环正反馈跑飞。speed_feedback_sign<0 时取反；0/+1 不翻（向后兼容）。 */
+    if (cfg->speed_feedback_sign < 0.0f) {
+        speed_meas = -speed_meas;
+    }
     speed_ref = bm_algo_ramp_step(&st->speed.speed_ramp, &cfg->speed_ramp,
                                   st->cmd.speed_setpoint_rad_s,
                                   cfg->speed_dt_s);

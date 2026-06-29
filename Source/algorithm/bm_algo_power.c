@@ -17,7 +17,7 @@
  * 2026-06-23       1.3            zeh            修复 Tustin 历史导数项系数错误（h→T/2），
  *                                                消除 SOGI 递推发散（test_sogi_states_decay 回归）
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_power.h"
 #include "bm/algorithm/bm_algo_common.h"

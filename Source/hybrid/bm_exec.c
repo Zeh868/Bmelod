@@ -4,8 +4,8 @@
  *
  * 校验实例与资源声明，组装 HRT 调度表，协调 init/start/stop 与硬件绑定。
  * @author zeh (china_qzh@163.com)
- * @version 2.1
- * @date 2026-06-12
+ * @version 2.5
+ * @date 2026-06-26
  *
  * @par 修改日志:
  *
@@ -19,12 +19,14 @@
  * 2026-06-13       2.2            zeh            Block 槽 deadline 检查与 late 统计
  * 2026-06-14       2.3            zeh            按 CPU 会话；stream commit/drain 解耦
  * 2026-06-14       2.4            zeh            deadline miss 可注册处理；按 CPU clock_id
+ * 2026-06-26       2.5            zeh            deadline 时间基迁至 bm_uptime_us()（#9-2a）
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm_exec.h"
 #include "bm_stream.h"
 #include "bm/hybrid/bm_timestamp.h"
+#include "bm/common/bm_uptime.h"
 #include "bm_critical_wrap.h"
 #include "bm_hrt.h"
 #include "bm_log.h"
@@ -129,11 +131,28 @@ void bm_exec_block_deadline_missed_hook(const bm_exec_slot_t *slot,
 }
 #endif
 
+/**
+ * @brief 检查 Block/Frame 槽是否已超 deadline
+ *
+ * 时间基已迁至 bm_uptime_us()（64 位单调微秒，#9-2a）：
+ *  - now_us = bm_uptime_us()（64 位，无回绕）
+ *  - block_ts_us 由 block->timestamp 通用公式 ticks * 1e6 / rate_hz 换算
+ *  - elapsed64 = now_us - block_ts_us（直接 64 位减法，无截断）
+ *
+ * 跨时钟域处理（clock_id/clock_epoch/rate_hz 重对齐）保持原有逻辑：
+ * HRT 同域时校验并修正 epoch/rate，跨域时信任调用方时间戳。
+ *
+ * @param slot        执行槽描述符指针
+ * @param block       数据块指针
+ * @param elapsed_out 输出实际 elapsed 微秒（uint32_t，超出 4G 时饱和为 0xFFFFFFFF）
+ * @return 1 已超 deadline；0 未超或无法判断
+ */
 static int exec_block_is_late(const bm_exec_slot_t *slot,
                               bm_block_t *block,
                               uint32_t *elapsed_out) {
-    uint32_t now;
-    uint32_t elapsed_us;
+    uint64_t now_us;
+    uint64_t block_ts_us;
+    uint64_t elapsed64;
     uint32_t timer_freq;
 
     if (elapsed_out != NULL) {
@@ -145,6 +164,11 @@ static int exec_block_is_late(const bm_exec_slot_t *slot,
     if (block->timestamp.rate_hz == 0u) {
         return 0;
     }
+    /*
+     * timer_freq 用于 HRT 同域时的 clock_epoch/rate_hz 重对齐；
+     * 若定时器尚未初始化（freq=0），重对齐会将 rate_hz 置 0 导致除零，
+     * 提前返回以保障安全。
+     */
     timer_freq = bm_hal_timer_get_freq();
     if (timer_freq == 0u) {
         return 0;
@@ -157,8 +181,8 @@ static int exec_block_is_late(const bm_exec_slot_t *slot,
          * block 携带的时钟域信息（clock_id/clock_epoch）与本地 clock_id
          * 不一致时，说明数据已在上层完成转送并重新采样。
          *
-         * clock_id 匹配 → 使用标准 deadline 检查。
-         * clock_id 不匹配 → 使用本地采样的 ticks，直接进入检查路径。
+         * clock_id 匹配 → 进行 epoch/rate 重对齐（见下）。
+         * clock_id 不匹配 → 跨时钟域，信任调用方时间戳，直接进入检查路径。
          */
         if (block->timestamp.clock_id == timer.clock_id) {
             /*
@@ -173,18 +197,35 @@ static int exec_block_is_late(const bm_exec_slot_t *slot,
         }
         /* 跨时钟域：跳过 clock_id/epoch 校验，信任调用方的时间戳 */
     }
-    now = bm_hal_timer_get_ticks();
-    if (bm_timestamp_before(now, block->timestamp.ticks)) {
+    /* 统一单调时钟：64 位微秒，无回绕 */
+    now_us = bm_uptime_us();
+    /*
+     * block_ts_us = ticks * 1e6 / rate_hz。直接相乘在高 rate_hz 域（如 ns 域
+     * rate_hz=1e9）下，ticks 超过约 1.8e13 时 ticks*1e6 会 uint64 溢出。
+     * 改用「商 * 1e6 + 余 * 1e6 / rate_hz」拆分（同 bm_hal_uptime 后端的防溢出写法），
+     * 数学等价且中间量始终 < rate_hz * 1e6，不溢出。
+     */
+    {
+        uint64_t ticks = block->timestamp.ticks;
+        uint64_t rate  = (uint64_t)block->timestamp.rate_hz;
+
+        block_ts_us = (ticks / rate) * 1000000ull
+                    + (ticks % rate) * 1000000ull / rate;
+    }
+    if (now_us < block_ts_us) {
+        /* block 时间戳在未来，尚未到期 */
         return 0;
     }
-    elapsed_us = (uint32_t)(((uint64_t)(now - block->timestamp.ticks) *
-                             1000000ull) / (uint64_t)timer_freq);
-    if (elapsed_us > slot->deadline_us) {
+    elapsed64 = now_us - block_ts_us;
+    if (elapsed64 > (uint64_t)slot->deadline_us) {
+        /* elapsed 饱和截断至 uint32_t，供上层钩子展示 */
+        uint32_t elapsed_u32 = (elapsed64 > 0xFFFFFFFFull)
+                               ? 0xFFFFFFFFu : (uint32_t)elapsed64;
         if (slot->stream != NULL) {
             bm_stream_mark_late(slot->stream);
         }
         if (elapsed_out != NULL) {
-            *elapsed_out = elapsed_us;
+            *elapsed_out = elapsed_u32;
         }
         return 1;
     }

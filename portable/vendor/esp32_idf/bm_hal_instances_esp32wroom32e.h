@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal_instances_esp32wroom32e.h
  * @brief 灯哥 V4 平衡车 ESP32-WROOM-32E 板级引脚与电气常量

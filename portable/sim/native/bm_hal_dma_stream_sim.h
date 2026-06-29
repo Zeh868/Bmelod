@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal_dma_stream_sim.h
  * @brief native_sim DMA 流实例与测试辅助

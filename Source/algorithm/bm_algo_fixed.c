@@ -25,7 +25,7 @@
  * 2026-06-23       2.3            zeh            缺陷修复：abs_q15 INT16_MIN UB、Mahony Ki 积分持久化、rms_q31 溢出防护
  * 2026-06-23       2.4            zeh            磁链观测器包装启用 wc_rad_s 衰减截止频率；修正 BM_ALGO_SQRT3_Q31 为精确 Q30 值
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_fixed.h"
 #include "bm/algorithm/bm_algo_profile.h"

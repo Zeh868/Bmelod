@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_arch_critical.c
  * @brief RISC-V 64 位临界区实现（mstatus.MIE 保存/恢复）

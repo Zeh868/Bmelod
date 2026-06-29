@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_arch_drv_bundle.c
  * @brief 将 arch 层原语组装为 bm_drv_critical_api / bm_drv_memory_api

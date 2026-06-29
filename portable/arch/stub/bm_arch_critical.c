@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_arch_critical.c
  * @brief stub 架构临界区（编译器屏障，无真实 IRQ 屏蔽）

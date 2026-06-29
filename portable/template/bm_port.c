@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_port.c
  * @brief Bmelod Port 组合模板 — arch 层 + vendor 弱钩子

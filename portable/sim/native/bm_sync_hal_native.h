@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_sync_hal_native.h
  * @brief 原生仿真同步域 HAL 测试辅助接口

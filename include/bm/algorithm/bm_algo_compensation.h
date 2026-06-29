@@ -17,7 +17,7 @@
  * 2026-06-23       1.2            zeh            bm_algo_backlash_inverse 换向时重置偏移，修复只增不减缺陷
  * 2026-06-23       1.3            zeh            背隙补偿升级为双向独立偏移：正向/反向各自维护累计偏移，换向时切换至另一方向已保存偏移继续渐进
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_ALGO_COMPENSATION_H
 #define BM_ALGO_COMPENSATION_H

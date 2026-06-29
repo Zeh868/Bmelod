@@ -15,7 +15,7 @@
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-23       1.2            zeh            bm_algo_pr_init 补 Doxygen 设计契约，说明调用方须自行获取并传递 PR 系数
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_ALGO_CONTROL_H
 #define BM_ALGO_CONTROL_H

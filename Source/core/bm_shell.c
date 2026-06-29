@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_shell.c
  * @brief 轻量级非阻塞串口命令行实现

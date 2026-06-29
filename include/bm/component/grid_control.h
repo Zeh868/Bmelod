@@ -15,7 +15,7 @@
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 exec_ops 声明；validate_config 增加 PLL/PR 参数校验
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_GRID_CONTROL_H
 #define BM_GRID_CONTROL_H

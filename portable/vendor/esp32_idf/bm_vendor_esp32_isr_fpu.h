@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_vendor_esp32_isr_fpu.h
  * @brief ESP 中断内安全使用 FPU 的协处理器(CP0)守卫。

@@ -12,7 +12,7 @@
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-23       1.2            zeh            磁链观测器纯积分改为带衰减积分，消除低速/静止时 DC 漂移
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_motor.h"
 #include "bm/algorithm/bm_algo_common.h"

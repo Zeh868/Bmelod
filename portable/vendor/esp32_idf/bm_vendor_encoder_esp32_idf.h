@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_vendor_encoder_esp32_idf.h
  * @brief ESP32-WROOM-32E 板级编码器实例声明

@@ -153,7 +153,7 @@ ISR:  Hardware 环（ADC 等） | Scheduled 环（bm_hrt tick）
 1. `bm_config.h` 增加 `BM_CONFIG_HRT_*`、`BM_CONFIG_MAX_EXEC_*`
 2. CMake：`BM_ENABLE_HRT`、`BM_ENABLE_EXEC`（多轴 + `BM_ENABLE_SYNC`）
 3. 环算法迁入 `bm_exec_slot_t.run`
-4. HRT→SRT 数据改 `bm_snapshot`；通知保留事件
+4. HRT→SRT 数据改 `bm_bus` LATEST 模式；通知保留事件
 5. `bm_exec_init_all` 替代手写 `bm_hrt_init`（多实例）
 
 ---

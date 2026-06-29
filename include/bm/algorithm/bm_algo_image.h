@@ -14,7 +14,7 @@
  * 2026-06-17       1.1            zeh            RGB565 转灰度与裁剪
  * 2026-06-17       1.2            zeh            最近邻缩放
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_ALGO_IMAGE_H
 #define BM_ALGO_IMAGE_H

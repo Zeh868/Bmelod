@@ -12,7 +12,7 @@
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-15       1.1            zeh            init 后禁止运行期 bypass 变更
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/hybrid/bm_pipeline.h"
 

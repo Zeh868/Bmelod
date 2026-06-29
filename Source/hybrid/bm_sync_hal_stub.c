@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_sync_hal_stub.c
  * @brief 同步域 HAL 空实现（未链接平台 HAL 时使用）

@@ -1,0 +1,6 @@
+[I][hal_uart] init: semihosting backend
+[I][uptime_smoke] start uptime smoke test
+[I][hal_timer] init: freq_hz=1000
+ok 1 - qemu_uptime_nonzero
+ok 2 - qemu_uptime_monotonic
+ok 3 - qemu_uptime_us_consistent

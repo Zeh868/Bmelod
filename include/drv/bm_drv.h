@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_drv.h
  * @brief 驱动子系统公共类型与设备定义宏（Zephyr driver API 同构，无 Kconfig）

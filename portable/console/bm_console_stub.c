@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_console_stub.c
  * @brief Console 空操作后端
@@ -12,6 +13,7 @@
  *
  */
 #include "bm_types.h"
+#include <stddef.h>
 
 /**
  * @brief 初始化 stub 后端

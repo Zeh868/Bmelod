@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_critical_wrap.h
  * @brief 临界区进入/退出宏封装

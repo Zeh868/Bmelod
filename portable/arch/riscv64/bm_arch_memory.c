@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_arch_memory.c
  * @brief RISC-V 64 位内存屏障实现

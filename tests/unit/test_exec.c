@@ -17,6 +17,7 @@
 #include "bm_hal_adc_sim.h"
 #include "bm_hal_pwm_sim.h"
 #include "bm_hal_timer_native.h"
+#include "bm_hal_uptime_native.h"
 #include "bm_log.h"
 #include "hal/bm_hal_timer.h"
 
@@ -186,16 +187,24 @@ static int stream_start_with_foreign_clock_block(const bm_exec_t *instance) {
 static int stream_start_with_wrapped_late_block(const bm_exec_t *instance) {
     bm_block_t *block;
     bm_timestamp_t ts;
+    uint64_t now_ns;
 
     (void)instance;
     if (bm_stream_producer_acquire(&g_stream, &block) != BM_OK) {
         return BM_ERR_INVALID;
     }
-    ts.clock_id = BM_TIMESTAMP_CLOCK_HRT;
-    ts.quality = 1u;
-    ts.clock_epoch = bm_hal_timer_clock_epoch_for_cpu(0u);
-    ts.ticks = 0xFFFFFFF0u;
-    ts.rate_hz = bm_hal_timer_get_freq();
+    /*
+     * #9-2a 迁移说明：
+     * 旧路径用 0xFFFFFFF0 HRT ticks 测试 32 位回绕；64 位 uptime 时代不再回绕。
+     * 新路径：ns 域（rate_hz=1e9）+ foreign clock_id（绕过 HRT epoch 重对齐），
+     * 时间戳设为约 10 秒前（或进程启动时刻），elapsed > deadline_us=1000 µs。
+     */
+    now_ns = bm_uptime_ns();
+    ts.clock_id    = 1u;  /* foreign clock：跳过 HRT epoch 重对齐 */
+    ts.quality     = 1u;
+    ts.clock_epoch = 0u;
+    ts.ticks       = (now_ns > 10000000000ull) ? now_ns - 10000000000ull : 0u;
+    ts.rate_hz     = 1000000000u;  /* ns 域：1 GHz */
     return bm_stream_producer_commit(&g_stream, block,
                                      sizeof(exec_test_payload_t), &ts);
 }
@@ -496,6 +505,7 @@ void setUp(void) {
     g_wrong_safe_stop_count = 0u;
     g_block_run_count = 0u;
     g_stream.on_ready = NULL;
+    bm_hal_uptime_native_reset();
     (void)bm_hal_timer_init(1000000u / BM_CONFIG_HRT_TICK_US);
     bm_hal_timer_native_reset_ticks();
     bm_hal_timer_native_set_init_result(BM_OK);
@@ -732,6 +742,8 @@ void test_exec_block_deadline_drops_late_by_default(void) {
     const bm_exec_t *const instances[] = { &stream_late_inst };
 
     bm_hal_timer_native_advance_ticks(200u);
+    /* #9-2a：HRT ticks=0 对应 uptime=0，需推进 uptime > deadline_us(1000) 才能判 late */
+    bm_hal_uptime_native_advance_us(2000u);
     TEST_ASSERT_EQUAL(BM_OK, bm_exec_init_all(instances, 1u));
     TEST_ASSERT_EQUAL(BM_OK, bm_exec_start_all(instances, 1u));
     drain_exec_streams();
@@ -745,6 +757,8 @@ void test_exec_block_deadline_skips_foreign_clock(void) {
     const bm_exec_t *const instances[] = { &stream_foreign_clock_inst };
 
     bm_hal_timer_native_advance_ticks(200u);
+    /* #9-2a：foreign clock ticks=0 → block_ts_us=0，推进 uptime > deadline_us(1000) */
+    bm_hal_uptime_native_advance_us(2000u);
     TEST_ASSERT_EQUAL(BM_OK, bm_exec_init_all(instances, 1u));
     TEST_ASSERT_EQUAL(BM_OK, bm_exec_start_all(instances, 1u));
     drain_exec_streams();
@@ -756,7 +770,19 @@ void test_exec_block_deadline_skips_foreign_clock(void) {
 void test_exec_block_deadline_handles_tick_wraparound(void) {
     const bm_exec_t *const instances[] = { &stream_wrapped_late_inst };
 
-    bm_hal_timer_native_advance_ticks(32u);
+    /*
+     * 32 位 tick 回绕在 64 位 bm_uptime_us() 时代不再发生（~584000 年不回绕）。
+     * 此用例已改为验证「超长 elapsed 仍正确判 late」。
+     *
+     * 注意时间戳取值依进程运行时长分两种情形（见
+     * stream_start_with_wrapped_late_block）：
+     *  - 进程已运行 >10 s：ticks 回拨 10 s，elapsed≈10 s，回拨本身即保证 late；
+     *  - 进程刚启动（单元测试常态，uptime<10 s）：ticks=0 → block_ts_us=0，
+     *    此时 elapsed=now_us，必须靠下面这条推进把 now_us 抬到 >deadline_us，
+     *    否则 now_us 接近 0 会判不出 late（且与真实墙钟竞争而 flaky）。
+     * 故 advance 不是冗余，是该情形下的判定来源；推进 2000 µs > deadline_us=1000 µs。
+     */
+    bm_hal_uptime_native_advance_us(2000u);
     TEST_ASSERT_EQUAL(BM_OK, bm_exec_init_all(instances, 1u));
     TEST_ASSERT_EQUAL(BM_OK, bm_exec_start_all(instances, 1u));
     drain_exec_streams();

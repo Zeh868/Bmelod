@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_sync_hal.h
  * @brief 同步域平台 HAL 契约

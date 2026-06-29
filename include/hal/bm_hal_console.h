@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal_console.h
  * @brief 诊断字符流 Console HAL（日志 / Shell 分通道、编译期选后端）

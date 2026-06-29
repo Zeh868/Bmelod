@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal_dma_stream.h
  * @brief DMA 块流 HAL 契约（提交缓冲、half/full 回调）

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_vendor_pwm_esp32_idf.c
  * @brief ESP32-WROOM-32E 硬件 MCPWM 驱动实现（Phase 2）

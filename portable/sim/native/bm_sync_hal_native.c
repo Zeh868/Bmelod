@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_sync_hal_native.c
  * @brief 原生仿真环境同步域 HAL 实现

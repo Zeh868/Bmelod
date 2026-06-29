@@ -94,7 +94,7 @@ build/demo/<variant>/<name>/  # 所有示例构建产物（gitignore，见仓库
 - 示例目录使用 **`bm_config_app.h`** 存放容量覆盖宏；**勿**在应用目录放置名为 `bm_config.h` 的文件（会遮蔽框架 `include/bm_config.h` 默认值）。
 - `bm_config_app.h` 由 CMake `BM_CONFIG_FILE` 强制 `-include`；文件头注释须为 **UTF-8**（建议带 BOM，便于 Windows 编辑器识别中文）。
 - 寄存器/向量 ISR 放板级文件（如 `interrupt_demo/interrupt_timer.c`），不进 `main.c`。
-- 异步消息用 `bm_event_publish_copy`；跨 HRT 数据用 `bm_snapshot`。
+- 异步消息用 `bm_event_publish_copy`；跨 HRT 数据用 `bm_bus` LATEST 模式。
 
 ## 6. 移植到真实硬件
 

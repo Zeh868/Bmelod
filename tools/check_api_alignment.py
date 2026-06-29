@@ -34,11 +34,6 @@ EXPECTED_APIS = {
     "bm_wdg_register": "int bm_wdg_register(const char *name)",
     "bm_wdg_feed": "void bm_wdg_feed(void)",
     "bm_wdg_feed_module": "void bm_wdg_feed_module(const char *name)",
-    # Channel (M8)
-    "bm_channel_reset": "void bm_channel_reset(bm_channel_t *ch)",
-    "bm_channel_send": "int bm_channel_send(bm_channel_t *ch, const void *data)",
-    "bm_channel_recv": "int bm_channel_recv(bm_channel_t *ch, void *data)",
-    "bm_channel_count": "uint32_t bm_channel_count(const bm_channel_t *ch)",
     # Shell (M9)
     "bm_shell_init": "void bm_shell_init(bm_shell_t *shell)",
     "bm_shell_register": "int bm_shell_register(bm_shell_t *shell, const char *name, bm_shell_cmd_fn_t fn, const char *help)",

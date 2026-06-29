@@ -24,7 +24,7 @@
  * 2026-06-14       2.3            zeh            owner_cpu；prepare/irq_release/drain
  * 2026-06-14       2.4            zeh            deadline miss 可注册处理函数
  *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_EXEC_H
 #define BM_EXEC_H

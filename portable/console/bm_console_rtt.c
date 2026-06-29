@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_console_rtt.c
  * @brief Console RTT 后端（SEGGER RTT 或内置仿真上行缓冲）
