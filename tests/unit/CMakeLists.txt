@@ -362,6 +362,18 @@ if(BM_CONFIG_SMP AND TARGET bm_mp)
         target_link_libraries(test_mp PRIVATE bm_module bm_ticker)
     endif()
 
+    # [A4 缺口登记] 多核确定性测试（test_mp / test_mp_period 等）已有并发跑通证据：
+    #   native 40/0 + qemu -smp 2 35/35 均实跑。
+    # 触发条件：BM_CONFIG_SMP=ON 时将下列 SMP 测试纳入 determinism 标签。
+    if(BM_CONFIG_SMP)
+        set_tests_properties(test_mp PROPERTIES LABELS "determinism")
+        if(TARGET test_mp_period)
+            set_tests_properties(test_mp_period PROPERTIES LABELS "determinism")
+        endif()
+    endif()
+    # [A4 未决] qemu_conc_core / qemu_bus_smp 等专项并发确定性测试（seqlock 真并发下
+    #   逐位可复现性量化断言）属 L2 范围，待 P2 期 QEMU icount 构建时补入。
+
     bm_mp_add_test(test_mp_profile test_mp_profile.c)
     if(TARGET bm_module AND TARGET bm_ticker)
         target_link_libraries(test_mp_profile PRIVATE bm_module bm_ticker)
