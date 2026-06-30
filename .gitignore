@@ -51,6 +51,9 @@ temp/
 docs/_build/
 docs/superpowers/
 
+# 私有战略/路线图文档（勿公开上传；01 能力路线图保持公开）
+docs/07-演进路线/00-框架优化重构总路线图.md
+
 .vscode/*
 .cache/
 
