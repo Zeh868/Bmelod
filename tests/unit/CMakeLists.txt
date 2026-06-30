@@ -400,3 +400,12 @@ if(BM_CONFIG_SMP AND TARGET bm_mp)
 
     bm_mp_add_test(test_console test_console.c)
 endif()
+
+# ===== 确定性验证 L1（功能确定性）测试套件 =====
+if(TARGET bm_algorithm)
+    bm_add_test(test_det_repro test_det_repro.c bm_algorithm)
+    if(NOT MSVC)
+        target_link_libraries(test_det_repro PRIVATE m)
+    endif()
+    set_tests_properties(test_det_repro PROPERTIES LABELS "determinism")
+endif()
