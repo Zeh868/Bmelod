@@ -50,6 +50,25 @@ if(BM_ENABLE_BUS)
         bm_add_test(test_bus test_bus.c bm_core)
     endif()
     target_compile_definitions(test_bus PRIVATE BM_ENABLE_BUS_TEST_HOOK=1)
+
+    # 确定性 L1 C1：bus retry-bound（DET-01）+ 非阻塞已由 test_bus 证明，纳入 determinism 标签
+    set_tests_properties(test_bus PROPERTIES LABELS "determinism")
+
+    # ---- 显式缺口登记（非占位，各有触发条件）----
+    # [C2 缺口] exec drain budget 有界：bm_exec_drain_streams(budget) 需 exec+stream 已初始化；
+    #   BM_ENABLE_EXEC_TEST_HOOK 宏在代码库中未找到（grep 2026-06-30 确认）。
+    #   触发条件：待 bm_exec.h 增加 BM_ENABLE_EXEC_TEST_HOOK 或等效 hook 后，
+    #   在 test_det_bounded.c 新增 test_det_bounded_exec_drain_budget 用例，
+    #   注入固定数量 stream 块，断言 drain_streams(N) 处理条数 <= N。
+    #
+    # [C5-CAS 缺口] atomic CAS 迭代次数有界（多核路径）：
+    #   单核 native 不激活 CAS 环（BM_CPU_LOCAL_ENABLE_ROUTE 默认 OFF）；
+    #   多核有界性通过 bm_critical.c:78 + BM_CONFIG_ATOMIC_MAX_RETRIES=8 静态保证，
+    #   对应确定性审查报告 D3/D6；L1 暂无 test hook 直接观测重试次数。
+    #   触发条件：BM_CONFIG_SMP=ON 时可用 QEMU -smp 在竞争窗口插入延迟观测。
+    #
+    # [C6 缺口] ipc 非阻塞返回：BM_CONFIG_SMP=OFF 默认，bm_mp/ipc 不可用。
+    #   触发条件：BM_CONFIG_SMP=ON SMP 构建 + bm_mp_add_test 中新增 ipc 非阻塞用例。
     bm_add_test(test_bus_migration test_bus_migration.c bm_core)
 
     # BM_BUS_IPC 模式契约测试：native 桩后端（fifo_stub + latest_stub）覆盖 FIFO 保序/满/空、
