@@ -427,3 +427,31 @@ if(BM_ENABLE_BUS)
     bm_add_test(test_det_roundtrip test_det_roundtrip.c bm_core)
     set_tests_properties(test_det_roundtrip PROPERTIES LABELS "determinism")
 endif()
+
+# B 块：全框架零分配稳态练习（需 BM_ENABLE_BUS 使 bm_bus 符号可用）
+if(TARGET bm_algorithm AND BM_ENABLE_BUS AND BM_ENABLE_HRT)
+    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        add_executable(test_det_zeroalloc
+            test_det_zeroalloc.c
+            support/det_trap_alloc.c)
+        target_link_libraries(test_det_zeroalloc PRIVATE
+            "-Wl,--start-group"
+            unity bm_algorithm bm_core bm_hrt bm_hal bm_hal_native
+            "-Wl,--end-group"
+            m)
+        target_link_options(test_det_zeroalloc PRIVATE
+            "-Wl,--wrap=malloc"
+            "-Wl,--wrap=calloc"
+            "-Wl,--wrap=realloc"
+            "-Wl,--wrap=free")
+        bm_target_internal_includes(test_det_zeroalloc)
+        target_include_directories(test_det_zeroalloc PRIVATE
+            ${CMAKE_SOURCE_DIR}/tests/unit/unity)
+        add_test(NAME test_det_zeroalloc COMMAND test_det_zeroalloc)
+    else()
+        # MSVC：CRT 钩子计数（smoke 路径，权威在 GNU --wrap）
+        bm_add_test(test_det_zeroalloc test_det_zeroalloc.c
+            "bm_algorithm;bm_core;bm_hrt")
+    endif()
+    set_tests_properties(test_det_zeroalloc PROPERTIES LABELS "determinism")
+endif()
