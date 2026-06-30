@@ -41,9 +41,50 @@ void test_det_suite_boots(void)
     TEST_ASSERT_TRUE(1);
 }
 
+/** @brief A1-a：clarke 纯函数同输入 DET_REPRO_RUNS 遍逐位可复现 */
+void test_det_repro_clarke(void)
+{
+    bm_algo_abc_t in;
+    bm_algo_alphabeta_t first;
+    bm_algo_alphabeta_t again;
+    uint32_t i;
+
+    in.ia = 1.2345f;
+    in.ib = -2.3456f;
+    in.ic = 0.0f;
+
+    memset(&first, 0, sizeof(first));
+    bm_algo_clarke(&in, &first);
+
+    for (i = 0u; i < DET_REPRO_RUNS; i++) {
+        memset(&again, 0, sizeof(again));
+        bm_algo_clarke(&in, &again);
+        det_assert_bitwise_equal(&first, &again, sizeof(bm_algo_alphabeta_t));
+    }
+}
+
+/** @brief A1-b：clarke_2shunt 纯函数同输入 DET_REPRO_RUNS 遍逐位可复现 */
+void test_det_repro_clarke_2shunt(void)
+{
+    bm_algo_alphabeta_t first;
+    bm_algo_alphabeta_t again;
+    uint32_t i;
+
+    memset(&first, 0, sizeof(first));
+    bm_algo_clarke_2shunt(0.777f, -0.333f, &first);
+
+    for (i = 0u; i < DET_REPRO_RUNS; i++) {
+        memset(&again, 0, sizeof(again));
+        bm_algo_clarke_2shunt(0.777f, -0.333f, &again);
+        det_assert_bitwise_equal(&first, &again, sizeof(bm_algo_alphabeta_t));
+    }
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_det_suite_boots);
+    RUN_TEST(test_det_repro_clarke);
+    RUN_TEST(test_det_repro_clarke_2shunt);
     return UNITY_END();
 }
