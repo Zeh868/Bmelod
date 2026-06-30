@@ -1,10 +1,11 @@
 /**
  * @file test_det_zeroalloc.c
- * @brief L1 零分配——全框架稳态练习在 abort-on-alloc / CRT 钩子下跑到结束
+ * @brief L1 零分配——全框架稳态练习在武装窗口（det_trap_arm..disarm）/ CRT 钩子下跑到结束
  *
- * B 块证据：在陷阱分配器（GNU）或 CRT 钩子计数（MSVC）下，
+ * B 块证据：在陷阱分配器武装窗口（GNU）或 CRT 钩子计数（MSVC）下，
  * 驱动 algorithm / bus / event / mempool / hrt-validate 稳态路径，
  * 任意动态分配即 abort（GNU）或计数≠0（MSVC），全通 = 零分配铁证。
+ * 窗口外转发真实分配，放行 unity/printf 自身 I/O。
  *
  * 缺口：
  *   exec drain（BM_ENABLE_EXEC_TEST_HOOK 未找到，初始化链路依赖 HAL）→ C2 缺口。
@@ -195,17 +196,31 @@ void test_det_zero_alloc_msvc(void)
     TEST_ASSERT_EQUAL_INT32(0, g_det_alloc_count);
 }
 #else /* GNU —— abort-on-alloc 陷阱分配器由链接选项注入 */
+
+/** 由 det_trap_alloc.c 提供：武装/解除窗口 */
+void det_trap_arm(void);
+void det_trap_disarm(void);
+
 /**
- * @brief GNU：稳态运行——任一分配触发陷阱 abort；跑到此断言即零分配铁证
+ * @brief GNU：稳态运行——武装窗口内任一分配触发陷阱 abort；跑到断言即零分配铁证
  *
  * 权威路径（spec §4.2 B 方案）：链接 det_trap_alloc.c，
- * --wrap=malloc/calloc/realloc/free 重定向至 abort。
- * 全套跑到结束 = 零动态分配（不可辩驳）。
+ * --wrap=malloc/calloc/realloc/free 重定向至可武装陷阱。
+ * 预热 stdout 缓冲后武装陷阱、跑稳态练习、解除武装；
+ * 练习期框架 BM_LOGI 复用已分配 stdout 缓冲、不再 malloc，
+ * 故窗口内跑到结束 = 框架零动态分配（不可辩驳）。
  */
 void test_det_zero_alloc_gnu(void)
 {
+    /* 预热宿主 stdio：武装前强制分配 stdout 缓冲，使练习期 fwrite 复用、不 malloc */
+    printf("\n");
+    fflush(stdout);
+
+    det_trap_arm();
     det_steady_state_exercise();
-    TEST_ASSERT_TRUE(1); /* 跑到这里 = 陷阱未触发 = 零分配 */
+    det_trap_disarm();
+
+    TEST_ASSERT_TRUE(1); /* 武装窗口内陷阱未触发 = 框架零分配 */
 }
 #endif /* _MSC_VER */
 
