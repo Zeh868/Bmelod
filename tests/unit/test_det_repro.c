@@ -35,7 +35,7 @@ static void det_assert_bitwise_equal(const void *first, const void *again, size_
     TEST_ASSERT_EQUAL_INT(0, memcmp(first, again, size));
 }
 
-/** @brief 骨架自检：套件可编译可运行 */
+/** @brief 骨架自检：仅验证套件可编译可运行，不构成确定性证据（非 A 类佐证） */
 void test_det_suite_boots(void)
 {
     TEST_ASSERT_TRUE(1);

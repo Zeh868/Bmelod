@@ -1,6 +1,6 @@
 /**
  * @file test_det_bounded.c
- * @brief L1 有界+非阻塞——C3 event process max_events 有界 + C4 mempool O(count) 有界
+ * @brief L1 有界+非阻塞——C3 event process max_events 有界 + C4 mempool 有界扫描（池满返回 NULL 不自旋）
  *        + C5 atomic_inc 饱和语义（证明饱和上界，非 CAS 迭代次数）
  *
  * 缺口：
@@ -97,11 +97,12 @@ void test_det_bounded_event_process_max_events(void)
 }
 
 /**
- * @brief C4：mempool 分配扫描 O(count) 有界——池满后 alloc 返回 NULL，不无限自旋
+ * @brief C4：mempool 分配有界扫描——池满后 alloc 返回 NULL，不无限自旋（终止性）
  *
  * 直接填满 16 槽，第 17 次 alloc 必须返回 NULL（有界位图扫描），
- * 不会挂死。随后 free+alloc 验证归还逻辑同样有界。
- * （bm_mempool_alloc 位图扫描界 = count，最坏情况 O(count)，spec §4.1 有界迭代）
+ * 不会挂死。随后 free+alloc 验证归还逻辑同样有界终止。
+ * 本用例实测的是“终止性”（池满即返回 NULL，不自旋）；O(count) 复杂度阶
+ * 属静态结论（bm_mempool_alloc 位图扫描界 = count），非本运行时用例度量，spec §4.1。
  */
 void test_det_bounded_mempool_full_then_null(void)
 {
@@ -121,7 +122,7 @@ void test_det_bounded_mempool_full_then_null(void)
     extra = bm_mempool_alloc(&det_bd_pool);
     TEST_ASSERT_NULL(extra);
 
-    /* free 中间一槽，再 alloc 应成功（free + 再分配也是 O(count)） */
+    /* free 中间一槽，再 alloc 应成功（free + 再分配同为有界扫描终止） */
     bm_mempool_free(&det_bd_pool, ptrs[7u]);
     ptrs[7u] = bm_mempool_alloc(&det_bd_pool);
     TEST_ASSERT_NOT_NULL(ptrs[7u]);
