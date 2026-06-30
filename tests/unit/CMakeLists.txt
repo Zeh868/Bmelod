@@ -245,6 +245,11 @@ if(TARGET bm_component_tinyml)
     bm_add_test(test_tinyml_adapter test_tinyml_adapter.c bm_component_tinyml)
 endif()
 
+# C3+C4+C5：有界+非阻塞多路径
+bm_add_test(test_det_bounded test_det_bounded.c bm_core)
+target_compile_definitions(test_det_bounded PRIVATE BM_ENABLE_EVENT_TEST_HOOK=1)
+set_tests_properties(test_det_bounded PROPERTIES LABELS "determinism")
+
 if(TARGET bm_component_control_loop)
     bm_add_test(test_control_loop test_control_loop.c bm_component_control_loop)
     if(NOT MSVC)
