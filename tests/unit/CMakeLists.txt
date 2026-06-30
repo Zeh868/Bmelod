@@ -409,3 +409,9 @@ if(TARGET bm_algorithm)
     endif()
     set_tests_properties(test_det_repro PROPERTIES LABELS "determinism")
 endif()
+
+# A3 框架 round-trip 可复现性（需要 BM_ENABLE_BUS 使 bm_bus 符号可用）
+if(BM_ENABLE_BUS)
+    bm_add_test(test_det_roundtrip test_det_roundtrip.c bm_core)
+    set_tests_properties(test_det_roundtrip PROPERTIES LABELS "determinism")
+endif()
