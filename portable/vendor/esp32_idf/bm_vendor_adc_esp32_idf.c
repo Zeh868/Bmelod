@@ -52,8 +52,18 @@
 #define BM_VENDOR_ADC_INSTANCE_COUNT  2u
 /** @brief 单个实例的采样 rank 数（ia / ib 两路）。 */
 #define BM_VENDOR_ADC_RANK_COUNT      2u
-/** @brief ISR 内 oneshot 转换的最大等待循环次数。 */
-#define BM_VENDOR_ADC_POLL_LIMIT      2048u
+/**
+ * @brief ISR 内 oneshot 转换的最大等待循环次数。
+ *
+ * IWDT/task_wdt 根因修复：原值 2048 在 PWM 噪声污染 SAR 转换迟迟不完成时，
+ * poll 跑满 ~2048 次（@240MHz ~30 周期/次 ≈ 50µs/通道、双通道 ~512µs/ISR），
+ * 5kHz MCPWM level-3 ISR 由此吃满 CPU1 → level-1 tick ISR 跑不了(IWDT)、
+ * foc_control_task 拿不到 CPU(task_wdt IDLE1)。正常转换 ~12µs ≈ 96 次，
+ * 取 200（留 2× 余量）；超限返回 BM_ERR_IO，ISR 用 cached[] 上一拍电流零阶
+ * 保持降级运行而非崩溃。真机验证(2026-06-29)：消除 IWDT/task_wdt、OC=0、
+ * 电流环 loop 速率正常。
+ */
+#define BM_VENDOR_ADC_POLL_LIMIT      200u
 /**
  * @brief 每通道 oneshot 连采次数（ISR 内同步采样）。
  *
