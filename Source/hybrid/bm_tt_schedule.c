@@ -3,16 +3,18 @@
  * @file bm_tt_schedule.c
  * @brief 时间触发调度门面（bm_tt_schedule）实现
  *
- * 本轮（Task 4）在 Task 3 输入冻结基础上补齐 LET 输出通路：per-task 相位
- * 双缓冲 + 边界发布——`bm_let_out` 返回 `outbuf[phase]` 中 out_idx 对应槽的
- * 写指针；`tt_publish` 把上一次已完成的结果（`outbuf[phase^1]`）经
- * `tt_bus_publish`（acquire_write→memcpy→commit）逐个发布到各输出 bus；
- * `bm_tt_schedule_tick` ISR 分支扩展为 freeze→step→publish→phase 翻转。
- * 其余算法（init 校验、MAINLOOP pending 执行、RTA 导出、reentry/overrun）
- * 留待后续 Task 填充。
+ * 本轮（Task 5）把 tick 长成最终形态——双域派发器：ISR 域新增 reentry
+ * guard（`rt->running` 已为真则本拍整体跳过、只计 overrun，不 freeze/不
+ * step/不 publish）；MAINLOOP 域新增真正的冻结挂起/发布调度（`fresh` 驱动
+ * 发布上一拍主循环算完的结果，`pending` 驱动本拍是否需要新冻结或计
+ * overrun），ISR 内绝不对 MAINLOOP 域跑 step；`bm_tt_schedule_run_pending`
+ * 从占位桩实现为主循环侧有界 drain（跑纯 step、翻 phase、置 fresh、清
+ * pending，但不发布，发布交回下一次 tick）；`bm_tt_schedule_hrt_slot` 从
+ * 占位桩实现为真正的 slot 描述符（回调经 `tt_hrt_trampoline` 转
+ * `bm_tt_schedule_tick`）。其余算法（init 校验、RTA 导出）留待后续 Task。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.2
+ * @version 1.3
  * @date 2026-07-01
  *
  * @par 修改日志:
@@ -21,6 +23,8 @@
  * 2026-07-01       1.0            zeh            骨架发布（config+公共头+CMake，无算法实现）
  * 2026-07-01       1.1            zeh            Task 3：输入冻结 + seq-delta 判龄，最小 ISR tick
  * 2026-07-01       1.2            zeh            Task 4：per-task 相位双缓冲 + 边界发布，扩展 ISR tick
+ * 2026-07-01       1.3            zeh            Task 5：双域派发器（ISR reentry/overrun +
+ *                                                 MAINLOOP fresh/pending）+ run_pending + hrt slot
  *
  */
 #include "bm_tt_schedule.h"
@@ -184,13 +188,28 @@ int bm_tt_schedule_init(bm_tt_schedule_t *sched) {
 }
 
 /**
- * @brief 生成本调度表对应的 HRT slot 描述（占位桩，空 slot）
+ * @brief hrt ISR 蹦床：仅转调派发器，供 `bm_tt_schedule_hrt_slot` 的
+ * `callback` 字段引用（`bm_hrt_callback_t` 签名为 `void(*)(void*)`，与
+ * `bm_tt_schedule_tick(bm_tt_schedule_t*)` 不同，需一层转调）
+ *
+ * @param ctx 实为 `bm_tt_schedule_t*`（hrt slot 的 context 字段回传）
+ */
+static void tt_hrt_trampoline(void *ctx) {
+    bm_tt_schedule_tick((bm_tt_schedule_t *)ctx);
+}
+
+/**
+ * @brief 生成本调度表对应的 HRT slot 描述
+ *
+ * @details period_us=minor_us，trigger=TIMER，callback 经 `tt_hrt_trampoline`
+ * 转调本调度表的 `bm_tt_schedule_tick`，context=本调度表实例。
+ *
+ * @param sched 调度表实例
+ * @return HRT slot 描述符
  */
 bm_hrt_slot_t bm_tt_schedule_hrt_slot(bm_tt_schedule_t *sched) {
-    bm_hrt_slot_t slot;
-
-    (void)sched;
-    memset(&slot, 0, sizeof(slot));
+    bm_hrt_slot_t slot = { sched->minor_us, BM_HRT_TRIGGER_TIMER,
+                            tt_hrt_trampoline, sched, sched->name };
     return slot;
 }
 
@@ -230,13 +249,31 @@ static uint32_t tt_calc_frames_fallback(const bm_tt_schedule_t *s) {
 }
 
 /**
- * @brief ISR 派发器：freeze→step→publish→phase 翻转（Task 4）
+ * @brief 双域派发器：ISR 域同步跑完 step，MAINLOOP 域只冻结/发布、挂起给
+ * `bm_tt_schedule_run_pending` 执行
  *
- * @details 遍历 entries，`(tick_idx % every)==at` 命中的 ISR 域 activity
- * 依次执行 `tt_freeze_inputs` → `step`（写入 `outbuf[phase]`）→
- * `tt_publish`（发布 `outbuf[phase^1]`，即上一次已完成的结果）→
- * `rt->phase ^= 1u`（翻转，供下次命中写入另一份缓冲），随后 `tick_idx`
- * 按 `n_frames` 取模前进一拍。reentry/overrun/MAINLOOP/run_pending 见 Task5。
+ * @details 遍历 entries，`(tick_idx % every)==at` 命中本拍才处理该 activity：
+ *
+ * - **ISR 域**：reentry guard 优先——`rt->running` 已为真说明上一拍还没跑完
+ *   （正常情况下不会发生，出现即视为 overrun），本拍整体跳过（不 freeze/
+ *   不 step/不 publish），仅 `overrun_count+1`；否则 `running=1` →
+ *   `tt_freeze_inputs` → `step`（写 `outbuf[phase]`）→ `tt_publish`（发布
+ *   `outbuf[phase^1]`，即上一次已完成的结果）→ `rt->phase^=1`（翻转，供
+ *   下次命中写入另一份缓冲）→ `running=0`。
+ * - **MAINLOOP 域**：① 若 `rt->fresh` 为真，说明主循环已在上一次
+ *   `run_pending` 里跑完 step，本拍先 `tt_publish` 发布该结果、再清
+ *   `fresh`；② 之后若 `rt->pending` 为真，说明上一拍冻结的输入主循环还没
+ *   消化，`overrun_count+1`（丢本拍，**不**重新冻结、不覆盖已冻结的输入
+ *   快照）；否则 `tt_freeze_inputs` + 置 `pending=1`，等主循环
+ *   `run_pending` 消化。**ISR 里绝不对 MAINLOOP 域任务调用 step**。
+ *
+ * 单核下 ISR 抢占主循环、读改 `fresh`/`pending` 存在良性竞态窗口：最坏
+ * 情形是偶发多计一次 overrun 或结果晚发一拍，无数据损坏、有界，故不加
+ * 临界区/锁（spec 决策，见 `bm_tt_schedule_run_pending` 注释）。
+ *
+ * 处理完全部 activity 后 `tick_idx` 按 `n_frames` 取模前进一拍。
+ *
+ * @param sched 调度表实例
  */
 void bm_tt_schedule_tick(bm_tt_schedule_t *sched) {
     uint32_t n;
@@ -255,28 +292,82 @@ void bm_tt_schedule_tick(bm_tt_schedule_t *sched) {
         if (a->every == 0u) {
             continue;
         }
-        if ((sched->tick_idx % a->every) == a->at) {
-            if (a->domain == BM_TT_DOMAIN_ISR) {
+        if ((sched->tick_idx % a->every) != a->at) {
+            continue; /* 未命中本拍 */
+        }
+        if (a->domain == BM_TT_DOMAIN_ISR) {
+            if (a->rt->running) {
+                a->rt->overrun_count += 1u; /* 上拍未完 → 本拍整体跳过，不发布 */
+                continue;
+            }
+            {
                 bm_let_ctx_t ctx = { .sched = sched, .act = a };
 
+                a->rt->running = 1u;
                 tt_freeze_inputs(sched, a);
                 a->step(&ctx, a->state);
                 tt_publish(sched, a);
                 a->rt->phase ^= 1u;
+                a->rt->running = 0u;
             }
-            /* MAINLOOP 域：冻结后置 pending，交 run_pending 执行——留待 Task5 */
+        } else { /* BM_TT_DOMAIN_MAINLOOP */
+            if (a->rt->fresh) {
+                tt_publish(sched, a); /* 发布主循环刚完成的结果 */
+                a->rt->fresh = 0u;
+            }
+            if (a->rt->pending) {
+                a->rt->overrun_count += 1u; /* 主循环还没消化上一拍 → 丢、不重冻结 */
+            } else {
+                tt_freeze_inputs(sched, a);
+                a->rt->pending = 1u;
+            }
         }
     }
     sched->tick_idx = (n > 0u) ? ((sched->tick_idx + 1u) % n) : 0u;
 }
 
 /**
- * @brief 主循环调用：跑 MAINLOOP 域 pending step（占位桩，暂不运行）
+ * @brief 主循环侧有界 drain：跑 MAINLOOP 域 pending 任务的纯 step
+ *
+ * @details 遍历 entries 中 `domain==MAINLOOP` 且 `rt->pending` 为真的任务，
+ * 按 `ran < budget` 有界执行：`step`（写 `outbuf[phase]`）→
+ * `rt->phase^=1`（完成结果落到 phase^1，待下次 tick 发）→ `rt->fresh=1`
+ * （告知下次 tick 有新结果待发）→ `rt->pending=0`（消化完毕）。
+ *
+ * @note 本函数**不发布**——发布交回下一次 tick 里 ISR 侧 MAINLOOP 分支看到
+ * `fresh` 后做，与本函数解耦。单核下 ISR 抢占主循环存在良性竞态窗口
+ * （`fresh`/`pending` 读改）：最坏情形是 overrun 偶发多计一次或结果晚发
+ * 一拍，无数据损坏、有界；L1/L2 视 overrun 为提示量，不需要精确即可
+ * 接受，故不加 `bm_critical_wrap` 或锁（spec 决策）。需要精确统计时才
+ * 需要临界区包住 fresh/pending 的读改。
+ *
+ * @param sched 调度表实例
+ * @param budget 本次最多运行的任务数
+ * @return 本次实际运行的任务数
  */
 uint32_t bm_tt_schedule_run_pending(bm_tt_schedule_t *sched, uint32_t budget) {
-    (void)sched;
-    (void)budget;
-    return 0u;
+    uint32_t ran = 0u;
+
+    if (sched == NULL) {
+        return 0u;
+    }
+    for (uint8_t i = 0u; i < sched->entry_count && ran < budget; ++i) {
+        bm_tt_activity_t *a = sched->entries[i];
+        bm_let_ctx_t ctx = { .sched = sched, .act = a };
+
+        if (a->domain != BM_TT_DOMAIN_MAINLOOP) {
+            continue;
+        }
+        if (!a->rt->pending) {
+            continue;
+        }
+        a->step(&ctx, a->state); /* 重计算在主循环跑 */
+        a->rt->phase ^= 1u;      /* 完成结果落 phase^1，待下一次 tick 发布 */
+        a->rt->fresh = 1u;
+        a->rt->pending = 0u;
+        ran++;
+    }
+    return ran;
 }
 
 /**
