@@ -49,7 +49,7 @@ struct bm_let_ctx {
  */
 static void tt_freeze_inputs(bm_tt_schedule_t *s, bm_tt_activity_t *a) {
     uint32_t period_us = s->minor_us * a->every;
-    uint8_t off = 0u;
+    uint32_t off = 0u;
 
     for (uint8_t i = 0u; i < a->input_count; ++i) {
         const bm_let_input_t *in = &a->inputs[i];
@@ -75,7 +75,7 @@ static void tt_freeze_inputs(bm_tt_schedule_t *s, bm_tt_activity_t *a) {
             a->rt->age_us[i] = age;
             a->rt->stale[i] = (max_age != 0u && age > max_age) ? 1 : 0;
         }
-        off += (uint8_t)in->elem_size;
+        off += in->elem_size;
     }
 }
 
@@ -85,10 +85,10 @@ static void tt_freeze_inputs(bm_tt_schedule_t *s, bm_tt_activity_t *a) {
 const void *bm_let_in(bm_let_ctx_t *ctx, uint32_t in_idx, int *out_stale,
                        uint32_t *out_age_us) {
     const bm_tt_activity_t *a = ctx->act;
-    uint8_t off = 0u;
+    uint32_t off = 0u;
 
     for (uint32_t i = 0u; i < in_idx; ++i) {
-        off += (uint8_t)a->inputs[i].elem_size;
+        off += a->inputs[i].elem_size;
     }
     if (out_stale) {
         *out_stale = a->rt->stale[in_idx];

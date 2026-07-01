@@ -43,16 +43,19 @@ static const uint32_t k_never_out_safe = 0u;
 
 static int      g_never_stale;
 static uint32_t g_never_age;
+static uint32_t g_never_snapshot_val; /**< 记录冻结快照实际写入值，用于断言 safe_default 兜底 */
 
 /** @brief 只读输入、记录 stale/age，不写输出（bm_let_out 是 Task4 桩，本任务不调） */
 static void never_step(bm_let_ctx_t *ctx, void *state) {
     int stale;
     uint32_t age;
+    const void *p;
 
     (void)state;
-    (void)bm_let_in(ctx, 0u, &stale, &age);
+    p = bm_let_in(ctx, 0u, &stale, &age);
     g_never_stale = stale;
     g_never_age = age;
+    g_never_snapshot_val = *(const uint32_t *)p;
 }
 
 static const bm_let_input_t k_never_inputs[] = {
@@ -133,7 +136,7 @@ void setUp(void) {
     sched_slow.n_frames = 1u;
     sched_slow.tick_idx = 0u;
 
-    g_never_stale = 0; g_never_age = 0u;
+    g_never_stale = 0; g_never_age = 0u; g_never_snapshot_val = 0u;
     g_slow_stale = 0; g_slow_age = 0u;
 }
 
@@ -150,6 +153,8 @@ void tearDown(void) {
 void test_freeze_stale_when_never_published(void) {
     bm_tt_schedule_tick(&sched_never);
     TEST_ASSERT_EQUAL(1, g_never_stale);
+    TEST_ASSERT_EQUAL_UINT32(0xFFFFFFFFu, g_never_age);
+    TEST_ASSERT_EQUAL_UINT32(k_never_in_safe, g_never_snapshot_val);
 }
 
 /**
