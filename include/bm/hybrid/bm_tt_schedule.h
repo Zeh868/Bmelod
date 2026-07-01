@@ -109,7 +109,7 @@ typedef struct {
     uint16_t                every;       /**< 任务周期 = minor_us × every */
     uint16_t                at;          /**< 相位，at < every */
     bm_tt_kind_t            kind;
-    bm_tt_domain_t          domain;      /**< 缺省 ISR */
+    bm_tt_domain_t          domain;      /**< 执行域，由 BM_LET_DEFINE_ISR/_MAINLOOP 宏名显式设定 */
     uint32_t                wcet_us;
     bm_let_step_fn          step;
     void                   *state;

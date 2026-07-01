@@ -193,16 +193,6 @@ if(BM_ENABLE_TT_SCHEDULE)
         COMMAND tt_schedule_map_dump ${CMAKE_BINARY_DIR}/schedule_map.txt
         DEPENDS tt_schedule_map_dump
         COMMENT "Generating build/schedule_map.txt")
-
-    # 易用性打磨 demo：贴近平衡车场景的 ISR/MAINLOOP LET 任务示例（BM_LET_DEFINE_ISR/
-    # _MAINLOOP 用法），照 Demo/stream_block_rms 挂法接线；只走 tick/run_pending/
-    # 公共 bus API，不需要 BM_BUS_ALLOW_INTERNAL。
-    add_executable(tt_schedule_balance_demo ${CMAKE_SOURCE_DIR}/Demo/tt_schedule_balance/main.c)
-    target_link_libraries(tt_schedule_balance_demo PRIVATE bm_tt_schedule bm_core bm_hal bm_hal_native)
-    bm_target_internal_includes(tt_schedule_balance_demo)
-    if(NOT MSVC)
-        target_link_libraries(tt_schedule_balance_demo PRIVATE m)
-    endif()
 endif()
 
 if(BM_ENABLE_TICKER)
