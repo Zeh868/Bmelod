@@ -134,8 +134,4 @@ static inline void bm_qemu_print_tap(const bm_qemu_results_t *sets,
     bm_rv64_exit(all_pass);
 }
 
-/* 别名：让 bm_probe.h 的 uart 打印也能用 rv64 版本 */
-static inline void bm_qemu_uart_puts(const char *s) { bm_rv64_uart_puts(s); }
-static inline void bm_qemu_uart_put_u32(uint32_t v) { bm_rv64_uart_put_u32(v); }
-
 #endif /* BM_RV64_TAP_H */

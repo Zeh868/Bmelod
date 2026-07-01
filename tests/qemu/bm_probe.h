@@ -3,8 +3,9 @@
  * @brief L2/L3 周期计数探针——ARM + RV64 双后端（测试期专用）
  *
  * 仅在 BM_ENABLE_PROBE 宏开启时编译（spec §8 探针污染红线）。
- * ARM 后端：ARMv7-A CNTVCT generic timer（CP15 mrrc p15,1,lo,hi,c14）。
- * RV64 后端：Task 8 追加 rdcycle（CSR 0xC00）。
+ * ARM 后端：ARMv7-A PMU PMCCNTR 周期计数器（CP15 c9,c13,0）。不用 CNTVCT——
+ *           CNTVCT 在 icount 下按翻译块记账、不随执行指令变化，会使 Δ==0 成空断言。
+ * RV64 后端：rdcycle（CSR 0xC00），icount 下随执行确定性推进。
  *
  * @author zeh (china_qzh@163.com)
  * @version 0.1
@@ -13,7 +14,9 @@
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
- * 2026-07-01       0.1            zeh            Task 2：ARM CNTVCT 后端 + overhead 标定
+ * 2026-07-01       0.1            zeh            Task 2：ARM 周期后端 + overhead 标定
+ * 2026-07-01       0.1            zeh            Task 3：ARM 探针 CNTVCT→PMCCNTR（避免空断言）
+ * 2026-07-01       0.1            zeh            Task 8：RV64 rdcycle 后端 + no-op init
  *
  */
 #ifndef BM_PROBE_H
@@ -72,20 +75,21 @@ static inline uint64_t bm_probe_cycles(void)
 }
 
 #elif defined(__riscv) && (__riscv_xlen == 64)
-/* ===== RISC-V64 后端：rdcycle CSR（Task 8 验证） ===== */
+/* ===== RISC-V64 后端：rdcycle CSR（0xC00） ===== */
 
 /**
  * @brief 读取 RISC-V64 周期计数器（rdcycle，CSR 0xC00）
  *
- * M-mode 裸机默认可读 mcycle。在 QEMU -icount 下随虚拟指令计数确定性推进。
- * 若此 QEMU 版本 rdcycle 不前进，Task 8 说明改用 CLINT mtime fallback。
+ * M-mode 裸机默认可读 mcycle。在 QEMU -icount 下随执行指令确定性推进
+ * （已 de-risk：相同代码 Δ=0、10× 指令量周期正确放大）。
+ * memory clobber 与 ARM 后端对称，防编译器把内存操作挪出测量窗口。
  *
  * @return 当前周期计数（64 位）
  */
 static inline uint64_t bm_probe_cycles(void)
 {
     uint64_t v;
-    __asm__ volatile("rdcycle %0" : "=r"(v));
+    __asm__ volatile("rdcycle %0" : "=r"(v) : : "memory");
     return v;
 }
 

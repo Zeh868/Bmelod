@@ -55,9 +55,9 @@ static void test_icount_boots(void)
 }
 
 /**
- * @brief 探针单调性验证：两次读 a < b（CNTVCT 在 icount 下单调递增）
+ * @brief 探针单调性验证：两次读 a < b（PMCCNTR 在 icount 下单调递增）
  *
- * 若 b==a，说明 CNTVCT 未随 icount 前进（icount 配置错误或 QEMU 版本问题），
+ * 若 b==a，说明 PMCCNTR 未随执行推进（未使能或 icount 配置错误），
  * 是后续所有周期测量的关键前置条件。
  */
 static void test_probe_monotonic(void)
