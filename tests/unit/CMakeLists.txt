@@ -138,6 +138,17 @@ if(BM_ENABLE_TT_SCHEDULE)
     # Task 3：输入冻结 + seq-delta 判龄；走门面 API + 公共 bus API，
     # 不需要 BM_BUS_ALLOW_INTERNAL（该宏仅 bm_tt_schedule 库内部 PRIVATE 定义）。
     bm_add_test(test_tt_schedule test_tt_schedule.c bm_tt_schedule)
+
+    # Task 7：host dump 工具，装配示例调度表并导出 bm_tt_schedule_report
+    # 到 build/schedule_map.txt，供开发者人工核对调度概览（非单元测试，
+    # 随 ALL 目标构建）。
+    add_executable(tt_schedule_map_dump ${CMAKE_SOURCE_DIR}/tests/tools/tt_schedule_map_dump.c)
+    target_link_libraries(tt_schedule_map_dump PRIVATE bm_tt_schedule bm_core bm_hal bm_hal_native)
+    bm_target_internal_includes(tt_schedule_map_dump)
+    add_custom_target(schedule-map ALL
+        COMMAND tt_schedule_map_dump ${CMAKE_BINARY_DIR}/schedule_map.txt
+        DEPENDS tt_schedule_map_dump
+        COMMENT "Generating build/schedule_map.txt")
 endif()
 
 if(BM_ENABLE_TICKER)

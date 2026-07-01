@@ -15,7 +15,7 @@
  * （bm_bus_open/acquire_write/commit），不需要 BM_BUS_ALLOW_INTERNAL。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-01
  *
  * @par 修改日志:
@@ -24,6 +24,8 @@
  * 2026-07-01       1.0            zeh            Task 3：输入冻结 + seq-delta 判龄测试
  * 2026-07-01       1.1            zeh            Task 6：真 init 测试（A2 负样本×2 +
  *                                                 预发布 + 谐波正样本）
+ * 2026-07-01       1.2            zeh            Task 7：rt_slot_count/at 导出测试 +
+ *                                                 report 报告文本断言（表头子串 + 峰值格标记）
  *
  */
 #include "unity.h"
@@ -913,6 +915,127 @@ void test_init_harmonic_periods_ok_and_runs_data_flow(void) {
     bm_bus_close(&g_harm_slow_out_bus);
 }
 
+/* =========================================================================
+ * 场景 12：rt_slot 导出 + report 报告（Task 7）
+ *   rt_slot_count/at 复用场景 7 的 sched_freq（三个 ISR 域任务，无需
+ *   init——rt_slot 只读 entries 静态字段）；report 另建混合 ISR/MAINLOOP
+ *   域小 fixture，专供"两块都出"的断言。
+ * ========================================================================= */
+
+BM_BUS_DEFINE(report_isr_in_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
+BM_BUS_DEFINE(report_isr_out_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
+BM_BUS_DEFINE(report_ml_in_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
+BM_BUS_DEFINE(report_ml_out_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
+
+static bm_bus_t g_report_isr_in_bus;
+static bm_bus_t g_report_isr_out_bus;
+static bm_bus_t g_report_ml_in_bus;
+static bm_bus_t g_report_ml_out_bus;
+
+static const uint32_t k_report_in_safe = 0u;
+static const uint32_t k_report_out_safe = 0u;
+
+/** @brief 空 step：report 测试只关心报告文本，不关心真实数据流 */
+static void report_isr_step(bm_let_ctx_t *ctx, void *state) {
+    (void)ctx;
+    (void)state;
+}
+static void report_ml_step(bm_let_ctx_t *ctx, void *state) {
+    (void)ctx;
+    (void)state;
+}
+
+static const bm_let_input_t k_report_isr_inputs[] = {
+    { .bus = &g_report_isr_in_bus, .max_age_us = BM_LET_AGE_DEFAULT,
+      .elem_size = sizeof(uint32_t), .safe_default = &k_report_in_safe },
+};
+static const bm_let_output_t k_report_isr_outputs[] = {
+    { .bus = &g_report_isr_out_bus, .elem_size = sizeof(uint32_t),
+      .safe_default = &k_report_out_safe },
+};
+static const bm_let_input_t k_report_ml_inputs[] = {
+    { .bus = &g_report_ml_in_bus, .max_age_us = BM_LET_AGE_DEFAULT,
+      .elem_size = sizeof(uint32_t), .safe_default = &k_report_in_safe },
+};
+static const bm_let_output_t k_report_ml_outputs[] = {
+    { .bus = &g_report_ml_out_bus, .elem_size = sizeof(uint32_t),
+      .safe_default = &k_report_out_safe },
+};
+
+BM_LET_DEFINE(task_report_isr, 2u, 0u, 100u, report_isr_step, NULL,
+              k_report_isr_inputs, k_report_isr_outputs);
+BM_LET_DEFINE(task_report_ml, 4u, 0u, 50u, report_ml_step, NULL,
+              k_report_ml_inputs, k_report_ml_outputs);
+BM_SCHEDULE_DEFINE(sched_report, 1000u, &task_report_isr, &task_report_ml);
+
+#define REPORT_TEST_BUF_SIZE 4096u
+static char g_report_buf[REPORT_TEST_BUF_SIZE];
+static size_t g_report_off;
+
+/** @brief 收集 bm_tt_schedule_report 逐行输出，拼接进静态缓冲供 strstr 断言 */
+static void report_collect(const char *line, void *u) {
+    size_t len = strlen(line);
+
+    (void)u;
+    if (g_report_off + len + 2u <= REPORT_TEST_BUF_SIZE) {
+        (void)memcpy(g_report_buf + g_report_off, line, len);
+        g_report_off += len;
+        g_report_buf[g_report_off++] = '\n';
+        g_report_buf[g_report_off] = '\0';
+    }
+}
+
+/**
+ * @brief rt_slot_count/at：数 ISR 域 activity 个数、按 idx 导出中立描述符、
+ * 越界返回 BM_ERR_INVALID。复用场景 7 的 sched_freq（三个 ISR 域任务）。
+ */
+void test_rt_slot_count_and_at_isr_domain(void) {
+    bm_tt_schedule_rt_slot_t slot;
+
+    TEST_ASSERT_EQUAL_UINT32(3u, bm_tt_schedule_rt_slot_count(&sched_freq));
+
+    /* idx=1 对应第二个 ISR 域 activity：task_estimator，every=5 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_tt_schedule_rt_slot_at(&sched_freq, 1u, &slot));
+    TEST_ASSERT_EQUAL_UINT32(1000u * 5u, slot.period_us);
+    TEST_ASSERT_EQUAL_UINT32(slot.period_us, slot.deadline_us);
+    TEST_ASSERT_EQUAL(BM_TT_DOMAIN_ISR, slot.domain);
+
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_tt_schedule_rt_slot_at(&sched_freq, 3u, &slot));
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_tt_schedule_rt_slot_at(&sched_freq, 100u, &slot));
+}
+
+/**
+ * @brief report：表头含固定子串「[时间来源: 声明 wcet_us · 计划视图]」，
+ * 峰值格一行含 ≤ 与 minor 标记，ISR/MAINLOOP 两块均有输出。
+ */
+void test_report_contains_header_and_peak_frame_markers(void) {
+    bm_bus_cfg_t cfg = { .owner_cpu = 0u };
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_report_isr_in_bus, &report_isr_in_bus_storage, &cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_report_isr_out_bus, &report_isr_out_bus_storage, &cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_report_ml_in_bus, &report_ml_in_bus_storage, &cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_report_ml_out_bus, &report_ml_out_bus_storage, &cfg));
+
+    task_report_ml.domain = BM_TT_DOMAIN_MAINLOOP;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_tt_schedule_init(&sched_report));
+
+    g_report_off = 0u;
+    g_report_buf[0] = '\0';
+    bm_tt_schedule_report(&sched_report, report_collect, NULL);
+
+    TEST_ASSERT_NOT_NULL(strstr(g_report_buf, "[时间来源: 声明 wcet_us · 计划视图]"));
+    TEST_ASSERT_NOT_NULL(strstr(g_report_buf, "\xe2\x89\xa4")); /* "≤" 的 UTF-8 编码 */
+    TEST_ASSERT_NOT_NULL(strstr(g_report_buf, "minor"));
+    TEST_ASSERT_NOT_NULL(strstr(g_report_buf, "task_report_isr"));
+    TEST_ASSERT_NOT_NULL(strstr(g_report_buf, "task_report_ml"));
+
+    bm_bus_close(&g_report_isr_in_bus);
+    bm_bus_close(&g_report_isr_out_bus);
+    bm_bus_close(&g_report_ml_in_bus);
+    bm_bus_close(&g_report_ml_out_bus);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_freeze_stale_when_never_published);
@@ -926,5 +1049,7 @@ int main(void) {
     RUN_TEST(test_init_rejects_lcm_explosion);
     RUN_TEST(test_init_pre_publishes_safe_default_before_any_tick);
     RUN_TEST(test_init_harmonic_periods_ok_and_runs_data_flow);
+    RUN_TEST(test_rt_slot_count_and_at_isr_domain);
+    RUN_TEST(test_report_contains_header_and_peak_frame_markers);
     return UNITY_END();
 }

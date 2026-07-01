@@ -17,10 +17,17 @@
  * 每 output 双缓冲两半预填 safe_default 并发布到 bus（首拍前下游即可读到
  * 安全值）→ 每 input 快照 baseline_seq → 复位 rt。Task 3 加的临时兜底
  * `tt_calc_frames_fallback` 一并删除，tick 改为直接信任 init 已算好的
- * `n_frames`。RTA 导出留待后续 Task。
+ * `n_frames`。本轮（Task 7）把 RTA 中立描述符导出 + 调度概览报告从占位桩
+ * 落成真实现：`bm_tt_schedule_rt_slot_count/at` 只读遍历 entries 数
+ * ISR 域 activity、按 idx 定位并填充中立描述符（`owner_cpu` 恒 0，本轮
+ * 单核视角）；`bm_tt_schedule_report` 用栈上定长行缓冲
+ * （`snprintf` 有界格式化，零动态分配）逐行经 `emit` 回调发出两块内容：
+ * ISR 域·时间格视图（表头标注"声明 wcet_us·计划视图"时间来源 + 逐 minor
+ * 格 Σ 命中 activity wcet_us 找峰值格并核对 `≤ minor_us`）与 MAINLOOP
+ * 域·预算账（无硬时间格语义，逐行列 wcet_us + 建议 run_pending budget）。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.4
+ * @version 1.5
  * @date 2026-07-01
  *
  * @par 修改日志:
@@ -33,12 +40,15 @@
  *                                                 MAINLOOP fresh/pending）+ run_pending + hrt slot
  * 2026-07-01       1.4            zeh            Task 6：真 init（周期一致性 + N=LCM + 节拍负载校验 +
  *                                                 预发布 safe_default + baseline_seq），删临时兜底
+ * 2026-07-01       1.5            zeh            Task 7：RTA rt_slot 导出 + 调度概览 report
+ *                                                 （ISR 时间格视图 + MAINLOOP 预算账）真实现
  *
  */
 #include "bm_tt_schedule.h"
 #include "bm_config.h"
 #include "bm_log.h"
 
+#include <stdio.h>
 #include <string.h>
 
 /**
@@ -509,31 +519,175 @@ uint32_t bm_tt_schedule_run_pending(bm_tt_schedule_t *sched, uint32_t budget) {
     return ran;
 }
 
+/** report 框架开销占位（Task 7）：本格 Σ step wcet 之外，ISR 派发/上下文
+ *  切换等框架自身开销尚无实测数据，先占位为 0，待后续 Task 用真机实测
+ *  校准后替换为非零常量或可配置项。 */
+#define TT_REPORT_OVERHEAD_US_PLACEHOLDER 0u
+
 /**
- * @brief 输出调度表可读诊断报告（占位桩，暂不输出）
+ * @brief report 用：统计某个 minor 格内所有命中 ISR 域 activity 的 wcet_us 之和
+ *
+ * @param s 调度表实例（只读 entries）
+ * @param t 目标 minor 格（0..n_frames-1）
+ * @return Σ 命中该格的 ISR 域 activity wcet_us（不含框架开销占位）
+ */
+static uint32_t tt_report_frame_sum_us(const bm_tt_schedule_t *s, uint32_t t) {
+    uint32_t sum = 0u;
+
+    for (uint8_t k = 0u; k < s->entry_count; ++k) {
+        const bm_tt_activity_t *a = s->entries[k];
+
+        if (a->domain != BM_TT_DOMAIN_ISR || a->every == 0u) {
+            continue;
+        }
+        if ((t % a->every) == a->at) {
+            sum += a->wcet_us;
+        }
+    }
+    return sum;
+}
+
+/**
+ * @brief 输出调度表可读诊断报告：ISR 域时间格视图 + MAINLOOP 域预算账
+ *
+ * @details 用栈上定长行缓冲 `char line[200]` 逐行 `snprintf` 有界格式化后
+ * 经 `emit(line, u)` 发出，全程零动态分配。200 字节上界估算：activity
+ * 名字按合理上限 63 字节 + 固定中文表头（含"[时间来源: 声明 wcet_us ·
+ * 计划视图]"等，UTF-8 下约 90～100 字节）+ 数个 uint32_t 十进制字段
+ * （每个至多 10 位）+ 分隔符，留有充分余量；`snprintf` 返回值不做特殊
+ * 处理——越界只会被截断、不会溢出缓冲区。
+ *
+ * 块①：ISR 域·时间格视图。表头固定含子串
+ * "[时间来源: 声明 wcet_us · 计划视图]"（标注这是基于任务声明 wcet_us
+ * 的静态计划推演，非真机实测）；每个 ISR 域 activity 一行列
+ * name/every/at/wcet_us；随后经 `tt_report_frame_sum_us` 扫描
+ * `sched->n_frames` 个 minor 格（叠加框架开销占位
+ * `TT_REPORT_OVERHEAD_US_PLACEHOLDER`，当前为 0，待后续 Task 实测校准）
+ * 找出峰值格，输出该格是否 `≤ minor_us`。
+ *
+ * 块②：MAINLOOP 域·预算账。MAINLOOP 域无硬时间格语义，不做展开——逐行
+ * 列每个 MAINLOOP 域 activity 的 `wcet_us` 与建议 `run_pending` budget
+ * （固定给 1，供开发者对照真机主循环率手工核对，非精确算法）。
+ *
+ * @param sched 调度表实例（只读）
+ * @param emit 逐行输出回调
+ * @param u emit 回调透传上下文
  */
 void bm_tt_schedule_report(const bm_tt_schedule_t *sched,
                            void (*emit)(const char *line, void *u), void *u) {
-    (void)sched;
-    (void)emit;
-    (void)u;
+    char line[200];
+    uint32_t peak_t = 0u;
+    uint32_t peak_us = 0u;
+
+    if (sched == NULL || emit == NULL) {
+        return;
+    }
+
+    (void)snprintf(line, sizeof line,
+                   "=== %s ISR 域·时间格视图 [时间来源: 声明 wcet_us · 计划视图] ===",
+                   sched->name);
+    emit(line, u);
+
+    for (uint8_t k = 0u; k < sched->entry_count; ++k) {
+        const bm_tt_activity_t *a = sched->entries[k];
+
+        if (a->domain != BM_TT_DOMAIN_ISR) {
+            continue;
+        }
+        (void)snprintf(line, sizeof line,
+                       "  ISR name=%s every=%u at=%u wcet_us=%u",
+                       a->name, (unsigned)a->every, (unsigned)a->at, a->wcet_us);
+        emit(line, u);
+    }
+
+    for (uint32_t t = 0u; t < sched->n_frames; ++t) {
+        uint32_t cur = tt_report_frame_sum_us(sched, t) + TT_REPORT_OVERHEAD_US_PLACEHOLDER;
+
+        if (cur > peak_us) {
+            peak_us = cur;
+            peak_t = t;
+        }
+    }
+    (void)snprintf(line, sizeof line,
+                   "  峰值格: t=%u, 本格us=%u, \xe2\x89\xa4minor_us(%u) %s",
+                   peak_t, peak_us, sched->minor_us,
+                   (peak_us <= sched->minor_us) ? "\xe2\x9c\x93" : "\xe2\x9c\x97");
+    emit(line, u);
+
+    (void)snprintf(line, sizeof line, "=== %s MAINLOOP 域·预算账 ===", sched->name);
+    emit(line, u);
+
+    for (uint8_t k = 0u; k < sched->entry_count; ++k) {
+        const bm_tt_activity_t *a = sched->entries[k];
+
+        if (a->domain != BM_TT_DOMAIN_MAINLOOP) {
+            continue;
+        }
+        (void)snprintf(line, sizeof line,
+                       "  MAINLOOP name=%s wcet_us=%u run_pending_budget_hint=1",
+                       a->name, a->wcet_us);
+        emit(line, u);
+    }
 }
 
 /**
- * @brief 查询调度表可导出的 RTA slot 数量（占位桩，恒为 0）
+ * @brief 查询调度表可导出的 RTA slot 数量
+ *
+ * @details 数 entries 中 `domain==BM_TT_DOMAIN_ISR` 的 activity 个数——
+ * RTA（响应时间分析）只对 ISR 域任务有意义，MAINLOOP 域无硬时间格语义、
+ * 不纳入。
+ *
+ * @param sched 调度表实例（只读）
+ * @return slot 数量
  */
 uint32_t bm_tt_schedule_rt_slot_count(const bm_tt_schedule_t *sched) {
-    (void)sched;
-    return 0u;
+    uint32_t c = 0u;
+
+    for (uint8_t k = 0u; k < sched->entry_count; ++k) {
+        if (sched->entries[k]->domain == BM_TT_DOMAIN_ISR) {
+            c++;
+        }
+    }
+    return c;
 }
 
 /**
- * @brief 按索引导出 RTA 中立只读描述符（占位桩，恒返回 BM_ERR_INVALID）
+ * @brief 按索引导出 RTA 中立只读描述符
+ *
+ * @details 按 idx 定位第 idx 个 ISR 域 activity（跳过 MAINLOOP 域），
+ * 填充 `owner_cpu=0`（本轮单核视角）、`kind`/`domain` 原样转存、
+ * `wcet_us` 原样转存、`period_us = minor_us × every`、
+ * `deadline_us = period_us`（本轮 deadline 恒等于周期，未来若要支持
+ * 隐式 deadline 之外的显式 deadline 需扩展 activity 字段）。idx 越界
+ * （超出 ISR 域 activity 数量）返回 `BM_ERR_INVALID`，越界前不写 `*out`。
+ *
+ * @param sched 调度表实例（只读）
+ * @param idx slot 索引
+ * @param out 输出描述符
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效或索引越界
  */
 int bm_tt_schedule_rt_slot_at(const bm_tt_schedule_t *sched, uint32_t idx,
                               bm_tt_schedule_rt_slot_t *out) {
-    (void)sched;
-    (void)idx;
-    (void)out;
+    uint32_t c = 0u;
+
+    for (uint8_t k = 0u; k < sched->entry_count; ++k) {
+        const bm_tt_activity_t *a = sched->entries[k];
+
+        if (a->domain != BM_TT_DOMAIN_ISR) {
+            continue;
+        }
+        if (c == idx) {
+            uint32_t period = sched->minor_us * a->every;
+
+            out->owner_cpu = 0u;
+            out->kind = (uint8_t)a->kind;
+            out->domain = (uint8_t)a->domain;
+            out->wcet_us = a->wcet_us;
+            out->period_us = period;
+            out->deadline_us = period;
+            return BM_OK;
+        }
+        c++;
+    }
     return BM_ERR_INVALID;
 }
