@@ -64,9 +64,13 @@ struct bm_let_ctx {
  *
  * @details 拷出路径经 `bm_bus_latest_read_seq`（LATEST 多观察者拷出 +
  * 回传稳定 seq）；seq 相较上次冻结基线未变则 miss 计数递增，变了则清零并
- * 记新基线；`age = miss × 任务周期`，`stale = (max_age_us!=0 && age>max_age_us)`。
- * `max_age_us==BM_LET_AGE_DEFAULT` 时解析为 2×任务周期。拷出失败（尚未发布
- * 或 seqlock 重试耗尽）时填充 `safe_default` 并强制 stale=1，miss 保持不变。
+ * 记新基线；`age = miss × 任务周期`（以 uint64_t 中间量计算并钳制到
+ * `UINT32_MAX`，防止超长断流后 uint32_t 乘法回绕假性清除 stale），
+ * `stale = (max_age_us!=0 && age>max_age_us)`。一旦 age 已饱和到
+ * `UINT32_MAX`，后续不再自增 miss（防止 miss 自身回绕），从而保持
+ * "曾经饱和过就恒为 stale" 的 fail-safe 语义。`max_age_us==BM_LET_AGE_DEFAULT`
+ * 时解析为 2×任务周期。拷出失败（尚未发布或 seqlock 重试耗尽）时填充
+ * `safe_default` 并强制 stale=1，miss 保持不变。
  *
  * @param s 调度表实例（取 minor_us 算任务周期）
  * @param a 目标 activity（取 inputs/snapshot/rt）
@@ -92,12 +96,18 @@ static void tt_freeze_inputs(bm_tt_schedule_t *s, bm_tt_activity_t *a) {
             if (seq != a->rt->baseline_seq[i]) {
                 a->rt->miss[i] = 0u;
                 a->rt->baseline_seq[i] = seq;
-            } else {
+            } else if (a->rt->age_us[i] != 0xFFFFFFFFu) {
+                /* 尚未饱和才继续自增 miss，避免超长断流后 miss 自身回绕 */
                 a->rt->miss[i] += 1u;
             }
-            uint32_t age = a->rt->miss[i] * period_us;
-            a->rt->age_us[i] = age;
-            a->rt->stale[i] = (max_age != 0u && age > max_age) ? 1 : 0;
+            {
+                uint64_t age64 = (uint64_t)a->rt->miss[i] * (uint64_t)period_us;
+                uint32_t age = (age64 > 0xFFFFFFFFu) ? 0xFFFFFFFFu
+                                                      : (uint32_t)age64;
+
+                a->rt->age_us[i] = age;
+                a->rt->stale[i] = (max_age != 0u && age > max_age) ? 1 : 0;
+            }
         }
         off += in->elem_size;
     }
@@ -240,6 +250,7 @@ static uint32_t tt_lcm(uint32_t a, uint32_t b) {
  * @param s 调度表实例（只读 entries/minor_us）
  * @param n_frames 本表的 N=LCM(every)，已由调用方校验 ≤ MAX_FRAMES
  * @return BM_OK 可调度；BM_ERR_INVALID 某格超载
+ * @note 非可重入/不可并发调用（单核串行 init 期专用）
  */
 static int tt_frame_check(const bm_tt_schedule_t *s, uint32_t n_frames) {
     uint32_t sum = 0u;
@@ -643,6 +654,9 @@ void bm_tt_schedule_report(const bm_tt_schedule_t *sched,
 uint32_t bm_tt_schedule_rt_slot_count(const bm_tt_schedule_t *sched) {
     uint32_t c = 0u;
 
+    if (sched == NULL) {
+        return 0u;
+    }
     for (uint8_t k = 0u; k < sched->entry_count; ++k) {
         if (sched->entries[k]->domain == BM_TT_DOMAIN_ISR) {
             c++;
@@ -670,6 +684,9 @@ int bm_tt_schedule_rt_slot_at(const bm_tt_schedule_t *sched, uint32_t idx,
                               bm_tt_schedule_rt_slot_t *out) {
     uint32_t c = 0u;
 
+    if (sched == NULL || out == NULL) {
+        return BM_ERR_INVALID;
+    }
     for (uint8_t k = 0u; k < sched->entry_count; ++k) {
         const bm_tt_activity_t *a = sched->entries[k];
 

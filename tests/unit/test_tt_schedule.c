@@ -12,7 +12,8 @@
  *
  * 装配全部经公共头宏（BM_BUS_DEFINE/BM_LET_DEFINE/BM_SCHEDULE_DEFINE），
  * 走门面 API（bm_tt_schedule_tick/bm_let_in）+ 公共 bus API
- * （bm_bus_open/acquire_write/commit），不需要 BM_BUS_ALLOW_INTERNAL。
+ * （bm_bus_open/acquire_write/commit）；但测试直接调 bm_bus_latest_read_seq
+ * 验证 seq 语义，需 PRIVATE 定义 BM_BUS_ALLOW_INTERNAL（照 test_bus）。
  *
  * @author zeh (china_qzh@163.com)
  * @version 1.4
