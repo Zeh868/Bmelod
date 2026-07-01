@@ -24,29 +24,51 @@
 #include <stdint.h>
 
 #if defined(__ARM_ARCH) && (__ARM_ARCH >= 7) && !defined(__aarch64__)
-/* ===== ARMv7-A Cortex-A15 后端：CNTVCT generic timer ===== */
+/* ===== ARMv7-A Cortex-A15 后端：PMU PMCCNTR 周期计数器 =====
+ *
+ * 关键选型：不用 CNTVCT（generic timer）。实测 QEMU -icount 下 CNTVCT 按
+ * 翻译块（TB）边界记账，读数不随执行指令数变化（注入 65 条 nop 仍 Δ==0），
+ * 会把 Δ==0 断言退化为恒真的空测试。PMCCNTR 在 icount 下随执行确定性推进，
+ * 提供指令/周期级分辨率，才能让 Δ==0 成为真正的控制流确定性证据。
+ */
 
 /**
- * @brief 读取 ARMv7-A 虚拟计数器（CNTVCT）
+ * @brief 使能 PMU 周期计数器（PMCCNTR），测量前调用一次
  *
- * 使用 CP15 mrrc 指令读 64 位 generic timer 计数。
- * isb 确保之前的指令全部完成后才读取，防止乱序导致周期数不准。
- * 在 QEMU -icount 下，CNTVCT 随虚拟时间（=指令计数）确定性推进。
+ * 在 EL1（裸机特权态）配置 ARMv7-A 性能监视单元：
+ *   - PMCR.E(bit0)=1 使能计数、PMCR.C(bit2)=1 复位 CCNT、PMCR.D(bit3)=0 每周期计数（不 /64）；
+ *   - PMCNTENSET.C(bit31)=1 使能周期计数器。
+ */
+static inline void bm_probe_init(void)
+{
+    uint32_t pmcr;
+    __asm__ volatile("mrc p15, 0, %0, c9, c12, 0" : "=r"(pmcr));
+    pmcr |= (1u << 0) | (1u << 2);   /* E: 使能；C: 复位 CCNT */
+    pmcr &= ~(1u << 3);              /* D=0: 每周期计数，不 /64 */
+    __asm__ volatile("mcr p15, 0, %0, c9, c12, 0" :: "r"(pmcr));
+    __asm__ volatile("mcr p15, 0, %0, c9, c12, 1" :: "r"(0x80000000u)); /* PMCNTENSET.C */
+    __asm__ volatile("isb");
+}
+
+/**
+ * @brief 读取 ARMv7-A 周期计数器（PMCCNTR，CP15 c9,c13,0）
  *
- * @return 当前虚拟周期计数（64 位）
+ * isb 序列化，确保之前指令全部完成后再采样，防止乱序导致周期数不准。
+ * 在 QEMU -icount 下 PMCCNTR 随执行指令确定性推进（32 位，短测量足够）。
+ *
+ * @return 当前周期计数（低 32 位零扩展到 64 位）
  */
 static inline uint64_t bm_probe_cycles(void)
 {
-    uint32_t lo;
-    uint32_t hi;
+    uint32_t c;
     __asm__ volatile(
         "isb\n\t"
-        "mrrc p15, 1, %0, %1, c14"
-        : "=r"(lo), "=r"(hi)
+        "mrc p15, 0, %0, c9, c13, 0"
+        : "=r"(c)
         :
         : "memory"
     );
-    return ((uint64_t)hi << 32u) | (uint64_t)lo;
+    return (uint64_t)c;
 }
 
 #elif defined(__riscv) && (__riscv_xlen == 64)
@@ -66,6 +88,13 @@ static inline uint64_t bm_probe_cycles(void)
     __asm__ volatile("rdcycle %0" : "=r"(v));
     return v;
 }
+
+/**
+ * @brief RV64 探针初始化（rdcycle 在 M-mode 默认可用，无需使能，置空占位）
+ *
+ * 与 ARM 后端保持 API 对称，测试源可统一调用 bm_probe_init()。
+ */
+static inline void bm_probe_init(void) { }
 
 #else
 #error "bm_probe.h: unsupported architecture (ARM ARMv7-A or RISC-V64 required)"

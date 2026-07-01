@@ -24,8 +24,10 @@
 #include "bm_qemu_tap.h"
 #define BM_ENABLE_PROBE 1
 #include "bm_probe.h"
+#include "bm/algorithm/bm_algo_motor.h"
 #include <stdint.h>
 #include <stddef.h>
+#include <string.h>
 
 /** TAP 结果槽容量（为后续 Task 2/3/4 预留） */
 #define DET_L2_ARM_RESULT_CAP 16u
@@ -84,15 +86,77 @@ static void test_probe_overhead_print(void)
 }
 
 /**
+ * @brief ARM 线 de-risk canary：clarke 纯函数同输入两遍 Δ 周期 == 0
+ *
+ * L2 icount 前提条件验证：纯函数无分支，指令序列固定，两遍执行指令数
+ * 应完全相同 → Δ==0。若 Δ≠0，icount 有问题，后续框架路径测试无意义，
+ * 立即红（spec §5.2 闸 a 的 canary）。测量窗口只括住 bm_algo_clarke() 本身，
+ * 输入固定（volatile 防编译器优化掉调用）。
+ */
+static void test_clarke_delta_zero(void)
+{
+    volatile float ia =  1.234f;
+    volatile float ib = -0.617f;
+    volatile float ic =  0.000f;
+    bm_algo_abc_t        in;
+    bm_algo_alphabeta_t  out1;
+    bm_algo_alphabeta_t  out2;
+    uint64_t             t0;
+    uint64_t             t1;
+    uint64_t             t2;
+    uint64_t             t3;
+    uint64_t             cyc1;
+    uint64_t             cyc2;
+    uint64_t             delta;
+
+    in.ia = ia;
+    in.ib = ib;
+    in.ic = ic;
+
+    /* 第一遍：括住 clarke */
+    memset(&out1, 0, sizeof(out1));
+    t0 = bm_probe_cycles();
+    bm_algo_clarke(&in, &out1);
+    t1 = bm_probe_cycles();
+    cyc1 = t1 - t0;
+
+    /* 第二遍：相同输入 */
+    memset(&out2, 0, sizeof(out2));
+    t2 = bm_probe_cycles();
+    bm_algo_clarke(&in, &out2);
+    t3 = bm_probe_cycles();
+    cyc2 = t3 - t2;
+
+    /* Δ 周期 == 0（控制流确定性核心断言） */
+    delta = (cyc1 > cyc2) ? (cyc1 - cyc2) : (cyc2 - cyc1);
+
+    /* 打印周期数供基线记录 */
+    bm_qemu_uart_puts("# clarke_cyc1=");
+    bm_qemu_uart_put_u32((uint32_t)cyc1);
+    bm_qemu_uart_puts(" cyc2=");
+    bm_qemu_uart_put_u32((uint32_t)cyc2);
+    bm_qemu_uart_puts(" delta=");
+    bm_qemu_uart_put_u32((uint32_t)delta);
+    bm_qemu_uart_puts("\n");
+
+    /* 硬断言：Δ==0，不通过即控制流非确定 */
+    bm_qemu_record(&g_rset, "clarke_delta_zero",
+                   (delta == 0u) ? 1 : 0,
+                   (uint32_t)delta);
+}
+
+/**
  * @brief 主入口：执行所有测试项，输出 TAP，经 PSCI SYSTEM_OFF 退出 QEMU
  *
  * @return int 不会正常返回（PSCI 退出后 QEMU 终止）
  */
 int main(void)
 {
+    bm_probe_init();
     test_icount_boots();
     test_probe_monotonic();
     test_probe_overhead_print();
+    test_clarke_delta_zero();
     bm_qemu_print_tap(&g_rset, 1u, "det_icount_arm");
     /* 不会执行到这里：bm_qemu_print_tap 内部调用 bm_qemu_exit() */
     return 0;
