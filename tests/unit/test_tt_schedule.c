@@ -1,25 +1,29 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file test_tt_schedule.c
- * @brief bm_tt_schedule 单元测试：输入冻结 + seq-delta 判龄（Task 3）
+ * @brief bm_tt_schedule 单元测试：输入冻结/双缓冲发布/双域派发/init（Task 3-6）
  *
- * 覆盖两个场景：
- *   1. 输入 bus 从未发布 → 冻结失败 → stale=1（safe_default 兜底路径）。
- *   2. 慢生产者（每 3 拍发一次）被每拍消费的任务冻结 → miss 在 0..2 摆动、
- *      age = miss × 任务周期，且不越过默认保质期（2×周期）不置 stale。
+ * 场景 8-11（Task 6）覆盖真 `bm_tt_schedule_init`：
+ *   8. A2① 节拍过载负样本——某 minor 格内 ISR 域 wcet 之和超载 → BM_ERR_INVALID。
+ *   9. A2② LCM 爆炸负样本——互质 every 使 N=LCM(every) 超 MAX_FRAMES → BM_ERR_INVALID。
+ *  10. init 预发布——init 后、任何 tick 之前，下游 bus 立即可读到 safe_default，rt 复位。
+ *  11. 谐波周期正样本——1/5/10ms（minor=1ms）init 返回 BM_OK，n_frames=LCM=10，
+ *      跑通一条数据流。
  *
  * 装配全部经公共头宏（BM_BUS_DEFINE/BM_LET_DEFINE/BM_SCHEDULE_DEFINE），
  * 走门面 API（bm_tt_schedule_tick/bm_let_in）+ 公共 bus API
  * （bm_bus_open/acquire_write/commit），不需要 BM_BUS_ALLOW_INTERNAL。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-01
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-01       1.0            zeh            Task 3：输入冻结 + seq-delta 判龄测试
+ * 2026-07-01       1.1            zeh            Task 6：真 init 测试（A2 负样本×2 +
+ *                                                 预发布 + 谐波正样本）
  *
  */
 #include "unity.h"
@@ -603,6 +607,312 @@ void test_isr_frequency_division_and_phase_offset(void) {
     bm_bus_close(&g_freq_out_bus);
 }
 
+/* =========================================================================
+ * 场景 8：init 真实现——A2① 节拍过载负样本（Task 6）
+ *   两个 ISR 任务 every=1/at=0（每拍都命中同一格），wcet 各 600us，
+ *   minor=1000us：Σwcet=1200>1000 快路不过，慢路逐格累加同样在 t=0 溢出。
+ * ========================================================================= */
+
+BM_BUS_DEFINE(overload_a_in_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
+BM_BUS_DEFINE(overload_a_out_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
+BM_BUS_DEFINE(overload_b_in_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
+BM_BUS_DEFINE(overload_b_out_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
+
+static bm_bus_t g_overload_a_in_bus;
+static bm_bus_t g_overload_a_out_bus;
+static bm_bus_t g_overload_b_in_bus;
+static bm_bus_t g_overload_b_out_bus;
+
+static const uint32_t k_overload_in_safe = 0u;
+static const uint32_t k_overload_out_safe = 0u;
+
+/** @brief 空 step，本场景只关心 init 的节拍负载校验，不关心数据流 */
+static void overload_noop_step(bm_let_ctx_t *ctx, void *state) {
+    (void)ctx;
+    (void)state;
+}
+
+static const bm_let_input_t k_overload_a_inputs[] = {
+    { .bus = &g_overload_a_in_bus, .max_age_us = BM_LET_AGE_DEFAULT,
+      .elem_size = sizeof(uint32_t), .safe_default = &k_overload_in_safe },
+};
+static const bm_let_output_t k_overload_a_outputs[] = {
+    { .bus = &g_overload_a_out_bus, .elem_size = sizeof(uint32_t),
+      .safe_default = &k_overload_out_safe },
+};
+static const bm_let_input_t k_overload_b_inputs[] = {
+    { .bus = &g_overload_b_in_bus, .max_age_us = BM_LET_AGE_DEFAULT,
+      .elem_size = sizeof(uint32_t), .safe_default = &k_overload_in_safe },
+};
+static const bm_let_output_t k_overload_b_outputs[] = {
+    { .bus = &g_overload_b_out_bus, .elem_size = sizeof(uint32_t),
+      .safe_default = &k_overload_out_safe },
+};
+
+BM_LET_DEFINE(task_overload_a, 1u, 0u, 600u, overload_noop_step, NULL,
+              k_overload_a_inputs, k_overload_a_outputs);
+BM_LET_DEFINE(task_overload_b, 1u, 0u, 600u, overload_noop_step, NULL,
+              k_overload_b_inputs, k_overload_b_outputs);
+BM_SCHEDULE_DEFINE(sched_overload, 1000u, &task_overload_a, &task_overload_b);
+
+/**
+ * @brief 某 minor 格内 ISR 域任务 wcet 之和超过 minor_us：init 拒绝。
+ */
+void test_init_rejects_frame_overload(void) {
+    bm_bus_cfg_t cfg = { .owner_cpu = 0u };
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_overload_a_in_bus, &overload_a_in_bus_storage, &cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_overload_a_out_bus, &overload_a_out_bus_storage, &cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_overload_b_in_bus, &overload_b_in_bus_storage, &cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_overload_b_out_bus, &overload_b_out_bus_storage, &cfg));
+
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_tt_schedule_init(&sched_overload));
+
+    bm_bus_close(&g_overload_a_in_bus);
+    bm_bus_close(&g_overload_a_out_bus);
+    bm_bus_close(&g_overload_b_in_bus);
+    bm_bus_close(&g_overload_b_out_bus);
+}
+
+/* =========================================================================
+ * 场景 9：init 真实现——A2② LCM 爆炸负样本（Task 6）
+ *   every 互质（17/19）：LCM=323 > BM_CONFIG_TT_SCHED_MAX_FRAMES(256)。
+ * ========================================================================= */
+
+BM_BUS_DEFINE(lcm_a_in_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
+BM_BUS_DEFINE(lcm_a_out_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
+BM_BUS_DEFINE(lcm_b_in_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
+BM_BUS_DEFINE(lcm_b_out_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
+
+static bm_bus_t g_lcm_a_in_bus;
+static bm_bus_t g_lcm_a_out_bus;
+static bm_bus_t g_lcm_b_in_bus;
+static bm_bus_t g_lcm_b_out_bus;
+
+static const uint32_t k_lcm_in_safe = 0u;
+static const uint32_t k_lcm_out_safe = 0u;
+
+static const bm_let_input_t k_lcm_a_inputs[] = {
+    { .bus = &g_lcm_a_in_bus, .max_age_us = BM_LET_AGE_DEFAULT,
+      .elem_size = sizeof(uint32_t), .safe_default = &k_lcm_in_safe },
+};
+static const bm_let_output_t k_lcm_a_outputs[] = {
+    { .bus = &g_lcm_a_out_bus, .elem_size = sizeof(uint32_t),
+      .safe_default = &k_lcm_out_safe },
+};
+static const bm_let_input_t k_lcm_b_inputs[] = {
+    { .bus = &g_lcm_b_in_bus, .max_age_us = BM_LET_AGE_DEFAULT,
+      .elem_size = sizeof(uint32_t), .safe_default = &k_lcm_in_safe },
+};
+static const bm_let_output_t k_lcm_b_outputs[] = {
+    { .bus = &g_lcm_b_out_bus, .elem_size = sizeof(uint32_t),
+      .safe_default = &k_lcm_out_safe },
+};
+
+BM_LET_DEFINE(task_lcm_a, 17u, 0u, 50u, overload_noop_step, NULL,
+              k_lcm_a_inputs, k_lcm_a_outputs);
+BM_LET_DEFINE(task_lcm_b, 19u, 0u, 50u, overload_noop_step, NULL,
+              k_lcm_b_inputs, k_lcm_b_outputs);
+BM_SCHEDULE_DEFINE(sched_lcm_explosion, 1000u, &task_lcm_a, &task_lcm_b);
+
+/**
+ * @brief 互质 every 使 N=LCM(every) 超过 MAX_FRAMES：init 拒绝（挡表爆炸）。
+ */
+void test_init_rejects_lcm_explosion(void) {
+    bm_bus_cfg_t cfg = { .owner_cpu = 0u };
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_lcm_a_in_bus, &lcm_a_in_bus_storage, &cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_lcm_a_out_bus, &lcm_a_out_bus_storage, &cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_lcm_b_in_bus, &lcm_b_in_bus_storage, &cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_lcm_b_out_bus, &lcm_b_out_bus_storage, &cfg));
+
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_tt_schedule_init(&sched_lcm_explosion));
+
+    bm_bus_close(&g_lcm_a_in_bus);
+    bm_bus_close(&g_lcm_a_out_bus);
+    bm_bus_close(&g_lcm_b_in_bus);
+    bm_bus_close(&g_lcm_b_out_bus);
+}
+
+/* =========================================================================
+ * 场景 10：init 预发布 safe_default（Task 6）
+ *   init 成功后、任何 tick 之前，下游 bus 立即能读到 safe_default；
+ *   rt 全部复位为初始态（首拍安全值语义）。
+ * ========================================================================= */
+
+BM_BUS_DEFINE(prepub_in_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
+BM_BUS_DEFINE(prepub_out_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
+
+static bm_bus_t g_prepub_in_bus;
+static bm_bus_t g_prepub_out_bus;
+
+static const uint32_t k_prepub_in_safe = 0xAAu;
+static const uint32_t k_prepub_out_safe = 0x55u;
+
+static void prepub_step(bm_let_ctx_t *ctx, void *state) {
+    (void)ctx;
+    (void)state;
+}
+
+static const bm_let_input_t k_prepub_inputs[] = {
+    { .bus = &g_prepub_in_bus, .max_age_us = BM_LET_AGE_DEFAULT,
+      .elem_size = sizeof(uint32_t), .safe_default = &k_prepub_in_safe },
+};
+static const bm_let_output_t k_prepub_outputs[] = {
+    { .bus = &g_prepub_out_bus, .elem_size = sizeof(uint32_t),
+      .safe_default = &k_prepub_out_safe },
+};
+
+BM_LET_DEFINE(task_prepub, 1u, 0u, 100u, prepub_step, NULL,
+              k_prepub_inputs, k_prepub_outputs);
+BM_SCHEDULE_DEFINE(sched_prepub, 1000u, &task_prepub);
+
+/**
+ * @brief init 后立即可读到 safe_default；rt 复位为初始态；n_frames=LCM(every)=1。
+ */
+void test_init_pre_publishes_safe_default_before_any_tick(void) {
+    bm_bus_cfg_t cfg = { .owner_cpu = 0u };
+    uint32_t out_val;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_prepub_in_bus, &prepub_in_bus_storage, &cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_prepub_out_bus, &prepub_out_bus_storage, &cfg));
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_tt_schedule_init(&sched_prepub));
+    TEST_ASSERT_EQUAL_UINT32(1u, sched_prepub.n_frames);
+    TEST_ASSERT_EQUAL_UINT32(0u, sched_prepub.tick_idx);
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_latest_read(&g_prepub_out_bus, &out_val));
+    TEST_ASSERT_EQUAL_UINT32(k_prepub_out_safe, out_val);
+
+    TEST_ASSERT_EQUAL_UINT32(0u, task_prepub.rt->phase);
+    TEST_ASSERT_EQUAL_UINT32(0u, task_prepub.rt->running);
+    TEST_ASSERT_EQUAL_UINT32(0u, task_prepub.rt->pending);
+    TEST_ASSERT_EQUAL_UINT32(0u, task_prepub.rt->fresh);
+    TEST_ASSERT_EQUAL_UINT32(0u, task_prepub.rt->overrun_count);
+    TEST_ASSERT_EQUAL_UINT32(0u, task_prepub.rt->baseline_seq[0]); /* 输入从未发布 */
+    TEST_ASSERT_EQUAL_UINT32(0u, task_prepub.rt->miss[0]);
+
+    bm_bus_close(&g_prepub_in_bus);
+    bm_bus_close(&g_prepub_out_bus);
+}
+
+/* =========================================================================
+ * 场景 11：init 正样本——谐波周期（Task 6）
+ *   1/5/10ms（minor=1ms）：N=LCM(1,5,10)=10；init 返回 BM_OK 后可正常
+ *   tick 跑通一条数据流（fast 任务的输出滞后 1 拍等于上次输入）。
+ * ========================================================================= */
+
+BM_BUS_DEFINE(harm_in_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
+BM_BUS_DEFINE(harm_fast_out_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
+BM_BUS_DEFINE(harm_mid_out_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
+BM_BUS_DEFINE(harm_slow_out_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
+
+static bm_bus_t g_harm_in_bus;
+static bm_bus_t g_harm_fast_out_bus;
+static bm_bus_t g_harm_mid_out_bus;
+static bm_bus_t g_harm_slow_out_bus;
+
+static const uint32_t k_harm_in_safe = 0u;
+static const uint32_t k_harm_out_safe = 0u;
+
+static uint8_t g_harm_fast_hit;
+static uint8_t g_harm_mid_hit;
+static uint8_t g_harm_slow_hit;
+
+/** @brief 原样把输入值写入输出槽，兼计命中标志，验证真 init 后数据流跑通 */
+static void harm_fast_step(bm_let_ctx_t *ctx, void *state) {
+    int stale;
+    uint32_t age;
+    const uint32_t *in;
+    uint32_t *out;
+
+    (void)state;
+    in = (const uint32_t *)bm_let_in(ctx, 0u, &stale, &age);
+    out = (uint32_t *)bm_let_out(ctx, 0u);
+    *out = *in;
+    g_harm_fast_hit = 1u;
+}
+static void harm_mid_step(bm_let_ctx_t *ctx, void *state) {
+    (void)ctx;
+    (void)state;
+    g_harm_mid_hit = 1u;
+}
+static void harm_slow_step(bm_let_ctx_t *ctx, void *state) {
+    (void)ctx;
+    (void)state;
+    g_harm_slow_hit = 1u;
+}
+
+static const bm_let_input_t k_harm_inputs[] = {
+    { .bus = &g_harm_in_bus, .max_age_us = BM_LET_AGE_DEFAULT,
+      .elem_size = sizeof(uint32_t), .safe_default = &k_harm_in_safe },
+};
+static const bm_let_output_t k_harm_fast_outputs[] = {
+    { .bus = &g_harm_fast_out_bus, .elem_size = sizeof(uint32_t), .safe_default = &k_harm_out_safe },
+};
+static const bm_let_output_t k_harm_mid_outputs[] = {
+    { .bus = &g_harm_mid_out_bus, .elem_size = sizeof(uint32_t), .safe_default = &k_harm_out_safe },
+};
+static const bm_let_output_t k_harm_slow_outputs[] = {
+    { .bus = &g_harm_slow_out_bus, .elem_size = sizeof(uint32_t), .safe_default = &k_harm_out_safe },
+};
+
+BM_LET_DEFINE(task_harm_fast, 1u, 0u, 50u, harm_fast_step, NULL, k_harm_inputs, k_harm_fast_outputs);
+BM_LET_DEFINE(task_harm_mid, 5u, 0u, 50u, harm_mid_step, NULL, k_harm_inputs, k_harm_mid_outputs);
+BM_LET_DEFINE(task_harm_slow, 10u, 9u, 50u, harm_slow_step, NULL, k_harm_inputs, k_harm_slow_outputs);
+BM_SCHEDULE_DEFINE(sched_harm, 1000u, &task_harm_fast, &task_harm_mid, &task_harm_slow);
+
+/**
+ * @brief 谐波周期正样本：init 返回 BM_OK、n_frames=LCM(1,5,10)=10，
+ * 命中次数分别为 10/2/1，且数据流跑通（+1 拍延迟语义与场景 3 一致）。
+ */
+void test_init_harmonic_periods_ok_and_runs_data_flow(void) {
+    bm_bus_cfg_t cfg = { .owner_cpu = 0u };
+    uint32_t out_val;
+    uint32_t fast_hits = 0u;
+    uint32_t mid_hits = 0u;
+    uint32_t slow_hits = 0u;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_harm_in_bus, &harm_in_bus_storage, &cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_harm_fast_out_bus, &harm_fast_out_bus_storage, &cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_harm_mid_out_bus, &harm_mid_out_bus_storage, &cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_harm_slow_out_bus, &harm_slow_out_bus_storage, &cfg));
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_tt_schedule_init(&sched_harm));
+    TEST_ASSERT_EQUAL_UINT32(10u, sched_harm.n_frames);
+
+    for (uint32_t i = 0u; i < 10u; ++i) {
+        g_harm_fast_hit = 0u;
+        g_harm_mid_hit = 0u;
+        g_harm_slow_hit = 0u;
+
+        TEST_ASSERT_EQUAL(BM_OK, publish_u32(&g_harm_in_bus, 100u + i));
+        bm_tt_schedule_tick(&sched_harm);
+
+        if (g_harm_fast_hit) {
+            ++fast_hits;
+        }
+        if (g_harm_mid_hit) {
+            ++mid_hits;
+        }
+        if (g_harm_slow_hit) {
+            ++slow_hits;
+        }
+    }
+    TEST_ASSERT_EQUAL_UINT32(10u, fast_hits);
+    TEST_ASSERT_EQUAL_UINT32(2u, mid_hits);
+    TEST_ASSERT_EQUAL_UINT32(1u, slow_hits);
+
+    /* 数据流跑通：最后一次 tick(i=9) 发布的是 i=8 那次算出的结果（+1 拍延迟） */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_latest_read(&g_harm_fast_out_bus, &out_val));
+    TEST_ASSERT_EQUAL_UINT32(100u + 8u, out_val);
+
+    bm_bus_close(&g_harm_in_bus);
+    bm_bus_close(&g_harm_fast_out_bus);
+    bm_bus_close(&g_harm_mid_out_bus);
+    bm_bus_close(&g_harm_slow_out_bus);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_freeze_stale_when_never_published);
@@ -612,5 +922,9 @@ int main(void) {
     RUN_TEST(test_mainloop_freeze_then_run_pending_then_publish_next_tick);
     RUN_TEST(test_mainloop_overrun_when_run_pending_not_called);
     RUN_TEST(test_isr_frequency_division_and_phase_offset);
+    RUN_TEST(test_init_rejects_frame_overload);
+    RUN_TEST(test_init_rejects_lcm_explosion);
+    RUN_TEST(test_init_pre_publishes_safe_default_before_any_tick);
+    RUN_TEST(test_init_harmonic_periods_ok_and_runs_data_flow);
     return UNITY_END();
 }

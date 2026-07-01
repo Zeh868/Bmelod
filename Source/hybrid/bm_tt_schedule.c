@@ -11,10 +11,16 @@
  * 从占位桩实现为主循环侧有界 drain（跑纯 step、翻 phase、置 fresh、清
  * pending，但不发布，发布交回下一次 tick）；`bm_tt_schedule_hrt_slot` 从
  * 占位桩实现为真正的 slot 描述符（回调经 `tt_hrt_trampoline` 转
- * `bm_tt_schedule_tick`）。其余算法（init 校验、RTA 导出）留待后续 Task。
+ * `bm_tt_schedule_tick`）。本轮（Task 6）把 `bm_tt_schedule_init` 从占位桩
+ * 落成真实现：参数/周期一致性校验 → N=LCM(every) 且 ≤ MAX_FRAMES → 节拍
+ * 负载校验（`tt_frame_check`，快路 Σwcet 直过/慢路逐格 AP-fill 累加）→
+ * 每 output 双缓冲两半预填 safe_default 并发布到 bus（首拍前下游即可读到
+ * 安全值）→ 每 input 快照 baseline_seq → 复位 rt。Task 3 加的临时兜底
+ * `tt_calc_frames_fallback` 一并删除，tick 改为直接信任 init 已算好的
+ * `n_frames`。RTA 导出留待后续 Task。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.3
+ * @version 1.4
  * @date 2026-07-01
  *
  * @par 修改日志:
@@ -25,6 +31,8 @@
  * 2026-07-01       1.2            zeh            Task 4：per-task 相位双缓冲 + 边界发布，扩展 ISR tick
  * 2026-07-01       1.3            zeh            Task 5：双域派发器（ISR reentry/overrun +
  *                                                 MAINLOOP fresh/pending）+ run_pending + hrt slot
+ * 2026-07-01       1.4            zeh            Task 6：真 init（周期一致性 + N=LCM + 节拍负载校验 +
+ *                                                 预发布 safe_default + baseline_seq），删临时兜底
  *
  */
 #include "bm_tt_schedule.h"
@@ -156,7 +164,8 @@ void *bm_let_out(bm_let_ctx_t *ctx, uint32_t out_idx) {
  * @details 本次命中 step 刚写完 `outbuf[phase]`；`phase^1` 那份缓冲是上一次
  * 命中已完成的结果，正是本次该对外发布的值（+1 任务周期延迟）。**不翻转
  * phase**——翻转时机 ISR/MAINLOOP 不同（ISR：发布后翻；MAINLOOP：step 完成时
- * 翻），故与发布解耦，交调用方按域择时处理。overrun/skip 不发布，留待 Task5。
+ * 翻），故与发布解耦，交调用方按域择时处理。overrun/skip 分支（见
+ * `bm_tt_schedule_tick`）由调用方直接跳过、不调用本函数，故天然不发布。
  *
  * @param s 调度表实例（本任务未使用，保留供后续扩展）
  * @param a 目标 activity（取 outputs/outbuf/rt）
@@ -180,10 +189,178 @@ static void tt_publish(bm_tt_schedule_t *s, bm_tt_activity_t *a) {
 }
 
 /**
- * @brief 初始化调度表（占位桩，暂不校验/分配布局）
+ * @brief 计算最大公约数（辗转相除）
+ * @param a 输入 a
+ * @param b 输入 b
+ * @return gcd(a, b)
+ */
+static uint32_t tt_gcd(uint32_t a, uint32_t b) {
+    while (b != 0u) {
+        uint32_t t = a % b;
+
+        a = b;
+        b = t;
+    }
+    return a;
+}
+
+/**
+ * @brief 计算最小公倍数
+ * @details 先除后乘，避免 a*b 中间结果在 uint32_t 上溢出。
+ * @param a 输入 a
+ * @param b 输入 b
+ * @return lcm(a, b)
+ */
+static uint32_t tt_lcm(uint32_t a, uint32_t b) {
+    return a / tt_gcd(a, b) * b;
+}
+
+/**
+ * @brief 节拍负载校验（两层）
+ *
+ * @details 快路：若全体 ISR 域任务 `wcet_us` 之和 ≤ `minor_us`，则无论如何
+ * 错峰同一 minor 格内都不可能超载，直接判过、不必逐格展开（多任务表常见
+ * 场景，避免不必要的 O(n_frames) 遍历）。慢路：快路不满足时才逐格精算——
+ * 按 AP-fill（活动周期展开）把每个 ISR 域任务的命中拍 `t = at, at+every,
+ * at+2*every, ...` 都累加 `wcet_us` 进 `w[t]`，任一格 `w[t] > minor_us` 即
+ * 该格实际重叠超载，返回 `BM_ERR_INVALID`。`w[]` 用 static 数组（非栈上
+ * 大数组），大小为编译期上界 `BM_CONFIG_TT_SCHED_MAX_FRAMES`，`n_frames`
+ * 已在调用前由 init 校验 ≤ 该上界。
+ *
+ * @param s 调度表实例（只读 entries/minor_us）
+ * @param n_frames 本表的 N=LCM(every)，已由调用方校验 ≤ MAX_FRAMES
+ * @return BM_OK 可调度；BM_ERR_INVALID 某格超载
+ */
+static int tt_frame_check(const bm_tt_schedule_t *s, uint32_t n_frames) {
+    uint32_t sum = 0u;
+    static uint32_t w[BM_CONFIG_TT_SCHED_MAX_FRAMES];
+
+    for (uint8_t k = 0u; k < s->entry_count; ++k) {
+        if (s->entries[k]->domain == BM_TT_DOMAIN_ISR) {
+            sum += s->entries[k]->wcet_us;
+        }
+    }
+    if (sum <= s->minor_us) {
+        return BM_OK; /* 快路：整体 wcet 之和已不超，任一格必不超 */
+    }
+    for (uint32_t t = 0u; t < n_frames; ++t) {
+        w[t] = 0u;
+    }
+    for (uint8_t k = 0u; k < s->entry_count; ++k) {
+        const bm_tt_activity_t *a = s->entries[k];
+
+        if (a->domain != BM_TT_DOMAIN_ISR) {
+            continue;
+        }
+        for (uint32_t t = a->at; t < n_frames; t += a->every) {
+            w[t] += a->wcet_us;
+            if (w[t] > s->minor_us) {
+                return BM_ERR_INVALID;
+            }
+        }
+    }
+    return BM_OK;
+}
+
+/**
+ * @brief 初始化调度表：校验 + 算 N=LCM + 节拍负载校验 + 预发布 safe_default
+ *
+ * @details 依次：① 参数/周期一致性校验（`minor_us`、`entry_count`、每任务
+ * `every/at`、`input_count`、每 input/output 的 `elem_size` 上界、每 output
+ * 的 `safe_default` 非空）→ ② `n = LCM(every)`，超过 `BM_CONFIG_TT_SCHED_
+ * MAX_FRAMES` 即拒（挡 LCM 爆炸）→ ③ `tt_frame_check` 节拍负载校验 → ④ 每
+ * output 的双缓冲两份都预填 `safe_default` 并经 `tt_bus_publish` 发布到
+ * bus（使首拍 tick 之前下游即可读到安全值）→ ⑤ 每 input 用
+ * `bm_bus_latest_read_seq` 快照 `baseline_seq`（读不到则置 0）、`miss`
+ * 清零 → ⑥ 复位 rt（`phase/running/pending/fresh/overrun_count` 清零）→
+ * 设 `n_frames = n`、`tick_idx = 0`。
+ *
+ * @param sched 调度表实例
+ * @return BM_OK 成功；BM_ERR_INVALID 参数/周期不一致、LCM 超界或节拍超载
  */
 int bm_tt_schedule_init(bm_tt_schedule_t *sched) {
-    (void)sched;
+    uint32_t n;
+    int rc;
+
+    if (sched == NULL || sched->minor_us == 0u || sched->entry_count == 0u ||
+        sched->entry_count > BM_CONFIG_TT_SCHED_MAX_ENTRIES) {
+        return BM_ERR_INVALID;
+    }
+
+    n = 1u;
+    for (uint8_t k = 0u; k < sched->entry_count; ++k) {
+        bm_tt_activity_t *a = sched->entries[k];
+
+        if (a->every == 0u || a->at >= a->every) {
+            return BM_ERR_INVALID;
+        }
+        if (a->input_count > BM_CONFIG_TT_SCHED_MAX_INPUTS) {
+            return BM_ERR_INVALID;
+        }
+        for (uint8_t i = 0u; i < a->input_count; ++i) {
+            if (a->inputs[i].elem_size > BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE) {
+                return BM_ERR_INVALID;
+            }
+        }
+        for (uint8_t o = 0u; o < a->output_count; ++o) {
+            if (a->outputs[o].elem_size > BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE) {
+                return BM_ERR_INVALID;
+            }
+            if (a->outputs[o].safe_default == NULL) {
+                return BM_ERR_INVALID;
+            }
+        }
+        n = tt_lcm(n, a->every);
+        if (n > BM_CONFIG_TT_SCHED_MAX_FRAMES) {
+            return BM_ERR_INVALID; /* 挡 LCM 爆炸 */
+        }
+    }
+
+    rc = tt_frame_check(sched, n);
+    if (rc != BM_OK) {
+        return rc;
+    }
+
+    for (uint8_t k = 0u; k < sched->entry_count; ++k) {
+        bm_tt_activity_t *a = sched->entries[k];
+        uint32_t stride = 0u;
+        uint32_t off = 0u;
+
+        for (uint8_t o = 0u; o < a->output_count; ++o) {
+            stride += a->outputs[o].elem_size;
+        }
+        for (uint8_t o = 0u; o < a->output_count; ++o) {
+            for (uint8_t ph = 0u; ph < 2u; ++ph) {
+                uint8_t *dst = (uint8_t *)a->outbuf + (size_t)ph * stride + off;
+
+                (void)memcpy(dst, a->outputs[o].safe_default, a->outputs[o].elem_size);
+            }
+            (void)tt_bus_publish(a->outputs[o].bus, a->outputs[o].safe_default,
+                                  a->outputs[o].elem_size);
+            off += a->outputs[o].elem_size;
+        }
+
+        for (uint8_t i = 0u; i < a->input_count; ++i) {
+            uint8_t tmp[BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE];
+            uint32_t seq = 0u;
+
+            if (bm_bus_latest_read_seq(a->inputs[i].bus, tmp, &seq) == BM_OK) {
+                a->rt->baseline_seq[i] = seq;
+            } else {
+                a->rt->baseline_seq[i] = 0u;
+            }
+            a->rt->miss[i] = 0u;
+        }
+
+        a->rt->phase = 0u;
+        a->rt->running = 0u;
+        a->rt->pending = 0u;
+        a->rt->fresh = 0u;
+        a->rt->overrun_count = 0u;
+    }
+
+    sched->n_frames = n;
+    sched->tick_idx = 0u;
     return BM_OK;
 }
 
@@ -211,41 +388,6 @@ bm_hrt_slot_t bm_tt_schedule_hrt_slot(bm_tt_schedule_t *sched) {
     bm_hrt_slot_t slot = { sched->minor_us, BM_HRT_TRIGGER_TIMER,
                             tt_hrt_trampoline, sched, sched->name };
     return slot;
-}
-
-/**
- * @brief 计算 entries[].every 的最小公倍数（tick_idx 归零边界的兜底）
- *
- * @details 正式 init（Task 5）会在初始化期算好 `sched->n_frames`；本任务
- * 未实现 init，故 tick 首次调用时若发现 `n_frames==0` 用此兜底就地补算，
- * 仅保证 tick_idx 归零边界不越界，不做任何绑定表校验。
- *
- * @param s 调度表实例（只读 entries/every）
- * @return every 的 LCM；entry_count==0 时返回 1
- */
-static uint32_t tt_calc_frames_fallback(const bm_tt_schedule_t *s) {
-    uint32_t n = 1u;
-
-    for (uint8_t i = 0u; i < s->entry_count; ++i) {
-        uint32_t e = s->entries[i]->every;
-        uint32_t a;
-        uint32_t b;
-        uint32_t g;
-
-        if (e == 0u) {
-            continue;
-        }
-        a = n;
-        b = e;
-        while (b != 0u) {
-            uint32_t t = b;
-            b = a % b;
-            a = t;
-        }
-        g = a; /* gcd(n, e) */
-        n = (n / g) * e;
-    }
-    return n;
 }
 
 /**
@@ -281,10 +423,7 @@ void bm_tt_schedule_tick(bm_tt_schedule_t *sched) {
     if (sched == NULL) {
         return;
     }
-    if (sched->n_frames == 0u) {
-        sched->n_frames = tt_calc_frames_fallback(sched);
-    }
-    n = sched->n_frames;
+    n = sched->n_frames; /* 由 bm_tt_schedule_init 算好；未 init 直接 tick 属误用 */
 
     for (uint8_t i = 0u; i < sched->entry_count; ++i) {
         bm_tt_activity_t *a = sched->entries[i];
