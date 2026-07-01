@@ -1159,3 +1159,40 @@ int bm_bus_latest_read(const bm_bus_t *h, void *dst) {
         }
     }
 }
+
+#ifdef BM_BUS_ALLOW_INTERNAL
+/**
+ * @brief LATEST 拷出并回传稳定 seq（内部 API，见 bm_bus.h 声明）
+ * @details 复用与 bm_bus_latest_read 相同的 seqlock 读循环；成功时 seq1==seq2，
+ *          即拷贝期间无写者发布，回传该稳定序号。非阻塞、有界重试。
+ */
+int bm_bus_latest_read_seq(const bm_bus_t *h, void *dst, uint32_t *out_seq) {
+    bm_bus_storage_t *st;
+    uint32_t seq1, seq2, p;
+    uint32_t retry = 0u;
+
+    if (!h || !h->storage || !dst || !out_seq) {
+        return BM_ERR_INVALID;
+    }
+    st = h->storage;
+    if (st->mode != BM_BUS_LATEST) {
+        return BM_ERR_NOT_SUPPORTED;
+    }
+    for (;;) {
+        seq1 = bus_load_cur(&st->latest_seq);
+        if (seq1 & 1u) {
+            if (++retry >= BM_CONFIG_BUS_LATEST_MAX_RETRIES) return BM_ERR_WOULD_BLOCK;
+            continue;
+        }
+        p = bus_load_cur(&st->latest_published);
+        if (p == BM_BUS_LATEST_NONE) return BM_ERR_WOULD_BLOCK;
+        (void)memcpy(dst, st->data_buf + (size_t)p * st->elem_size, st->elem_size);
+        seq2 = bus_load_cur(&st->latest_seq);
+        if (seq1 == seq2) {
+            *out_seq = seq1;      /* 稳定序号，与拷到的值同一次校验 */
+            return BM_OK;
+        }
+        if (++retry >= BM_CONFIG_BUS_LATEST_MAX_RETRIES) return BM_ERR_WOULD_BLOCK;
+    }
+}
+#endif /* BM_BUS_ALLOW_INTERNAL */
