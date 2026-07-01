@@ -7,7 +7,7 @@
  * @details 示例调度表装配思路取自 tests/unit/test_tt_schedule.c 场景 11
  * “谐波周期”（fast every=1 at=0 / mid every=5 at=0 / slow every=10 at=9，
  * minor_us=1000，wcet_us 各 50），但本文件不 include 测试文件——工具程序
- * 自包含、独立可编译，用同样的 BM_BUS_DEFINE/BM_LET_DEFINE/
+ * 自包含、独立可编译，用同样的 BM_BUS_DEFINE/BM_LET_DEFINE_ISR/
  * BM_SCHEDULE_DEFINE 宏重新声明一份等价装配。step 函数为空，本工具只关心
  * bm_tt_schedule_report 的文本输出，不关心真实数据流。
  *
@@ -65,12 +65,12 @@ static const bm_let_output_t k_dump_slow_outputs[] = {
       .safe_default = &k_dump_out_safe },
 };
 
-BM_LET_DEFINE(task_dump_fast, 1u, 0u, 50u, dump_noop_step, NULL,
-              k_dump_inputs, k_dump_fast_outputs);
-BM_LET_DEFINE(task_dump_mid, 5u, 0u, 50u, dump_noop_step, NULL,
-              k_dump_inputs, k_dump_mid_outputs);
-BM_LET_DEFINE(task_dump_slow, 10u, 9u, 50u, dump_noop_step, NULL,
-              k_dump_inputs, k_dump_slow_outputs);
+BM_LET_DEFINE_ISR(task_dump_fast, 1u, 0u, 50u, dump_noop_step, NULL,
+                   k_dump_inputs, k_dump_fast_outputs);
+BM_LET_DEFINE_ISR(task_dump_mid, 5u, 0u, 50u, dump_noop_step, NULL,
+                   k_dump_inputs, k_dump_mid_outputs);
+BM_LET_DEFINE_ISR(task_dump_slow, 10u, 9u, 50u, dump_noop_step, NULL,
+                   k_dump_inputs, k_dump_slow_outputs);
 BM_SCHEDULE_DEFINE(sched_dump, 1000u, &task_dump_fast, &task_dump_mid, &task_dump_slow);
 
 /** @brief emit 回调：把每行文本写入 argv[1] 指定的输出文件（u 即该 FILE*） */

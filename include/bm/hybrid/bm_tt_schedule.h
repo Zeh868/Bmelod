@@ -4,7 +4,8 @@
  * @brief 时间触发调度门面（bm_tt_schedule）：LET 任务表 + 静态绑定
  *
  * 开发者只写纯 step 函数与两张静态输入/输出绑定表；调度表由
- * `BM_SCHEDULE_DEFINE` 声明，单个 LET 任务由 `BM_LET_DEFINE` 声明——宏隐藏
+ * `BM_SCHEDULE_DEFINE` 声明，单个 LET 任务由 `BM_LET_DEFINE_ISR`/
+ * `BM_LET_DEFINE_MAINLOOP`（内部通用形式 `BM_LET_DEFINE_EX`）声明——宏隐藏
  * 快照区、双缓冲、per-input 运行态（miss/stale/age）等全部 bookkeeping。
  *
  * 本轮（接法 B）仅覆盖 kind=COMPUTE：ISR 域 step 与派发同步完成；
@@ -14,13 +15,16 @@
  * @core_affinity 本核（per-CPU）
  * 调度表实例、rt 状态均为静态分配，跨核使用需各核独立实例。
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-01
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-01       1.0            zeh            骨架发布（config+公共头+CMake，无算法实现）
+ * 2026-07-01       1.1            zeh            `BM_LET_DEFINE` 拆分为 `BM_LET_DEFINE_ISR`/
+ *                                                 `BM_LET_DEFINE_MAINLOOP`（内部通用形式
+ *                                                 `BM_LET_DEFINE_EX`），domain 由宏名显式区分
  *
  */
 #ifndef BM_TT_SCHEDULE_H
@@ -205,12 +209,34 @@ int bm_tt_schedule_rt_slot_at(const bm_tt_schedule_t *sched, uint32_t idx,
                               bm_tt_schedule_rt_slot_t *out);
 
 /**
- * @brief 一行声明 LET 任务：宏分配 snapshot/双缓冲/rt 全部 bookkeeping
+ * @brief 内部通用形式：一行声明 LET 任务，宏分配 snapshot/双缓冲/rt 全部
+ * bookkeeping，domain 由调用者显式传入
  *
- * 计算连续输出双缓冲字节数：调用者用绑定表已给 elem_size，
- * 这里用最大元素上界（BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE）简化对齐。
+ * 业务代码请优先用具名形式 `BM_LET_DEFINE_ISR`/`BM_LET_DEFINE_MAINLOOP`——
+ * 二者都是本宏的薄包装，仅把 domain 参数固化成字面量，语义与本宏逐字相同。
+ * 本宏保留给需要按变量/宏参数动态决定 domain 的极少数场景（如代码生成）。
+ *
+ * @param id       任务实例名（不带引号）。同时用作 activity 变量名（传给
+ *                 BM_SCHEDULE_DEFINE 时写 &id）与内部静态存储前缀。
+ * @param domain_  执行域（bm_tt_domain_t）：BM_TT_DOMAIN_ISR/BM_TT_DOMAIN_MAINLOOP。
+ * @param every_   分频：任务周期 = minor_us × every（每 every 个 minor 拍跑一次）。
+ * @param at_      相位/错峰：从超周期内第 at 拍起算（须 0 ≤ at < every），
+ *                 用于把同频任务岔开到不同 minor 格。
+ * @param wcet_    最坏执行时间（µs）。喂节拍负载校验（Σ本格 wcet ≤ minor_us）
+ *                 与调度概览报告；须为实测或保守静态分析值。
+ * @param step_    纯函数 step 回调，签名 void(bm_let_ctx_t*, void* state)。只准
+ *                 读冻结输入(bm_let_in)、写输出(bm_let_out)、读写自己的 state；
+ *                 禁止在 step 内发布 bus/读时钟/阻塞/调度（LET 确定性前提）。
+ * @param state_   step 的自持状态指针（透传给 step 第二参，可为 NULL）。
+ * @param inputs_  const bm_let_input_t[] 输入绑定表（bus/max_age_us/elem_size/
+ *                 safe_default）。数量由 sizeof 自动推导。
+ * @param outputs_ const bm_let_output_t[] 输出绑定表（bus/elem_size/safe_default，
+ *                 safe_default 非空由 init 强制）。数量由 sizeof 自动推导。
+ *
+ * @note 实现细节：连续输出双缓冲按最大元素上界 BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE
+ *       × 输出数分配（略有余量、换零动态分配与实现简单）。
  */
-#define BM_LET_DEFINE(id, every_, at_, wcet_, step_, state_, inputs_, outputs_)                 \
+#define BM_LET_DEFINE_EX(id, domain_, every_, at_, wcet_, step_, state_, inputs_, outputs_)     \
     static uint8_t  id##_snap[BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE *                                \
                               (sizeof(inputs_) / sizeof((inputs_)[0]))];                        \
     static uint8_t  id##_out2[2u * BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE *                           \
@@ -223,7 +249,7 @@ int bm_tt_schedule_rt_slot_at(const bm_tt_schedule_t *sched, uint32_t idx,
         id##_baseseq, id##_miss, id##_stale, id##_age };                                        \
     bm_tt_activity_t id = {                                                                     \
         .name = #id, .every = (every_), .at = (at_),                                            \
-        .kind = BM_TT_KIND_COMPUTE, .domain = BM_TT_DOMAIN_ISR, .wcet_us = (wcet_),             \
+        .kind = BM_TT_KIND_COMPUTE, .domain = (domain_), .wcet_us = (wcet_),                    \
         .step = (step_), .state = (state_),                                                     \
         .inputs = (inputs_),  .input_count  = (uint8_t)(sizeof(inputs_)/sizeof((inputs_)[0])),  \
         .outputs = (outputs_),.output_count = (uint8_t)(sizeof(outputs_)/sizeof((outputs_)[0])),\
@@ -231,7 +257,69 @@ int bm_tt_schedule_rt_slot_at(const bm_tt_schedule_t *sched, uint32_t idx,
     }
 
 /**
+ * @brief 一行声明 **ISR 域** LET 任务：step 在 hrt ISR 内同步跑完
+ *
+ * ISR 域任务对"短"是硬要求——`step` 必须简短、确定性强，`wcet_us` 之和要能
+ * 在 `minor_us` 内跑完（`bm_tt_schedule_init` 会按此做节拍负载校验）；计算量大
+ * 或耗时不确定的重任务请改用 `BM_LET_DEFINE_MAINLOOP`。
+ *
+ * @param id       任务实例名（不带引号）。同时用作 activity 变量名（传给
+ *                 BM_SCHEDULE_DEFINE 时写 &id）与内部静态存储前缀。
+ * @param every_   分频：任务周期 = minor_us × every（每 every 个 minor 拍跑一次）。
+ * @param at_      相位/错峰：从超周期内第 at 拍起算（须 0 ≤ at < every），
+ *                 用于把同频任务岔开到不同 minor 格。
+ * @param wcet_    最坏执行时间（µs）。喂节拍负载校验（Σ本格 wcet ≤ minor_us）
+ *                 与调度概览报告；须为实测或保守静态分析值。
+ * @param step_    纯函数 step 回调，签名 void(bm_let_ctx_t*, void* state)。只准
+ *                 读冻结输入(bm_let_in)、写输出(bm_let_out)、读写自己的 state；
+ *                 禁止在 step 内发布 bus/读时钟/阻塞/调度（LET 确定性前提）。
+ * @param state_   step 的自持状态指针（透传给 step 第二参，可为 NULL）。
+ * @param inputs_  const bm_let_input_t[] 输入绑定表（bus/max_age_us/elem_size/
+ *                 safe_default）。数量由 sizeof 自动推导。
+ * @param outputs_ const bm_let_output_t[] 输出绑定表（bus/elem_size/safe_default，
+ *                 safe_default 非空由 init 强制）。数量由 sizeof 自动推导。
+ */
+#define BM_LET_DEFINE_ISR(id, every_, at_, wcet_, step_, state_, inputs_, outputs_)             \
+    BM_LET_DEFINE_EX(id, BM_TT_DOMAIN_ISR, every_, at_, wcet_, step_, state_, inputs_, outputs_)
+
+/**
+ * @brief 一行声明 **MAINLOOP 域** LET 任务：ISR 只冻结挂起，step 由主循环
+ * `bm_tt_schedule_run_pending` 执行
+ *
+ * 适合重计算/耗时不确定的任务（滤波器整定、诊断统计、日志格式化等）：
+ * ISR 内只做输入冻结（快、确定性强），真正的 `step` 延后到主循环里按预算跑，
+ * 换来的代价是结果多晚一拍发布（LET +1 拍语义）；业务侧需保证主循环**周期性
+ * 调用** `bm_tt_schedule_run_pending(sched, budget)`，否则会记 overrun 并丢本拍。
+ *
+ * @param id       任务实例名（不带引号）。同时用作 activity 变量名（传给
+ *                 BM_SCHEDULE_DEFINE 时写 &id）与内部静态存储前缀。
+ * @param every_   分频：任务周期 = minor_us × every（每 every 个 minor 拍跑一次）。
+ * @param at_      相位/错峰：从超周期内第 at 拍起算（须 0 ≤ at < every），
+ *                 用于把同频任务岔开到不同 minor 格。
+ * @param wcet_    最坏执行时间（µs）。喂调度概览报告的预算账；须为实测或
+ *                 保守静态分析值。
+ * @param step_    纯函数 step 回调，签名 void(bm_let_ctx_t*, void* state)。只准
+ *                 读冻结输入(bm_let_in)、写输出(bm_let_out)、读写自己的 state；
+ *                 禁止在 step 内发布 bus/读时钟/阻塞/调度（LET 确定性前提）。
+ * @param state_   step 的自持状态指针（透传给 step 第二参，可为 NULL）。
+ * @param inputs_  const bm_let_input_t[] 输入绑定表（bus/max_age_us/elem_size/
+ *                 safe_default）。数量由 sizeof 自动推导。
+ * @param outputs_ const bm_let_output_t[] 输出绑定表（bus/elem_size/safe_default，
+ *                 safe_default 非空由 init 强制）。数量由 sizeof 自动推导。
+ */
+#define BM_LET_DEFINE_MAINLOOP(id, every_, at_, wcet_, step_, state_, inputs_, outputs_)        \
+    BM_LET_DEFINE_EX(id, BM_TT_DOMAIN_MAINLOOP, every_, at_, wcet_, step_, state_, inputs_, outputs_)
+
+/**
  * @brief 一行声明调度表：宏生成 activity 指针表
+ *
+ * @param id        调度表实例名（不带引号）。传给 bm_tt_schedule_init/_hrt_slot。
+ * @param minor_us_ 基本节拍（µs）= hrt 心跳周期 = 各任务周期的 GCD；时间轴最小刻度。
+ * @param ...       该表包含的 activity 地址列表（各 BM_LET_DEFINE 实例取 &，
+ *                  如 &balance, &estimator, &telemetry）。数量由 sizeof 自动推导。
+ *
+ * @note entries 为指针表（bm_tt_activity_t**），每 activity 是 BM_LET_DEFINE
+ *       生成的独立静态实例，可跨表复用、rt 状态天然每实例独立。
  */
 #define BM_SCHEDULE_DEFINE(id, minor_us_, ...)                                                  \
     static bm_tt_activity_t *id##_entries_ptr[] = { __VA_ARGS__ };                              \

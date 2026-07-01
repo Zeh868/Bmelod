@@ -10,13 +10,14 @@
  *  11. 谐波周期正样本——1/5/10ms（minor=1ms）init 返回 BM_OK，n_frames=LCM=10，
  *      跑通一条数据流。
  *
- * 装配全部经公共头宏（BM_BUS_DEFINE/BM_LET_DEFINE/BM_SCHEDULE_DEFINE），
+ * 装配全部经公共头宏（BM_BUS_DEFINE/BM_LET_DEFINE_ISR/BM_LET_DEFINE_MAINLOOP/
+ * BM_SCHEDULE_DEFINE），
  * 走门面 API（bm_tt_schedule_tick/bm_let_in）+ 公共 bus API
  * （bm_bus_open/acquire_write/commit）；但测试直接调 bm_bus_latest_read_seq
  * 验证 seq 语义，需 PRIVATE 定义 BM_BUS_ALLOW_INTERNAL（照 test_bus）。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.4
+ * @version 1.5
  * @date 2026-07-01
  *
  * @par 修改日志:
@@ -34,6 +35,9 @@
  *                                                 越界必拒负样本（原不变量测试只核对合法表在界内，
  *                                                 删了校验也测不出来）；零分配证据改接
  *                                                 test_tt_schedule_symbols_no_alloc 符号级机械检查
+ * 2026-07-01       1.5            zeh            易用性打磨：`BM_LET_DEFINE`→`BM_LET_DEFINE_ISR`/
+ *                                                 `BM_LET_DEFINE_MAINLOOP`，四处 MAINLOOP 任务改
+ *                                                 用具名宏声明、删运行期 domain 覆盖赋值
  *
  */
 #include "unity.h"
@@ -81,7 +85,7 @@ static const bm_let_output_t k_never_outputs[] = {
       .safe_default = &k_never_out_safe },
 };
 
-BM_LET_DEFINE(task_never, 1u, 0u, 100u, never_step, NULL,
+BM_LET_DEFINE_ISR(task_never, 1u, 0u, 100u, never_step, NULL,
               k_never_inputs, k_never_outputs);
 BM_SCHEDULE_DEFINE(sched_never, 1000u, &task_never);
 
@@ -120,7 +124,7 @@ static const bm_let_output_t k_slow_outputs[] = {
       .safe_default = &k_slow_out_safe },
 };
 
-BM_LET_DEFINE(task_slow, 1u, 0u, 100u, slow_step, NULL,
+BM_LET_DEFINE_ISR(task_slow, 1u, 0u, 100u, slow_step, NULL,
               k_slow_inputs, k_slow_outputs);
 BM_SCHEDULE_DEFINE(sched_slow, 1000u, &task_slow);
 
@@ -232,7 +236,7 @@ static const bm_let_output_t k_phase_outputs[] = {
       .safe_default = &k_phase_out_safe },
 };
 
-BM_LET_DEFINE(task_phase, 2u, 0u, 100u, phase_step, NULL,
+BM_LET_DEFINE_ISR(task_phase, 2u, 0u, 100u, phase_step, NULL,
               k_phase_inputs, k_phase_outputs);
 BM_SCHEDULE_DEFINE(sched_phase, 1000u, &task_phase);
 
@@ -319,7 +323,7 @@ static const bm_let_output_t k_reentry_outputs[] = {
       .safe_default = &k_reentry_out_safe },
 };
 
-BM_LET_DEFINE(task_reentry, 1u, 0u, 100u, reentry_step, NULL,
+BM_LET_DEFINE_ISR(task_reentry, 1u, 0u, 100u, reentry_step, NULL,
               k_reentry_inputs, k_reentry_outputs);
 BM_SCHEDULE_DEFINE(sched_reentry, 1000u, &task_reentry);
 
@@ -401,7 +405,7 @@ static const bm_let_output_t k_mainloop_outputs[] = {
       .safe_default = &k_mainloop_out_safe },
 };
 
-BM_LET_DEFINE(task_mainloop, 1u, 0u, 100u, mainloop_step, NULL,
+BM_LET_DEFINE_MAINLOOP(task_mainloop, 1u, 0u, 100u, mainloop_step, NULL,
               k_mainloop_inputs, k_mainloop_outputs);
 BM_SCHEDULE_DEFINE(sched_mainloop, 1000u, &task_mainloop);
 
@@ -417,7 +421,6 @@ void test_mainloop_freeze_then_run_pending_then_publish_next_tick(void) {
     TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_mainloop_in_bus, &mainloop_in_bus_storage, &cfg));
     TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_mainloop_out_bus, &mainloop_out_bus_storage, &cfg));
 
-    task_mainloop.domain = BM_TT_DOMAIN_MAINLOOP;
     sched_mainloop.n_frames = 1u;
     sched_mainloop.tick_idx = 0u;
     task_mainloop.rt->pending = 0u;
@@ -484,7 +487,7 @@ static const bm_let_output_t k_mainloop2_outputs[] = {
       .safe_default = &k_mainloop2_out_safe },
 };
 
-BM_LET_DEFINE(task_mainloop2, 1u, 0u, 100u, mainloop2_step, NULL,
+BM_LET_DEFINE_MAINLOOP(task_mainloop2, 1u, 0u, 100u, mainloop2_step, NULL,
               k_mainloop2_inputs, k_mainloop2_outputs);
 BM_SCHEDULE_DEFINE(sched_mainloop2, 1000u, &task_mainloop2);
 
@@ -499,7 +502,6 @@ void test_mainloop_overrun_when_run_pending_not_called(void) {
     TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_mainloop2_in_bus, &mainloop2_in_bus_storage, &cfg));
     TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_mainloop2_out_bus, &mainloop2_out_bus_storage, &cfg));
 
-    task_mainloop2.domain = BM_TT_DOMAIN_MAINLOOP;
     sched_mainloop2.n_frames = 1u;
     sched_mainloop2.tick_idx = 0u;
     task_mainloop2.rt->pending = 0u;
@@ -567,9 +569,9 @@ static const bm_let_output_t k_freq_outputs[] = {
       .safe_default = &k_freq_out_safe },
 };
 
-BM_LET_DEFINE(task_balance, 1u, 0u, 100u, balance_step, NULL, k_freq_inputs, k_freq_outputs);
-BM_LET_DEFINE(task_estimator, 5u, 0u, 100u, estimator_step, NULL, k_freq_inputs, k_freq_outputs);
-BM_LET_DEFINE(task_telemetry, 10u, 9u, 100u, telemetry_step, NULL, k_freq_inputs, k_freq_outputs);
+BM_LET_DEFINE_ISR(task_balance, 1u, 0u, 100u, balance_step, NULL, k_freq_inputs, k_freq_outputs);
+BM_LET_DEFINE_ISR(task_estimator, 5u, 0u, 100u, estimator_step, NULL, k_freq_inputs, k_freq_outputs);
+BM_LET_DEFINE_ISR(task_telemetry, 10u, 9u, 100u, telemetry_step, NULL, k_freq_inputs, k_freq_outputs);
 BM_SCHEDULE_DEFINE(sched_freq, 1000u, &task_balance, &task_estimator, &task_telemetry);
 
 /**
@@ -659,9 +661,9 @@ static const bm_let_output_t k_overload_b_outputs[] = {
       .safe_default = &k_overload_out_safe },
 };
 
-BM_LET_DEFINE(task_overload_a, 1u, 0u, 600u, overload_noop_step, NULL,
+BM_LET_DEFINE_ISR(task_overload_a, 1u, 0u, 600u, overload_noop_step, NULL,
               k_overload_a_inputs, k_overload_a_outputs);
-BM_LET_DEFINE(task_overload_b, 1u, 0u, 600u, overload_noop_step, NULL,
+BM_LET_DEFINE_ISR(task_overload_b, 1u, 0u, 600u, overload_noop_step, NULL,
               k_overload_b_inputs, k_overload_b_outputs);
 BM_SCHEDULE_DEFINE(sched_overload, 1000u, &task_overload_a, &task_overload_b);
 
@@ -719,9 +721,9 @@ static const bm_let_output_t k_lcm_b_outputs[] = {
       .safe_default = &k_lcm_out_safe },
 };
 
-BM_LET_DEFINE(task_lcm_a, 17u, 0u, 50u, overload_noop_step, NULL,
+BM_LET_DEFINE_ISR(task_lcm_a, 17u, 0u, 50u, overload_noop_step, NULL,
               k_lcm_a_inputs, k_lcm_a_outputs);
-BM_LET_DEFINE(task_lcm_b, 19u, 0u, 50u, overload_noop_step, NULL,
+BM_LET_DEFINE_ISR(task_lcm_b, 19u, 0u, 50u, overload_noop_step, NULL,
               k_lcm_b_inputs, k_lcm_b_outputs);
 BM_SCHEDULE_DEFINE(sched_lcm_explosion, 1000u, &task_lcm_a, &task_lcm_b);
 
@@ -773,7 +775,7 @@ static const bm_let_output_t k_prepub_outputs[] = {
       .safe_default = &k_prepub_out_safe },
 };
 
-BM_LET_DEFINE(task_prepub, 1u, 0u, 100u, prepub_step, NULL,
+BM_LET_DEFINE_ISR(task_prepub, 1u, 0u, 100u, prepub_step, NULL,
               k_prepub_inputs, k_prepub_outputs);
 BM_SCHEDULE_DEFINE(sched_prepub, 1000u, &task_prepub);
 
@@ -867,9 +869,9 @@ static const bm_let_output_t k_harm_slow_outputs[] = {
     { .bus = &g_harm_slow_out_bus, .elem_size = sizeof(uint32_t), .safe_default = &k_harm_out_safe },
 };
 
-BM_LET_DEFINE(task_harm_fast, 1u, 0u, 50u, harm_fast_step, NULL, k_harm_inputs, k_harm_fast_outputs);
-BM_LET_DEFINE(task_harm_mid, 5u, 0u, 50u, harm_mid_step, NULL, k_harm_inputs, k_harm_mid_outputs);
-BM_LET_DEFINE(task_harm_slow, 10u, 9u, 50u, harm_slow_step, NULL, k_harm_inputs, k_harm_slow_outputs);
+BM_LET_DEFINE_ISR(task_harm_fast, 1u, 0u, 50u, harm_fast_step, NULL, k_harm_inputs, k_harm_fast_outputs);
+BM_LET_DEFINE_ISR(task_harm_mid, 5u, 0u, 50u, harm_mid_step, NULL, k_harm_inputs, k_harm_mid_outputs);
+BM_LET_DEFINE_ISR(task_harm_slow, 10u, 9u, 50u, harm_slow_step, NULL, k_harm_inputs, k_harm_slow_outputs);
 BM_SCHEDULE_DEFINE(sched_harm, 1000u, &task_harm_fast, &task_harm_mid, &task_harm_slow);
 
 /**
@@ -970,9 +972,9 @@ static const bm_let_output_t k_report_ml_outputs[] = {
       .safe_default = &k_report_out_safe },
 };
 
-BM_LET_DEFINE(task_report_isr, 2u, 0u, 100u, report_isr_step, NULL,
+BM_LET_DEFINE_ISR(task_report_isr, 2u, 0u, 100u, report_isr_step, NULL,
               k_report_isr_inputs, k_report_isr_outputs);
-BM_LET_DEFINE(task_report_ml, 4u, 0u, 50u, report_ml_step, NULL,
+BM_LET_DEFINE_MAINLOOP(task_report_ml, 4u, 0u, 50u, report_ml_step, NULL,
               k_report_ml_inputs, k_report_ml_outputs);
 BM_SCHEDULE_DEFINE(sched_report, 1000u, &task_report_isr, &task_report_ml);
 
@@ -1024,8 +1026,6 @@ void test_report_contains_header_and_peak_frame_markers(void) {
     TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_report_ml_in_bus, &report_ml_in_bus_storage, &cfg));
     TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_report_ml_out_bus, &report_ml_out_bus_storage, &cfg));
 
-    task_report_ml.domain = BM_TT_DOMAIN_MAINLOOP;
-
     TEST_ASSERT_EQUAL(BM_OK, bm_tt_schedule_init(&sched_report));
 
     g_report_off = 0u;
@@ -1069,7 +1069,7 @@ static const bm_let_output_t k_tele10_outputs[] = {
       .safe_default = &k_tele10_out_safe },
 };
 
-BM_LET_DEFINE(task_tele10, 10u, 0u, 100u, phase_step, NULL,
+BM_LET_DEFINE_ISR(task_tele10, 10u, 0u, 100u, phase_step, NULL,
               k_tele10_inputs, k_tele10_outputs);
 BM_SCHEDULE_DEFINE(sched_tele10, 1000u, &task_tele10);
 
@@ -1154,9 +1154,9 @@ static const bm_let_output_t k_mix_ml_outputs[] = {
       .safe_default = &k_mix_ml_out_safe },
 };
 
-BM_LET_DEFINE(task_mix_isr, 1u, 0u, 50u, phase_step, NULL,
+BM_LET_DEFINE_ISR(task_mix_isr, 1u, 0u, 50u, phase_step, NULL,
               k_mix_isr_inputs, k_mix_isr_outputs);
-BM_LET_DEFINE(task_mix_ml, 1u, 0u, 50u, phase_step, NULL,
+BM_LET_DEFINE_MAINLOOP(task_mix_ml, 1u, 0u, 50u, phase_step, NULL,
               k_mix_ml_inputs, k_mix_ml_outputs);
 BM_SCHEDULE_DEFINE(sched_mix, 1000u, &task_mix_isr, &task_mix_ml);
 
@@ -1179,7 +1179,6 @@ void test_mixed_isr_mainloop_same_table_dataflow_and_starvation(void) {
     TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_mix_ml_in_bus, &mix_ml_in_bus_storage, &cfg));
     TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_mix_ml_out_bus, &mix_ml_out_bus_storage, &cfg));
 
-    task_mix_ml.domain = BM_TT_DOMAIN_MAINLOOP;
     TEST_ASSERT_EQUAL(BM_OK, bm_tt_schedule_init(&sched_mix));
 
     TEST_ASSERT_EQUAL(BM_OK, bm_bus_latest_read_seq(&g_mix_ml_out_bus, &ml_val, &ml_seq0));
@@ -1254,7 +1253,7 @@ static const bm_let_output_t k_a4first_outputs[] = {
       .safe_default = &k_a4first_out_safe },
 };
 
-BM_LET_DEFINE(task_a4_first, 1u, 0u, 50u, phase_step, NULL,
+BM_LET_DEFINE_ISR(task_a4_first, 1u, 0u, 50u, phase_step, NULL,
               k_a4first_inputs, k_a4first_outputs);
 BM_SCHEDULE_DEFINE(sched_a4_first, 1000u, &task_a4_first);
 
@@ -1332,7 +1331,7 @@ static const bm_let_output_t k_a4stale_outputs[] = {
       .safe_default = &k_a4stale_out_safe },
 };
 
-BM_LET_DEFINE(task_a4_stale, 1u, 0u, 50u, a4_stale_step, NULL,
+BM_LET_DEFINE_ISR(task_a4_stale, 1u, 0u, 50u, a4_stale_step, NULL,
               k_a4stale_inputs, k_a4stale_outputs);
 BM_SCHEDULE_DEFINE(sched_a4_stale, 1000u, &task_a4_stale);
 
@@ -1411,7 +1410,7 @@ static const bm_let_output_t k_a4fast_outputs[] = {
       .safe_default = &k_a4fast_out_safe },
 };
 
-BM_LET_DEFINE(task_a4_fastprod, 3u, 0u, 50u, a4_fastprod_step, NULL,
+BM_LET_DEFINE_ISR(task_a4_fastprod, 3u, 0u, 50u, a4_fastprod_step, NULL,
               k_a4fast_inputs, k_a4fast_outputs);
 BM_SCHEDULE_DEFINE(sched_a4_fastprod, 1000u, &task_a4_fastprod);
 
@@ -1491,7 +1490,7 @@ static const bm_let_output_t k_e2e_outputs[] = {
       .safe_default = &k_e2e_out_safe },
 };
 
-BM_LET_DEFINE(task_e2e, 1u, 0u, 50u, e2e_step, NULL, k_e2e_inputs, k_e2e_outputs);
+BM_LET_DEFINE_ISR(task_e2e, 1u, 0u, 50u, e2e_step, NULL, k_e2e_inputs, k_e2e_outputs);
 BM_SCHEDULE_DEFINE(sched_e2e, 1000u, &task_e2e);
 
 /**
@@ -1540,7 +1539,7 @@ void test_e2e_datapath_first_tick_safe_then_flow_then_stale_then_recover(void) {
  * 场景 19：确定性不变量回归锁（Task 8 · A5，评审后加固）
  *
  *   本门面的确定性证据链：
- *   ① 零动态分配——`BM_LET_DEFINE`/`BM_SCHEDULE_DEFINE` 分配的 snapshot/
+ *   ① 零动态分配——`BM_LET_DEFINE_ISR`/`BM_LET_DEFINE_MAINLOOP`/`BM_SCHEDULE_DEFINE` 分配的 snapshot/
  *      双缓冲/rt bookkeeping/entries 指针表全部是编译期静态数组。该属性
  *      现由独立机械检查坐实：CMakeLists.txt 里注册的
  *      `test_tt_schedule_symbols_no_alloc` ctest 对 `bm_tt_schedule` 静态库
@@ -1588,7 +1587,7 @@ static const bm_let_output_t k_a5_outputs[] = {
       .safe_default = &k_a5_out_safe },
 };
 
-BM_LET_DEFINE(task_a5, 4u, 0u, 10u, overload_noop_step, NULL,
+BM_LET_DEFINE_ISR(task_a5, 4u, 0u, 10u, overload_noop_step, NULL,
               k_a5_inputs, k_a5_outputs);
 BM_SCHEDULE_DEFINE(sched_a5, 1000u, &task_a5);
 
@@ -1631,13 +1630,13 @@ static const bm_let_output_t k_a5cnt_outputs[] = {
       .safe_default = &k_a5cnt_out_safe },
 };
 
-BM_LET_DEFINE(task_a5_input_count_over, 4u, 0u, 10u, overload_noop_step, NULL,
+BM_LET_DEFINE_ISR(task_a5_input_count_over, 4u, 0u, 10u, overload_noop_step, NULL,
               k_a5cnt_inputs, k_a5cnt_outputs);
 BM_SCHEDULE_DEFINE(sched_a5_input_count_over, 1000u, &task_a5_input_count_over);
 
 /* ---- 负样本 2：elem_size 越过 BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE(64) ----
  * 绑定表里的 elem_size 字段故意声明为 MAX_ELEM_SIZE+1(=65)；真实载荷类型
- * 仍是 uint32_t，只是配置字段越界声明。`BM_LET_DEFINE` 宏为 snapshot/
+ * 仍是 uint32_t，只是配置字段越界声明。`BM_LET_DEFINE_ISR`/`BM_LET_DEFINE_MAINLOOP` 宏为 snapshot/
  * 双缓冲分配的字节数固定用 `BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE`（编译期
  * 上界，见 bm_tt_schedule.h），与该字段值无关，故不会真的越界读写；
  * init 必须在触碰任何数据前，仅凭该字段 > 上界就直接拒绝。 */
@@ -1661,7 +1660,7 @@ static const bm_let_output_t k_a5elem_outputs[] = {
       .safe_default = &k_a5elem_out_safe },
 };
 
-BM_LET_DEFINE(task_a5_elem_size_over, 4u, 0u, 10u, overload_noop_step, NULL,
+BM_LET_DEFINE_ISR(task_a5_elem_size_over, 4u, 0u, 10u, overload_noop_step, NULL,
               k_a5elem_inputs, k_a5elem_outputs);
 BM_SCHEDULE_DEFINE(sched_a5_elem_size_over, 1000u, &task_a5_elem_size_over);
 
