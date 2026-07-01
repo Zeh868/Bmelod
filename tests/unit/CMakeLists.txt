@@ -50,6 +50,7 @@ if(BM_ENABLE_BUS)
         bm_add_test(test_bus test_bus.c bm_core)
     endif()
     target_compile_definitions(test_bus PRIVATE BM_ENABLE_BUS_TEST_HOOK=1)
+    target_compile_definitions(test_bus PRIVATE BM_BUS_ALLOW_INTERNAL=1)
 
     # 确定性 L1 C1：bus retry-bound（DET-01）+ 非阻塞已由 test_bus 证明，纳入 determinism 标签
     set_tests_properties(test_bus PROPERTIES LABELS "determinism")
@@ -131,6 +132,67 @@ if(BM_ENABLE_HRT)
     bm_add_test(test_hrt test_hrt.c bm_hrt)
     target_include_directories(test_hrt PRIVATE
         ${CMAKE_SOURCE_DIR}/portable/sim/native)
+endif()
+
+if(BM_ENABLE_TT_SCHEDULE)
+    # Task 3：输入冻结 + seq-delta 判龄；走门面 API + 公共 bus API，
+    # 但测试内直接调用 bm_bus_latest_read_seq 验证 seq 语义，
+    # 该内部访问器原型受 BM_BUS_ALLOW_INTERNAL 门控，需 PRIVATE 定义（照 test_bus）。
+    bm_add_test(test_tt_schedule test_tt_schedule.c bm_tt_schedule)
+    target_compile_definitions(test_tt_schedule PRIVATE BM_BUS_ALLOW_INTERNAL=1)
+    # A5：本门面全静态分配（无 malloc/calloc/realloc/free 符号）+ 循环上界
+    # 均受 init 期校验（entry_count/input_count/n_frames ≤ 编译期上界），
+    # 纳入既有 determinism 回归面（见 test_tt_schedule.c 场景19注释）。
+    set_tests_properties(test_tt_schedule PROPERTIES LABELS "determinism")
+
+    # A5 补丁（Task 8 评审 Important-1）：零动态分配符号级机械检查——
+    # 对 bm_tt_schedule 静态库产物的 COFF/ELF 符号表做扫描，命中
+    # malloc/calloc/realloc/free 任一外部引用即 FAIL。比人工 grep 源码更
+    # 权威：检查的是最终编译产物的真实符号引用，不依赖人工核对源码是否
+    # 遗漏（见 tests/unit/support/check_no_alloc_symbols.cmake）。
+    # MSVC 用 dumpbin /symbols；GNU 用 nm。若工具链下找不到对应工具，
+    # 该检查不注册（不硬凑一个跑不了的假测试）。
+    if(MSVC)
+        find_program(BM_DUMPBIN_EXE dumpbin)
+        if(BM_DUMPBIN_EXE)
+            add_test(NAME test_tt_schedule_symbols_no_alloc
+                COMMAND ${CMAKE_COMMAND}
+                    -DTOOL_ID=MSVC
+                    -DDUMPBIN_EXE=${BM_DUMPBIN_EXE}
+                    -DLIB_PATH=$<TARGET_FILE:bm_tt_schedule>
+                    -P ${CMAKE_SOURCE_DIR}/tests/unit/support/check_no_alloc_symbols.cmake)
+            set_tests_properties(test_tt_schedule_symbols_no_alloc PROPERTIES
+                LABELS "determinism")
+        else()
+            message(WARNING "dumpbin 未找到：test_tt_schedule_symbols_no_alloc 未注册"
+                             "（需在 vcvars 环境下 configure 才能被 find_program 发现）")
+        endif()
+    elseif(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        find_program(BM_NM_EXE nm)
+        if(BM_NM_EXE)
+            add_test(NAME test_tt_schedule_symbols_no_alloc
+                COMMAND ${CMAKE_COMMAND}
+                    -DTOOL_ID=GNU
+                    -DNM_EXE=${BM_NM_EXE}
+                    -DLIB_PATH=$<TARGET_FILE:bm_tt_schedule>
+                    -P ${CMAKE_SOURCE_DIR}/tests/unit/support/check_no_alloc_symbols.cmake)
+            set_tests_properties(test_tt_schedule_symbols_no_alloc PROPERTIES
+                LABELS "determinism")
+        else()
+            message(WARNING "nm 未找到：test_tt_schedule_symbols_no_alloc 未注册")
+        endif()
+    endif()
+
+    # Task 7：host dump 工具，装配示例调度表并导出 bm_tt_schedule_report
+    # 到 build/schedule_map.txt，供开发者人工核对调度概览（非单元测试，
+    # 随 ALL 目标构建）。
+    add_executable(tt_schedule_map_dump ${CMAKE_SOURCE_DIR}/tests/tools/tt_schedule_map_dump.c)
+    target_link_libraries(tt_schedule_map_dump PRIVATE bm_tt_schedule bm_core bm_hal bm_hal_native)
+    bm_target_internal_includes(tt_schedule_map_dump)
+    add_custom_target(schedule-map ALL
+        COMMAND tt_schedule_map_dump ${CMAKE_BINARY_DIR}/schedule_map.txt
+        DEPENDS tt_schedule_map_dump
+        COMMENT "Generating build/schedule_map.txt")
 endif()
 
 if(BM_ENABLE_TICKER)

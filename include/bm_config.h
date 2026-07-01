@@ -59,6 +59,9 @@
 #ifndef BM_CONFIG_ENABLE_ALGORITHM
 #define BM_CONFIG_ENABLE_ALGORITHM           0
 #endif
+#ifndef BM_CONFIG_ENABLE_TT_SCHED
+#define BM_CONFIG_ENABLE_TT_SCHED            0
+#endif
 
 /* 流式域（Block/Frame RT） */
 #ifndef BM_CONFIG_STREAM_MAX_BLOCKS
@@ -214,6 +217,24 @@
 #ifndef BM_CONFIG_HRT_DISPATCH_PER_ISR
 #define BM_CONFIG_HRT_DISPATCH_PER_ISR       BM_CONFIG_HRT_MAX_SLOTS
 #endif
+
+/* bm_tt_schedule（时间触发调度门面） */
+#ifndef BM_CONFIG_TT_SCHED_MAX_ENTRIES
+#define BM_CONFIG_TT_SCHED_MAX_ENTRIES       16u
+#endif
+#ifndef BM_CONFIG_TT_SCHED_MAX_FRAMES
+#define BM_CONFIG_TT_SCHED_MAX_FRAMES        256u    /* LCM 爆炸护栏 */
+#endif
+#ifndef BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE
+#define BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE     64u
+#endif
+#ifndef BM_CONFIG_TT_SCHED_MAX_INPUTS
+#define BM_CONFIG_TT_SCHED_MAX_INPUTS        8u      /* 单任务输入数理智上界（init 期校验，防误配） */
+#endif
+#if BM_CONFIG_TT_SCHED_MAX_FRAMES < 1u
+#error "BM_CONFIG_TT_SCHED_MAX_FRAMES must be at least 1"
+#endif
+
 #ifndef BM_CONFIG_TICKER_MAX_SLOTS
 #define BM_CONFIG_TICKER_MAX_SLOTS           8
 #endif

@@ -54,4 +54,10 @@
 #define BM_CONFIG_MAX_SYNC_MEMBERS          BM_CONFIG_MAX_EXEC_INSTANCES
 #define BM_CONFIG_SYNC_MAX_PHASE_TICKS      1000000000u
 
+/* bm_tt_schedule (time-triggered LET facade) */
+#define BM_CONFIG_TT_SCHED_MAX_ENTRIES      16u
+#define BM_CONFIG_TT_SCHED_MAX_FRAMES       256u
+#define BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE    64u
+#define BM_CONFIG_TT_SCHED_MAX_INPUTS       8u
+
 #endif
