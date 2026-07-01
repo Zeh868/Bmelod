@@ -26,6 +26,11 @@
  * 2026-06-27       1.0            zeh            BM_BUS_IPC 控制反转：bm_bus_bind_ipc_backend + 五入口 IPC 分流（无分配无循环）
  *
  */
+/* 本 TU 是 bm_bus_latest_read_seq 的定义方（无条件编入 bm_core，决议 B）。
+ * 该内部访问器的原型在 bm_bus.h 中受 BM_BUS_ALLOW_INTERNAL 门控，仅让定义方自身
+ * 在包含头文件前 TU-局部定义该宏，使定义可见其原型——避免 GCC/Clang 交叉构建
+ * 开启 -Wmissing-prototypes 时告警。不泄漏到其它 TU、app 或 bm_core target。 */
+#define BM_BUS_ALLOW_INTERNAL 1
 #include "bm/core/bm_bus.h"
 #include "bm/core/bm_cpu_local.h"
 #include "bm_critical_wrap.h"
