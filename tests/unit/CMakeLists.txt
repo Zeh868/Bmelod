@@ -138,6 +138,10 @@ if(BM_ENABLE_TT_SCHEDULE)
     # Task 3：输入冻结 + seq-delta 判龄；走门面 API + 公共 bus API，
     # 不需要 BM_BUS_ALLOW_INTERNAL（该宏仅 bm_tt_schedule 库内部 PRIVATE 定义）。
     bm_add_test(test_tt_schedule test_tt_schedule.c bm_tt_schedule)
+    # A5：本门面全静态分配（无 malloc/calloc/realloc/free 符号）+ 循环上界
+    # 均受 init 期校验（entry_count/input_count/n_frames ≤ 编译期上界），
+    # 纳入既有 determinism 回归面（见 test_tt_schedule.c 场景19注释）。
+    set_tests_properties(test_tt_schedule PROPERTIES LABELS "determinism")
 
     # Task 7：host dump 工具，装配示例调度表并导出 bm_tt_schedule_report
     # 到 build/schedule_map.txt，供开发者人工核对调度概览（非单元测试，

@@ -108,11 +108,19 @@ bm_ticker_init(...);              /* 可选：subscribe 之后、定时器已 in
 
 for (;;) {
     bm_exec_drain_streams(4);  /* Block/Frame 槽；预算按应用调整 */
+    bm_tt_schedule_run_pending(&sched_axis, 4);  /* 若用 bm_tt_schedule 且有 MAINLOOP 域任务 */
     bm_ticker_poll();
     bm_event_process();
     bm_wdg_feed();
 }
 ```
+
+> 用 `bm_tt_schedule`（TT/LET 任务表门面）时，ISR 域任务经
+> `bm_tt_schedule_hrt_slot` 接到 `bm_hrt`；MAINLOOP 域任务只在 ISR
+> 里冻结挂起，真正执行靠主循环这行 `run_pending` 有界 drain，与
+> `bm_exec_drain_streams` 同属"预算内跑一段活"。详见
+> [05-混合域接线 §4](../01-应用开发/05-混合域接线.md#4-scheduled-hrt-用法bm_hrt)、
+> [bm_tt_schedule API](../05-API参考/bm_tt_schedule.md)。
 
 | 常见错误 | 后果 |
 |----------|------|
