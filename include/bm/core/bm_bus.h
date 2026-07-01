@@ -573,8 +573,7 @@ extern void (*bm_bus_test_latest_multi_read_hook)(bm_bus_storage_t *st);
 
 #ifdef BM_BUS_ALLOW_INTERNAL
 /**
- * @file 内部只读 seq 访问器（仅门面库可见，公共 API 零增长）
- * @brief LATEST 拷出并回传本次 seqlock 校验通过的稳定序号
+ * @brief LATEST 拷出并回传本次 seqlock 校验通过的稳定序号（内部只读 seq 访问器，仅门面库可见，公共 API 零增长）
  *
  * 与 bm_bus_latest_read 同一 seqlock 循环，额外经 out_seq 回传 seq2==seq1 的稳定序号；
  * seq 与拷到的值来自同一次校验，无 TOCTOU。供 bm_tt_schedule seq-delta 判龄使用。

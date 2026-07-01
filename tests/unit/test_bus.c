@@ -1359,6 +1359,27 @@ void test_latest_read_seq_returns_stable_seq(void) {
     TEST_ASSERT_TRUE((uint32_t)(seq1 - seq0) >= 2u);  /* 无符号 delta 前进 */
     bm_bus_reset(&bus);   /* 幂等复位，供 setUp/tearDown 复用 */
 }
+
+/**
+ * @brief 参数校验：h=NULL、dst=NULL、out_seq=NULL 均返回 BM_ERR_INVALID。
+ */
+void test_latest_read_seq_invalid_params(void) {
+    uint32_t dst = 0u, seq = 0u;
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_bus_latest_read_seq(NULL, &dst, &seq));
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_bus_latest_read_seq(&g_bus_l, NULL, &seq));
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_bus_latest_read_seq(&g_bus_l, &dst, NULL));
+}
+
+/**
+ * @brief 非 LATEST 模式调用 bm_bus_latest_read_seq 返回 BM_ERR_NOT_SUPPORTED。
+ *
+ * QUEUE / SIGNAL 模式不支持内部 seq 访问器。
+ */
+void test_latest_read_seq_wrong_mode(void) {
+    uint32_t dst = 0u, seq = 0u;
+    TEST_ASSERT_EQUAL(BM_ERR_NOT_SUPPORTED, bm_bus_latest_read_seq(&g_bus_q, &dst, &seq));
+    TEST_ASSERT_EQUAL(BM_ERR_NOT_SUPPORTED, bm_bus_latest_read_seq(&g_bus_s, &dst, &seq));
+}
 #endif /* BM_BUS_ALLOW_INTERNAL */
 
 #ifdef BM_ENABLE_BUS_TEST_HOOK
@@ -1476,6 +1497,8 @@ int main(void) {
 #ifdef BM_BUS_ALLOW_INTERNAL
     /* Task 10：bm_bus_latest_read_seq 内部 seq 访问器（需 BM_BUS_ALLOW_INTERNAL 编入测试缝）*/
     RUN_TEST(test_latest_read_seq_returns_stable_seq);
+    RUN_TEST(test_latest_read_seq_invalid_params);
+    RUN_TEST(test_latest_read_seq_wrong_mode);
 #endif
     return UNITY_END();
 }

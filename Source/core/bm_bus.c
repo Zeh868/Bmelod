@@ -1160,7 +1160,6 @@ int bm_bus_latest_read(const bm_bus_t *h, void *dst) {
     }
 }
 
-#ifdef BM_BUS_ALLOW_INTERNAL
 /**
  * @brief LATEST 拷出并回传稳定 seq（内部 API，见 bm_bus.h 声明）
  * @details 复用与 bm_bus_latest_read 相同的 seqlock 读循环；成功时 seq1==seq2，
@@ -1195,4 +1194,3 @@ int bm_bus_latest_read_seq(const bm_bus_t *h, void *dst, uint32_t *out_seq) {
         if (++retry >= BM_CONFIG_BUS_LATEST_MAX_RETRIES) return BM_ERR_WOULD_BLOCK;
     }
 }
-#endif /* BM_BUS_ALLOW_INTERNAL */
