@@ -49,10 +49,8 @@
 #define BM_CONFIG_CACHE_LINE         64u
 #define BM_CONFIG_IPC_CACHE_LINE     64u
 
-/* 控制台后端：PL011 UART（与 bm_qemu_tap.h UART 地址一致） */
-#define BM_CONSOLE_BACKEND_UART      2
-#define BM_CONFIG_CONSOLE_LOG_BACKEND BM_CONSOLE_BACKEND_UART
-#define BM_CONFIG_CONSOLE_CLI_BACKEND BM_CONSOLE_BACKEND_UART
+/* 控制台后端保持 bm_config.h 默认（本套件经 bm_qemu_tap.h 直写 PL011 UART，
+ * 不走 bm_hal_console，且 ENABLE_LOG=0，无需覆盖 CONSOLE_*_BACKEND）。 */
 
 /* 使能 bm_bus（bus LATEST Δ==0 测试需要，Task 3） */
 #define BM_ENABLE_BUS                1
