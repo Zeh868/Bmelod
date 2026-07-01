@@ -143,6 +143,44 @@ if(BM_ENABLE_TT_SCHEDULE)
     # 纳入既有 determinism 回归面（见 test_tt_schedule.c 场景19注释）。
     set_tests_properties(test_tt_schedule PROPERTIES LABELS "determinism")
 
+    # A5 补丁（Task 8 评审 Important-1）：零动态分配符号级机械检查——
+    # 对 bm_tt_schedule 静态库产物的 COFF/ELF 符号表做扫描，命中
+    # malloc/calloc/realloc/free 任一外部引用即 FAIL。比人工 grep 源码更
+    # 权威：检查的是最终编译产物的真实符号引用，不依赖人工核对源码是否
+    # 遗漏（见 tests/unit/support/check_no_alloc_symbols.cmake）。
+    # MSVC 用 dumpbin /symbols；GNU 用 nm。若工具链下找不到对应工具，
+    # 该检查不注册（不硬凑一个跑不了的假测试）。
+    if(MSVC)
+        find_program(BM_DUMPBIN_EXE dumpbin)
+        if(BM_DUMPBIN_EXE)
+            add_test(NAME test_tt_schedule_symbols_no_alloc
+                COMMAND ${CMAKE_COMMAND}
+                    -DTOOL_ID=MSVC
+                    -DDUMPBIN_EXE=${BM_DUMPBIN_EXE}
+                    -DLIB_PATH=$<TARGET_FILE:bm_tt_schedule>
+                    -P ${CMAKE_SOURCE_DIR}/tests/unit/support/check_no_alloc_symbols.cmake)
+            set_tests_properties(test_tt_schedule_symbols_no_alloc PROPERTIES
+                LABELS "determinism")
+        else()
+            message(WARNING "dumpbin 未找到：test_tt_schedule_symbols_no_alloc 未注册"
+                             "（需在 vcvars 环境下 configure 才能被 find_program 发现）")
+        endif()
+    elseif(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        find_program(BM_NM_EXE nm)
+        if(BM_NM_EXE)
+            add_test(NAME test_tt_schedule_symbols_no_alloc
+                COMMAND ${CMAKE_COMMAND}
+                    -DTOOL_ID=GNU
+                    -DNM_EXE=${BM_NM_EXE}
+                    -DLIB_PATH=$<TARGET_FILE:bm_tt_schedule>
+                    -P ${CMAKE_SOURCE_DIR}/tests/unit/support/check_no_alloc_symbols.cmake)
+            set_tests_properties(test_tt_schedule_symbols_no_alloc PROPERTIES
+                LABELS "determinism")
+        else()
+            message(WARNING "nm 未找到：test_tt_schedule_symbols_no_alloc 未注册")
+        endif()
+    endif()
+
     # Task 7：host dump 工具，装配示例调度表并导出 bm_tt_schedule_report
     # 到 build/schedule_map.txt，供开发者人工核对调度概览（非单元测试，
     # 随 ALL 目标构建）。

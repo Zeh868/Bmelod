@@ -15,7 +15,7 @@
  * （bm_bus_open/acquire_write/commit），不需要 BM_BUS_ALLOW_INTERNAL。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.3
+ * @version 1.4
  * @date 2026-07-01
  *
  * @par 修改日志:
@@ -29,6 +29,10 @@
  * 2026-07-01       1.3            zeh            Task 8：验收收口——A1 低频双缓冲 +
  *                                                 A1-MAINLOOP 同表混跑/饿死可见 + A4①~④ +
  *                                                 A3-lite 端到端数据流 + A5 确定性不变量回归锁
+ * 2026-07-01       1.4            zeh            Task 8 评审加固：A5 补 input_count/elem_size
+ *                                                 越界必拒负样本（原不变量测试只核对合法表在界内，
+ *                                                 删了校验也测不出来）；零分配证据改接
+ *                                                 test_tt_schedule_symbols_no_alloc 符号级机械检查
  *
  */
 #include "unity.h"
@@ -1532,26 +1536,37 @@ void test_e2e_datapath_first_tick_safe_then_flow_then_stale_then_recover(void) {
 }
 
 /* =========================================================================
- * 场景 19：确定性不变量回归锁（Task 8 · A5）
+ * 场景 19：确定性不变量回归锁（Task 8 · A5，评审后加固）
  *
  *   本门面的确定性证据链：
  *   ① 零动态分配——`BM_LET_DEFINE`/`BM_SCHEDULE_DEFINE` 分配的 snapshot/
- *      双缓冲/rt bookkeeping/entries 指针表全部是编译期静态数组；已人工
- *      核对 `Source/hybrid/bm_tt_schedule.c` 全文件不含 malloc/calloc/
- *      realloc/free 符号（grep 确认为空）。因此本门面在设计上就不可能
- *      触发动态分配，不需要像 `test_det_zeroalloc.c` 那样接入陷阱分配器
- *      （该机制面向"可能调用 malloc"的模块；本门面从源头排除了这个可能）。
- *      同时复用仓内既有的 `determinism` ctest 标签惯例（见本文件对应
- *      CMakeLists.txt 里 `set_tests_properties(test_tt_schedule PROPERTIES
- *      LABELS "determinism")`），纳入 `ctest -L determinism` 回归面。
+ *      双缓冲/rt bookkeeping/entries 指针表全部是编译期静态数组。该属性
+ *      现由独立机械检查坐实：CMakeLists.txt 里注册的
+ *      `test_tt_schedule_symbols_no_alloc` ctest 对 `bm_tt_schedule` 静态库
+ *      产物做符号表扫描（MSVC: `dumpbin /symbols`；GNU: `nm`），命中
+ *      malloc/calloc/realloc/free 任一外部引用即 FAIL——查的是真实编译
+ *      产物的符号引用，不再依赖人工 grep 源码（人工 grep 只能核对"当前
+ *      文本里没写"，机械符号检查能捕获宏展开/内联/未来新增调用点等人工
+ *      容易漏看的情形）。同时复用仓内既有的 `determinism` ctest 标签惯例
+ *      （见本文件对应 CMakeLists.txt 里
+ *      `set_tests_properties(test_tt_schedule PROPERTIES LABELS
+ *      "determinism")`），纳入 `ctest -L determinism` 回归面。
  *   ② 无新增无界循环——`bm_tt_schedule.c` 内所有运行期循环的上界均是
  *      init 期已校验过的静态量：`entry_count ≤ BM_CONFIG_TT_SCHED_
  *      MAX_ENTRIES`、`input_count`（显式 ≤ `BM_CONFIG_TT_SCHED_MAX_INPUTS`，
- *      `output_count` 为 uint8_t 自身天然有界）、`n_frames ≤
+ *      `output_count` 为 uint8_t 自身天然有界）、`elem_size ≤
+ *      BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE`、`n_frames ≤
  *      BM_CONFIG_TT_SCHED_MAX_FRAMES`（`tt_frame_check` 里的 `w[]` 静态
- *      数组同一上界）。本测试用一张真实 init 过的调度表把这些边界关系
- *      断言下来，作为该不变量的回归锁——任何未来改动打破边界校验都会在
- *      此报红，而非自造一套重的确定性验证框架。
+ *      数组同一上界；LCM 爆炸负样本已由场景9坐实，节拍过载负样本已由
+ *      场景8坐实）。本测试的正样本部分（sched_a5）用一张真实 init 过的
+ *      调度表核对这些边界关系在合法输入下成立；负样本部分
+ *      （sched_a5_input_count_over/sched_a5_elem_size_over）**故意构造
+ *      越界输入**（input_count=9>MAX_INPUTS(8)、elem_size=65>
+ *      MAX_ELEM_SIZE(64)），断言 init 必须拒绝——这才是本不变量的真正回归
+ *      锁：只核对"合法表在界内"即使删掉 init 里的边界校验代码也不会报红
+ *      （合法表本来就在界内，删不删校验结果都一样"通过"）；只有加上"越界
+ *      表必被拒"的负样本，未来谁动了 init 的边界校验代码，这里才会立刻
+ *      变红。
  * ========================================================================= */
 
 BM_BUS_DEFINE(a5_in_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
@@ -1576,14 +1591,90 @@ BM_LET_DEFINE(task_a5, 4u, 0u, 10u, overload_noop_step, NULL,
               k_a5_inputs, k_a5_outputs);
 BM_SCHEDULE_DEFINE(sched_a5, 1000u, &task_a5);
 
+/* ---- 负样本 1：input_count 越过 BM_CONFIG_TT_SCHED_MAX_INPUTS(8) ----
+ * 故意声明 9 个输入绑定（全部指向同一条 bus——本负样本只关心 init 校验
+ * input_count 本身，不关心各输入语义是否重复）；init 必须在触碰任何
+ * bus 数据前，仅凭 input_count>MAX_INPUTS 就直接拒绝。 */
+
+BM_BUS_DEFINE(a5cnt_in_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
+BM_BUS_DEFINE(a5cnt_out_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
+
+static bm_bus_t g_a5cnt_in_bus;
+static bm_bus_t g_a5cnt_out_bus;
+
+static const uint32_t k_a5cnt_in_safe = 0u;
+static const uint32_t k_a5cnt_out_safe = 0u;
+
+static const bm_let_input_t k_a5cnt_inputs[] = {
+    { .bus = &g_a5cnt_in_bus, .max_age_us = BM_LET_AGE_DEFAULT,
+      .elem_size = sizeof(uint32_t), .safe_default = &k_a5cnt_in_safe },
+    { .bus = &g_a5cnt_in_bus, .max_age_us = BM_LET_AGE_DEFAULT,
+      .elem_size = sizeof(uint32_t), .safe_default = &k_a5cnt_in_safe },
+    { .bus = &g_a5cnt_in_bus, .max_age_us = BM_LET_AGE_DEFAULT,
+      .elem_size = sizeof(uint32_t), .safe_default = &k_a5cnt_in_safe },
+    { .bus = &g_a5cnt_in_bus, .max_age_us = BM_LET_AGE_DEFAULT,
+      .elem_size = sizeof(uint32_t), .safe_default = &k_a5cnt_in_safe },
+    { .bus = &g_a5cnt_in_bus, .max_age_us = BM_LET_AGE_DEFAULT,
+      .elem_size = sizeof(uint32_t), .safe_default = &k_a5cnt_in_safe },
+    { .bus = &g_a5cnt_in_bus, .max_age_us = BM_LET_AGE_DEFAULT,
+      .elem_size = sizeof(uint32_t), .safe_default = &k_a5cnt_in_safe },
+    { .bus = &g_a5cnt_in_bus, .max_age_us = BM_LET_AGE_DEFAULT,
+      .elem_size = sizeof(uint32_t), .safe_default = &k_a5cnt_in_safe },
+    { .bus = &g_a5cnt_in_bus, .max_age_us = BM_LET_AGE_DEFAULT,
+      .elem_size = sizeof(uint32_t), .safe_default = &k_a5cnt_in_safe },
+    { .bus = &g_a5cnt_in_bus, .max_age_us = BM_LET_AGE_DEFAULT,
+      .elem_size = sizeof(uint32_t), .safe_default = &k_a5cnt_in_safe },
+};
+static const bm_let_output_t k_a5cnt_outputs[] = {
+    { .bus = &g_a5cnt_out_bus, .elem_size = sizeof(uint32_t),
+      .safe_default = &k_a5cnt_out_safe },
+};
+
+BM_LET_DEFINE(task_a5_input_count_over, 4u, 0u, 10u, overload_noop_step, NULL,
+              k_a5cnt_inputs, k_a5cnt_outputs);
+BM_SCHEDULE_DEFINE(sched_a5_input_count_over, 1000u, &task_a5_input_count_over);
+
+/* ---- 负样本 2：elem_size 越过 BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE(64) ----
+ * 绑定表里的 elem_size 字段故意声明为 MAX_ELEM_SIZE+1(=65)；真实载荷类型
+ * 仍是 uint32_t，只是配置字段越界声明。`BM_LET_DEFINE` 宏为 snapshot/
+ * 双缓冲分配的字节数固定用 `BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE`（编译期
+ * 上界，见 bm_tt_schedule.h），与该字段值无关，故不会真的越界读写；
+ * init 必须在触碰任何数据前，仅凭该字段 > 上界就直接拒绝。 */
+
+BM_BUS_DEFINE(a5elem_in_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
+BM_BUS_DEFINE(a5elem_out_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
+
+static bm_bus_t g_a5elem_in_bus;
+static bm_bus_t g_a5elem_out_bus;
+
+static const uint32_t k_a5elem_in_safe = 0u;
+static const uint32_t k_a5elem_out_safe = 0u;
+
+static const bm_let_input_t k_a5elem_inputs[] = {
+    { .bus = &g_a5elem_in_bus, .max_age_us = BM_LET_AGE_DEFAULT,
+      .elem_size = (uint32_t)BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE + 1u,
+      .safe_default = &k_a5elem_in_safe },
+};
+static const bm_let_output_t k_a5elem_outputs[] = {
+    { .bus = &g_a5elem_out_bus, .elem_size = sizeof(uint32_t),
+      .safe_default = &k_a5elem_out_safe },
+};
+
+BM_LET_DEFINE(task_a5_elem_size_over, 4u, 0u, 10u, overload_noop_step, NULL,
+              k_a5elem_inputs, k_a5elem_outputs);
+BM_SCHEDULE_DEFINE(sched_a5_elem_size_over, 1000u, &task_a5_elem_size_over);
+
 /**
- * @brief 真实 init 之后，entry_count/input_count/output_count/n_frames/
- * elem_size 均落在编译期配置上界内——确定性不变量②的回归锁（见本场景
- * 头部注释①②）。
+ * @brief 确定性不变量②的真正回归锁：正样本核对合法表落在编译期上界内，
+ * 两个负样本分别故意越过 input_count / elem_size 上界，断言
+ * `bm_tt_schedule_init` 必拒（`BM_ERR_INVALID`）——删掉/削弱 init 里对应
+ * 的边界校验代码会让负样本断言变红，而不再是"即使删了校验也测不出来"
+ * 的空判断（见本场景头部注释）。
  */
 void test_a5_determinism_invariants_bounded_after_init(void) {
     bm_bus_cfg_t cfg = { .owner_cpu = 0u };
 
+    /* 正样本：合法表 init 成功，各字段落在编译期上界内 */
     TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_a5_in_bus, &a5_in_bus_storage, &cfg));
     TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_a5_out_bus, &a5_out_bus_storage, &cfg));
 
@@ -1597,6 +1688,25 @@ void test_a5_determinism_invariants_bounded_after_init(void) {
 
     bm_bus_close(&g_a5_in_bus);
     bm_bus_close(&g_a5_out_bus);
+
+    /* 负样本 1：input_count=9 > MAX_INPUTS(8)，init 必拒 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_a5cnt_in_bus, &a5cnt_in_bus_storage, &cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_a5cnt_out_bus, &a5cnt_out_bus_storage, &cfg));
+
+    TEST_ASSERT_EQUAL_UINT8(9u, task_a5_input_count_over.input_count); /* 确认确实越界，而非笔误 */
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_tt_schedule_init(&sched_a5_input_count_over));
+
+    bm_bus_close(&g_a5cnt_in_bus);
+    bm_bus_close(&g_a5cnt_out_bus);
+
+    /* 负样本 2：elem_size=65 > MAX_ELEM_SIZE(64)，init 必拒 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_a5elem_in_bus, &a5elem_in_bus_storage, &cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_a5elem_out_bus, &a5elem_out_bus_storage, &cfg));
+
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_tt_schedule_init(&sched_a5_elem_size_over));
+
+    bm_bus_close(&g_a5elem_in_bus);
+    bm_bus_close(&g_a5elem_out_bus);
 }
 
 int main(void) {
