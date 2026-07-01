@@ -134,6 +134,12 @@ if(BM_ENABLE_HRT)
         ${CMAKE_SOURCE_DIR}/portable/sim/native)
 endif()
 
+if(BM_ENABLE_TT_SCHEDULE)
+    # Task 3：输入冻结 + seq-delta 判龄；走门面 API + 公共 bus API，
+    # 不需要 BM_BUS_ALLOW_INTERNAL（该宏仅 bm_tt_schedule 库内部 PRIVATE 定义）。
+    bm_add_test(test_tt_schedule test_tt_schedule.c bm_tt_schedule)
+endif()
+
 if(BM_ENABLE_TICKER)
     bm_add_test(test_ticker test_ticker.c bm_ticker)
     target_include_directories(test_ticker PRIVATE
