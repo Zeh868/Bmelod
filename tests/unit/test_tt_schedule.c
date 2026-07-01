@@ -181,9 +181,96 @@ void test_freeze_seq_delta_slow_producer(void) {
     }
 }
 
+/* =========================================================================
+ * 场景 3：偶数分频任务 per-task 相位双缓冲边界发布（Task 4）
+ *   every=2,at=0：命中拍 tick_idx 恒为偶数——若误用 tick_idx&1 当 phase
+ *   （旧 tick&1 回归 bug），phase 会永远停在同一份缓冲，输出永远不翻转。
+ * ========================================================================= */
+
+BM_BUS_DEFINE(phase_in_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
+BM_BUS_DEFINE(phase_out_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
+
+static bm_bus_t g_phase_in_bus;
+static bm_bus_t g_phase_out_bus;
+
+static const uint32_t k_phase_in_safe = 0u;
+static const uint32_t k_phase_out_safe = 0u;
+
+/** @brief 原样把输入值写入输出槽，便于区分"这次算出的值"与"上次算出的值" */
+static void phase_step(bm_let_ctx_t *ctx, void *state) {
+    int stale;
+    uint32_t age;
+    const uint32_t *in;
+    uint32_t *out;
+
+    (void)state;
+    in = (const uint32_t *)bm_let_in(ctx, 0u, &stale, &age);
+    out = (uint32_t *)bm_let_out(ctx, 0u);
+    *out = *in;
+}
+
+static const bm_let_input_t k_phase_inputs[] = {
+    { .bus = &g_phase_in_bus, .max_age_us = BM_LET_AGE_DEFAULT,
+      .elem_size = sizeof(uint32_t), .safe_default = &k_phase_in_safe },
+};
+static const bm_let_output_t k_phase_outputs[] = {
+    { .bus = &g_phase_out_bus, .elem_size = sizeof(uint32_t),
+      .safe_default = &k_phase_out_safe },
+};
+
+BM_LET_DEFINE(task_phase, 2u, 0u, 100u, phase_step, NULL,
+              k_phase_inputs, k_phase_outputs);
+BM_SCHEDULE_DEFINE(sched_phase, 1000u, &task_phase);
+
+/**
+ * @brief 偶数分频任务连续 4 次命中：断言发布值 = 上一次命中 step 算出的结果，
+ * 且跨命中确实在轮换（防 phase 永远停在同一份缓冲的回归）。
+ */
+void test_phase_double_buffer_boundary_publish(void) {
+    uint32_t out_val;
+    uint32_t inputs[4] = { 11u, 22u, 33u, 44u };
+    uint32_t hit = 0u;
+
+    bm_bus_cfg_t cfg = { .owner_cpu = 0u };
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_phase_in_bus, &phase_in_bus_storage, &cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_phase_out_bus, &phase_out_bus_storage, &cfg));
+
+    /* 本任务不实现 init：手动给 n_frames，使 tick_idx 按 0,1,0,1... 循环，
+     * 命中拍（tick_idx%2==0）恒为偶数 tick_idx，用于暴露 tick&1 类回归。 */
+    sched_phase.n_frames = 2u;
+    sched_phase.tick_idx = 0u;
+
+    for (uint32_t tick_call = 0u; tick_call < 8u; ++tick_call) {
+        int is_hit = ((sched_phase.tick_idx % task_phase.every) == task_phase.at);
+
+        if (is_hit) {
+            TEST_ASSERT_EQUAL(BM_OK, publish_u32(&g_phase_in_bus, inputs[hit]));
+        }
+        bm_tt_schedule_tick(&sched_phase);
+
+        if (is_hit) {
+            int rc = bm_bus_latest_read(&g_phase_out_bus, &out_val);
+            TEST_ASSERT_EQUAL(BM_OK, rc);
+            if (hit == 0u) {
+                /* 第一次命中：发布的是 outbuf 初值（宏静态分配为 0） */
+                TEST_ASSERT_EQUAL_UINT32(0u, out_val);
+            } else {
+                /* 第 N 次命中：发布的是第 N-1 次 step 算出的结果（+1 拍延迟） */
+                TEST_ASSERT_EQUAL_UINT32(inputs[hit - 1u], out_val);
+            }
+            ++hit;
+        }
+    }
+    TEST_ASSERT_EQUAL_UINT32(4u, hit);
+
+    bm_bus_close(&g_phase_in_bus);
+    bm_bus_close(&g_phase_out_bus);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_freeze_stale_when_never_published);
     RUN_TEST(test_freeze_seq_delta_slow_producer);
+    RUN_TEST(test_phase_double_buffer_boundary_publish);
     return UNITY_END();
 }

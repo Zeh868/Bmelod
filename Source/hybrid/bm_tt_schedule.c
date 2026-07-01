@@ -3,15 +3,16 @@
  * @file bm_tt_schedule.c
  * @brief 时间触发调度门面（bm_tt_schedule）实现
  *
- * 本轮（Task 3）落地第一块真引擎：输入冻结 + seq-delta 判龄——
- * `tt_freeze_inputs` 在每拍命中时对 activity 的每个输入做一次 LATEST
- * 拷出式读（`bm_bus_latest_read_seq`），以稳定 seq 是否变化推算 miss/age/
- * stale；`bm_let_in` 供 step 函数读取冻结后的快照与新鲜度。`bm_tt_schedule_tick`
- * 当前仅为最小 ISR 派发（见函数内注释），其余算法（init 校验、MAINLOOP
- * pending 执行、RTA 导出）留待后续 Task 填充。
+ * 本轮（Task 4）在 Task 3 输入冻结基础上补齐 LET 输出通路：per-task 相位
+ * 双缓冲 + 边界发布——`bm_let_out` 返回 `outbuf[phase]` 中 out_idx 对应槽的
+ * 写指针；`tt_publish` 把上一次已完成的结果（`outbuf[phase^1]`）经
+ * `tt_bus_publish`（acquire_write→memcpy→commit）逐个发布到各输出 bus；
+ * `bm_tt_schedule_tick` ISR 分支扩展为 freeze→step→publish→phase 翻转。
+ * 其余算法（init 校验、MAINLOOP pending 执行、RTA 导出、reentry/overrun）
+ * 留待后续 Task 填充。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-01
  *
  * @par 修改日志:
@@ -19,6 +20,7 @@
  *    Date         Version        Author          Description
  * 2026-07-01       1.0            zeh            骨架发布（config+公共头+CMake，无算法实现）
  * 2026-07-01       1.1            zeh            Task 3：输入冻结 + seq-delta 判龄，最小 ISR tick
+ * 2026-07-01       1.2            zeh            Task 4：per-task 相位双缓冲 + 边界发布，扩展 ISR tick
  *
  */
 #include "bm_tt_schedule.h"
@@ -100,12 +102,77 @@ const void *bm_let_in(bm_let_ctx_t *ctx, uint32_t in_idx, int *out_stale,
 }
 
 /**
- * @brief step 内获取输出写入缓冲（占位桩）
+ * @brief LATEST 发布助手：acquire_write → memcpy → commit（bus 无单调用 write）
+ * @details commit 内部完成 seqlock +2（奇→偶）。非阻塞、有界；失败返回码上抛。
+ * @param bus 目标 LATEST bus
+ * @param src 待发布数据起始地址
+ * @param sz 待发布字节数
+ * @return BM_OK 成功；其他为错误码
+ */
+static int tt_bus_publish(bm_bus_t *bus, const void *src, uint32_t sz) {
+    void *slot;
+    int rc = bm_bus_acquire_write(bus, &slot);
+
+    if (rc != BM_OK) {
+        return rc;
+    }
+    (void)memcpy(slot, src, sz);
+    return bm_bus_commit(bus);
+}
+
+/**
+ * @brief step 内获取输出写入缓冲
+ *
+ * @details 返回 `outbuf` 中 `rt->phase` 对应那一份缓冲里、`out_idx` 对应
+ * 输出槽的写指针。stride = Σ outputs[].elem_size；offset = out_idx 之前
+ * 所有输出的 elem_size 累加。全程用 uint32_t/size_t，不做 uint8_t 窄化
+ * 累加（避免 elem_size 之和越界回绕）。
+ *
+ * @param ctx step 上下文
+ * @param out_idx 输出索引（对应绑定表下标）
+ * @return 输出数据写指针
  */
 void *bm_let_out(bm_let_ctx_t *ctx, uint32_t out_idx) {
-    (void)ctx;
-    (void)out_idx;
-    return NULL;
+    bm_tt_activity_t *a = ctx->act;
+    uint32_t stride = 0u;
+    uint32_t off = 0u;
+
+    for (uint8_t i = 0u; i < a->output_count; ++i) {
+        stride += a->outputs[i].elem_size;
+    }
+    for (uint32_t i = 0u; i < out_idx; ++i) {
+        off += a->outputs[i].elem_size;
+    }
+    return (uint8_t *)a->outbuf + (size_t)a->rt->phase * stride + off;
+}
+
+/**
+ * @brief 边界发布：把上一次已完成的结果（outbuf[phase^1]）发到各输出对应的 bus
+ *
+ * @details 本次命中 step 刚写完 `outbuf[phase]`；`phase^1` 那份缓冲是上一次
+ * 命中已完成的结果，正是本次该对外发布的值（+1 任务周期延迟）。**不翻转
+ * phase**——翻转时机 ISR/MAINLOOP 不同（ISR：发布后翻；MAINLOOP：step 完成时
+ * 翻），故与发布解耦，交调用方按域择时处理。overrun/skip 不发布，留待 Task5。
+ *
+ * @param s 调度表实例（本任务未使用，保留供后续扩展）
+ * @param a 目标 activity（取 outputs/outbuf/rt）
+ */
+static void tt_publish(bm_tt_schedule_t *s, bm_tt_activity_t *a) {
+    uint32_t stride = 0u;
+    uint32_t off = 0u;
+    uint8_t prev;
+
+    (void)s;
+    for (uint8_t i = 0u; i < a->output_count; ++i) {
+        stride += a->outputs[i].elem_size;
+    }
+    prev = a->rt->phase ^ 1u;
+    for (uint8_t i = 0u; i < a->output_count; ++i) {
+        const uint8_t *src = (const uint8_t *)a->outbuf + (size_t)prev * stride + off;
+
+        (void)tt_bus_publish(a->outputs[i].bus, src, a->outputs[i].elem_size); /* seq +2 由 commit 保证 */
+        off += a->outputs[i].elem_size;
+    }
 }
 
 /**
@@ -163,12 +230,13 @@ static uint32_t tt_calc_frames_fallback(const bm_tt_schedule_t *s) {
 }
 
 /**
- * @brief ISR 派发器：最小版实现（Task 3）
+ * @brief ISR 派发器：freeze→step→publish→phase 翻转（Task 4）
  *
  * @details 遍历 entries，`(tick_idx % every)==at` 命中的 ISR 域 activity
- * 依次执行 `tt_freeze_inputs` → `step`，随后 `tick_idx` 按 `n_frames` 取模
- * 前进一拍。最小版：仅 freeze→step(ISR)。publish/phase 见 Task4；
- * reentry/overrun/MAINLOOP/run_pending 见 Task5。
+ * 依次执行 `tt_freeze_inputs` → `step`（写入 `outbuf[phase]`）→
+ * `tt_publish`（发布 `outbuf[phase^1]`，即上一次已完成的结果）→
+ * `rt->phase ^= 1u`（翻转，供下次命中写入另一份缓冲），随后 `tick_idx`
+ * 按 `n_frames` 取模前进一拍。reentry/overrun/MAINLOOP/run_pending 见 Task5。
  */
 void bm_tt_schedule_tick(bm_tt_schedule_t *sched) {
     uint32_t n;
@@ -193,6 +261,8 @@ void bm_tt_schedule_tick(bm_tt_schedule_t *sched) {
 
                 tt_freeze_inputs(sched, a);
                 a->step(&ctx, a->state);
+                tt_publish(sched, a);
+                a->rt->phase ^= 1u;
             }
             /* MAINLOOP 域：冻结后置 pending，交 run_pending 执行——留待 Task5 */
         }
