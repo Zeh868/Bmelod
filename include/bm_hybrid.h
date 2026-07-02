@@ -52,4 +52,8 @@
 #include "bm/hybrid/bm_tt_schedule.h"
 #endif
 
+#if BM_CONFIG_ENABLE_WCET_MON
+#include "bm/hybrid/bm_wcet_mon.h"
+#endif
+
 #endif /* BM_HYBRID_H */
