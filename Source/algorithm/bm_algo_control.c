@@ -16,6 +16,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_control.h"
+#include "bm/algorithm/bm_algo_errors.h"
 #include "bm/algorithm/bm_algo_common.h"
 #include <stddef.h>
 
@@ -70,13 +71,13 @@ float bm_algo_differentiator_step(bm_algo_differentiator_state_t *state,
 
 int bm_algo_pi_validate_config(const bm_algo_pi_config_t *config) {
     if (config == NULL) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
     if (config->out_min > config->out_max) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
     if (config->integrator_min > config->integrator_max) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
     return 0;
 }
@@ -148,10 +149,10 @@ float bm_algo_pi_step(bm_algo_pi_state_t *state,
 
 int bm_algo_pid_validate_config(const bm_algo_pid_config_t *config) {
     if (config == NULL) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
     if (config->out_min > config->out_max) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
     return 0;
 }
@@ -225,7 +226,7 @@ int bm_algo_pr_compute_coeffs(const bm_algo_pr_config_t *config,
     if (config == NULL || sample_period_s <= 0.0f ||
         b0 == NULL || b1 == NULL || b2 == NULL ||
         a1 == NULL || a2 == NULL) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
 
     w0 = config->omega_rad_s;
@@ -235,7 +236,7 @@ int bm_algo_pr_compute_coeffs(const bm_algo_pr_config_t *config,
   /* 双线性变换离散谐振器（带阻尼） */
     d = k * k + w0 * w0 + 2.0f * wc * k;
     if (d == 0.0f) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
 
     a0 = d;
@@ -268,7 +269,7 @@ int bm_algo_pr_init(bm_algo_pr_state_t *state,
     float b0_check, b1_check, b2_check, a1_check, a2_check;
 
     if (state == NULL || config == NULL) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
     bm_algo_pr_reset(state);
     /* 调用 compute_coeffs 做配置校验（e.g. 分母不为零）；
@@ -322,7 +323,7 @@ int bm_algo_lead_lag_init(bm_algo_lead_lag_state_t *state,
     float p;
 
     if (state == NULL || config == NULL || sample_period_s <= 0.0f) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
 
     k = 2.0f / sample_period_s;
@@ -420,7 +421,7 @@ int bm_algo_smith_predictor_init(bm_algo_smith_predictor_state_t *state,
                                  uint32_t line_len) {
     if (state == NULL || config == NULL || delay_line == NULL ||
         config->delay_steps == 0u || line_len < config->delay_steps) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
 
     state->u_delay_line = delay_line;

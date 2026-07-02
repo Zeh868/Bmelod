@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Configure default build
-        run: cmake -B build -DBM_ENABLE_CHANNEL=ON
+        run: cmake -B build
       - name: Build
         run: cmake --build build --config Debug
       - name: Test
@@ -24,7 +24,6 @@ jobs:
       - name: Configure hybrid build
         run: >
           cmake -B build-hybrid
-          -DBM_ENABLE_CHANNEL=ON
           -DBM_ENABLE_HRT=ON
           -DBM_ENABLE_TICKER=ON
           -DBM_ENABLE_EXEC=ON
@@ -34,6 +33,13 @@ jobs:
         run: cmake --build build-hybrid --config Debug
       - name: Test
         run: ctest --test-dir build-hybrid -C Debug --output-on-failure
+
+  config-template-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check bm_config.h.template stays in sync with include/bm_config.h
+        run: python3 tools/check_config_template.py
 
   cmake-matrix:
     runs-on: windows-latest
@@ -67,7 +73,6 @@ jobs:
       matrix:
         example:
           - hrt_servo_stub
-          - hrt_bms_coulomb
           - stream_block_rms
           - daq_frontend
           - ultrasonic_frontend
@@ -76,10 +81,7 @@ jobs:
           - stream_audio_agc
           - stream_vibration_diag
           - stream_vision_frame
-          - power_buck_loop
-          - bms_estimation_loop
           - multi_axis_sync
-          - multi_channel_bms
     steps:
       - uses: actions/checkout@v4
       - name: Build and run native_sim example
@@ -121,3 +123,22 @@ jobs:
         run: |
           chmod +x tests/arch/run_all.sh
           bash tests/arch/run_all.sh
+
+  qemu-icount-determinism:
+    # L2 QEMU icount 控制流确定性（ARM Cortex-A15 线）
+    # 见 docs/04-测试与排障/05-确定性验证操作手册.md；Δ==0 = 控制流确定，非 WCET 证明。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain and QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi qemu-system-arm
+      - name: Configure
+        run: |
+          cmake -G 'Unix Makefiles' -B build_icount_arm -S tests/qemu_cortexa_icount \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-arm-none-eabi-a.cmake
+      - name: Build
+        run: cmake --build build_icount_arm
+      - name: Run determinism-l2 tests
+        run: ctest --test-dir build_icount_arm -L determinism-l2 --output-on-failure

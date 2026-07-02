@@ -16,11 +16,25 @@
  */
 #include "bm/component/motor_current_sense.h"
 #include "bm/common/bm_types.h"
+#include "bm/component/bm_component_common.h"
 
 #include <string.h>
 
+/**
+ * @brief 将 ADC 原始值转换为相电流并扣除零点偏置（静态辅助）
+ *
+ * 本组件相比 motor_foc_sensorless/sensored 多一个 offset 扣除步骤
+ * （标定后的零点漂移补偿），故不能直接复用公共 helper 的返回值语义；
+ * 但换算公式的公共部分（(raw-中点)/scale）已委托
+ * bm_component_adc_to_current()，避免与另外两处组件重复该公式实现。
+ *
+ * @param scale  电流标定系数
+ * @param raw    ADC 原始计数
+ * @param offset 零点偏置（安培），从换算结果中扣除
+ * @return 扣除偏置后的电流值（安培）
+ */
 static float adc_to_current(float scale, uint16_t raw, float offset) {
-    return ((float)((int32_t)raw - BM_ADC_MIDPOINT_16BIT)) / scale - offset;
+    return bm_component_adc_to_current(scale, raw) - offset;
 }
 
 static int read_adc_pair(const bm_motor_current_sense_axis_t *axis,

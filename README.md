@@ -154,8 +154,7 @@ bmelod-baremetal/
 │   ├── README.md         # Doc index (00–21)
 │   ├── 00-环境与首次运行.md … 04-测试覆盖率基线.md
 │   └── api/              # API reference
-├── CMakeLists.txt
-└── Makefile
+└── CMakeLists.txt
 ```
 
 ---

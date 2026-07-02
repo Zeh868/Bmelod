@@ -17,6 +17,7 @@
 #include "bm/component/bms_estimation.h"
 #include "bm/algorithm/bm_algo_common.h"
 #include "bm/common/bm_types.h"
+#include "bm/component/bm_component_common.h"
 
 #include <math.h>
 #include <string.h>
@@ -78,10 +79,7 @@ void bm_bms_estimation_step(bm_bms_estimation_axis_t *axis) {
             st->telemetry.sequence = st->step_count;
             st->telemetry.status = BM_BMS_EST_TEL_STALE;
             st->telemetry.est_mode = cfg->mode;
-            if (axis->resources.publish_telemetry != NULL) {
-                axis->resources.publish_telemetry(
-                    axis->resources.publish_telemetry_user, &st->telemetry);
-            }
+            BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
             return;
         }
     }
@@ -147,10 +145,7 @@ void bm_bms_estimation_step(bm_bms_estimation_axis_t *axis) {
     st->telemetry.temp_c = temp_c;
     st->telemetry.est_mode = cfg->mode;
 
-    if (axis->resources.publish_telemetry != NULL) {
-        axis->resources.publish_telemetry(
-            axis->resources.publish_telemetry_user, &st->telemetry);
-    }
+    BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
 }
 
 /**

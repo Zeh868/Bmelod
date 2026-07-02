@@ -133,13 +133,10 @@ static uint32_t hrt_deadline_from(uint32_t base, uint32_t period) {
  * 确定性流式安全：停止硬件定时器后执行全屏障（DSB+ISB），
  * 确保已 latch 的 ISR 执行完毕，防止回调置 NULL 后 ISR 仍访问
  * 已被释放的槽位数据（use-after-free）。
+ *
+ * @param state 当前核 HRT 状态（调用方须持有非 NULL）
  */
-static void hrt_stop_locked(void) {
-    bm_hrt_cpu_state_t *state = bm_hrt_this();
-
-    if (state == NULL) {
-        return;
-    }
+static void hrt_stop_locked(bm_hrt_cpu_state_t *state) {
     if (!state->started) {
         return;
     }
@@ -156,16 +153,14 @@ static void hrt_stop_locked(void) {
 
 /**
  * @brief 扫描所有槽并触发到期回调
+ *
+ * @param state 当前核 HRT 状态（调用方须持有非 NULL）
  */
-static void hrt_dispatch(void) {
-    bm_hrt_cpu_state_t *state = bm_hrt_this();
+static void hrt_dispatch(bm_hrt_cpu_state_t *state) {
     uint32_t now = bm_hal_timer_get_ticks();
     uint32_t i;
     uint32_t fired = 0u;
 
-    if (state == NULL) {
-        return;
-    }
     /*
      * 遍历槽位并分派就绪回调，受 BM_CONFIG_HRT_DISPATCH_PER_ISR 限制；
      * 各回调 WCET 须相对 BM_CONFIG_HRT_TICK_US 预算，以保证 ISR
@@ -208,9 +203,16 @@ static void hrt_dispatch(void) {
 
 /**
  * @brief HAL 定时器 ISR 入口，分派 HRT 回调
+ *
+ * ISR 回调签名固定为 void(void)，无法接收上层参数，须在此自行取 state。
  */
 static void hrt_timer_isr(void) {
-    hrt_dispatch();
+    bm_hrt_cpu_state_t *state = bm_hrt_this();
+
+    if (state == NULL) {
+        return;
+    }
+    hrt_dispatch(state);
 }
 
 /**
@@ -225,7 +227,7 @@ void bm_hrt_poll(void) {
     if (state == NULL || !state->started) {
         return;
     }
-    hrt_dispatch();
+    hrt_dispatch(state);
 }
 
 int bm_hrt_validate_period_us(uint32_t period_us) {
@@ -409,7 +411,7 @@ void bm_hrt_stop(void) {
     int stopped = 0;
 
     if (state != NULL && state->started) {
-        hrt_stop_locked();
+        hrt_stop_locked(state);
         stopped = 1;
     }
     BM_CRITICAL_EXIT(irq_state);
@@ -430,7 +432,7 @@ void bm_hrt_reset(void) {
         BM_CRITICAL_EXIT(irq_state);
         return;
     }
-    hrt_stop_locked();
+    hrt_stop_locked(state);
     memset(state->slots, 0, sizeof(state->slots));
     state->slot_count = 0u;
     state->initialized = 0;

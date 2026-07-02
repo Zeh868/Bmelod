@@ -19,6 +19,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_audio.h"
+#include "bm/algorithm/bm_algo_errors.h"
 #include "bm/algorithm/bm_algo_common.h"
 #include "bm/algorithm/bm_algo_filter.h"
 #include "bm/algorithm/bm_algo_fft.h"
@@ -166,7 +167,7 @@ int bm_algo_eq_peaking_design(bm_algo_eq_peaking_state_t *state,
     if (state == NULL || config == NULL ||
         config->sample_hz <= 0.0f || config->freq_hz <= 0.0f ||
         config->q <= 0.0f) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
 
     design.type = BM_ALGO_BIQUAD_PEAKING;
@@ -176,7 +177,7 @@ int bm_algo_eq_peaking_design(bm_algo_eq_peaking_state_t *state,
     design.gain_db = config->gain_db;
 
     if (bm_algo_biquad_design(&bq, &design) != 0) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
 
     state->b0 = bq.b0;

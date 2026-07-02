@@ -20,6 +20,7 @@
  */
 #include "bm/component/process_control.h"
 #include "bm/common/bm_types.h"
+#include "bm/component/bm_component_common.h"
 
 #include <string.h>
 
@@ -93,10 +94,7 @@ void bm_process_control_step(bm_process_control_axis_t *axis) {
         st->telemetry.status = BM_PROCESS_CTRL_TEL_STALE;
         st->telemetry.outer_out = st->outer_out;
         st->telemetry.inner_out = st->inner_out;
-        if (axis->resources.publish_telemetry != NULL) {
-            axis->resources.publish_telemetry(
-                axis->resources.publish_telemetry_user, &st->telemetry);
-        }
+        BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
         return;
     }
 
@@ -125,10 +123,7 @@ void bm_process_control_step(bm_process_control_axis_t *axis) {
     st->telemetry.outer_out = st->outer_out;
     st->telemetry.inner_out = st->inner_out;
 
-    if (axis->resources.publish_telemetry != NULL) {
-        axis->resources.publish_telemetry(
-            axis->resources.publish_telemetry_user, &st->telemetry);
-    }
+    BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
 }
 
 /* ---------- exec_ops 封装 ---------- */

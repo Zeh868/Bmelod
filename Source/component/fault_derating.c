@@ -16,6 +16,7 @@
  */
 #include "bm/component/fault_derating.h"
 #include "bm/common/bm_types.h"
+#include "bm/component/bm_component_common.h"
 
 #include <string.h>
 
@@ -160,8 +161,5 @@ void bm_fault_derating_step(bm_fault_derating_axis_t *axis) {
     st->telemetry.derate_factor = st->derate_factor;
     st->telemetry.recovery_elapsed_s = st->recovery_elapsed_s;
 
-    if (axis->resources.publish_telemetry != NULL) {
-        axis->resources.publish_telemetry(
-            axis->resources.publish_telemetry_user, &st->telemetry);
-    }
+    BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
 }

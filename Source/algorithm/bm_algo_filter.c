@@ -15,6 +15,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_filter.h"
+#include "bm/algorithm/bm_algo_errors.h"
 #include "bm/algorithm/bm_algo_common.h"
 #include <stddef.h>
 
@@ -32,7 +33,7 @@ int bm_algo_lpf1_init_from_cutoff(bm_algo_lpf1_config_t *config,
     float dt;
 
     if (config == NULL || cutoff_hz <= 0.0f || sample_hz <= 0.0f) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
 
     dt = 1.0f / sample_hz;
@@ -68,7 +69,7 @@ int bm_algo_hpf1_init_from_cutoff(bm_algo_hpf1_config_t *config,
     float dt;
 
     if (config == NULL || cutoff_hz <= 0.0f || sample_hz <= 0.0f) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
 
     dt = 1.0f / sample_hz;
@@ -105,7 +106,7 @@ int bm_algo_moving_avg_init(bm_algo_moving_avg_state_t *state,
                             const bm_algo_moving_avg_config_t *config) {
     if (state == NULL || config == NULL ||
         config->buffer == NULL || config->length == 0u) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
     bm_algo_moving_avg_reset(state, config);
     return 0;
@@ -206,7 +207,7 @@ int bm_algo_fir_init(bm_algo_fir_state_t *state,
     if (state == NULL || config == NULL ||
         config->coeffs == NULL || config->delay_line == NULL ||
         config->tap_count == 0u) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
     bm_algo_fir_reset(state, config);
     return 0;
@@ -270,7 +271,7 @@ int bm_algo_biquad_design(bm_algo_biquad_config_t *config,
         !bm_algo_is_finite_f(design->freq_hz) ||
         !bm_algo_is_finite_f(design->q) ||
         !bm_algo_is_finite_f(design->gain_db)) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
 
     w0 = 2.0f * BM_ALGO_PI_F * design->freq_hz / design->sample_hz;
@@ -322,7 +323,7 @@ int bm_algo_biquad_design(bm_algo_biquad_config_t *config,
         a2 = 1.0f - alpha / A;
         break;
     default:
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
 
     config->b0 = b0 / a0;
@@ -364,7 +365,7 @@ int bm_algo_biquad_notch_update(bm_algo_biquad_config_t *config,
     bm_algo_biquad_design_t design;
 
     if (config == NULL) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
 
     design.type = BM_ALGO_BIQUAD_NOTCH;
@@ -374,7 +375,7 @@ int bm_algo_biquad_notch_update(bm_algo_biquad_config_t *config,
     design.gain_db = 0.0f;
 
     if (bm_algo_biquad_design(config, &design) != 0) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
 
     if (state != NULL) {

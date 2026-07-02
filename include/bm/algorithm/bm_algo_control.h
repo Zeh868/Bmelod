@@ -20,6 +20,8 @@
 #ifndef BM_ALGO_CONTROL_H
 #define BM_ALGO_CONTROL_H
 
+#include "bm/algorithm/bm_algo_errors.h"
+
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -137,7 +139,7 @@ typedef struct {
  * @param state           PR 状态（不可为 NULL）
  * @param config          PR 配置（不可为 NULL）
  * @param sample_period_s 采样周期（s，>0）
- * @return 0 成功；-1 参数无效或系数计算失败（配置不合法）
+ * @return 0 成功；BM_ALGO_ERR_INVALID 参数无效或系数计算失败（配置不合法）
  */
 int bm_algo_pr_init(bm_algo_pr_state_t *state,
                     const bm_algo_pr_config_t *config,
@@ -158,7 +160,7 @@ float bm_algo_pr_step(bm_algo_pr_state_t *state,
  * @param sample_period_s 采样周期（s，>0）
  * @param b0,b1,b2        分子系数输出指针（均不可为 NULL）
  * @param a1,a2           分母系数输出指针（均不可为 NULL）
- * @return 0 成功；-1 参数无效
+ * @return 0 成功；BM_ALGO_ERR_INVALID 参数无效
  */
 int bm_algo_pr_compute_coeffs(const bm_algo_pr_config_t *config,
                               float sample_period_s,

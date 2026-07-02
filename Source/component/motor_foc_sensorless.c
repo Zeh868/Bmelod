@@ -18,22 +18,10 @@
 
 #include "bm/algorithm/bm_algo_common.h"
 #include "bm/common/bm_types.h"
+#include "bm/component/bm_component_common.h"
 
 #include <math.h>
 #include <string.h>
-
-/**
- * @brief 将 ADC 原始值转换为相电流（静态辅助）
- *
- * 以 raw=32768 对应零电流，满量程由 scale 决定（A/LSB 的倒数）。
- *
- * @param scale ADC 满码对应电流（A）；须 > 0
- * @param raw   ADC 原始采样值（无符号 16 位）
- * @return 对应相电流（A），正负号由原始值相对 32768 的偏差决定
- */
-static float adc_to_current(float scale, uint16_t raw) {
-    return ((float)((int32_t)raw - BM_ADC_MIDPOINT_16BIT)) / scale;
-}
 
 /**
  * @brief 判断仿真反馈是否全部激活（静态辅助）
@@ -207,8 +195,8 @@ static int read_current_ab(const bm_motor_foc_sensorless_axis_t *axis,
     if (bm_hal_adc_read_injected(res->adc, res->adc_rank_ib, &raw_ib) != BM_OK) {
         return -1;
     }
-    *ia = adc_to_current(res->current_adc_scale, raw_ia);
-    *ib = adc_to_current(res->current_adc_scale, raw_ib);
+    *ia = bm_component_adc_to_current(res->current_adc_scale, raw_ia);
+    *ib = bm_component_adc_to_current(res->current_adc_scale, raw_ib);
     return 0;
 }
 
@@ -550,11 +538,7 @@ void bm_motor_foc_sensorless_exec_current(const bm_exec_t *instance) {
     axis = (bm_motor_foc_sensorless_axis_t *)instance->state;
     sync_command(axis);
     bm_motor_foc_sensorless_current_step(axis);
-    if (axis->resources.publish_telemetry != NULL) {
-        axis->resources.publish_telemetry(
-            axis->resources.publish_telemetry_user,
-            &axis->state.telemetry);
-    }
+    BM_COMPONENT_PUBLISH_TELEMETRY(axis, &axis->state.telemetry);
 }
 
 /**

@@ -228,9 +228,21 @@ target_include_directories(test_hal_dma_stream PRIVATE
     ${CMAKE_SOURCE_DIR}/portable/sim/native)
 
 if(BM_ENABLE_ALGORITHM)
-    bm_add_test(test_algorithm test_algorithm.c bm_algorithm)
+    # test_algorithm.c 按域拆分（架构改进计划任务 1.5b 项 6）：原单一 3300+ 行
+    # 文件替换为 6 个按主题分组的独立 Unity 可执行文件，纯移动不改测试内容。
+    bm_add_test(test_algo_basic test_algo_basic.c bm_algorithm)
+    bm_add_test(test_algo_filter test_algo_filter.c bm_algorithm)
+    bm_add_test(test_algo_motor test_algo_motor.c bm_algorithm)
+    bm_add_test(test_algo_fusion test_algo_fusion.c bm_algorithm)
+    bm_add_test(test_algo_fixed test_algo_fixed.c bm_algorithm)
+    bm_add_test(test_algo_misc test_algo_misc.c bm_algorithm)
     if(NOT MSVC)
-        target_link_libraries(test_algorithm PRIVATE m)
+        target_link_libraries(test_algo_basic PRIVATE m)
+        target_link_libraries(test_algo_filter PRIVATE m)
+        target_link_libraries(test_algo_motor PRIVATE m)
+        target_link_libraries(test_algo_fusion PRIVATE m)
+        target_link_libraries(test_algo_fixed PRIVATE m)
+        target_link_libraries(test_algo_misc PRIVATE m)
     endif()
 endif()
 

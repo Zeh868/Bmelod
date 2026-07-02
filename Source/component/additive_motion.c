@@ -21,6 +21,7 @@
 #include "bm/component/additive_motion.h"
 #include "bm/algorithm/bm_algo_common.h"
 #include "bm/common/bm_types.h"
+#include "bm/component/bm_component_common.h"
 
 #include <math.h>
 #include <string.h>
@@ -177,10 +178,7 @@ void bm_additive_motion_step(bm_additive_motion_axis_t *axis) {
     st->telemetry.sequence = st->step_count;
     st->telemetry.velocity_mm_s = vel;
 
-    if (axis->resources.publish_telemetry != NULL) {
-        axis->resources.publish_telemetry(
-            axis->resources.publish_telemetry_user, &st->telemetry);
-    }
+    BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
 }
 
 float bm_additive_motion_pressure_advance(float velocity_mm_s, float factor) {

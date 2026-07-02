@@ -84,7 +84,7 @@ float u = bm_algo_pi_step(&st, &cfg, error_rad, dt_s);
 ```bash
 cmake -B build -DBM_BUILD_TESTS=ON
 cmake --build build
-ctest -C Release -R test_algorithm --output-on-failure
+ctest -C Release -R "^test_algo_" --output-on-failure
 ```
 
 ## 相关文档

@@ -20,6 +20,8 @@
 #ifndef BM_ALGO_AUDIO_H
 #define BM_ALGO_AUDIO_H
 
+#include "bm/algorithm/bm_algo_errors.h"
+
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -180,7 +182,7 @@ typedef struct {
  *
  * @param state  EQ 状态（不可为 NULL，调用后需调用 reset 清延迟线）
  * @param config EQ 配置（sample_hz/freq_hz/q 须 >0）
- * @return 0 成功；-1 参数非法或 Biquad 设计失败
+ * @return 0 成功；BM_ALGO_ERR_INVALID 参数非法或 Biquad 设计失败
  */
 int bm_algo_eq_peaking_design(bm_algo_eq_peaking_state_t *state,
                               const bm_algo_eq_peaking_config_t *config);

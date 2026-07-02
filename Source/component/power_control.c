@@ -16,6 +16,7 @@
 #include "bm/component/power_control.h"
 #include "bm/algorithm/bm_algo_common.h"
 #include "bm/common/bm_types.h"
+#include "bm/component/bm_component_common.h"
 
 #include <string.h>
 
@@ -162,10 +163,7 @@ void bm_power_control_current_step(bm_power_control_axis_t *axis) {
     if (st->fault_latched) {
         st->telemetry.status = BM_POWER_CTRL_TEL_FAULT;
         st->telemetry.duty = st->duty;
-        if (axis->resources.publish_telemetry != NULL) {
-            axis->resources.publish_telemetry(
-                axis->resources.publish_telemetry_user, &st->telemetry);
-        }
+        BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
         return;
     }
 
@@ -186,10 +184,7 @@ void bm_power_control_current_step(bm_power_control_axis_t *axis) {
         st->telemetry.sequence = st->current_loops;
         st->telemetry.status = BM_POWER_CTRL_TEL_VALID;
         st->telemetry.duty = st->duty;
-        if (axis->resources.publish_telemetry != NULL) {
-            axis->resources.publish_telemetry(
-                axis->resources.publish_telemetry_user, &st->telemetry);
-        }
+        BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
         return;
     }
 
@@ -217,10 +212,7 @@ void bm_power_control_current_step(bm_power_control_axis_t *axis) {
     st->telemetry.i_out_a = i_out;
     st->telemetry.v_out_v = v_out;
 
-    if (axis->resources.publish_telemetry != NULL) {
-        axis->resources.publish_telemetry(
-            axis->resources.publish_telemetry_user, &st->telemetry);
-    }
+    BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
 }
 
 /**

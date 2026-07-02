@@ -16,6 +16,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_resample.h"
+#include "bm/algorithm/bm_algo_errors.h"
 #include "bm/algorithm/bm_algo_common.h"
 #include <stddef.h>
 
@@ -90,15 +91,16 @@ int bm_algo_linear_resampler_step(bm_algo_linear_resampler_state_t *state,
     if (!bm_algo_is_finite_f(step) || !bm_algo_is_finite_f(phase) ||
         step <= 0.0f) {
         *out_count = 0u;
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
     while (phase <= 1.0f && required <= (uint64_t)max_outputs) {
         required++;
         phase += step;
     }
     if (required > (uint64_t)max_outputs || required > (uint64_t)INT_MAX) {
+        /* 本步所需输出样本数超过调用方提供的 outputs 缓冲容量。 */
         *out_count = 0u;
-        return -1;
+        return BM_ALGO_ERR_OVERFLOW;
     }
 
     phase = state->phase;
@@ -121,7 +123,7 @@ int bm_algo_polyphase_decim_init(bm_algo_polyphase_decim_state_t *state,
     if (state == NULL || config == NULL || delay_line == NULL ||
         config->coeffs == NULL || config->tap_count == 0u ||
         config->decim == 0u || delay_len < config->tap_count) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
 
     state->delay_line = delay_line;

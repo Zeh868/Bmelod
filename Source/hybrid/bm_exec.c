@@ -265,13 +265,12 @@ static inline bm_exec_session_t exec_get_session(const bm_exec_cpu_state_t *s) {
 }
 
 /**
- * @brief 设置当前 exec 会话状态（原子存储）
+ * @brief 设置当前 exec 会话状态（原子存储，调用方须持有非 NULL 的 state）
  */
-static void exec_set_session(bm_exec_session_t v) {
-    bm_exec_cpu_state_t *s = bm_exec_this();
+static void exec_set_session(bm_exec_cpu_state_t *state, bm_exec_session_t v) {
     bm_irq_state_t irq_state = BM_CRITICAL_ENTER();
 
-    bm_atomic_ipc_store_u32(&s->session, (uint32_t)v);
+    bm_atomic_ipc_store_u32(&state->session, (uint32_t)v);
     BM_CRITICAL_EXIT(irq_state);
 }
 
@@ -295,15 +294,11 @@ static void bm_exec_run_binding(void *context) {
 }
 
 /**
- * @brief 清零运行时全局状态（实例表、绑定表、HRT 槽）
+ * @brief 清零运行时全局状态（实例表、绑定表、HRT 槽；调用方须持有非 NULL 的 state）
  */
-static void exec_clear_runtime(void) {
-    bm_exec_cpu_state_t *state = bm_exec_this();
+static void exec_clear_runtime(bm_exec_cpu_state_t *state) {
     uint32_t n;
 
-    if (state == NULL) {
-        return;
-    }
     for (n = 0u; n < BM_CONFIG_MAX_EXEC_INSTANCES; ++n) {
         state->instances[n] = NULL;
     }
@@ -313,7 +308,7 @@ static void exec_clear_runtime(void) {
     memset(state->hrt_slots, 0, sizeof(state->hrt_slots));
     state->hrt_slot_count = 0u;
     state->init_done_count = 0u;
-    exec_set_session(BM_EXEC_SESSION_NONE);
+    exec_set_session(state, BM_EXEC_SESSION_NONE);
 }
 
 /*
@@ -330,18 +325,15 @@ static void exec_clear_runtime(void) {
 /**
  * @brief 按预算轮询所有 Block/Frame 槽的 stream，消费 READY 块
  *
+ * @param state  当前核 exec 状态（调用方须持有非 NULL）
  * @param budget 最大消费块数
  * @return 实际消费块数
  */
-static int exec_drain_stream_slots(uint32_t budget) {
-    bm_exec_cpu_state_t *state = bm_exec_this();
+static int exec_drain_stream_slots(const bm_exec_cpu_state_t *state, uint32_t budget) {
     uint32_t i;
     uint32_t s;
     uint32_t drained = 0u;
 
-    if (state == NULL) {
-        return 0;
-    }
     for (i = 0u; i < state->instance_count && drained < budget; ++i) {
         const bm_exec_t *inst = state->instances[i];
         for (s = 0u; s < inst->slot_count && drained < budget; ++s) {
@@ -387,20 +379,16 @@ int bm_exec_drain_streams(uint32_t budget) {
     if (exec_get_session(state) != BM_EXEC_SESSION_STARTED) {
         return 0;
     }
-    return exec_drain_stream_slots(budget);
+    return exec_drain_stream_slots(state, budget);
 }
 
 /**
- * @brief 解绑所有 stream 槽的 ready handler
+ * @brief 解绑所有 stream 槽的 ready handler（调用方须持有非 NULL 的 state）
  */
-static void exec_unbind_stream_slots(void) {
-    bm_exec_cpu_state_t *state = bm_exec_this();
+static void exec_unbind_stream_slots(bm_exec_cpu_state_t *state) {
     uint32_t i;
     uint32_t s;
 
-    if (state == NULL) {
-        return;
-    }
     for (i = 0u; i < state->instance_count; ++i) {
         const bm_exec_t *inst = state->instances[i];
         for (s = 0u; s < inst->slot_count; ++s) {
@@ -416,17 +404,13 @@ static void exec_unbind_stream_slots(void) {
 }
 
 /**
- * @brief 解绑所有硬件槽位的外部中断/定时器
+ * @brief 解绑所有硬件槽位的外部中断/定时器（调用方须持有非 NULL 的 state）
  */
-static void exec_unbind_all_hardware(void) {
-    bm_exec_cpu_state_t *state = bm_exec_this();
+static void exec_unbind_all_hardware(bm_exec_cpu_state_t *state) {
     uint32_t i;
     uint32_t s;
 
-    exec_unbind_stream_slots();
-    if (state == NULL) {
-        return;
-    }
+    exec_unbind_stream_slots(state);
     for (i = 0u; i < state->instance_count; ++i) {
         const bm_exec_t *inst = state->instances[i];
         for (s = 0u; s < inst->slot_count; ++s) {
@@ -440,17 +424,15 @@ static void exec_unbind_all_hardware(void) {
 
 /**
  * @brief 停止 HRT、安全停机、解绑硬件并清空运行时状态
+ *
+ * @param state 当前核 exec 状态（调用方须持有非 NULL）
  */
-static void exec_teardown_session(void) {
-    bm_exec_cpu_state_t *state = bm_exec_this();
+static void exec_teardown_session(bm_exec_cpu_state_t *state) {
     uint32_t i;
 
-    if (state == NULL) {
-        return;
-    }
-    exec_set_session(BM_EXEC_SESSION_STOPPING);
+    exec_set_session(state, BM_EXEC_SESSION_STOPPING);
     bm_hrt_stop();
-    exec_unbind_all_hardware();
+    exec_unbind_all_hardware(state);
 
     if (state->instance_count > 0u) {
         for (i = state->instance_count; i > 0u; --i) {
@@ -462,18 +444,13 @@ static void exec_teardown_session(void) {
     }
 
     bm_hrt_reset();
-    exec_clear_runtime();
+    exec_clear_runtime(state);
 }
 
 /**
- * @brief 按逆序回滚已完成的实例 init，调用 safe_stop
+ * @brief 按逆序回滚已完成的实例 init，调用 safe_stop（调用方须持有非 NULL 的 state）
  */
-static void exec_rollback_inits(void) {
-    bm_exec_cpu_state_t *state = bm_exec_this();
-
-    if (state == NULL) {
-        return;
-    }
+static void exec_rollback_inits(bm_exec_cpu_state_t *state) {
     while (state->init_done_count > 0u) {
         state->init_done_count--;
         const bm_exec_t *inst = state->instances[state->init_done_count];
@@ -485,14 +462,16 @@ static void exec_rollback_inits(void) {
 
 /**
  * @brief start/init 失败回滚：安全停机全部已 init 实例并释放资源
+ *
+ * @param state 当前核 exec 状态（调用方须持有非 NULL）
  */
-static void exec_abort_session(void) {
-    exec_set_session(BM_EXEC_SESSION_STOPPING);
+static void exec_abort_session(bm_exec_cpu_state_t *state) {
+    exec_set_session(state, BM_EXEC_SESSION_STOPPING);
     bm_hrt_stop();
-    exec_unbind_all_hardware();
-    exec_rollback_inits();
+    exec_unbind_all_hardware(state);
+    exec_rollback_inits(state);
     bm_hrt_reset();
-    exec_clear_runtime();
+    exec_clear_runtime(state);
 }
 
 /**
@@ -576,14 +555,11 @@ static int validate_instance(const bm_exec_t *inst) {
     return BM_OK;
 }
 
-static int validate_stream_owner(void) {
-    bm_exec_cpu_state_t *state = bm_exec_this();
+/** @brief 校验 block/frame 槽 stream 归属与消费者互斥（调用方须持有非 NULL 的 state） */
+static int validate_stream_owner(bm_exec_cpu_state_t *state) {
     uint32_t i;
     uint32_t s;
 
-    if (state == NULL) {
-        return BM_ERR_INVALID;
-    }
     /*
      * 该校验在实例 init op 之后运行（on_ready 通常在 init 期经
      * bm_stream_set_ready_handler / bm_stream_init 之前配置），故能可靠拦截
@@ -643,19 +619,17 @@ static int validate_unique_ids(const bm_exec_t *const *instances,
 /**
  * @brief 组装绑定表与 HRT 调度槽表
  *
+ * @param state 当前核 exec 状态（调用方须持有非 NULL）
  * @param instances 实例指针数组
  * @param count 实例数量
  * @return BM_OK 成功；BM_ERR_OVERFLOW 槽位表溢出
  */
-static int assemble_tables(const bm_exec_t *const *instances,
+static int assemble_tables(bm_exec_cpu_state_t *state,
+                           const bm_exec_t *const *instances,
                            uint32_t count) {
-    bm_exec_cpu_state_t *state = bm_exec_this();
     uint32_t i;
     uint32_t s;
 
-    if (state == NULL) {
-        return BM_ERR_INVALID;
-    }
     state->binding_count = 0u;
     state->hrt_slot_count = 0u;
 
@@ -745,7 +719,7 @@ int bm_exec_init_all(const bm_exec_t *const *instances, uint32_t count) {
         return BM_ERR_INVALID;
     }
 
-    exec_teardown_session();
+    exec_teardown_session(state);
 
     rc = validate_unique_ids(instances, count);
     if (rc != BM_OK) {
@@ -779,16 +753,16 @@ int bm_exec_init_all(const bm_exec_t *const *instances, uint32_t count) {
     }
     state->instance_count = count;
 
-    rc = assemble_tables(instances, count);
+    rc = assemble_tables(state, instances, count);
     if (rc != BM_OK) {
-        exec_clear_runtime();
+        exec_clear_runtime(state);
         return rc;
     }
 
     if (state->hrt_slot_count > 0u) {
         rc = bm_hrt_init(state->hrt_slots, state->hrt_slot_count);
         if (rc != BM_OK) {
-            exec_clear_runtime();
+            exec_clear_runtime(state);
             return rc;
         }
     }
@@ -798,15 +772,15 @@ int bm_exec_init_all(const bm_exec_t *const *instances, uint32_t count) {
         if (rc != BM_OK) {
             BM_LOGE("exec", "init failed inst id=%u rc=%d",
                     (unsigned)instances[i]->id, rc);
-            exec_abort_session();
+            exec_abort_session(state);
             return rc;
         }
         state->init_done_count++;
     }
 
-    rc = validate_stream_owner();
+    rc = validate_stream_owner(state);
     if (rc != BM_OK) {
-        exec_abort_session();
+        exec_abort_session(state);
         return rc;
     }
 
@@ -837,32 +811,22 @@ int bm_exec_init_all(const bm_exec_t *const *instances, uint32_t count) {
                 rc = slot->bind(inst, &hal_binding);
             }
             if (rc != BM_OK) {
-                exec_abort_session();
+                exec_abort_session(state);
                 return rc;
             }
         }
     }
 
-    exec_set_session(BM_EXEC_SESSION_INITED);
+    exec_set_session(state, BM_EXEC_SESSION_INITED);
     BM_LOGI("exec", "init_all ok count=%u hrt_slots=%u",
             (unsigned)count, (unsigned)state->hrt_slot_count);
     return BM_OK;
 }
 
-/**
- * @brief 批量启动已初始化的执行实例
- *
- * @param instances 实例指针数组（须与 init_all 时一致）
- * @param count 实例数量
- * @return BM_OK 成功；BM_ERR_INVALID 参数不匹配；负值为 start 失败码
- */
-static int exec_ensure_hrt_started(void) {
-    bm_exec_cpu_state_t *state = bm_exec_this();
+/** @brief 确保 HRT 定时器已启动（调用方须持有非 NULL 的 state） */
+static int exec_ensure_hrt_started(bm_exec_cpu_state_t *state) {
     int rc;
 
-    if (state == NULL) {
-        return BM_ERR_INVALID;
-    }
     if (state->hrt_slot_count == 0u) {
         return BM_OK;
     }
@@ -873,6 +837,13 @@ static int exec_ensure_hrt_started(void) {
     return rc;
 }
 
+/**
+ * @brief 批量启动已初始化的执行实例
+ *
+ * @param instances 实例指针数组（须与 init_all 时一致）
+ * @param count 实例数量
+ * @return BM_OK 成功；BM_ERR_INVALID 参数不匹配；负值为 start 失败码
+ */
 int bm_exec_start_all(const bm_exec_t *const *instances, uint32_t count) {
     bm_exec_cpu_state_t *state = bm_exec_this();
     uint32_t i;
@@ -898,23 +869,23 @@ int bm_exec_start_all(const bm_exec_t *const *instances, uint32_t count) {
         if (rc != BM_OK) {
             BM_LOGE("exec", "start failed inst id=%u rc=%d",
                     (unsigned)instances[i]->id, rc);
-            exec_abort_session();
+            exec_abort_session(state);
             return rc;
         }
     }
 
 #if BM_CPU_LOCAL_ENABLE_ROUTE
-    exec_set_session(BM_EXEC_SESSION_STARTED);
+    exec_set_session(state, BM_EXEC_SESSION_STARTED);
     BM_LOGI("exec", "prepare ok count=%u", (unsigned)count);
     return BM_OK;
 #else
-    rc = exec_ensure_hrt_started();
+    rc = exec_ensure_hrt_started(state);
     if (rc != BM_OK) {
         BM_LOGE("exec", "hrt start failed rc=%d", rc);
-        exec_abort_session();
+        exec_abort_session(state);
         return rc;
     }
-    exec_set_session(BM_EXEC_SESSION_STARTED);
+    exec_set_session(state, BM_EXEC_SESSION_STARTED);
     BM_LOGI("exec", "start_all ok count=%u", (unsigned)count);
     return BM_OK;
 #endif
@@ -936,10 +907,10 @@ int bm_exec_irq_release_all(void) {
     if (exec_get_session(state) != BM_EXEC_SESSION_STARTED) {
         return BM_ERR_NOT_INIT;
     }
-    rc = exec_ensure_hrt_started();
+    rc = exec_ensure_hrt_started(state);
     if (rc != BM_OK) {
         BM_LOGE("exec", "irq_release hrt start failed rc=%d", rc);
-        exec_abort_session();
+        exec_abort_session(state);
         return rc;
     }
     BM_LOGI("exec", "irq_release ok");
@@ -1040,7 +1011,7 @@ void bm_exec_safe_stop_all(const bm_exec_t *const *instances,
         BM_LOGW("exec", "safe_stop_all ignored external instance table");
     }
 
-    exec_teardown_session();
+    exec_teardown_session(state);
     BM_LOGI("exec", "safe_stop_all done");
 }
 

@@ -20,6 +20,7 @@
 #include "bm/component/transport_qos.h"
 #include "bm/algorithm/bm_algo_common.h"
 #include "bm/common/bm_types.h"
+#include "bm/component/bm_component_common.h"
 
 #include <math.h>
 #include <string.h>
@@ -221,10 +222,7 @@ void bm_transport_qos_step(bm_transport_qos_axis_t *axis) {
     st->telemetry.jitter_ms = st->jitter_ms;
     st->telemetry.latency_ema_ms = st->latency_ema_ms;
 
-    if (axis->resources.publish_telemetry != NULL) {
-        axis->resources.publish_telemetry(
-            axis->resources.publish_telemetry_user, &st->telemetry);
-    }
+    BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
 }
 
 /**

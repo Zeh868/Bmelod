@@ -22,6 +22,7 @@
 #include "bm/component/spectral_diagnostics.h"
 #include "bm/algorithm/bm_algo_fft.h"
 #include "bm/common/bm_types.h"
+#include "bm/component/bm_component_common.h"
 
 #include <string.h>
 
@@ -112,10 +113,7 @@ void bm_spectral_diagnostics_step(bm_spectral_diagnostics_axis_t *axis,
         st->telemetry.goertzel_mag = st->goertzel_mag;
         st->telemetry.order = st->order;
         st->telemetry.shaft_rpm = shaft_rpm;
-        if (axis->resources.publish_telemetry != NULL) {
-            axis->resources.publish_telemetry(
-                axis->resources.publish_telemetry_user, &st->telemetry);
-        }
+        BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
         return;
     }
 
@@ -148,8 +146,5 @@ void bm_spectral_diagnostics_step(bm_spectral_diagnostics_axis_t *axis,
     st->telemetry.order = st->order;
     st->telemetry.shaft_rpm = shaft_rpm;
 
-    if (axis->resources.publish_telemetry != NULL) {
-        axis->resources.publish_telemetry(
-            axis->resources.publish_telemetry_user, &st->telemetry);
-    }
+    BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
 }

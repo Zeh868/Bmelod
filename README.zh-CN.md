@@ -163,8 +163,7 @@ bmelod-baremetal/
 │   ├── README.md         # 文档索引（00–21）
 │   ├── 00-环境与首次运行.md … 04-测试覆盖率基线.md
 │   └── api/              # API 参考（唯一子目录）
-├── CMakeLists.txt        # CMake 构建（32 位主流平台）
-└── Makefile              # 纯 Makefile（8 位工具链友好）
+└── CMakeLists.txt        # CMake 构建（32 位主流平台）
 ```
 
 ---

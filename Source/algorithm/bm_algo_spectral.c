@@ -17,6 +17,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_spectral.h"
+#include "bm/algorithm/bm_algo_errors.h"
 #include <stddef.h>
 
 #include <math.h>
@@ -39,7 +40,7 @@ int bm_algo_goertzel_init(bm_algo_goertzel_state_t *state,
         config->block_size == 0u || config->sample_hz <= 0.0f ||
         config->target_freq_hz < 0.0f ||
         config->target_freq_hz > 0.5f * config->sample_hz) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
 
     omega = 2.0f * BM_ALGO_PI_F * config->target_freq_hz / config->sample_hz;
@@ -62,7 +63,7 @@ int bm_algo_goertzel_feed(bm_algo_goertzel_state_t *state,
     float s;
 
     if (state == NULL || config == NULL) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
 
     s = sample + state->coeff * state->s_prev - state->s_prev2;
@@ -152,7 +153,7 @@ int bm_algo_find_peak_bin(const float *spectrum,
 
     if (spectrum == NULL || peak_bin == NULL || peak_value == NULL ||
         end_bin <= start_bin) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
 
     for (i = start_bin; i < end_bin; ++i) {
@@ -198,7 +199,7 @@ int bm_algo_stft_magnitude_frame(const float *frame,
                                  uint32_t n,
                                  float *magnitude) {
     if (frame == NULL || magnitude == NULL || n < 2u) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
 
     dft_magnitude(frame, window, n, magnitude);
@@ -228,7 +229,7 @@ int bm_algo_stft_overlap_init(bm_algo_stft_overlap_t *state,
         config->hop_size == 0u ||
         config->hop_size > config->frame_size ||
         ring_buffer_len < config->frame_size) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
     state->frame_size = config->frame_size;
     state->hop_size = config->hop_size;
@@ -262,11 +263,11 @@ int bm_algo_stft_overlap_feed(bm_algo_stft_overlap_t *state,
     uint32_t need_bins;
 
     if (state == NULL || config == NULL || state->ring_buffer == NULL) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
     need_bins = state->frame_size / 2u + 1u;
     if (magnitude_out == NULL || magnitude_len < need_bins) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
 
     state->ring_buffer[state->write_idx] = sample;
@@ -287,13 +288,14 @@ int bm_algo_stft_overlap_feed(bm_algo_stft_overlap_t *state,
         float frame_stack[BM_ALGO_STFT_MAX_FRAME];
 
         if (state->frame_size > BM_ALGO_STFT_MAX_FRAME) {
-            return -1;
+            /* frame_size 超出静态栈帧缓冲 frame_stack 的容量上限。 */
+            return BM_ALGO_ERR_OVERFLOW;
         }
         stft_overlap_extract_frame(state, frame_stack);
         if (bm_algo_stft_magnitude_frame(frame_stack, config->window,
                                          state->frame_size,
                                          magnitude_out) != 0) {
-            return -1;
+            return BM_ALGO_ERR_INVALID;
         }
     }
 

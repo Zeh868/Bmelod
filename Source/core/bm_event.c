@@ -203,12 +203,8 @@ static int _queue_item_valid(const bm_queue_item_t *item) {
     return item->event.data == item->inline_data ? BM_OK : BM_ERR_INVALID;
 }
 
-static void _prio_queues_reset(void) {
-    bm_event_cpu_state_t *state = bm_event_this();
-
-    if (state == NULL) {
-        return;
-    }
+/** @brief 清空优先级队列（调用方须持有非 NULL 的 state） */
+static void _prio_queues_reset(bm_event_cpu_state_t *state) {
     memset(state->prio_items, 0, sizeof(state->prio_items));
     memset(state->prio_read, 0, sizeof(state->prio_read));
     memset(state->prio_write, 0, sizeof(state->prio_write));
@@ -276,7 +272,7 @@ void bm_event_reset(void) {
     }
     memset(state->event_types, 0, sizeof(state->event_types));
     memset(state->subscribers, 0, sizeof(state->subscribers));
-    _prio_queues_reset();
+    _prio_queues_reset(state);
     state->next_subscriber_id = 1;
     state->queue_dropped = 0;
     state->dispatch_skipped = 0;
@@ -333,12 +329,7 @@ int bm_event_register_type(bm_event_type_t type, const char *name) {
  *
  * 冻结后或在分发回调内调用 subscribe/unsubscribe 会拒绝。
  */
-static int event_subscription_change_allowed(void) {
-    bm_event_cpu_state_t *state = bm_event_this();
-
-    if (state == NULL) {
-        return BM_ERR_INVALID;
-    }
+static int event_subscription_change_allowed(bm_event_cpu_state_t *state) {
     if (state->subscriptions_frozen || state->dispatch_depth > 0u) {
         state->reentrancy_rejected =
             bm_u32_saturating_inc(state->reentrancy_rejected);
@@ -371,7 +362,7 @@ int bm_event_subscribe(bm_event_type_t type, bm_event_callback_t cb,
 
     bm_subscriber_t *sub = NULL;
     int i;
-    int allowed = event_subscription_change_allowed();
+    int allowed = event_subscription_change_allowed(state);
 
     if (allowed != BM_OK) {
         BM_CRITICAL_EXIT(s);
@@ -463,7 +454,7 @@ int bm_event_unsubscribe(bm_event_type_t type, bm_event_subscriber_id_t id) {
     }
     bm_irq_state_t s = BM_CRITICAL_ENTER();
 
-    int allowed = event_subscription_change_allowed();
+    int allowed = event_subscription_change_allowed(state);
 
     if (allowed != BM_OK) {
         BM_CRITICAL_EXIT(s);
@@ -494,21 +485,19 @@ int bm_event_unsubscribe(bm_event_type_t type, bm_event_subscriber_id_t id) {
     return BM_ERR_NOT_FOUND;
 }
 
-static int _prio_push_copy(bm_event_priority_t prio, const bm_event_t *event,
+/** @brief 优先级队列入队拷贝（调用方须持有非 NULL 的 state） */
+static int _prio_push_copy(bm_event_cpu_state_t *state, bm_event_priority_t prio,
+                           const bm_event_t *event,
                            const void *data, size_t len) {
     /*
      * 每优先级独立环形队列，深度为 2 的幂以便用掩码代替取模，
      * 缩短临界区内的索引运算时间。
      */
-    bm_event_cpu_state_t *state = bm_event_this();
     uint32_t mask = BM_EVENT_QUEUE_DEPTH_PER_PRIO - 1u;
     uint32_t next;
     bm_queue_item_t *item;
     bm_irq_state_t s;
 
-    if (state == NULL) {
-        return BM_ERR_INVALID;
-    }
     if (prio >= BM_CONFIG_EVENT_PRIORITIES) {
         return BM_ERR_INVALID;
     }
@@ -619,10 +608,10 @@ static int event_publish_impl(bm_event_type_t type, bm_event_priority_t prio,
     BM_CRITICAL_EXIT(s);
 
     if (event_template) {
-        return _prio_push_copy(prio, &ev,
+        return _prio_push_copy(state, prio, &ev,
                                event_template->data, event_template->data_len);
     }
-    return _prio_push_copy(prio, &ev, data, len);
+    return _prio_push_copy(state, prio, &ev, data, len);
 }
 
 /**
@@ -764,17 +753,14 @@ int bm_event_publish_event_from_isr(const bm_event_t *event) {
 #endif
 }
 
-static int _queue_pop_highest_prio(bm_queue_item_t *out) {
-    bm_event_cpu_state_t *state = bm_event_this();
+/** @brief 弹出最高优先级队首事件（调用方须持有非 NULL 的 state） */
+static int _queue_pop_highest_prio(bm_event_cpu_state_t *state, bm_queue_item_t *out) {
     bm_irq_state_t s;
     uint32_t prio;
     uint32_t selected = BM_CONFIG_EVENT_PRIORITIES;
     uint32_t mask = BM_EVENT_QUEUE_DEPTH_PER_PRIO - 1u;
     bool lower_prio_pending = false;
 
-    if (state == NULL) {
-        return BM_ERR_INVALID;
-    }
     s = BM_CRITICAL_ENTER();
 
     for (prio = 0u; prio < BM_CONFIG_EVENT_PRIORITIES; ++prio) {
@@ -931,7 +917,7 @@ int bm_event_process(uint32_t max_events) {
 
     for (i = 0u; i < max_events; i++) {
         bm_queue_item_t item;
-        int rc = _queue_pop_highest_prio(&item);
+        int rc = _queue_pop_highest_prio(state, &item);
 
         if (rc == BM_ERR_INVALID) {
             bm_irq_state_t s = BM_CRITICAL_ENTER();

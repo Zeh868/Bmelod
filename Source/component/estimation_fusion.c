@@ -20,6 +20,7 @@
  */
 #include "bm/component/estimation_fusion.h"
 #include "bm/common/bm_types.h"
+#include "bm/component/bm_component_common.h"
 
 #include <math.h>
 #include <string.h>
@@ -107,10 +108,7 @@ void bm_estimation_fusion_step(bm_estimation_fusion_axis_t *axis) {
         st->telemetry.roll_rad = st->euler.roll_rad;
         st->telemetry.pitch_rad = st->euler.pitch_rad;
         st->telemetry.yaw_rad = st->euler.yaw_rad;
-        if (axis->resources.publish_telemetry != NULL) {
-            axis->resources.publish_telemetry(
-                axis->resources.publish_telemetry_user, &st->telemetry);
-        }
+        BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
         return;
     }
 
@@ -122,10 +120,7 @@ void bm_estimation_fusion_step(bm_estimation_fusion_axis_t *axis) {
         st->telemetry.roll_rad = st->euler.roll_rad;
         st->telemetry.pitch_rad = st->euler.pitch_rad;
         st->telemetry.yaw_rad = st->euler.yaw_rad;
-        if (axis->resources.publish_telemetry != NULL) {
-            axis->resources.publish_telemetry(
-                axis->resources.publish_telemetry_user, &st->telemetry);
-        }
+        BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
         return;
     }
 
@@ -170,10 +165,7 @@ void bm_estimation_fusion_step(bm_estimation_fusion_axis_t *axis) {
     st->telemetry.pitch_rad = st->euler.pitch_rad;
     st->telemetry.yaw_rad = st->euler.yaw_rad;
 
-    if (axis->resources.publish_telemetry != NULL) {
-        axis->resources.publish_telemetry(
-            axis->resources.publish_telemetry_user, &st->telemetry);
-    }
+    BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
 }
 
 /* ---------- exec_ops 封装 ---------- */

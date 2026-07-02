@@ -18,6 +18,7 @@
  */
 #include "bm/component/navigation_frontend.h"
 #include "bm/common/bm_types.h"
+#include "bm/component/bm_component_common.h"
 
 #include <math.h>
 #include <string.h>
@@ -172,8 +173,5 @@ void bm_navigation_frontend_step(bm_navigation_frontend_axis_t *axis) {
     st->telemetry.gnss_velocity_m_s = st->gnss_vel;
     st->telemetry.wheel_velocity_m_s = st->wheel_vel;
 
-    if (axis->resources.publish_telemetry != NULL) {
-        axis->resources.publish_telemetry(
-            axis->resources.publish_telemetry_user, &st->telemetry);
-    }
+    BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
 }

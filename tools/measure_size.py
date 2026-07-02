@@ -27,7 +27,11 @@ def run_size(size_tool, elf_path):
 
 def measure(name, cmake_args, size_tool=None):
     build_dir = f"build_measure_{name}"
-    cmd = ["cmake", "-B", build_dir, "-DBOARD=native_sim"] + cmake_args
+    cmd = ["cmake", "-B", build_dir, "-DBM_BACKEND=native_sim"] + cmake_args
+    # Windows 默认生成器为 VS 解决方案，未经项目验证；有 ninja 时显式指定，
+    # 避免落到未测试的生成器路径（曾在该路径下触发与本脚本参数无关的编译错误）。
+    if shutil.which("ninja"):
+        cmd += ["-G", "Ninja"]
     subprocess.run(cmd, check=True)
     subprocess.run(["cmake", "--build", build_dir], check=True)
 
@@ -57,7 +61,8 @@ def measure(name, cmake_args, size_tool=None):
 if __name__ == "__main__":
     size_tool = find_size_tool()
     configs = [
-        ("ultra",          ["-DBM_ULTRA_MODE=1"]),
+        # 无独立 CMake 开关；BM_CONFIG_ENABLE_ULTRA 是编译期宏，经 CMAKE_C_FLAGS 注入
+        ("ultra",          ["-DCMAKE_C_FLAGS=-DBM_CONFIG_ENABLE_ULTRA=1"]),
         ("core",           ["-DBM_ENABLE_MODULE=OFF", "-DBM_ENABLE_WDG=OFF"]),
         ("core+module",    ["-DBM_ENABLE_MODULE=ON",  "-DBM_ENABLE_WDG=OFF"]),
         ("core+module+wdg", ["-DBM_ENABLE_MODULE=ON", "-DBM_ENABLE_WDG=ON"]),

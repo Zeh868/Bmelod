@@ -12,10 +12,6 @@ function(bm_demo_apply_example_config TARGET)
         target_compile_definitions(${TARGET} PRIVATE
             BM_CONFIG_ENABLE_MODULE=$<BOOL:${EXAMPLE_ENABLE_MODULE}>)
     endif()
-    if(DEFINED EXAMPLE_ENABLE_CHANNEL)
-        target_compile_definitions(${TARGET} PRIVATE
-            BM_CONFIG_ENABLE_CHANNEL=$<BOOL:${EXAMPLE_ENABLE_CHANNEL}>)
-    endif()
     if(DEFINED EXAMPLE_ENABLE_SHELL)
         target_compile_definitions(${TARGET} PRIVATE
             BM_CONFIG_ENABLE_SHELL=$<BOOL:${EXAMPLE_ENABLE_SHELL}>)

@@ -20,6 +20,7 @@
 #include "bm/component/sensor_quality.h"
 #include "bm/algorithm/bm_algo_common.h"
 #include "bm/common/bm_types.h"
+#include "bm/component/bm_component_common.h"
 
 #include <math.h>
 #include <string.h>
@@ -77,10 +78,7 @@ void bm_sensor_quality_step(bm_sensor_quality_axis_t *axis) {
         st->telemetry.status = BM_SENSOR_QUALITY_TEL_STALE;
         st->telemetry.value = st->last_value;
         st->telemetry.fault_flags = st->fault_flags;
-        if (axis->resources.publish_telemetry != NULL) {
-            axis->resources.publish_telemetry(
-                axis->resources.publish_telemetry_user, &st->telemetry);
-        }
+        BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
         return;
     }
 
@@ -110,10 +108,7 @@ void bm_sensor_quality_step(bm_sensor_quality_axis_t *axis) {
     st->telemetry.value = sample;
     st->telemetry.fault_flags = flags;
 
-    if (axis->resources.publish_telemetry != NULL) {
-        axis->resources.publish_telemetry(
-            axis->resources.publish_telemetry_user, &st->telemetry);
-    }
+    BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
 }
 
 /* ---------- exec_ops 封装 ---------- */

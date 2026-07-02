@@ -1438,9 +1438,13 @@ bm_algo_q31_t bm_algo_flux_observer_q31_step(
     bm_algo_q31_t dt_q31);
 
 typedef struct {
-    bm_algo_q15_t ratio_q15;
-    bm_algo_q15_t phase_q15;
-    bm_algo_q15_t prev_sample_q15;
+    bm_algo_q15_t ratio_q15;        /**< 输出/输入采样率比，标准 Q15（±1.0 定标域） */
+    bm_algo_q15_t phase_q15;        /**< 重采样相位，专用定标（非标准 Q15 ±1.0 域，
+                                      *   缩放系数 1024，可表达 |phase|≤32；见
+                                      *   bm_algo_fixed.c resample_phase_q15_from_float()），
+                                      *   降采样（ratio<1）时可能 >1.0，勿用
+                                      *   bm_algo_q15_to_float() 解释此字段 */
+    bm_algo_q15_t prev_sample_q15;  /**< 上一个输入样本，标准 Q15（±1.0 定标域） */
 } bm_algo_linear_resampler_q15_state_t;
 
 void bm_algo_linear_resampler_q15_reset(bm_algo_linear_resampler_q15_state_t *state,
@@ -1454,9 +1458,13 @@ int bm_algo_linear_resampler_q15_step(bm_algo_linear_resampler_q15_state_t *stat
                                       uint32_t *out_count);
 
 typedef struct {
-    bm_algo_q31_t ratio_q31;
-    bm_algo_q31_t phase_q31;
-    bm_algo_q31_t prev_sample_q31;
+    bm_algo_q31_t ratio_q31;        /**< 输出/输入采样率比，标准 Q31（±1.0 定标域） */
+    bm_algo_q31_t phase_q31;        /**< 重采样相位，专用定标（非标准 Q31 ±1.0 域，
+                                      *   缩放系数 2^24，可表达 |phase|≤128；见
+                                      *   bm_algo_fixed.c resample_phase_q31_from_float()），
+                                      *   降采样（ratio<1）时可能 >1.0，勿用
+                                      *   bm_algo_q31_to_float() 解释此字段 */
+    bm_algo_q31_t prev_sample_q31;  /**< 上一个输入样本，标准 Q31（±1.0 定标域） */
 } bm_algo_linear_resampler_q31_state_t;
 
 void bm_algo_linear_resampler_q31_reset(bm_algo_linear_resampler_q31_state_t *state,
