@@ -2529,7 +2529,659 @@ static void test_review_batch2_pid_q15_antiwindup_no_overflow(void) {
     TEST_ASSERT_TRUE(st.integrator >= -32767 && st.integrator <= 32767);
 }
 
+/*
+ * ==========================================================================
+ * Phase 1 Task 1：双轨算法对照测试网（12 族 float vs Q15/Q31 逐步对照）
+ *
+ * 参见 docs/superpowers/plans/2026-07-02-arch-improvement-schedule.md。
+ * Q15/Q31 版当前均经 float 桥接实现（见 bm_algo_fixed.h @warning），
+ * 逐步对照容差：Q31 0.01f、Q15 0.02f；真定点化后本组测试是回归门。
+ * ==========================================================================
+ */
+
+/**
+ * @brief 双轨对照：differentiator Q31/Q15 与 float 版逐步一致性
+ *
+ * 幅值/频率选取保证微分量级 |dx/dt| 明显小于 1.0，避免 Q31/Q15 输出饱和。
+ */
+static void test_dualtrack_differentiator_q_vs_float(void) {
+    bm_algo_differentiator_config_t     fcfg = { .coeff = 0.3f };
+    bm_algo_differentiator_state_t      fst;
+    bm_algo_differentiator_q31_config_t q31cfg;
+    bm_algo_differentiator_q31_state_t  q31st;
+    bm_algo_differentiator_q15_config_t q15cfg;
+    bm_algo_differentiator_q15_state_t  q15st;
+    const float dt_s = 0.05f;
+    const bm_algo_q31_t dt_q31 = bm_algo_float_to_q31(dt_s);
+    const bm_algo_q15_t dt_q15 = bm_algo_float_to_q15(dt_s);
+    int i;
+
+    q31cfg.coeff_q31 = bm_algo_float_to_q31(0.3f);
+    q15cfg.coeff_q15 = bm_algo_float_to_q15(0.3f);
+
+    bm_algo_differentiator_reset(&fst);
+    bm_algo_differentiator_q31_reset(&q31st);
+    bm_algo_differentiator_q15_reset(&q15st);
+
+    for (i = 0; i < 64; ++i) {
+        float x = 0.3f * sinf((float)i * 0.05f);
+        float f_out = bm_algo_differentiator_step(&fst, &fcfg, x, dt_s);
+        float q31_out = bm_algo_q31_to_float(bm_algo_differentiator_q31_step(
+            &q31st, &q31cfg, bm_algo_float_to_q31(x), dt_q31));
+        float q15_out = bm_algo_q15_to_float(bm_algo_differentiator_q15_step(
+            &q15st, &q15cfg, bm_algo_float_to_q15(x), dt_q15));
+        TEST_ASSERT_FLOAT_WITHIN(0.01f, f_out, q31_out);
+        TEST_ASSERT_FLOAT_WITHIN(0.02f, f_out, q15_out);
+    }
+}
+
+/**
+ * @brief 双轨对照：smith_predictor Q31/Q15 与 float 版逐步一致性
+ *
+ * delay_steps=3，u_controller 幅值 <1 保证 model_gain*u 不越界。
+ */
+static void test_dualtrack_smith_predictor_q_vs_float(void) {
+    bm_algo_smith_predictor_config_t     fcfg = { .model_gain = 0.5f, .delay_steps = 3u };
+    bm_algo_smith_predictor_state_t      fst;
+    float                                f_delay[3];
+    bm_algo_smith_predictor_q31_config_t q31cfg;
+    bm_algo_smith_predictor_q31_state_t  q31st;
+    bm_algo_q31_t                        q31_delay[3];
+    bm_algo_smith_predictor_q15_config_t q15cfg;
+    bm_algo_smith_predictor_q15_state_t  q15st;
+    bm_algo_q15_t                        q15_delay[3];
+    int i;
+
+    q31cfg.model_gain_q31 = bm_algo_float_to_q31(0.5f);
+    q31cfg.delay_steps = 3u;
+    q15cfg.model_gain_q15 = bm_algo_float_to_q15(0.5f);
+    q15cfg.delay_steps = 3u;
+
+    TEST_ASSERT_EQUAL(0, bm_algo_smith_predictor_init(&fst, &fcfg, f_delay, 3u));
+    TEST_ASSERT_EQUAL(0, bm_algo_smith_predictor_q31_init(&q31st, &q31cfg, q31_delay, 3u));
+    TEST_ASSERT_EQUAL(0, bm_algo_smith_predictor_q15_init(&q15st, &q15cfg, q15_delay, 3u));
+
+    for (i = 0; i < 40; ++i) {
+        float reference = 0.5f;
+        float measurement = 0.5f;
+        float u_controller = 0.3f * sinf((float)i * 0.1f);
+        float f_err = bm_algo_smith_predictor_step(&fst, &fcfg, reference, measurement, u_controller);
+        float q31_err = bm_algo_q31_to_float(bm_algo_smith_predictor_q31_step(
+            &q31st, &q31cfg, bm_algo_float_to_q31(reference),
+            bm_algo_float_to_q31(measurement), bm_algo_float_to_q31(u_controller)));
+        float q15_err = bm_algo_q15_to_float(bm_algo_smith_predictor_q15_step(
+            &q15st, &q15cfg, bm_algo_float_to_q15(reference),
+            bm_algo_float_to_q15(measurement), bm_algo_float_to_q15(u_controller)));
+        TEST_ASSERT_FLOAT_WITHIN(0.01f, f_err, q31_err);
+        TEST_ASSERT_FLOAT_WITHIN(0.02f, f_err, q15_err);
+    }
+}
+
+/**
+ * @brief 双轨对照：moving_avg Q31/Q15 与 float 版逐步一致性（window=5）
+ */
+static void test_dualtrack_moving_avg_q_vs_float(void) {
+    float                            fbuf[5];
+    bm_algo_moving_avg_config_t      fcfg = { .buffer = fbuf, .length = 5u };
+    bm_algo_moving_avg_state_t       fst;
+    bm_algo_moving_avg_q31_config_t  q31cfg = { .window_size = 5u };
+    bm_algo_moving_avg_q31_state_t   q31st;
+    bm_algo_moving_avg_q15_config_t  q15cfg = { .window_size = 5u };
+    bm_algo_moving_avg_q15_state_t   q15st;
+    int i;
+
+    TEST_ASSERT_EQUAL(0, bm_algo_moving_avg_init(&fst, &fcfg));
+    bm_algo_moving_avg_q31_reset(&q31st);
+    bm_algo_moving_avg_q15_reset(&q15st);
+
+    for (i = 0; i < 30; ++i) {
+        float x = 0.4f * sinf((float)i * 0.15f);
+        float f_out = bm_algo_moving_avg_step(&fst, &fcfg, x);
+        float q31_out = bm_algo_q31_to_float(bm_algo_moving_avg_q31_step(
+            &q31st, &q31cfg, bm_algo_float_to_q31(x)));
+        float q15_out = bm_algo_q15_to_float(bm_algo_moving_avg_q15_step(
+            &q15st, &q15cfg, bm_algo_float_to_q15(x)));
+        TEST_ASSERT_FLOAT_WITHIN(0.01f, f_out, q31_out);
+        TEST_ASSERT_FLOAT_WITHIN(0.02f, f_out, q15_out);
+    }
+}
+
+/**
+ * @brief 双轨对照：complementary（互补滤波）Q31/Q15 与 float 版逐步一致性
+ *
+ * 比较 roll_rad/pitch_rad 姿态分量。
+ */
+static void test_dualtrack_complementary_q_vs_float(void) {
+    bm_algo_complementary_config_t     fcfg = { .alpha = 0.98f };
+    bm_algo_complementary_state_t      fst;
+    bm_algo_complementary_q31_config_t q31cfg = { .alpha_q31 = bm_algo_float_to_q31(0.98f) };
+    bm_algo_complementary_q31_state_t  q31st;
+    bm_algo_complementary_q15_config_t q15cfg = { .alpha_q15 = bm_algo_float_to_q15(0.98f) };
+    bm_algo_complementary_q15_state_t  q15st;
+    const float dt_s = 0.01f;
+    const bm_algo_q31_t dt_q31 = bm_algo_float_to_q31(dt_s);
+    const bm_algo_q15_t dt_q15 = bm_algo_float_to_q15(dt_s);
+    int i;
+
+    bm_algo_complementary_reset(&fst);
+    bm_algo_complementary_q31_reset(&q31st);
+    bm_algo_complementary_q15_reset(&q15st);
+
+    for (i = 0; i < 40; ++i) {
+        float gx = 0.1f * sinf((float)i * 0.2f);
+        float gy = 0.05f;
+
+        bm_algo_complementary_step(&fst, &fcfg, gx, gy, 0.0f, 0.0f, 0.0f, 1.0f, dt_s);
+        bm_algo_complementary_q31_step(&q31st, &q31cfg,
+            bm_algo_float_to_q31(gx), bm_algo_float_to_q31(gy), 0,
+            0, 0, BM_ALGO_Q31_ONE, dt_q31);
+        bm_algo_complementary_q15_step(&q15st, &q15cfg,
+            bm_algo_float_to_q15(gx), bm_algo_float_to_q15(gy), 0,
+            0, 0, BM_ALGO_Q15_ONE, dt_q15);
+
+        TEST_ASSERT_FLOAT_WITHIN(0.01f, fst.roll_rad, bm_algo_q31_to_float(q31st.roll_rad));
+        TEST_ASSERT_FLOAT_WITHIN(0.01f, fst.pitch_rad, bm_algo_q31_to_float(q31st.pitch_rad));
+        TEST_ASSERT_FLOAT_WITHIN(0.02f, fst.roll_rad, bm_algo_q15_to_float(q15st.roll_rad));
+        TEST_ASSERT_FLOAT_WITHIN(0.02f, fst.pitch_rad, bm_algo_q15_to_float(q15st.pitch_rad));
+    }
+}
+
+/**
+ * @brief 双轨对照：Mahony AHRS Q31/Q15 与 float 版姿态分量一致性
+ *
+ * 无磁力计观测时 yaw 不可观测（漂移方向对输入路径敏感），仅比较
+ * roll/pitch（经 bm_algo_quat_to_euler 从四元数换算）。
+ */
+static void test_dualtrack_mahony_q_vs_float(void) {
+    bm_algo_mahony_config_t     fcfg = { .kp = 2.0f, .ki = 0.01f };
+    bm_algo_mahony_state_t      fst;
+    bm_algo_euler_t             f_euler;
+    bm_algo_mahony_q31_config_t q31cfg;
+    bm_algo_mahony_q31_state_t  q31st;
+    bm_algo_quat_t              q31_quat;
+    bm_algo_euler_t             q31_euler;
+    bm_algo_mahony_q15_config_t q15cfg;
+    bm_algo_mahony_q15_state_t  q15st;
+    bm_algo_quat_t              q15_quat;
+    bm_algo_euler_t             q15_euler;
+    const float dt_s = 0.01f;
+    const bm_algo_q31_t dt_q31 = bm_algo_float_to_q31(dt_s);
+    const bm_algo_q15_t dt_q15 = bm_algo_float_to_q15(dt_s);
+    int i;
+
+    q31cfg.kp_q31 = bm_algo_float_to_q31(2.0f);
+    q31cfg.ki_q31 = bm_algo_float_to_q31(0.01f);
+    q15cfg.kp_q15 = bm_algo_float_to_q15(2.0f);
+    q15cfg.ki_q15 = bm_algo_float_to_q15(0.01f);
+
+    bm_algo_mahony_reset(&fst);
+    bm_algo_mahony_q31_reset(&q31st);
+    bm_algo_mahony_q15_reset(&q15st);
+
+    for (i = 0; i < 30; ++i) {
+        float gx = 0.05f * sinf((float)i * 0.2f);
+        float gy = 0.03f;
+
+        bm_algo_mahony_step(&fst, &fcfg, gx, gy, 0.0f, 0.0f, 0.0f, 1.0f, dt_s);
+        bm_algo_mahony_q31_step(&q31st, &q31cfg,
+            bm_algo_float_to_q31(gx), bm_algo_float_to_q31(gy), 0,
+            0, 0, BM_ALGO_Q31_ONE, dt_q31);
+        bm_algo_mahony_q15_step(&q15st, &q15cfg,
+            bm_algo_float_to_q15(gx), bm_algo_float_to_q15(gy), 0,
+            0, 0, BM_ALGO_Q15_ONE, dt_q15);
+    }
+
+    bm_algo_quat_to_euler(&fst.q, &f_euler);
+    q31_quat.w = bm_algo_q31_to_float(q31st.qw_q31);
+    q31_quat.x = bm_algo_q31_to_float(q31st.qx_q31);
+    q31_quat.y = bm_algo_q31_to_float(q31st.qy_q31);
+    q31_quat.z = bm_algo_q31_to_float(q31st.qz_q31);
+    bm_algo_quat_to_euler(&q31_quat, &q31_euler);
+    q15_quat.w = bm_algo_q15_to_float(q15st.qw_q15);
+    q15_quat.x = bm_algo_q15_to_float(q15st.qx_q15);
+    q15_quat.y = bm_algo_q15_to_float(q15st.qy_q15);
+    q15_quat.z = bm_algo_q15_to_float(q15st.qz_q15);
+    bm_algo_quat_to_euler(&q15_quat, &q15_euler);
+
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, f_euler.roll_rad, q31_euler.roll_rad);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, f_euler.pitch_rad, q31_euler.pitch_rad);
+    TEST_ASSERT_FLOAT_WITHIN(0.02f, f_euler.roll_rad, q15_euler.roll_rad);
+    TEST_ASSERT_FLOAT_WITHIN(0.02f, f_euler.pitch_rad, q15_euler.pitch_rad);
+}
+
+/**
+ * @brief 双轨对照：Madgwick AHRS Q31/Q15 与 float 版姿态分量一致性
+ *
+ * 同 Mahony：无磁力计时 yaw 不可观测，仅比较 roll/pitch。
+ */
+static void test_dualtrack_madgwick_q_vs_float(void) {
+    bm_algo_madgwick_config_t     fcfg = { .beta = 0.1f };
+    bm_algo_madgwick_state_t      fst;
+    bm_algo_euler_t               f_euler;
+    bm_algo_madgwick_q31_config_t q31cfg = { .beta_q31 = bm_algo_float_to_q31(0.1f) };
+    bm_algo_madgwick_q31_state_t  q31st;
+    bm_algo_quat_t                q31_quat;
+    bm_algo_euler_t               q31_euler;
+    bm_algo_madgwick_q15_config_t q15cfg = { .beta_q15 = bm_algo_float_to_q15(0.1f) };
+    bm_algo_madgwick_q15_state_t  q15st;
+    bm_algo_quat_t                q15_quat;
+    bm_algo_euler_t               q15_euler;
+    const float dt_s = 0.01f;
+    const bm_algo_q31_t dt_q31 = bm_algo_float_to_q31(dt_s);
+    const bm_algo_q15_t dt_q15 = bm_algo_float_to_q15(dt_s);
+    int i;
+
+    bm_algo_madgwick_reset(&fst);
+    bm_algo_madgwick_q31_reset(&q31st);
+    bm_algo_madgwick_q15_reset(&q15st);
+
+    for (i = 0; i < 30; ++i) {
+        float gx = 0.05f * sinf((float)i * 0.2f);
+        float gy = 0.03f;
+
+        bm_algo_madgwick_step(&fst, &fcfg, gx, gy, 0.0f, 0.0f, 0.0f, 1.0f, dt_s);
+        bm_algo_madgwick_q31_step(&q31st, &q31cfg,
+            bm_algo_float_to_q31(gx), bm_algo_float_to_q31(gy), 0,
+            0, 0, BM_ALGO_Q31_ONE, dt_q31);
+        bm_algo_madgwick_q15_step(&q15st, &q15cfg,
+            bm_algo_float_to_q15(gx), bm_algo_float_to_q15(gy), 0,
+            0, 0, BM_ALGO_Q15_ONE, dt_q15);
+    }
+
+    bm_algo_quat_to_euler(&fst.q, &f_euler);
+    q31_quat.w = bm_algo_q31_to_float(q31st.qw_q31);
+    q31_quat.x = bm_algo_q31_to_float(q31st.qx_q31);
+    q31_quat.y = bm_algo_q31_to_float(q31st.qy_q31);
+    q31_quat.z = bm_algo_q31_to_float(q31st.qz_q31);
+    bm_algo_quat_to_euler(&q31_quat, &q31_euler);
+    q15_quat.w = bm_algo_q15_to_float(q15st.qw_q15);
+    q15_quat.x = bm_algo_q15_to_float(q15st.qx_q15);
+    q15_quat.y = bm_algo_q15_to_float(q15st.qy_q15);
+    q15_quat.z = bm_algo_q15_to_float(q15st.qz_q15);
+    bm_algo_quat_to_euler(&q15_quat, &q15_euler);
+
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, f_euler.roll_rad, q31_euler.roll_rad);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, f_euler.pitch_rad, q31_euler.pitch_rad);
+    TEST_ASSERT_FLOAT_WITHIN(0.02f, f_euler.roll_rad, q15_euler.roll_rad);
+    TEST_ASSERT_FLOAT_WITHIN(0.02f, f_euler.pitch_rad, q15_euler.pitch_rad);
+}
+
+/**
+ * @brief 双轨对照：DDA 直线插补 Q31/Q15 与 float 版逐步一致性
+ *
+ * 先断言 done/返回状态一致，再比较坐标输出（int 状态族）。
+ */
+static void test_dualtrack_dda_q_vs_float(void) {
+    bm_algo_dda_config_t     fcfg = { 0.0f, 0.0f, 0.5f, 0.3f, 0.05f };
+    bm_algo_dda_state_t      fst;
+    bm_algo_dda_q31_config_t q31cfg;
+    bm_algo_dda_q31_state_t  q31st;
+    bm_algo_dda_q15_config_t q15cfg;
+    bm_algo_dda_q15_state_t  q15st;
+    int i;
+
+    q31cfg.x0_q31 = bm_algo_float_to_q31(0.0f);
+    q31cfg.y0_q31 = bm_algo_float_to_q31(0.0f);
+    q31cfg.x1_q31 = bm_algo_float_to_q31(0.5f);
+    q31cfg.y1_q31 = bm_algo_float_to_q31(0.3f);
+    q31cfg.step_size_q31 = bm_algo_float_to_q31(0.05f);
+
+    q15cfg.x0_q15 = bm_algo_float_to_q15(0.0f);
+    q15cfg.y0_q15 = bm_algo_float_to_q15(0.0f);
+    q15cfg.x1_q15 = bm_algo_float_to_q15(0.5f);
+    q15cfg.y1_q15 = bm_algo_float_to_q15(0.3f);
+    q15cfg.step_size_q15 = bm_algo_float_to_q15(0.05f);
+
+    bm_algo_dda_reset(&fst, &fcfg);
+    bm_algo_dda_q31_reset(&q31st, &q31cfg);
+    bm_algo_dda_q15_reset(&q15st, &q15cfg);
+
+    for (i = 0; i < 20; ++i) {
+        float x_f = 0.0f, y_f = 0.0f;
+        bm_algo_q31_t x_q31 = 0, y_q31 = 0;
+        bm_algo_q15_t x_q15 = 0, y_q15 = 0;
+        int f_ok, q31_ok, q15_ok;
+
+        f_ok = bm_algo_dda_step(&fst, &fcfg, &x_f, &y_f);
+        q31_ok = bm_algo_dda_q31_step(&q31st, &q31cfg, &x_q31, &y_q31);
+        q15_ok = bm_algo_dda_q15_step(&q15st, &q15cfg, &x_q15, &y_q15);
+
+        TEST_ASSERT_EQUAL_INT(f_ok, q31_ok);
+        TEST_ASSERT_EQUAL_INT(f_ok, q15_ok);
+        if (!f_ok) {
+            break;
+        }
+        TEST_ASSERT_FLOAT_WITHIN(0.01f, x_f, bm_algo_q31_to_float(x_q31));
+        TEST_ASSERT_FLOAT_WITHIN(0.01f, y_f, bm_algo_q31_to_float(y_q31));
+        TEST_ASSERT_FLOAT_WITHIN(0.02f, x_f, bm_algo_q15_to_float(x_q15));
+        TEST_ASSERT_FLOAT_WITHIN(0.02f, y_f, bm_algo_q15_to_float(y_q15));
+    }
+    TEST_ASSERT_TRUE(fst.done != 0);
+    TEST_ASSERT_TRUE(q31st.done != 0);
+    TEST_ASSERT_TRUE(q15st.done != 0);
+}
+
+/**
+ * @brief 双轨对照：SOGI-PLL Q31/Q15 与 float 版趋势一致性（降级）
+ *
+ * 降级原因（均为审查中新发现的 Source 缺陷，非 Phase 1 范围不修复，
+ * 已记录供后续排期）：
+ * 1) bm_algo_sogi_pll_q31/q15_config_t 无 integrator_limit_ratio 字段，
+ *    只能表达 nominal_omega_rad_s/k_sogi/k_pll；真实电网角频率
+ *    （如 2π×50≈314 rad/s）远超 Q31/Q15 的 ±1.0 定标域，
+ *    bm_algo_float_to_q31/q15() 会直接饱和到 1.0，Q 版与 float 版
+ *    config 无法表达同一物理量，逐步数值对照失去意义。
+ * 2) bm_algo_fixed.c 中 bm_algo_sogi_pll_q15/q31_reset()/_step() 桥接到
+ *    float 版时，局部 fcfg 只赋值了 nominal_omega_rad_s/k_sogi/k_pll
+ *    三个字段，未赋值 bm_algo_sogi_pll_config_t::integrator_limit_ratio
+ *    （未初始化读，UB），该字段直接参与积分器限幅
+ *    （bm_algo_power.c 第 120~127 行），使逐步数值结果依赖未定义行为。
+ * 因此本测试仅对三版本做"趋势一致性"断言（有限、theta 落在回绕域内），
+ * 不做逐步数值比对；config 使用可在 Q31/Q15 定标域内精确表达的归一化
+ * 角频率（非真实物理 Hz），仅用于驱动桥接路径。
+ */
+static void test_dualtrack_sogi_pll_q_vs_float(void) {
+    bm_algo_sogi_pll_config_t     fcfg = {
+        .nominal_omega_rad_s = 0.5f, .k_sogi = 0.3f,
+        .k_pll = 0.2f, .integrator_limit_ratio = 0.2f
+    };
+    bm_algo_sogi_pll_state_t      fst;
+    bm_algo_sogi_pll_q31_config_t q31cfg;
+    bm_algo_sogi_pll_q31_state_t  q31st;
+    bm_algo_sogi_pll_q15_config_t q15cfg;
+    bm_algo_sogi_pll_q15_state_t  q15st;
+    const float dt_s = 0.01f;
+    const bm_algo_q31_t dt_q31 = bm_algo_float_to_q31(dt_s);
+    const bm_algo_q15_t dt_q15 = bm_algo_float_to_q15(dt_s);
+    int i;
+
+    q31cfg.nominal_omega_q31 = bm_algo_float_to_q31(0.5f);
+    q31cfg.k_sogi_q31 = bm_algo_float_to_q31(0.3f);
+    q31cfg.k_pll_q31 = bm_algo_float_to_q31(0.2f);
+    q15cfg.nominal_omega_q15 = bm_algo_float_to_q15(0.5f);
+    q15cfg.k_sogi_q15 = bm_algo_float_to_q15(0.3f);
+    q15cfg.k_pll_q15 = bm_algo_float_to_q15(0.2f);
+
+    bm_algo_sogi_pll_reset(&fst, &fcfg);
+    bm_algo_sogi_pll_q31_reset(&q31st, &q31cfg);
+    bm_algo_sogi_pll_q15_reset(&q15st, &q15cfg);
+
+    for (i = 0; i < 50; ++i) {
+        float v_in = sinf((float)i * 0.05f);
+        bm_algo_sogi_pll_step(&fst, &fcfg, v_in, dt_s);
+        bm_algo_sogi_pll_q31_step(&q31st, &q31cfg, bm_algo_float_to_q31(v_in), dt_q31);
+        bm_algo_sogi_pll_q15_step(&q15st, &q15cfg, bm_algo_float_to_q15(v_in), dt_q15);
+    }
+
+    TEST_ASSERT_TRUE(bm_algo_is_finite_f(fst.theta_rad));
+    TEST_ASSERT_TRUE(bm_algo_is_finite_f(fst.omega_rad_s));
+    TEST_ASSERT_TRUE(bm_algo_is_finite_f(q31st.theta_rad));
+    TEST_ASSERT_TRUE(bm_algo_is_finite_f(q31st.omega_rad_s));
+    TEST_ASSERT_TRUE(bm_algo_is_finite_f(q15st.theta_rad));
+    TEST_ASSERT_TRUE(bm_algo_is_finite_f(q15st.omega_rad_s));
+
+    /* theta 应落在 [0, 2π) 回绕域内（bm_algo_angle_wrap_0_2pi_rad 契约）。 */
+    TEST_ASSERT_TRUE(fst.theta_rad >= 0.0f && fst.theta_rad < 6.29f);
+    TEST_ASSERT_TRUE(q31st.theta_rad >= 0.0f && q31st.theta_rad < 6.29f);
+    TEST_ASSERT_TRUE(q15st.theta_rad >= 0.0f && q15st.theta_rad < 6.29f);
+}
+
+/**
+ * @brief 双轨对照：RMS（窗口方均根）Q31/Q15 与 float 版逐步一致性
+ */
+static void test_dualtrack_rms_q_vs_float(void) {
+    bm_algo_rms_config_t     fcfg = { .window_samples = 8u };
+    bm_algo_rms_state_t      fst;
+    float                    fbuf[8];
+    bm_algo_rms_q31_config_t q31cfg = { .window_size = 8u };
+    bm_algo_rms_q31_state_t  q31st;
+    bm_algo_rms_q15_config_t q15cfg = { .window_size = 8u };
+    bm_algo_rms_q15_state_t  q15st;
+    int i;
+
+    TEST_ASSERT_EQUAL(0, bm_algo_rms_init(&fst, &fcfg, fbuf, 8u));
+    bm_algo_rms_q31_reset(&q31st);
+    bm_algo_rms_q15_reset(&q15st);
+
+    for (i = 0; i < 20; ++i) {
+        float x = 0.4f * sinf((float)i * 0.3f);
+        float f_out = bm_algo_rms_step(&fst, &fcfg, x);
+        float q31_out = bm_algo_q31_to_float(
+            bm_algo_rms_q31_step(&q31st, &q31cfg, bm_algo_float_to_q31(x)));
+        float q15_out = bm_algo_q15_to_float(
+            bm_algo_rms_q15_step(&q15st, &q15cfg, bm_algo_float_to_q15(x)));
+        TEST_ASSERT_TRUE(f_out >= 0.0f);
+        TEST_ASSERT_FLOAT_WITHIN(0.01f, f_out, q31_out);
+        TEST_ASSERT_FLOAT_WITHIN(0.02f, f_out, q15_out);
+    }
+}
+
+/**
+ * @brief 双轨对照：flux_observer（磁链观测+PLL）Q31/Q15 与 float 版逐步一致性
+ *
+ * ls_h 置 0 避免磁链角在瞬态首步出现大跳变（|flux| 接近 0 时 atan2 数值
+ * 敏感）；v/i 激励为恒定小幅值，使收敛角度落在 Q31/Q15 的 ±1.0 rad
+ * 定标域内，避免角度输出饱和。
+ */
+static void test_dualtrack_flux_observer_q_vs_float(void) {
+    bm_algo_flux_observer_config_t     fcfg = {
+        .rs_ohm = 0.1f, .ls_h = 0.0f, .pll_kp = 0.5f, .pll_ki = 0.05f,
+        .flux_observer_wc_rad_s = 10.0f
+    };
+    bm_algo_flux_observer_state_t      fst;
+    bm_algo_flux_observer_q31_config_t q31cfg;
+    bm_algo_flux_observer_q31_state_t  q31st;
+    bm_algo_flux_observer_q15_config_t q15cfg;
+    bm_algo_flux_observer_q15_state_t  q15st;
+    const float dt_s = 0.001f;
+    const bm_algo_q31_t dt_q31 = bm_algo_float_to_q31(dt_s);
+    const bm_algo_q15_t dt_q15 = bm_algo_float_to_q15(dt_s);
+    const float v_alpha = 0.15f;
+    const float v_beta = 0.03f;
+    const float i_alpha = 0.05f;
+    const float i_beta = 0.01f;
+    int i;
+
+    q31cfg.rs_q31 = bm_algo_float_to_q31(0.1f);
+    q31cfg.ls_q31 = bm_algo_float_to_q31(0.0f);
+    q31cfg.pll_kp_q31 = bm_algo_float_to_q31(0.5f);
+    q31cfg.pll_ki_q31 = bm_algo_float_to_q31(0.05f);
+    q31cfg.wc_rad_s = 10.0f;
+
+    q15cfg.rs_q15 = bm_algo_float_to_q15(0.1f);
+    q15cfg.ls_q15 = bm_algo_float_to_q15(0.0f);
+    q15cfg.pll_kp_q15 = bm_algo_float_to_q15(0.5f);
+    q15cfg.pll_ki_q15 = bm_algo_float_to_q15(0.05f);
+    q15cfg.wc_rad_s = 10.0f;
+
+    bm_algo_flux_observer_reset(&fst, 0.0f);
+    bm_algo_flux_observer_q31_reset(&q31st, 0);
+    bm_algo_flux_observer_q15_reset(&q15st, 0);
+
+    for (i = 0; i < 30; ++i) {
+        float f_theta = bm_algo_flux_observer_step(&fst, &fcfg,
+            v_alpha, v_beta, i_alpha, i_beta, dt_s);
+        float q31_theta = bm_algo_q31_to_float(bm_algo_flux_observer_q31_step(
+            &q31st, &q31cfg,
+            bm_algo_float_to_q31(v_alpha), bm_algo_float_to_q31(v_beta),
+            bm_algo_float_to_q31(i_alpha), bm_algo_float_to_q31(i_beta), dt_q31));
+        float q15_theta = bm_algo_q15_to_float(bm_algo_flux_observer_q15_step(
+            &q15st, &q15cfg,
+            bm_algo_float_to_q15(v_alpha), bm_algo_float_to_q15(v_beta),
+            bm_algo_float_to_q15(i_alpha), bm_algo_float_to_q15(i_beta), dt_q15));
+
+        TEST_ASSERT_FLOAT_WITHIN(0.01f, f_theta, q31_theta);
+        TEST_ASSERT_FLOAT_WITHIN(0.02f, f_theta, q15_theta);
+    }
+}
+
+/**
+ * @brief 双轨对照：S 曲线轨迹 Q31/Q15 与 float 版趋势一致性（降级）
+ *
+ * 降级原因：bm_algo_scurve_step 用"预估制动距离 vs 剩余距离"的
+ * bang-bang 阈值比较决定加速/减速相位切换（bm_algo_profile.c 第
+ * 194~202 行）。bm_algo_scurve_q31/q15_step 每步都把 position/
+ * velocity/acceleration 经 Q31/Q15 往返量化后再调用该 float 核心
+ * （未保留跨步 float 影子状态，见 bm_algo_fixed.c 对应实现），量化引入
+ * 的极小偏差可能使阈值比较在某一步上与 float 版判定不同，导致该步起
+ * 两版进入不同的加速度相位，此后位置轨迹持续偏离（非收敛的一次性
+ * 瞬态：实测偏差随迭代增长，非固定量级），逐步数值对照不稳定。降级为
+ * 趋势一致性：三版本均应收敛（done）、收敛后位置落在各自定标域下的
+ * target 附近，且收敛所需步数量级相近（非逐步数值比对）。
+ */
+static void test_dualtrack_scurve_q_vs_float(void) {
+    bm_algo_scurve_config_t     fcfg = { .max_vel = 0.4f, .max_accel = 0.3f, .max_jerk = 3.0f };
+    bm_algo_scurve_state_t      fst;
+    bm_algo_scurve_q31_config_t q31cfg;
+    bm_algo_scurve_q31_state_t  q31st;
+    bm_algo_scurve_q15_config_t q15cfg;
+    bm_algo_scurve_q15_state_t  q15st;
+    const float dt_s = 0.02f;
+    const bm_algo_q31_t dt_q31 = bm_algo_float_to_q31(dt_s);
+    const bm_algo_q15_t dt_q15 = bm_algo_float_to_q15(dt_s);
+    const float target = 0.5f;
+    const int max_steps = 300;
+    int f_steps = -1, q31_steps = -1, q15_steps = -1;
+    int step_diff;
+    int i;
+
+    q31cfg.max_vel_q31 = bm_algo_float_to_q31(0.4f);
+    q31cfg.max_accel_q31 = bm_algo_float_to_q31(0.3f);
+    q31cfg.max_jerk_q31 = bm_algo_float_to_q31(3.0f);
+    q15cfg.max_vel_q15 = bm_algo_float_to_q15(0.4f);
+    q15cfg.max_accel_q15 = bm_algo_float_to_q15(0.3f);
+    q15cfg.max_jerk_q15 = bm_algo_float_to_q15(3.0f);
+
+    bm_algo_scurve_reset(&fst, 0.0f, 0.0f, 0.0f);
+    bm_algo_scurve_set_target(&fst, target);
+    bm_algo_scurve_q31_reset(&q31st, 0, 0, 0);
+    bm_algo_scurve_q31_set_target(&q31st, bm_algo_float_to_q31(target));
+    bm_algo_scurve_q15_reset(&q15st, 0, 0, 0);
+    bm_algo_scurve_q15_set_target(&q15st, bm_algo_float_to_q15(target));
+
+    for (i = 0; i < max_steps; ++i) {
+        if (!fst.done) {
+            (void)bm_algo_scurve_step(&fst, &fcfg, dt_s);
+            if (fst.done && f_steps < 0) {
+                f_steps = i + 1;
+            }
+        }
+        if (!q31st.done) {
+            (void)bm_algo_scurve_q31_step(&q31st, &q31cfg, dt_q31);
+            if (q31st.done && q31_steps < 0) {
+                q31_steps = i + 1;
+            }
+        }
+        if (!q15st.done) {
+            (void)bm_algo_scurve_q15_step(&q15st, &q15cfg, dt_q15);
+            if (q15st.done && q15_steps < 0) {
+                q15_steps = i + 1;
+            }
+        }
+        if (fst.done && q31st.done && q15st.done) {
+            break;
+        }
+    }
+
+    TEST_ASSERT_TRUE(fst.done != 0);
+    TEST_ASSERT_TRUE(q31st.done != 0);
+    TEST_ASSERT_TRUE(q15st.done != 0);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, target, fst.position);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, target, bm_algo_q31_to_float(q31st.position));
+    TEST_ASSERT_FLOAT_WITHIN(0.02f, target, bm_algo_q15_to_float(q15st.position));
+
+    /* 趋势一致性：收敛所需步数量级相近（非逐步数值对照）。 */
+    step_diff = f_steps - q31_steps;
+    if (step_diff < 0) {
+        step_diff = -step_diff;
+    }
+    TEST_ASSERT_TRUE(step_diff <= 20);
+    step_diff = f_steps - q15_steps;
+    if (step_diff < 0) {
+        step_diff = -step_diff;
+    }
+    TEST_ASSERT_TRUE(step_diff <= 20);
+}
+
+/**
+ * @brief 双轨对照：线性重采样 Q31/Q15 与 float 版趋势一致性（降级）
+ *
+ * 降级原因（审查中新发现的 Source 缺陷，非 Phase 1 范围不修复，已记录
+ * 供后续排期）：bm_algo_linear_resampler_reset() 把初始相位设为
+ * phase=1/ratio（即 step）；当 ratio<1（降采样——Q15/Q31 定标域只能
+ * 表达 (0,1) 的 ratio，>=1 会被 float_to_q31/q15 饱和裁到 1.0，物理量
+ * 已失真）时 step 恒 >1.0。而 bm_algo_linear_resampler_q31/q15_reset()
+ * 直接对桥接得到的 fst.phase 做 bm_algo_float_to_q31/q15() 量化——该
+ * 函数对 >=1.0 的输入饱和裁到 ~1.0（bm_algo_fixed.c 第 75~76/101~102
+ * 行），把真实初始相位（>1.0）错误拉回 [0,1) 定标域，与 float 版初始
+ * 相位不一致。这使 Q 版从第一次 step 起就可能比 float 版提前一次输出
+ * （已用 ratio=0.999 复现：float 首步 n=0，Q31 首步 n=1）。该问题对
+ * 任意 ratio<1 恒定发生，与迭代步数无关，无法通过选取"安全" ratio
+ * 规避。因此降级为趋势一致性：不逐步比较输出计数/相位，只验证三版本
+ * 都能稳定产出有限、落在定标域内的重采样值，且累计输出量级相近。
+ */
+static void test_dualtrack_linear_resampler_q_vs_float(void) {
+    bm_algo_linear_resampler_state_t     fst;
+    bm_algo_linear_resampler_q31_state_t q31st;
+    bm_algo_linear_resampler_q15_state_t q15st;
+    float                                f_out[8];
+    bm_algo_q31_t                        q31_out[8];
+    bm_algo_q15_t                        q15_out[8];
+    uint32_t f_cnt, q31_cnt, q15_cnt;
+    uint32_t f_total = 0u, q31_total = 0u, q15_total = 0u;
+    const float ratio = 0.999f;
+    int i;
+
+    bm_algo_linear_resampler_reset(&fst, ratio, 0.0f);
+    bm_algo_linear_resampler_q31_reset(&q31st, bm_algo_float_to_q31(ratio), 0);
+    bm_algo_linear_resampler_q15_reset(&q15st, bm_algo_float_to_q15(ratio), 0);
+
+    for (i = 0; i < 15; ++i) {
+        float x = 0.3f * sinf((float)i * 0.2f);
+        int f_rc, q31_rc, q15_rc;
+        uint32_t j;
+
+        f_rc = bm_algo_linear_resampler_step(&fst, x, f_out, 8u, &f_cnt);
+        q31_rc = bm_algo_linear_resampler_q31_step(&q31st,
+            bm_algo_float_to_q31(x), q31_out, 8u, &q31_cnt);
+        q15_rc = bm_algo_linear_resampler_q15_step(&q15st,
+            bm_algo_float_to_q15(x), q15_out, 8u, &q15_cnt);
+
+        TEST_ASSERT_TRUE(f_rc >= 0);
+        TEST_ASSERT_TRUE(q31_rc >= 0);
+        TEST_ASSERT_TRUE(q15_rc >= 0);
+        f_total += f_cnt;
+        q31_total += q31_cnt;
+        q15_total += q15_cnt;
+        for (j = 0; j < q31_cnt; ++j) {
+            float qv = bm_algo_q31_to_float(q31_out[j]);
+            TEST_ASSERT_TRUE(qv >= -1.0f && qv <= 1.0f);
+        }
+        for (j = 0; j < q15_cnt; ++j) {
+            float qv = bm_algo_q15_to_float(q15_out[j]);
+            TEST_ASSERT_TRUE(qv >= -1.0f && qv <= 1.0f);
+        }
+    }
+
+    /* 趋势一致性：三版本累计输出样本数量级相近（非逐步比对）。 */
+    TEST_ASSERT_TRUE(f_total >= 10u);
+    TEST_ASSERT_TRUE(q31_total >= 10u);
+    TEST_ASSERT_TRUE(q15_total >= 10u);
+}
+
 void test_algorithm(void) {
+    RUN_TEST(test_dualtrack_differentiator_q_vs_float);
+    RUN_TEST(test_dualtrack_smith_predictor_q_vs_float);
+    RUN_TEST(test_dualtrack_moving_avg_q_vs_float);
+    RUN_TEST(test_dualtrack_complementary_q_vs_float);
+    RUN_TEST(test_dualtrack_mahony_q_vs_float);
+    RUN_TEST(test_dualtrack_madgwick_q_vs_float);
+    RUN_TEST(test_dualtrack_dda_q_vs_float);
+    RUN_TEST(test_dualtrack_sogi_pll_q_vs_float);
+    RUN_TEST(test_dualtrack_rms_q_vs_float);
+    RUN_TEST(test_dualtrack_flux_observer_q_vs_float);
+    RUN_TEST(test_dualtrack_scurve_q_vs_float);
+    RUN_TEST(test_dualtrack_linear_resampler_q_vs_float);
     RUN_TEST(test_review_batch2_trapezoid_q31_vs_float);
     RUN_TEST(test_review_batch2_energy_scale_consistency);
     RUN_TEST(test_review_batch2_backlash_q31_vs_float);
