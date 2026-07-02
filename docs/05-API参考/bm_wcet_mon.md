@@ -167,6 +167,10 @@ typedef void (*bm_wcet_sink_fn)(const bm_wcet_span_t *span, bm_wcet_evt_t evt,
   （幂等，`BM_ERR_ALREADY` 视为成功）；池/注册表耗尽时 `init` 直接返回
   `BM_ERR_NO_MEM`（宁可失败，不悄悄不监控），多表部署需自行调大
   `BM_CONFIG_WCET_MON_MAX_SPANS`。
+- **集成顺序（必守）**：`bm_wcet_mon_init()` 须在 `bm_tt_schedule_init()`
+  **之前**调用——它会清空注册表，若排在其后，TT 自动注册的 span 会被
+  静默清出迭代面（begin/end/sink 因 TT 内部池仍在而照常工作，故障不易
+  察觉）；uptime 懒初始化预热也只有在此顺序下才对 ISR 首拍生效。
 
 ---
 
