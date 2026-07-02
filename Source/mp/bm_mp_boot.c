@@ -225,6 +225,14 @@ uint32_t bm_mp_boot_epoch(void) {
     return local ? local->boot_epoch : 0u;
 }
 
+/**
+ * @brief 无有效 HRT tick 配置时的 fallback tick 周期（微秒）
+ *
+ * 依据：与 bm_config.h 中 BM_CONFIG_HRT_TICK_US 的默认值（100us）一致，
+ * 仅当运行期 BM_CONFIG_HRT_TICK_US 被覆盖为 0 时兜底，避免除零/零周期。
+ */
+#define MP_BOOT_FALLBACK_TICK_US  100u
+
 static uint64_t boot_now_us(void) {
 #if defined(_WIN32)
     LARGE_INTEGER counter;
@@ -247,7 +255,7 @@ static uint64_t boot_now_us(void) {
     {
         uint32_t tick_us = BM_CONFIG_HRT_TICK_US;
         if (tick_us == 0u) {
-            tick_us = 100u;
+            tick_us = MP_BOOT_FALLBACK_TICK_US;
         }
         return (uint64_t)bm_hal_timer_get_ticks() * (uint64_t)tick_us;
     }

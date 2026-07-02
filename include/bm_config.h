@@ -282,6 +282,11 @@
 #define BM_CONFIG_STREAM_DRAIN_WCET_PER_BLOCK_US  50u
 #endif
 
+/** @brief MP 调度记账：每流式块计入主循环预算的 WCET（微秒，须非零） */
+#ifndef BM_CONFIG_STREAM_ACCOUNT_WCET_PER_BLOCK_US
+#define BM_CONFIG_STREAM_ACCOUNT_WCET_PER_BLOCK_US  1u
+#endif
+
 #ifndef BM_CONFIG_RELAY_DRAIN_WCET_PER_SLOT_US
 #define BM_CONFIG_RELAY_DRAIN_WCET_PER_SLOT_US    40u
 #endif
@@ -316,6 +321,28 @@
 #define BM_CONFIG_IPC_DRAIN_BUDGET  \
     ((BM_CONFIG_CPU_COUNT > 1u) ? \
      ((BM_CONFIG_CPU_COUNT - 1u) * BM_CONFIG_IPC_PER_SOURCE_BUDGET) : 0u)
+#endif
+
+/*
+ * MP IPC payload 通道容量（真源；mp 头 BM_CONFIG_MP_IPC_* 别名桥接至此，
+ * 用户覆盖此处旋钮即对 mp 矩阵生效）。
+ */
+/** 命令 FIFO 环深度（必须为 2 的幂） */
+#ifndef BM_CONFIG_IPC_CMD_RING_DEPTH
+#define BM_CONFIG_IPC_CMD_RING_DEPTH         8u
+#endif
+/** 命令 payload 定长字节槽 */
+#ifndef BM_CONFIG_IPC_CMD_PAYLOAD_SIZE
+#define BM_CONFIG_IPC_CMD_PAYLOAD_SIZE       32u
+#endif
+/** 遥测 payload 定长字节槽 */
+#ifndef BM_CONFIG_IPC_TEL_PAYLOAD_SIZE
+#define BM_CONFIG_IPC_TEL_PAYLOAD_SIZE       32u
+#endif
+
+/** @brief MP demo 主循环最大迭代数（bm_mp demo 停机默认上界） */
+#ifndef BM_CONFIG_MP_DEMO_MAX_LOOPS
+#define BM_CONFIG_MP_DEMO_MAX_LOOPS          2000u
 #endif
 
 #ifndef BM_CONFIG_WDG_HB_TIMEOUT_MS
@@ -387,6 +414,27 @@
 
 #ifndef BM_CONFIG_BOOTSTRAP_CPU
 #define BM_CONFIG_BOOTSTRAP_CPU                  0u
+#endif
+
+/**
+ * @brief 16 位无符号 ADC 采样零点（中点）
+ *
+ * 有符号电流/信号以 raw=32768 对应零点，偏差 (raw - 中点) 映射正负。
+ * 供 component 层 adc_to_current 等换算复用。12 位等非 16 位 ADC 平台
+ * 须按实际分辨率覆盖此值。
+ */
+#ifndef BM_ADC_MIDPOINT_16BIT
+#define BM_ADC_MIDPOINT_16BIT                    32768
+#endif
+
+/** @brief 真空光速（m/s），雷达距离/量程换算用 */
+#ifndef BM_SPEED_OF_LIGHT_M_S
+#define BM_SPEED_OF_LIGHT_M_S                    3.0e8f
+#endif
+
+/** @brief 标准重力加速度（m/s²），坡道/惯性补偿用 */
+#ifndef BM_GRAVITY_M_S2
+#define BM_GRAVITY_M_S2                          9.81f
 #endif
 
 #endif /* BM_CONFIG_H */

@@ -5,6 +5,14 @@
  * Q31：1.0 ≈ 0x7FFFFFFF；Q15：1.0 = 32767。系数与信号均按 ±1.0 归一化。
  * 与 float 核分文件、分符号，不使用全局 typedef 在编译期切换 ABI。
  *
+ * @warning float 后端（S3）：以下 Q15/Q31 API 族**内部以 float 实现**
+ *          （Q→float→算→float→Q 往返，经对应 `bm_algo_*_step` 桥接）：
+ *          differentiator、scurve、DDA、complementary、madgwick、mahony、
+ *          flux_observer、sogi_pll、smith_predictor、linear_resampler。
+ *          同族 `rms_q15`/`rms_q31` 内部使用 double `sqrt`。
+ *          后果：FPU-less 平台有性能开销，且**不保证跨平台位精确复现**
+ *          （与"定点=可位精确复现"的确定性预期不符）。真定点化为后续项。
+ *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 2.4

@@ -32,7 +32,7 @@
  * @return 对应相电流（A），正负号由原始值相对 32768 的偏差决定
  */
 static float adc_to_current(float scale, uint16_t raw) {
-    return ((float)((int32_t)raw - 32768)) / scale;
+    return ((float)((int32_t)raw - BM_ADC_MIDPOINT_16BIT)) / scale;
 }
 
 /**

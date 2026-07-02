@@ -253,8 +253,13 @@ void bm_log(bm_log_level_t level, const char *tag, const char *fmt, ...) {
                                  sizeof(buf) - (size_t)prefix_len, fmt, ap);
 
         va_end(ap);
-        if (body_len < 0 ||
-            (size_t)body_len >= sizeof(buf) - (size_t)prefix_len) {
+        /*
+         * body_len < 0 为编码错误，无有效内容可输出，丢弃整条。
+         * body_len >= 剩余容量表示 vsnprintf 已就地截断（写满 cap-1 字节
+         * 并补 '\0'）：诊断路径宁可截断也不丢，故不再 return，
+         * 下方 strlen(buf) 自然取到截断后的有效长度（min(ret, cap-1)）。
+         */
+        if (body_len < 0) {
             return;
         }
     }

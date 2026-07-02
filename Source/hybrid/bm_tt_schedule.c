@@ -76,6 +76,9 @@ struct bm_let_ctx {
  * @param s 调度表实例（取 minor_us 算任务周期）
  * @param a 目标 activity（取 inputs/snapshot/rt）
  */
+/** LET 输入龄的饱和值（uint32_t 上限 UINT32_MAX，"曾饱和恒 stale" 语义） */
+#define BM_LET_AGE_SATURATED 0xFFFFFFFFu
+
 static void tt_freeze_inputs(bm_tt_schedule_t *s, bm_tt_activity_t *a) {
     uint32_t period_us = s->minor_us * a->every;
     uint32_t off = 0u;
@@ -86,8 +89,8 @@ static void tt_freeze_inputs(bm_tt_schedule_t *s, bm_tt_activity_t *a) {
      * 下一拍读成功但 seq 未变时误挡 miss 自增、age 少计一拍。period_us==0 时
      * age 恒 0 不会饱和，阈值取 UINT32_MAX 仅防 miss 回绕。
      */
-    uint32_t miss_saturated = (period_us == 0u) ? 0xFFFFFFFFu
-                                                : (0xFFFFFFFFu / period_us);
+    uint32_t miss_saturated = (period_us == 0u) ? BM_LET_AGE_SATURATED
+                                                : (BM_LET_AGE_SATURATED / period_us);
 
     for (uint8_t i = 0u; i < a->input_count; ++i) {
         const bm_let_input_t *in = &a->inputs[i];
@@ -95,13 +98,13 @@ static void tt_freeze_inputs(bm_tt_schedule_t *s, bm_tt_activity_t *a) {
         uint32_t seq = 0u;
         int rc = bm_bus_latest_read_seq(in->bus, snap, &seq);
         uint32_t max_age = (in->max_age_us == BM_LET_AGE_DEFAULT)
-                                ? (2u * period_us)
+                                ? (BM_LET_AGE_DEFAULT_PERIODS * period_us)
                                 : in->max_age_us;
 
         if (rc != BM_OK) {
             (void)memcpy(snap, in->safe_default, in->elem_size);
             a->rt->stale[i] = 1;
-            a->rt->age_us[i] = 0xFFFFFFFFu; /* miss 保持不变 */
+            a->rt->age_us[i] = BM_LET_AGE_SATURATED; /* miss 保持不变 */
         } else {
             if (seq != a->rt->baseline_seq[i]) {
                 a->rt->miss[i] = 0u;
@@ -112,8 +115,9 @@ static void tt_freeze_inputs(bm_tt_schedule_t *s, bm_tt_activity_t *a) {
             }
             {
                 uint64_t age64 = (uint64_t)a->rt->miss[i] * (uint64_t)period_us;
-                uint32_t age = (age64 > 0xFFFFFFFFu) ? 0xFFFFFFFFu
-                                                      : (uint32_t)age64;
+                uint32_t age = (age64 > BM_LET_AGE_SATURATED)
+                                   ? BM_LET_AGE_SATURATED
+                                   : (uint32_t)age64;
 
                 a->rt->age_us[i] = age;
                 a->rt->stale[i] = (max_age != 0u && age > max_age) ? 1 : 0;
@@ -546,6 +550,10 @@ uint32_t bm_tt_schedule_run_pending(bm_tt_schedule_t *sched, uint32_t budget) {
  *  校准后替换为非零常量或可配置项。 */
 #define TT_REPORT_OVERHEAD_US_PLACEHOLDER 0u
 
+/** report 逐行栈缓冲上界（字节）。上界估算见 bm_tt_schedule_report 注释：
+ *  activity 名 63B + 中文表头 ~100B + 数个 uint32_t 十进制字段 + 分隔符，留余量。 */
+#define TT_REPORT_LINE_MAX 200
+
 /**
  * @brief report 用：统计某个 minor 格内所有命中 ISR 域 activity 的 wcet_us 之和
  *
@@ -572,8 +580,8 @@ static uint32_t tt_report_frame_sum_us(const bm_tt_schedule_t *s, uint32_t t) {
 /**
  * @brief 输出调度表可读诊断报告：ISR 域时间格视图 + MAINLOOP 域预算账
  *
- * @details 用栈上定长行缓冲 `char line[200]` 逐行 `snprintf` 有界格式化后
- * 经 `emit(line, u)` 发出，全程零动态分配。200 字节上界估算：activity
+ * @details 用栈上定长行缓冲 `char line[TT_REPORT_LINE_MAX]` 逐行 `snprintf`
+ * 有界格式化后经 `emit(line, u)` 发出，全程零动态分配。上界估算：activity
  * 名字按合理上限 63 字节 + 固定中文表头（含"[时间来源: 声明 wcet_us ·
  * 计划视图]"等，UTF-8 下约 90～100 字节）+ 数个 uint32_t 十进制字段
  * （每个至多 10 位）+ 分隔符，留有充分余量；`snprintf` 返回值不做特殊
@@ -597,7 +605,7 @@ static uint32_t tt_report_frame_sum_us(const bm_tt_schedule_t *s, uint32_t t) {
  */
 void bm_tt_schedule_report(const bm_tt_schedule_t *sched,
                            void (*emit)(const char *line, void *u), void *u) {
-    char line[200];
+    char line[TT_REPORT_LINE_MAX];
     uint32_t peak_t = 0u;
     uint32_t peak_us = 0u;
 

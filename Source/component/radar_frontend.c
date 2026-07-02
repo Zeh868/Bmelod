@@ -158,7 +158,7 @@ int bm_radar_frontend_feed_chirp(bm_radar_frontend_axis_t *axis,
 
     range_scale = (cfg->range_scale_m > 0.0f)
                       ? cfg->range_scale_m
-                      : (3.0e8f / (2.0f * cfg->sample_hz));
+                      : (BM_SPEED_OF_LIGHT_M_S / (2.0f * cfg->sample_hz));
 
     st->step_count++;
     st->telemetry.sequence = st->step_count;

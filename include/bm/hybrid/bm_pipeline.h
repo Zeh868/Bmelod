@@ -78,6 +78,13 @@ int bm_pipeline_process_inplace(bm_pipeline_t *pipeline, bm_block_t *block);
 /**
  * @brief 线性处理：首节点读 input，各节点写 output；input==output 时等同就地
  * @return BM_OK，或节点错误；output 容量小于 input 有效长度时返回 BM_ERR_OVERFLOW
+ *
+ * @warning 别名安全契约（P2-2）：非原位调用（input != output）时，仅首节点为
+ *          input→output，从**第 2 个节点起**实际为 output→output 原位调用。
+ *          故各节点 `process` 实现必须**别名安全**（in 与 out 可指向同一块）。
+ * @note reset/init 一致性（P2-2）：`bm_pipeline_reset` 跳过 bypass 节点，而
+ *       init/prepare 与处理失败回滚**不跳过** bypass 节点，行为不对称——节点的
+ *       init/reset 须容忍这一差异。
  */
 int bm_pipeline_process(bm_pipeline_t *pipeline,
                         bm_block_t *input,

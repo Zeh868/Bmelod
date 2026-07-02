@@ -55,6 +55,14 @@
 /* Forward declaration of WDG gate installer */
 void bm_mp_install_wdg_gate(void);
 
+/**
+ * @brief 从核定时器 fallback 频率（Hz）
+ *
+ * 依据：当 1000000/BM_CONFIG_HRT_TICK_US 计算得 0（HRT_TICK_US 过大）时兜底，
+ * 保证 bm_hal_timer_init 得到非零频率，1000Hz 对应 1ms tick。
+ */
+#define MP_FALLBACK_TIMER_HZ  1000u
+
 /* BM_CONFIG_MP_MAIN_LOOP_MAX_SPINS 由 bm/mp/bm_mp.h 提供（默认桥接 bm_config.h
  * 的 BM_CONFIG_MAIN_LOOP_MAX_SPINS），此处不再重复本地 fallback（S5）。 */
 
@@ -113,7 +121,7 @@ int bm_mp_main_loop_period_elapsed(uint32_t start_ticks, uint32_t now_ticks,
 }
 
 static bm_atomic_ipc_u32_t s_demo_max_loops =
-    BM_ATOMIC_IPC_U32_INIT(2000u);
+    BM_ATOMIC_IPC_U32_INIT(BM_CONFIG_MP_DEMO_MAX_LOOPS);
 /*
  * 确定性流式跨核可见性：demo stop 标志使用原子操作，
  * 保证在无缓存一致性硬件的 AMP 上也具有跨核可见性。
@@ -365,7 +373,7 @@ void bm_mp_cpu_secondary_entry(void) {
         uint32_t hz = 1000000u / BM_CONFIG_HRT_TICK_US;
 
         if (hz == 0u) {
-            hz = 1000u;
+            hz = MP_FALLBACK_TIMER_HZ;
         }
         (void)bm_hal_timer_init(hz);
     }

@@ -292,6 +292,12 @@ int bm_bus_validate(const bm_bus_t *h);
  * "同一时刻只有 owner 核进入写路径"这一上层契约——多核下由 **bm_cpu_is_owner()** 守卫
  * 拒绝非 owner 核进入写路径（返回 BM_ERR_INVALID）；单核编译为 no-op（零开销）。
  *
+ * @warning 单一写上下文契约（P1-1）：多核构建下 `BUS_LOCK` 为空操作，
+ *          `write_in_progress` 的"查 0 再置 1"非原子，可被 **owner 核内 ISR**
+ *          在窗口内抢占（volatile 只防缓存不保证 RMW 原子性）。故每个 bus
+ *          仅允许**单一写上下文**：owner 核内亦不得由 ISR 与主循环双写者并发写
+ *          同一 bus。需 ISR+主循环双写者时应改用独立 bus 或上层串行化。
+ *
  * @param h        bus 句柄指针
  * @param slot_out 输出：写槽指针（类型强转后使用）
  * @return BM_OK 成功借到槽；BM_ERR_OVERFLOW QUEUE 模式环满；

@@ -34,6 +34,11 @@
 #define BM_ALGO_PI_F 3.14159265358979323846f
 #endif
 
+/** π/2（万向锁时 pitch 饱和至 ±90°）；保持原字面量值不变 */
+#ifndef BM_ALGO_HALF_PI_F
+#define BM_ALGO_HALF_PI_F 1.5707963f
+#endif
+
 static float inv_sqrt(float x) {
     if (x <= 0.0f) {
         return 0.0f;
@@ -271,7 +276,7 @@ void bm_algo_quat_to_euler(const bm_algo_quat_t *q, bm_algo_euler_t *euler) {
 
     sinp = 2.0f * (q->w * q->y - q->z * q->x);
     if (fabsf(sinp) >= 1.0f) {
-        euler->pitch_rad = (sinp > 0.0f) ? 1.5707963f : -1.5707963f;
+        euler->pitch_rad = (sinp > 0.0f) ? BM_ALGO_HALF_PI_F : -BM_ALGO_HALF_PI_F;
     } else {
         euler->pitch_rad = asinf(sinp);
     }

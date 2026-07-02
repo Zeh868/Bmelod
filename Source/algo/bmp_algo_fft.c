@@ -63,16 +63,15 @@ int bmp_fft_enhanced_step(bmp_fft_state_t *state,
     for (i = 0u; i < size; i++) {
         state->windowed[i] = samples[i] * state->window[i];
     }
+    /*
+     * P2-10：init 已校验 size/work 并填好实例，step 直接复用同布局无状态实例，
+     * 不再重复 bm_algo_rfft_f32_init（其仅做校验+赋同值字段，无预计算/副作用）。
+     */
     rfft.size = size;
     rfft.work = state->work;
     rfft.work_count = size * 2u;
     rfft.twiddle = NULL;
     rfft.twiddle_count = 0u;
-    if (bm_algo_rfft_f32_init(&rfft, size, state->work,
-                              (uint32_t)(sizeof(state->work) /
-                                         sizeof(state->work[0]))) != 0) {
-        return -3;
-    }
     if (bm_algo_rfft_f32_execute(&rfft, state->windowed, state->spectrum) != 0) {
         return -4;
     }

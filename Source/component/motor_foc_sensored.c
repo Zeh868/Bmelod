@@ -30,7 +30,7 @@
 #include <string.h>
 
 static float adc_to_current(float scale, uint16_t raw) {
-    return ((float)((int32_t)raw - 32768)) / scale;
+    return ((float)((int32_t)raw - BM_ADC_MIDPOINT_16BIT)) / scale;
 }
 
 static float read_theta_elec(const bm_motor_foc_sensored_axis_t *axis) {

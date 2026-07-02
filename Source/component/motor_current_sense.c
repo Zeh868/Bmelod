@@ -20,7 +20,7 @@
 #include <string.h>
 
 static float adc_to_current(float scale, uint16_t raw, float offset) {
-    return ((float)((int32_t)raw - 32768)) / scale - offset;
+    return ((float)((int32_t)raw - BM_ADC_MIDPOINT_16BIT)) / scale - offset;
 }
 
 static int read_adc_pair(const bm_motor_current_sense_axis_t *axis,

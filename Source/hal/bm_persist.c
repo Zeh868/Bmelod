@@ -11,25 +11,32 @@
  * - init / commit 在有 BM_DRV_HAS_BACKEND 时调用真实 NVS 后端；
  *   无后端时 init 从空表启动，commit 为 no-op（RAM KV 正常，掉电不保存）。
  *
- * 序列化 blob 格式（版本 0x01）：
+ * 序列化 blob 格式（版本 0x02）：
  * @code
  * [magic 4B]['B','M','K','V'] [version 1B][pad 1B]
  * 每条 entry：
  *   [valid 1B][key (KEY_MAX+1)B][val_len_lo 1B][val_len_hi 1B][val VAL_MAX B]
+ * [crc32 4B]（对头部+全部 entry 字节的 CRC32，小端，尾部）
  * @endcode
  *
+ * 完整性：尾部 CRC32（bm_crc32，Ethernet 多项式）覆盖 blob 前段（头部+条目）。
+ * load 时校验失配即按"格式不识别"路径拒绝加载（保持空表，不 latch 错误）。
+ * 格式变更时版本号递增（0x01→0x02），旧版本 blob 经版本不匹配自然拒绝。
+ *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-06-26
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-26       1.0            zeh            正式发布（路线图 #10 参数/配置持久化）
+ * 2026-07-02       1.1            zeh            blob 尾部增加 CRC32 完整性校验（P1-11），版本 0x01→0x02
  *
  */
 #include "bm/common/bm_persist.h"
 #include "bm/common/bm_types.h"
+#include "bm/common/bm_crc32.h"
 #include "bm_config.h"
 
 #ifdef BM_DRV_HAS_BACKEND
@@ -47,10 +54,12 @@
 #define PERSIST_MAGIC_1 'M'
 #define PERSIST_MAGIC_2 'K'
 #define PERSIST_MAGIC_3 'V'
-/** 当前序列化版本 */
-#define PERSIST_VERSION 0x01u
+/** 当前序列化版本（0x02：尾部新增 CRC32 完整性字段） */
+#define PERSIST_VERSION 0x02u
 /** 头部大小：magic(4) + version(1) + pad(1) */
 #define PERSIST_HEADER_SIZE 6u
+/** 尾部 CRC32 字段大小（4 字节，小端） */
+#define PERSIST_CRC_SIZE 4u
 
 /**
  * @brief 单条 entry 序列化字节数
@@ -60,10 +69,20 @@
 #define PERSIST_ENTRY_SERIAL \
     (1u + (BM_CONFIG_PERSIST_KEY_MAX_LEN + 1u) + 2u + BM_CONFIG_PERSIST_VAL_MAX_LEN)
 
-/** 完整 blob 字节数（头部 + 所有条目） */
-#define PERSIST_BLOB_SIZE \
+/** CRC 覆盖的 blob 前段字节数（头部 + 所有条目，不含尾部 CRC） */
+#define PERSIST_BODY_SIZE \
     (PERSIST_HEADER_SIZE + \
      (uint16_t)(BM_CONFIG_PERSIST_MAX_ENTRIES) * (uint16_t)(PERSIST_ENTRY_SERIAL))
+
+/** 完整 blob 字节数（头部 + 所有条目 + 尾部 CRC32） */
+#define PERSIST_BLOB_SIZE (PERSIST_BODY_SIZE + PERSIST_CRC_SIZE)
+
+/*
+ * blob 长度经 uint16_t 域传递给 bm_hal_nvs_load/save。用户加大
+ * MAX_ENTRIES / VAL_MAX / KEY_MAX 时须保证不溢出该长度域。
+ */
+_Static_assert(PERSIST_BLOB_SIZE <= UINT16_MAX,
+               "PERSIST_BLOB_SIZE exceeds uint16_t length domain");
 
 /* -------------------------------------------------------------------------- */
 /*  RAM KV 表                                                                   */
@@ -114,12 +133,13 @@ static uint16_t persist_key_len(const char *key, uint16_t max) {
 /**
  * @brief 将 RAM 表序列化为 blob
  *
- * 按 PERSIST blob 格式逐字节写入 buf。
+ * 按 PERSIST blob 格式逐字节写入 buf，末尾追加覆盖前段的 CRC32（小端）。
  *
  * @param buf 目标缓冲区（长度 >= PERSIST_BLOB_SIZE）
  */
 static void persist_serialize(uint8_t *buf) {
     uint16_t i;
+    uint32_t crc;
     uint8_t *p = buf;
 
     /* 头部 */
@@ -140,21 +160,31 @@ static void persist_serialize(uint8_t *buf) {
         (void)memcpy(p, g_store[i].val, BM_CONFIG_PERSIST_VAL_MAX_LEN);
         p += BM_CONFIG_PERSIST_VAL_MAX_LEN;
     }
+
+    /* 尾部 CRC32：覆盖头部+全部条目字节，小端写入 */
+    crc = bm_crc32(buf, (uint32_t)PERSIST_BODY_SIZE);
+    *p++ = (uint8_t)(crc & 0xFFu);
+    *p++ = (uint8_t)((crc >> 8u) & 0xFFu);
+    *p++ = (uint8_t)((crc >> 16u) & 0xFFu);
+    *p++ = (uint8_t)((crc >> 24u) & 0xFFu);
 }
 
 /**
  * @brief 从 blob 反序列化到 RAM 表
  *
- * 校验头部魔数和版本，通过后逐条还原条目。
+ * 校验头部魔数、版本与尾部 CRC32，通过后逐条还原条目。
  * val_len 越界时裁剪至 VAL_MAX_LEN。
  *
  * @param buf 源缓冲区（长度 >= PERSIST_BLOB_SIZE）
- * @return BM_OK 成功；BM_ERR_INVALID 头部校验失败
+ * @return BM_OK 成功；BM_ERR_INVALID 头部或 CRC 校验失败（视为格式不识别）
  */
 static int persist_deserialize(const uint8_t *buf) {
     uint16_t i;
     const uint8_t *p = buf;
     uint16_t vlen;
+    uint32_t crc_calc;
+    uint32_t crc_stored;
+    const uint8_t *crc_p = buf + PERSIST_BODY_SIZE;
 
     /* 校验魔数和版本 */
     if (p[0] != (uint8_t)PERSIST_MAGIC_0 ||
@@ -162,6 +192,16 @@ static int persist_deserialize(const uint8_t *buf) {
         p[2] != (uint8_t)PERSIST_MAGIC_2 ||
         p[3] != (uint8_t)PERSIST_MAGIC_3 ||
         p[4] != (uint8_t)PERSIST_VERSION) {
+        return BM_ERR_INVALID;
+    }
+
+    /* 校验尾部 CRC32：失配按格式不识别处理，拒绝加载 */
+    crc_stored = (uint32_t)crc_p[0] |
+                 ((uint32_t)crc_p[1] << 8u) |
+                 ((uint32_t)crc_p[2] << 16u) |
+                 ((uint32_t)crc_p[3] << 24u);
+    crc_calc = bm_crc32(buf, (uint32_t)PERSIST_BODY_SIZE);
+    if (crc_calc != crc_stored) {
         return BM_ERR_INVALID;
     }
     p += PERSIST_HEADER_SIZE;

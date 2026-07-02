@@ -22,17 +22,12 @@
 #include "bm/hybrid/bm_resource.h"
 #include "bm/common/bm_types.h"
 
+/*
+ * 真源在 bm_config.h（BM_CONFIG_RESOURCE_TOPOLOGY_MAX），此处仅 MP 名别名桥。
+ * 方向统一为 bm_config → mp，保证用户覆盖 bm_config 旋钮对 mp 拓扑表生效。
+ */
 #ifndef BM_CONFIG_MP_RESOURCE_TOPOLOGY_MAX
-#define BM_CONFIG_MP_RESOURCE_TOPOLOGY_MAX  32u
-#endif
-
-#ifndef BM_CONFIG_RESOURCE_TOPOLOGY_MAX
-#define BM_CONFIG_RESOURCE_TOPOLOGY_MAX  BM_CONFIG_MP_RESOURCE_TOPOLOGY_MAX
-#endif
-
-#if defined(BM_CONFIG_MP_RESOURCE_TOPOLOGY_MAX) && \
-    !defined(BM_CONFIG_RESOURCE_TOPOLOGY_MAX)
-#define BM_CONFIG_RESOURCE_TOPOLOGY_MAX  BM_CONFIG_MP_RESOURCE_TOPOLOGY_MAX
+#define BM_CONFIG_MP_RESOURCE_TOPOLOGY_MAX  BM_CONFIG_RESOURCE_TOPOLOGY_MAX
 #endif
 
 /** 平台只读资源拓扑条目（由 BSP 或链接脚本注册） */

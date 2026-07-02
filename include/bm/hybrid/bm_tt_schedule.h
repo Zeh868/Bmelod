@@ -34,8 +34,11 @@
 #include "bm/core/bm_bus.h"
 #include "bm/common/bm_types.h"
 
-/** 保质期哨兵：init 期解析为 2×任务周期 */
+/** 保质期哨兵：init 期解析为 BM_LET_AGE_DEFAULT_PERIODS×任务周期 */
 #define BM_LET_AGE_DEFAULT 0xFFFFFFFFu
+
+/** 默认保质期对应的任务周期倍数（max_age = N×period） */
+#define BM_LET_AGE_DEFAULT_PERIODS 2u
 
 /** 任务轴枚举：kind（本轮仅 compute） */
 typedef enum {

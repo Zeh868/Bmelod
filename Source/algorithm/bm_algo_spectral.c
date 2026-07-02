@@ -25,6 +25,12 @@
 #define BM_ALGO_PI_F 3.14159265358979323846f
 #endif
 
+/** 重叠 STFT 单帧样本硬上限（栈数组 frame_stack 尺寸，与 feed 内约束一致） */
+#define BM_ALGO_STFT_MAX_FRAME 64u
+
+/** 包络跟踪器默认一阶 LPF 系数（未配置时的默认平滑因子） */
+#define BM_ALGO_ENVELOPE_ALPHA_DEFAULT 0.1f
+
 int bm_algo_goertzel_init(bm_algo_goertzel_state_t *state,
                           const bm_algo_goertzel_config_t *config) {
     float omega;
@@ -104,7 +110,7 @@ void bm_algo_envelope_reset(bm_algo_envelope_state_t *state) {
     if (state != NULL) {
         state->prev = 0.0f;
         state->envelope = 0.0f;
-        state->alpha = 0.1f;
+        state->alpha = BM_ALGO_ENVELOPE_ALPHA_DEFAULT;
     }
 }
 
@@ -218,7 +224,7 @@ int bm_algo_stft_overlap_init(bm_algo_stft_overlap_t *state,
                               float *ring_buffer,
                               uint32_t ring_buffer_len) {
     if (state == NULL || config == NULL || ring_buffer == NULL ||
-        config->frame_size < 2u || config->frame_size > 64u ||
+        config->frame_size < 2u || config->frame_size > BM_ALGO_STFT_MAX_FRAME ||
         config->hop_size == 0u ||
         config->hop_size > config->frame_size ||
         ring_buffer_len < config->frame_size) {
@@ -278,9 +284,9 @@ int bm_algo_stft_overlap_feed(bm_algo_stft_overlap_t *state,
     }
 
     {
-        float frame_stack[64];
+        float frame_stack[BM_ALGO_STFT_MAX_FRAME];
 
-        if (state->frame_size > 64u) {
+        if (state->frame_size > BM_ALGO_STFT_MAX_FRAME) {
             return -1;
         }
         stft_overlap_extract_frame(state, frame_stack);

@@ -103,7 +103,7 @@ void bm_mobile_base_control_step(bm_mobile_base_control_axis_t *axis) {
 
     if (cfg->enable_slope_feedforward) {
         slope_ff = cfg->slope_feedforward_gain *
-                   sinf(cfg->slope_angle_rad) * 9.81f;
+                   sinf(cfg->slope_angle_rad) * BM_GRAVITY_M_S2;
         v += slope_ff;
     }
 

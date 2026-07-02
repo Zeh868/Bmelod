@@ -402,7 +402,7 @@ bm_algo_q15_t bm_algo_biquad_q15_step(bm_algo_biquad_q15_state_t *state,
 
 /* ---------- 电机控制 Q31 算法族 ---------- */
 
-#define BM_ALGO_SQRT3_Q31     1860867071 /* √3 的 Q30 定点表示：round(1.7320508075688772 × 2^30)，
+#define BM_ALGO_SQRT3_Q30     1860867071 /* √3 的 Q30 定点表示：round(1.7320508075688772 × 2^30)，
                                           * 与 Q31 信号相乘后右移 30 位得到 Q31 结果（√3·v）。 */
 #define BM_ALGO_INV_SQRT3_Q31 1239850262 /* 1/sqrt(3) in Q31 = 0.577350269 */
 
@@ -467,7 +467,7 @@ void bm_algo_svpwm_q31(bm_algo_q31_t v_alpha,
         return;
     }
 
-    sqrt3_vbeta = saturate_q31_i64(((int64_t)v_beta * BM_ALGO_SQRT3_Q31) >> 30);
+    sqrt3_vbeta = saturate_q31_i64(((int64_t)v_beta * BM_ALGO_SQRT3_Q30) >> 30);
 
     va = v_alpha;
     vb = (-v_alpha + sqrt3_vbeta) >> 1;
