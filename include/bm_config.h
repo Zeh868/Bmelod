@@ -62,6 +62,9 @@
 #ifndef BM_CONFIG_ENABLE_TT_SCHED
 #define BM_CONFIG_ENABLE_TT_SCHED            0
 #endif
+#ifndef BM_CONFIG_ENABLE_WCET_MON
+#define BM_CONFIG_ENABLE_WCET_MON            0
+#endif
 
 /* 流式域（Block/Frame RT） */
 #ifndef BM_CONFIG_STREAM_MAX_BLOCKS
@@ -233,6 +236,11 @@
 #endif
 #if BM_CONFIG_TT_SCHED_MAX_FRAMES < 1u
 #error "BM_CONFIG_TT_SCHED_MAX_FRAMES must be at least 1"
+#endif
+
+/* bm_wcet_mon（SAFE-2 运行时 deadline/WCET 监控） */
+#ifndef BM_CONFIG_WCET_MON_MAX_SPANS
+#define BM_CONFIG_WCET_MON_MAX_SPANS         16u
 #endif
 
 #ifndef BM_CONFIG_TICKER_MAX_SLOTS

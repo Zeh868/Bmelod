@@ -195,6 +195,39 @@ if(BM_ENABLE_TT_SCHEDULE)
         COMMENT "Generating build/schedule_map.txt")
 endif()
 
+if(BM_ENABLE_WCET_MON)
+    bm_add_test(test_wcet_mon test_wcet_mon.c bm_wcet_mon)
+    target_include_directories(test_wcet_mon PRIVATE
+        ${CMAKE_SOURCE_DIR}/portable/sim/native)
+    set_tests_properties(test_wcet_mon PROPERTIES LABELS "determinism")
+    # 符号级零动态分配机械检查（照 test_tt_schedule_symbols_no_alloc 模板）
+    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        find_program(BM_NM_EXE nm)
+        if(BM_NM_EXE)
+            add_test(NAME test_wcet_mon_symbols_no_alloc
+                COMMAND ${CMAKE_COMMAND}
+                    -DTOOL_ID=GNU
+                    -DNM_EXE=${BM_NM_EXE}
+                    -DLIB_PATH=$<TARGET_FILE:bm_wcet_mon>
+                    -P ${CMAKE_SOURCE_DIR}/tests/unit/support/check_no_alloc_symbols.cmake)
+            set_tests_properties(test_wcet_mon_symbols_no_alloc PROPERTIES
+                LABELS "determinism")
+        endif()
+    elseif(MSVC)
+        find_program(BM_DUMPBIN_EXE dumpbin)
+        if(BM_DUMPBIN_EXE)
+            add_test(NAME test_wcet_mon_symbols_no_alloc
+                COMMAND ${CMAKE_COMMAND}
+                    -DTOOL_ID=MSVC
+                    -DDUMPBIN_EXE=${BM_DUMPBIN_EXE}
+                    -DLIB_PATH=$<TARGET_FILE:bm_wcet_mon>
+                    -P ${CMAKE_SOURCE_DIR}/tests/unit/support/check_no_alloc_symbols.cmake)
+            set_tests_properties(test_wcet_mon_symbols_no_alloc PROPERTIES
+                LABELS "determinism")
+        endif()
+    endif()
+endif()
+
 if(BM_ENABLE_TICKER)
     bm_add_test(test_ticker test_ticker.c bm_ticker)
     target_include_directories(test_ticker PRIVATE
