@@ -4,11 +4,12 @@
  * @brief 运行时 deadline/WCET 监控（bm_wcet_mon）实现
  *
  * 本轮（Task 1）落实骨架：init 清态、register 定长指针表登记（重复/满表
- * 拒绝）、按注册顺序只读迭代、set_sink 绑定模块级快回调。begin/end/
- * report_miss 计时与超额判定留空体占位（保证可链接），实现见 Task 2/3。
+ * 拒绝）、按注册顺序只读迭代、set_sink 绑定模块级快回调。Task 2 补上
+ * begin/end 计时与预算超额判定、misuse 语义；report_miss 仍留空体占位，
+ * 实现见 Task 3。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-02
  *
  * @par 修改日志:
@@ -16,6 +17,8 @@
  *    Date         Version        Author          Description
  * 2026-07-02       1.0            zeh            Task 1：config/公共头/注册迭代骨架，
  *                                                 begin/end/report_miss 占位空体
+ * 2026-07-02       1.1            zeh            Task 2：begin/end 计时、预算超额判定、
+ *                                                 misuse 语义；report_miss 仍占位
  *
  */
 #include "bm/hybrid/bm_wcet_mon.h"
@@ -90,17 +93,53 @@ const bm_wcet_span_t *bm_wcet_mon_span_at(uint32_t idx) {
     return s_spans[idx];
 }
 
-/* begin/end/report_miss：Task 2/3 实现；本任务先给空体占位保证可链接 */
+/* report_miss：Task 3 实现；本任务先给空体占位保证可链接 */
 
 /**
- * @brief 标记监控段开始计时（占位空体，实现见 Task 2）
+ * @brief 进入监控段：记录 t0 并置 running；已 running 再 begin 记 misuse 并覆盖 t0
+ * @param span 监控段；NULL 直接返回
  */
-void bm_wcet_mon_begin(bm_wcet_span_t *span) { (void)span; }
+void bm_wcet_mon_begin(bm_wcet_span_t *span) {
+    if (span == NULL) {
+        return;
+    }
+    if (span->running != 0u) {
+        span->misuse_count = bm_u32_saturating_inc(span->misuse_count);
+    }
+    span->t0_us = bm_uptime_us();
+    span->running = 1u;
+}
 
 /**
- * @brief 标记监控段结束计时（占位空体，实现见 Task 2）
+ * @brief 离开监控段：算 elapsed（64 位差钳 32 位）、更新观测面；超预算计数并调 sink
+ * @param span 监控段；NULL 直接返回；未 running 仅记 misuse
  */
-void bm_wcet_mon_end(bm_wcet_span_t *span) { (void)span; }
+void bm_wcet_mon_end(bm_wcet_span_t *span) {
+    uint64_t delta;
+    uint32_t elapsed;
+
+    if (span == NULL) {
+        return;
+    }
+    if (span->running == 0u) {
+        span->misuse_count = bm_u32_saturating_inc(span->misuse_count);
+        return;
+    }
+    delta = bm_uptime_us() - span->t0_us;
+    elapsed = (delta > 0xFFFFFFFFull) ? 0xFFFFFFFFu : (uint32_t)delta;
+    span->running = 0u;
+    span->last_us = elapsed;
+    if (elapsed > span->max_us) {
+        span->max_us = elapsed;
+    }
+    span->run_count = bm_u32_saturating_inc(span->run_count);
+    if (span->budget_us > 0u && elapsed > span->budget_us) {
+        span->overrun_count = bm_u32_saturating_inc(span->overrun_count);
+        if (s_sink != NULL) {
+            s_sink(span, BM_WCET_EVT_BUDGET_OVERRUN, elapsed, s_sink_user);
+        }
+    }
+}
 
 /**
  * @brief 显式上报 deadline miss（占位空体，实现见 Task 3）
