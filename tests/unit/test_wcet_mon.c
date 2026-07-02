@@ -117,6 +117,77 @@ void test_null_span_is_noop(void) {
     TEST_PASS();
 }
 
+/* ---- Task 3：sink 双层上报 ---- */
+
+#define SINK_CAP 8u
+static struct {
+    const bm_wcet_span_t *span;
+    bm_wcet_evt_t         evt;
+    uint32_t              measured_us;
+    void                 *user;
+} g_sink_log[SINK_CAP];
+static uint32_t g_sink_n;
+
+/** @brief 测试 sink：按序记录事件 */
+static void capture_sink(const bm_wcet_span_t *span, bm_wcet_evt_t evt,
+                         uint32_t measured_us, void *user) {
+    if (g_sink_n < SINK_CAP) {
+        g_sink_log[g_sink_n].span = span;
+        g_sink_log[g_sink_n].evt = evt;
+        g_sink_log[g_sink_n].measured_us = measured_us;
+        g_sink_log[g_sink_n].user = user;
+    }
+    g_sink_n++;
+}
+
+void test_sink_receives_budget_overrun(void) {
+    static BM_WCET_SPAN_DEFINE(sp_sink1, 100u);
+    static int user_token;
+    g_sink_n = 0u;
+    bm_wcet_mon_set_sink(capture_sink, &user_token);
+    bm_wcet_mon_begin(&sp_sink1);
+    bm_hal_uptime_native_advance_us(250u);
+    bm_wcet_mon_end(&sp_sink1);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_sink_n);
+    TEST_ASSERT_EQUAL_PTR(&sp_sink1, g_sink_log[0].span);
+    TEST_ASSERT_EQUAL(BM_WCET_EVT_BUDGET_OVERRUN, g_sink_log[0].evt);
+    TEST_ASSERT_EQUAL_UINT32(250u, g_sink_log[0].measured_us);
+    TEST_ASSERT_EQUAL_PTR(&user_token, g_sink_log[0].user);
+}
+
+void test_report_miss_counts_and_notifies(void) {
+    static BM_WCET_SPAN_DEFINE(sp_sink2, 100u);
+    g_sink_n = 0u;
+    bm_wcet_mon_set_sink(capture_sink, NULL);
+    bm_wcet_mon_report_miss(&sp_sink2);
+    bm_wcet_mon_report_miss(&sp_sink2);
+    TEST_ASSERT_EQUAL_UINT32(2u, sp_sink2.miss_count);
+    TEST_ASSERT_EQUAL_UINT32(2u, g_sink_n);
+    TEST_ASSERT_EQUAL(BM_WCET_EVT_DEADLINE_MISS, g_sink_log[1].evt);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_sink_log[1].measured_us); /* 没跑，无实测 */
+}
+
+void test_no_sink_still_counts(void) {
+    static BM_WCET_SPAN_DEFINE(sp_sink3, 100u);
+    bm_wcet_mon_set_sink(NULL, NULL);
+    bm_wcet_mon_begin(&sp_sink3);
+    bm_hal_uptime_native_advance_us(200u);
+    bm_wcet_mon_end(&sp_sink3);
+    bm_wcet_mon_report_miss(&sp_sink3);
+    TEST_ASSERT_EQUAL_UINT32(1u, sp_sink3.overrun_count);
+    TEST_ASSERT_EQUAL_UINT32(1u, sp_sink3.miss_count);
+}
+
+void test_within_budget_no_sink_event(void) {
+    static BM_WCET_SPAN_DEFINE(sp_sink4, 100u);
+    g_sink_n = 0u;
+    bm_wcet_mon_set_sink(capture_sink, NULL);
+    bm_wcet_mon_begin(&sp_sink4);
+    bm_hal_uptime_native_advance_us(50u);
+    bm_wcet_mon_end(&sp_sink4);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_sink_n);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_register_rejects_null);
@@ -129,5 +200,9 @@ int main(void) {
     RUN_TEST(test_end_without_begin_counts_misuse);
     RUN_TEST(test_double_begin_counts_misuse_and_restarts);
     RUN_TEST(test_null_span_is_noop);
+    RUN_TEST(test_sink_receives_budget_overrun);
+    RUN_TEST(test_report_miss_counts_and_notifies);
+    RUN_TEST(test_no_sink_still_counts);
+    RUN_TEST(test_within_budget_no_sink_event);
     return UNITY_END();
 }

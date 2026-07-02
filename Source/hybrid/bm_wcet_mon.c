@@ -5,11 +5,11 @@
  *
  * 本轮（Task 1）落实骨架：init 清态、register 定长指针表登记（重复/满表
  * 拒绝）、按注册顺序只读迭代、set_sink 绑定模块级快回调。Task 2 补上
- * begin/end 计时与预算超额判定、misuse 语义；report_miss 仍留空体占位，
- * 实现见 Task 3。
+ * begin/end 计时与预算超额判定、misuse 语义。Task 3 补上 report_miss 语义
+ * （miss_count 计数 + sink 通知），完成 sink 双层上报闭环。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-02
  *
  * @par 修改日志:
@@ -19,6 +19,8 @@
  *                                                 begin/end/report_miss 占位空体
  * 2026-07-02       1.1            zeh            Task 2：begin/end 计时、预算超额判定、
  *                                                 misuse 语义；report_miss 仍占位
+ * 2026-07-02       1.2            zeh            Task 3：report_miss 实现
+ *                                                 （miss_count++ + sink 通知）
  *
  */
 #include "bm/hybrid/bm_wcet_mon.h"
@@ -93,8 +95,6 @@ const bm_wcet_span_t *bm_wcet_mon_span_at(uint32_t idx) {
     return s_spans[idx];
 }
 
-/* report_miss：Task 3 实现；本任务先给空体占位保证可链接 */
-
 /**
  * @brief 进入监控段：记录 t0 并置 running；已 running 再 begin 记 misuse 并覆盖 t0
  * @param span 监控段；NULL 直接返回
@@ -142,6 +142,15 @@ void bm_wcet_mon_end(bm_wcet_span_t *span) {
 }
 
 /**
- * @brief 显式上报 deadline miss（占位空体，实现见 Task 3）
+ * @brief 外部宿主显式上报 deadline miss（该跑没跑成，begin/end 覆盖不到）
+ * @param span 监控段；NULL 直接返回
  */
-void bm_wcet_mon_report_miss(bm_wcet_span_t *span) { (void)span; }
+void bm_wcet_mon_report_miss(bm_wcet_span_t *span) {
+    if (span == NULL) {
+        return;
+    }
+    span->miss_count = bm_u32_saturating_inc(span->miss_count);
+    if (s_sink != NULL) {
+        s_sink(span, BM_WCET_EVT_DEADLINE_MISS, 0u, s_sink_user);
+    }
+}
