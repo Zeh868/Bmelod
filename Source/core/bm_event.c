@@ -6,8 +6,8 @@
  * 按优先级分 FIFO 队列 + 不可变链表订阅者；临界区保护多生产者/消费者。
  * 订阅表初始化后冻结，分发直接遍历链表——无快照，WCET 可预测。
  * @author zeh (china_qzh@163.com)
- * @version 1.4
- * @date 2026-06-15
+ * @version 1.5
+ * @date 2026-07-02
  *
  * @par 修改日志:
  *
@@ -18,6 +18,8 @@
  * 2026-06-15       1.2            zeh            默认禁用零拷贝发布并收紧冻结检查
  * 2026-06-15       1.3            zeh            MP hook 首次设置后不可替换
  * 2026-06-15       1.4            zeh            零拷贝禁用守卫提前，消除 ISR 死代码路径
+ * 2026-07-02       1.5            zeh            QD-6：cache-line 补齐改用 union，
+ *                                                消除默认配置下 MSVC C2233
  *
  */
 #include "bm/core/bm_cpu_local.h"
@@ -109,13 +111,8 @@ typedef struct {
     bool                     subscriptions_frozen;
 } bm_event_cpu_state_t;
 
-typedef struct {
-    bm_event_cpu_state_t state;
-    uint8_t padding[(sizeof(bm_event_cpu_state_t) % BM_CONFIG_CACHE_LINE)
-        ? (BM_CONFIG_CACHE_LINE - (sizeof(bm_event_cpu_state_t) %
-                                   BM_CONFIG_CACHE_LINE))
-        : 0];
-} bm_event_cpu_storage_t;
+typedef BM_CACHE_LINE_PADDED_UNION(bm_event_cpu_state_t, state,
+                                   BM_CONFIG_CACHE_LINE) bm_event_cpu_storage_t;
 
 static BM_CACHE_ALIGNAS(BM_CONFIG_CACHE_LINE)
 bm_event_cpu_storage_t g_event_cpu[BM_CONFIG_CPU_COUNT];

@@ -5,13 +5,15 @@
  *
  * native_sim 单核路径简化为本地状态机；多核时通过共享矩阵 boot_phase 同步。
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-14
+ * @version 1.1
+ * @date 2026-07-02
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
+ * 2026-07-02       1.1            zeh            QD-6：cache-line 补齐改用 union，
+ *                                                消除 MSVC C2233
  *
  */
 #include "bm/mp/bm_mp_boot.h"
@@ -44,13 +46,8 @@ typedef struct {
 } bm_mp_boot_cpu_state_t;
 
 /** per-CPU 缓存行对齐存储，避免伪共享 */
-typedef struct {
-    bm_mp_boot_cpu_state_t state;
-    uint8_t padding[(sizeof(bm_mp_boot_cpu_state_t) % BM_CONFIG_CACHE_LINE)
-        ? (BM_CONFIG_CACHE_LINE - (sizeof(bm_mp_boot_cpu_state_t) %
-                                   BM_CONFIG_CACHE_LINE))
-        : 0];
-} bm_mp_boot_cpu_storage_t;
+typedef BM_CACHE_LINE_PADDED_UNION(bm_mp_boot_cpu_state_t, state,
+                                   BM_CONFIG_CACHE_LINE) bm_mp_boot_cpu_storage_t;
 
 /** 各逻辑 CPU 的本地启动状态（cache-line 隔离） */
 static BM_CACHE_ALIGNAS(BM_CONFIG_CACHE_LINE)

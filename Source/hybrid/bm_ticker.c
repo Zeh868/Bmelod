@@ -5,8 +5,8 @@
  *
  * 主循环轮询到期槽，向事件总线发布空载荷事件；统计丢弃次数。
  * @author zeh (china_qzh@163.com)
- * @version 1.7
- * @date 2026-06-26
+ * @version 1.8
+ * @date 2026-07-02
  *
  * @par 修改日志:
  *
@@ -19,6 +19,8 @@
  * 2026-06-15       1.5            zeh            poll 热路径移除格式化日志
  * 2026-06-26       1.6            zeh            #9-2b 时间基迁 bm_uptime_us（µs 域，64 位）
  * 2026-06-26       1.7            zeh            新增 bm_ticker_get_dropped_total（全槽丢弃计数求和）
+ * 2026-07-02       1.8            zeh            QD-6：cache-line 补齐改用 union，
+ *                                                消除 MSVC C2233
  *
  */
 #include "bm_ticker.h"
@@ -46,13 +48,8 @@ typedef struct {
     int                        initialized;
 } bm_ticker_cpu_state_t;
 
-typedef struct {
-    bm_ticker_cpu_state_t state;
-    uint8_t padding[(sizeof(bm_ticker_cpu_state_t) % BM_CONFIG_CACHE_LINE)
-        ? (BM_CONFIG_CACHE_LINE - (sizeof(bm_ticker_cpu_state_t) %
-                                   BM_CONFIG_CACHE_LINE))
-        : 0];
-} bm_ticker_cpu_storage_t;
+typedef BM_CACHE_LINE_PADDED_UNION(bm_ticker_cpu_state_t, state,
+                                   BM_CONFIG_CACHE_LINE) bm_ticker_cpu_storage_t;
 
 static BM_CACHE_ALIGNAS(BM_CONFIG_CACHE_LINE)
 bm_ticker_cpu_storage_t g_ticker_cpu[BM_CONFIG_CPU_COUNT];

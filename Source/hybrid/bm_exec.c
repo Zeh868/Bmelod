@@ -4,8 +4,8 @@
  *
  * 校验实例与资源声明，组装 HRT 调度表，协调 init/start/stop 与硬件绑定。
  * @author zeh (china_qzh@163.com)
- * @version 2.5
- * @date 2026-06-26
+ * @version 2.6
+ * @date 2026-07-02
  *
  * @par 修改日志:
  *
@@ -20,6 +20,8 @@
  * 2026-06-14       2.3            zeh            按 CPU 会话；stream commit/drain 解耦
  * 2026-06-14       2.4            zeh            deadline miss 可注册处理；按 CPU clock_id
  * 2026-06-26       2.5            zeh            deadline 时间基迁至 bm_uptime_us()（#9-2a）
+ * 2026-07-02       2.6            zeh            QD-6：cache-line 补齐改用 union，
+ *                                                消除 MSVC C2233
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -57,13 +59,8 @@ typedef struct {
     bm_atomic_ipc_u32_t session;
 } bm_exec_cpu_state_t;
 
-typedef struct {
-    bm_exec_cpu_state_t state;
-    uint8_t padding[(sizeof(bm_exec_cpu_state_t) % BM_CONFIG_CACHE_LINE)
-        ? (BM_CONFIG_CACHE_LINE - (sizeof(bm_exec_cpu_state_t) %
-                                   BM_CONFIG_CACHE_LINE))
-        : 0];
-} bm_exec_cpu_storage_t;
+typedef BM_CACHE_LINE_PADDED_UNION(bm_exec_cpu_state_t, state,
+                                   BM_CONFIG_CACHE_LINE) bm_exec_cpu_storage_t;
 
 static BM_CACHE_ALIGNAS(BM_CONFIG_CACHE_LINE)
 bm_exec_cpu_storage_t g_exec_cpu[BM_CONFIG_CPU_COUNT];

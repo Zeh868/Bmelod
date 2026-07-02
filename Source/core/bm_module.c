@@ -5,14 +5,16 @@
  *
  * 从应用提供的 _bm_module_table 加载模块，按优先级排序后依次 init/start/stop/deinit。
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-10
+ * @version 1.2
+ * @date 2026-07-02
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
  * 2026-06-10       1.1            zeh            失败回滚与状态机加固
+ * 2026-07-02       1.2            zeh            QD-6：cache-line 补齐改用 union，
+ *                                                消除 MSVC C2233
  *
  */
 #include "bm_module.h"
@@ -43,13 +45,8 @@ typedef struct {
     int initialized;
 } bm_module_cpu_state_t;
 
-typedef struct {
-    bm_module_cpu_state_t state;
-    uint8_t padding[(sizeof(bm_module_cpu_state_t) % BM_CONFIG_CACHE_LINE)
-        ? (BM_CONFIG_CACHE_LINE - (sizeof(bm_module_cpu_state_t) %
-                                   BM_CONFIG_CACHE_LINE))
-        : 0];
-} bm_module_cpu_storage_t;
+typedef BM_CACHE_LINE_PADDED_UNION(bm_module_cpu_state_t, state,
+                                   BM_CONFIG_CACHE_LINE) bm_module_cpu_storage_t;
 
 static BM_CACHE_ALIGNAS(BM_CONFIG_CACHE_LINE)
 bm_module_cpu_storage_t g_module_cpu[BM_CONFIG_CPU_COUNT];
