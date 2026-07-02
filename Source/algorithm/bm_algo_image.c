@@ -17,6 +17,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_image.h"
+#include "bm/algorithm/bm_algo_errors.h"
 
 #include <limits.h>
 #include <stddef.h>
@@ -37,7 +38,7 @@ static int image_pixel_count(uint32_t width, uint32_t height, size_t *count) {
     if (count == NULL || width == 0u || height == 0u ||
         width > UINT32_MAX / height ||
         width > INT32_MAX || height > INT32_MAX) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
     *count = (size_t)width * (size_t)height;
     return 0;
@@ -145,7 +146,7 @@ int bm_algo_image_label_u8(const uint8_t *binary,
         (blobs == NULL && max_blobs != 0u) ||
         image_pixel_count(width, height, &pixel_count) != 0 ||
         pixel_count > SIZE_MAX / sizeof(uint16_t)) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
 
     memset(labels, 0, pixel_count * sizeof(uint16_t));
@@ -159,7 +160,8 @@ int bm_algo_image_label_u8(const uint8_t *binary,
             }
 
             if (next_label == 0u) {
-                return -1;
+                /* 标签计数器绕回 uint16_t：超过 65535 个连通域，容量溢出。 */
+                return BM_ALGO_ERR_OVERFLOW;
             }
 
             labels[idx] = next_label;
@@ -291,12 +293,13 @@ int bm_algo_image_crop_u8(const uint8_t *src,
         src_width == 0u || src_height == 0u ||
         rect->width == 0u || rect->height == 0u ||
         image_pixel_count(src_width, src_height, &src_n) != 0) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
 
-    if (rect->x + rect->width > src_width ||
-        rect->y + rect->height > src_height) {
-        return -1;
+    /* 越界检查用减法避免 u32 加法回绕（x 接近 UINT32_MAX 时 x+width 溢出）。 */
+    if (rect->x >= src_width || rect->width > src_width - rect->x ||
+        rect->y >= src_height || rect->height > src_height - rect->y) {
+        return BM_ALGO_ERR_INVALID;
     }
 
     for (row = 0u; row < rect->height; ++row) {
@@ -323,7 +326,7 @@ int bm_algo_image_resize_u8(const uint8_t *src,
         src_width == 0u || src_height == 0u ||
         dst_width == 0u || dst_height == 0u ||
         image_pixel_count(src_width, src_height, &src_n) != 0) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
 
     for (y = 0u; y < dst_height; ++y) {

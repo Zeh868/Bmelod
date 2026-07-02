@@ -1,29 +1,21 @@
 /**
- * @file test_algorithm.c
- * @brief bm_algorithm 算法库单元测试
+ * @file test_algo_fixed.c
+ * @brief bm_algorithm 定点 Q15/Q31 批次黄金向量 + 批②对照 + 双轨（float vs Q）对照 12 族单元测试
  *
- * 覆盖公共工具、PI、滤波、斜坡、电机变换、FFT 与电池算法基本行为。
+ * 由 test_algorithm.c 按域拆分而来（架构改进计划任务 1.5b 项 6），纯移动、
+ * 不改测试内容；测试用例总数与拆分前的 Unity 内部计数之和保持不变。
  *
  * @author zeh (china_qzh@163.com)
- * @version 2.1
- * @date 2026-06-17
+ * @version 1.0
+ * @date 2026-07-02
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
- * 2026-06-13       1.0            zeh            正式发布
- * 2026-06-17       1.1            zeh            第四批 PDM/MFCC/RGB/定点
- * 2026-06-17       1.2            zeh            第五批 delay-and-sum/resize/定点4
- * 2026-06-17       1.3            zeh            第六批定点5与黄金向量
- * 2026-06-17       1.4            zeh            第七批 MVDR/定点6/参考向量
- * 2026-06-17       1.5            zeh            第八批定点7/黄金向量/TinyML
- * 2026-06-17       1.6            zeh            第九批定点8/黄金向量/TinyML ADD
- * 2026-06-17       1.7            zeh            第十批定点9/DOB/包络RMS Q31/背隙
- * 2026-06-17       1.8            zeh            第十一批定点10/互补/前馈/黄金向量
- * 2026-06-17       1.9            zeh            第十二批定点11/PI/梯形/冗余/速率/SOC
- * 2026-06-17       2.0            zeh            第十三批定点12/MPPT/S曲线/信号质量
- * 2026-06-17       2.1            zeh            第十四批定点全族 Q15/Q31 收口
+ * 2026-07-02       1.0            zeh            自 test_algorithm.c 拆分
+ *
  */
+
 #include "unity.h"
 #include "bm_algorithm.h"
 #include "../reference_vectors/ref_lpf1_q31.h"
@@ -51,1032 +43,6 @@
 
 void setUp(void) {}
 void tearDown(void) {}
-
-static const bm_algo_goertzel_config_t s_readonly_goertzel_config = {
-    .target_freq_hz = 100.0f,
-    .sample_hz = 1000.0f,
-    .block_size = 20u,
-    .coeff = 0.0f
-};
-
-static void test_common_clamp_and_deadband(void) {
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 5.0f, bm_algo_clamp_f(10.0f, 0.0f, 5.0f));
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, bm_algo_deadband_f(0.05f, 0.1f));
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.1f, bm_algo_deadband_f(0.2f, 0.1f));
-}
-
-static void test_pi_step_and_saturation(void) {
-    bm_algo_pi_config_t cfg = {
-        .kp = 1.0f,
-        .ki = 10.0f,
-        .out_min = -1.0f,
-        .out_max = 1.0f,
-        .integrator_min = -10.0f,
-        .integrator_max = 10.0f
-    };
-    bm_algo_pi_state_t st;
-    float out;
-    int i;
-
-    bm_algo_pi_reset(&st, 0.0f);
-    for (i = 0; i < 100; ++i) {
-        out = bm_algo_pi_step(&st, &cfg, 1.0f, 0.001f);
-    }
-    TEST_ASSERT_FLOAT_WITHIN(0.05f, 1.0f, out);
-}
-
-static void test_lpf1_step(void) {
-    bm_algo_lpf1_config_t cfg;
-    bm_algo_lpf1_state_t st;
-    float v = 0.0f;
-    int i;
-
-    TEST_ASSERT_EQUAL(0, bm_algo_lpf1_init_from_cutoff(&cfg, 10.0f, 1000.0f));
-    bm_algo_lpf1_reset(&st, 0.0f);
-    for (i = 0; i < 500; ++i) {
-        v = bm_algo_lpf1_step(&st, &cfg, 1.0f);
-    }
-    TEST_ASSERT_FLOAT_WITHIN(0.05f, 1.0f, v);
-}
-
-static void test_hpf1_uses_high_pass_coefficient(void) {
-    bm_algo_hpf1_config_t cfg;
-    bm_algo_hpf1_state_t st;
-    float first;
-    float settled = 0.0f;
-    int i;
-
-    TEST_ASSERT_EQUAL(0, bm_algo_hpf1_init_from_cutoff(&cfg, 10.0f, 1000.0f));
-    bm_algo_hpf1_reset(&st);
-    first = bm_algo_hpf1_step(&st, &cfg, 1.0f);
-    for (i = 0; i < 200; ++i) {
-        settled = bm_algo_hpf1_step(&st, &cfg, 1.0f);
-    }
-
-    TEST_ASSERT_TRUE(first > 0.9f);
-    TEST_ASSERT_TRUE(fabsf(settled) < 0.001f);
-}
-
-static void test_ramp_reaches_target(void) {
-    bm_algo_ramp_config_t cfg = { .rate_per_s = 10.0f };
-    bm_algo_ramp_state_t st;
-    float v;
-    int i;
-
-    bm_algo_ramp_reset(&st, 0.0f);
-    for (i = 0; i < 200; ++i) {
-        v = bm_algo_ramp_step(&st, &cfg, 1.0f, 0.01f);
-    }
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, 1.0f, v);
-    TEST_ASSERT_EQUAL(1, st.done);
-}
-
-static void test_scurve_reaches_target(void) {
-    bm_algo_scurve_config_t cfg = {
-        .max_vel = 1.0f,
-        .max_accel = 2.0f,
-        .max_jerk = 10.0f
-    };
-    bm_algo_scurve_state_t st;
-    int i;
-
-    bm_algo_scurve_reset(&st, 0.0f, 0.0f, 0.0f);
-    bm_algo_scurve_set_target(&st, 1.0f);
-    for (i = 0; i < 1000 && !st.done; ++i) {
-        (void)bm_algo_scurve_step(&st, &cfg, 0.01f);
-    }
-
-    TEST_ASSERT_EQUAL(1, st.done);
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, st.position);
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.0f, st.velocity);
-}
-
-static void test_clarke_park_roundtrip(void) {
-    bm_algo_abc_t abc = { .ia = 1.0f, .ib = -0.5f, .ic = -0.5f };
-    bm_algo_alphabeta_t ab;
-    bm_algo_dq_t dq;
-    bm_algo_alphabeta_t ab2;
-
-    bm_algo_clarke(&abc, &ab);
-    bm_algo_park(&ab, 0.5f, &dq);
-    bm_algo_inv_park(&dq, 0.5f, &ab2);
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, ab.i_alpha, ab2.i_alpha);
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, ab.i_beta, ab2.i_beta);
-}
-
-static void test_coulomb_soc(void) {
-    bm_algo_coulomb_config_t cfg = {
-        .nominal_capacity_ah = 10.0f,
-        .coulomb_efficiency = 1.0f,
-        .soc_min = 0.0f,
-        .soc_max = 1.0f
-    };
-    bm_algo_coulomb_state_t st;
-    float soc;
-
-    bm_algo_coulomb_reset(&st, 0.5f);
-    soc = bm_algo_coulomb_step(&st, &cfg, 1.0f, 3600.0f);
-    TEST_ASSERT_FLOAT_WITHIN(0.02f, 0.6f, soc);
-}
-
-static void test_rfft_execute(void) {
-    float time_data[BM_ALGO_FFT_SIZE_64];
-    float work[BM_ALGO_FFT_SIZE_64 * 2u];
-    float spectrum[BM_ALGO_FFT_SIZE_64 / 2u + 1u];
-    bm_algo_rfft_f32_t fft;
-    uint32_t i;
-
-    for (i = 0u; i < BM_ALGO_FFT_SIZE_64; ++i) {
-        time_data[i] = sinf(2.0f * 3.14159265f * 4.0f * (float)i / (float)BM_ALGO_FFT_SIZE_64);
-    }
-
-    TEST_ASSERT_EQUAL(0, bm_algo_rfft_f32_init(&fft, BM_ALGO_FFT_SIZE_64, work, (uint32_t)(sizeof(work) / sizeof(work[0]))));
-    TEST_ASSERT_EQUAL(0, bm_algo_rfft_f32_execute(&fft, time_data, spectrum));
-    TEST_ASSERT_TRUE(spectrum[4] > spectrum[3]);
-    TEST_ASSERT_TRUE(spectrum[4] > spectrum[5]);
-}
-
-static void test_single_point_windows_are_finite(void) {
-    float window;
-
-    bm_algo_window_hann(&window, 1u);
-    TEST_ASSERT_FLOAT_WITHIN(0.0f, 1.0f, window);
-    bm_algo_window_hamming(&window, 1u);
-    TEST_ASSERT_FLOAT_WITHIN(0.0f, 1.0f, window);
-    bm_algo_window_blackman(&window, 1u);
-    TEST_ASSERT_FLOAT_WITHIN(0.0f, 1.0f, window);
-}
-
-static void test_image_label_merges_connected_pixels(void) {
-    const uint8_t binary[12] = {
-        1u, 1u, 0u, 0u,
-        0u, 1u, 0u, 0u,
-        0u, 0u, 0u, 1u
-    };
-    uint16_t labels[12];
-    bm_algo_blob_info_t blobs[2];
-    int count;
-
-    count = bm_algo_image_label_u8(binary, labels, 4u, 3u, blobs, 2u);
-
-    TEST_ASSERT_EQUAL(2, count);
-    TEST_ASSERT_EQUAL(labels[0], labels[1]);
-    TEST_ASSERT_EQUAL(labels[0], labels[5]);
-    TEST_ASSERT_NOT_EQUAL(labels[0], labels[11]);
-    TEST_ASSERT_EQUAL_UINT32(3u, blobs[0].area);
-    TEST_ASSERT_EQUAL_UINT32(1u, blobs[1].area);
-}
-
-static void test_linear_resampler_ratio_and_capacity(void) {
-    bm_algo_linear_resampler_state_t st;
-    float outputs[3];
-    uint32_t count;
-
-    bm_algo_linear_resampler_reset(&st, 2.0f, 0.0f);
-    TEST_ASSERT_EQUAL(2, bm_algo_linear_resampler_step(
-        &st, 1.0f, outputs, 3u, &count));
-    TEST_ASSERT_EQUAL_UINT32(2u, count);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.5f, outputs[0]);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, outputs[1]);
-
-    bm_algo_linear_resampler_reset(&st, 0.5f, 0.0f);
-    TEST_ASSERT_EQUAL(0, bm_algo_linear_resampler_step(
-        &st, 1.0f, outputs, 3u, &count));
-    TEST_ASSERT_EQUAL(1, bm_algo_linear_resampler_step(
-        &st, 2.0f, outputs, 3u, &count));
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 2.0f, outputs[0]);
-
-    bm_algo_linear_resampler_reset(&st, 3.0f, 0.0f);
-    TEST_ASSERT_EQUAL(-1, bm_algo_linear_resampler_step(
-        &st, 1.0f, outputs, 2u, &count));
-    TEST_ASSERT_EQUAL_UINT32(0u, count);
-}
-
-static void test_goertzel_accepts_readonly_config(void) {
-    bm_algo_goertzel_state_t st;
-
-    TEST_ASSERT_EQUAL(0, bm_algo_goertzel_init(
-        &st, &s_readonly_goertzel_config));
-    TEST_ASSERT_TRUE(fabsf(st.coeff) > 0.1f);
-    TEST_ASSERT_FLOAT_WITHIN(
-        0.0f, 0.0f, s_readonly_goertzel_config.coeff);
-}
-
-static void test_ekf_covariance_stays_symmetric(void) {
-    bm_algo_ekf_cv_config_t cfg = {
-        .q_pos = 0.01f,
-        .q_vel = 0.01f,
-        .r_pos = 0.1f
-    };
-    bm_algo_ekf_cv_state_t st;
-    int i;
-
-    bm_algo_ekf_cv_reset(&st, 0.0f, 0.0f);
-    for (i = 0; i < 20; ++i) {
-        bm_algo_ekf_cv_predict(&st, &cfg, 0.1f);
-        bm_algo_ekf_cv_update(&st, &cfg, 1.0f);
-    }
-    TEST_ASSERT_FLOAT_WITHIN(0.000001f, st.p01, st.p10);
-}
-
-static void test_ukf1d_identity_tracks_measurement(void) {
-    bm_algo_ukf1d_config_t cfg = {
-        .q = 0.01f,
-        .r = 0.1f,
-        .measurement_model = BM_ALGO_UKF1D_MEAS_IDENTITY
-    };
-    bm_algo_ukf1d_state_t st;
-    int i;
-
-    bm_algo_ukf1d_reset(&st, 0.0f, 1.0f);
-    for (i = 0; i < 30; ++i) {
-        bm_algo_ukf1d_predict(&st, &cfg);
-        TEST_ASSERT_EQUAL(BM_ALGO_EKF_UPDATE_OK,
-                          bm_algo_ukf1d_update(&st, &cfg, 2.0f));
-    }
-    TEST_ASSERT_FLOAT_WITHIN(0.1f, 2.0f, st.x);
-    TEST_ASSERT_TRUE(isfinite(st.p) && st.p >= 0.0f);
-}
-
-static void test_ukf1d_square_model_updates(void) {
-    bm_algo_ukf1d_config_t cfg = {
-        .q = 0.001f,
-        .r = 0.05f,
-        .measurement_model = BM_ALGO_UKF1D_MEAS_SQUARE
-    };
-    bm_algo_ukf1d_state_t st;
-
-    bm_algo_ukf1d_reset(&st, 2.0f, 0.5f);
-    bm_algo_ukf1d_predict(&st, &cfg);
-    TEST_ASSERT_EQUAL(BM_ALGO_EKF_UPDATE_OK,
-                      bm_algo_ukf1d_update(&st, &cfg, 4.0f));
-    TEST_ASSERT_TRUE(isfinite(st.x));
-}
-
-static void test_ekf_gate_and_gated_update(void) {
-    bm_algo_ekf_cv_config_t cfg = {
-        .q_pos = 0.01f,
-        .q_vel = 0.01f,
-        .r_pos = 0.1f
-    };
-    bm_algo_ekf_gate_config_t gate = { .innovation_threshold = 1.0f };
-    bm_algo_ekf_cv_state_t st;
-    float pos_before;
-
-    TEST_ASSERT_EQUAL(1, bm_algo_ekf_gate_accept(0.1f, 1.0f, 9.0f));
-    TEST_ASSERT_EQUAL(0, bm_algo_ekf_gate_accept(5.0f, 0.01f, 1.0f));
-
-    bm_algo_ekf_cv_reset(&st, 0.0f, 0.0f);
-    bm_algo_ekf_cv_predict(&st, &cfg, 0.1f);
-    pos_before = st.pos;
-    TEST_ASSERT_EQUAL(BM_ALGO_EKF_UPDATE_GATED,
-                      bm_algo_ekf_cv_update_gated(&st, &cfg, 100.0f, &gate));
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, pos_before, st.pos);
-
-    TEST_ASSERT_EQUAL(BM_ALGO_EKF_UPDATE_OK,
-                      bm_algo_ekf_cv_update_gated(&st, &cfg, 0.2f, &gate));
-    TEST_ASSERT_TRUE(fabsf(st.pos - pos_before) > 0.0f);
-}
-
-static void test_imu_calib_apply_and_accumulator(void) {
-    bm_algo_imu_calib_config_t calib = {
-        .gyro_bias = { 0.1f, 0.0f, 0.0f },
-        .accel_bias = { 0.0f, 0.0f, 0.2f },
-        .gyro_scale = { 1.0f, 1.0f, 1.0f },
-        .accel_scale = { 1.0f, 1.0f, 1.0f }
-    };
-    bm_algo_imu_calib_accumulator_t acc;
-    const float raw_g[3] = { 0.2f, 0.0f, 0.0f };
-    const float raw_a[3] = { 0.0f, 0.0f, 9.91f };
-    const float expect_g[3] = { 0.0f, 0.0f, 9.81f };
-    float out_g[3];
-    float out_a[3];
-    int i;
-
-    bm_algo_imu_calib_apply(&calib, raw_g, raw_a, out_g, out_a);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.1f, out_g[0]);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 9.71f, out_a[2]);
-
-    bm_algo_imu_calib_accumulator_reset(&acc);
-    for (i = 0; i < 10; ++i) {
-        TEST_ASSERT_EQUAL(0, bm_algo_imu_calib_accumulator_feed(&acc, raw_g, raw_a));
-    }
-    memset(&calib, 0, sizeof(calib));
-    TEST_ASSERT_EQUAL(0, bm_algo_imu_calib_accumulator_finish(&acc, expect_g, &calib));
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.2f, calib.gyro_bias[0]);
-    TEST_ASSERT_FLOAT_WITHIN(0.05f, 0.1f, calib.accel_bias[2]);
-}
-
-static void test_stft_overlap_emits_hop_frames(void) {
-    bm_algo_stft_overlap_config_t cfg = {
-        .frame_size = 8u,
-        .hop_size = 4u,
-        .window = NULL
-    };
-    bm_algo_stft_overlap_t st;
-    float ring[8];
-    float mag[8];
-    uint32_t frames = 0u;
-    int i;
-    int rc;
-
-    TEST_ASSERT_EQUAL(0, bm_algo_stft_overlap_init(&st, &cfg, ring, 8u));
-    for (i = 0; i < 20; ++i) {
-        float sample = (i < 8) ? 1.0f : 0.0f;
-        rc = bm_algo_stft_overlap_feed(&st, &cfg, sample, mag, 8u);
-        if (rc == 1) {
-            frames++;
-            TEST_ASSERT_TRUE(mag[0] >= 0.0f);
-        } else {
-            TEST_ASSERT_TRUE(rc == 0 || rc == -1);
-        }
-    }
-    TEST_ASSERT_TRUE(frames >= 2u);
-    TEST_ASSERT_TRUE(st.frame_count >= 2u);
-}
-
-static void test_mahony_uses_simultaneous_quaternion_update(void) {
-    bm_algo_mahony_config_t cfg = { .kp = 0.0f, .ki = 0.0f };
-    bm_algo_mahony_state_t st;
-    float norm = sqrtf(1.14f);
-
-    bm_algo_mahony_reset(&st);
-    bm_algo_mahony_step(&st, &cfg, 1.0f, 2.0f, 3.0f,
-                        0.0f, 0.0f, 0.0f, 0.2f);
-
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f / norm, st.q.w);
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.1f / norm, st.q.x);
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.2f / norm, st.q.y);
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.3f / norm, st.q.z);
-}
-
-static void test_sogi_states_decay_after_input_stops(void) {
-    bm_algo_sogi_pll_config_t cfg = {
-        .nominal_omega_rad_s = 2.0f * 3.14159265f * 50.0f,
-        .k_sogi = 1.41421356f,
-        .k_pll = 0.0f
-    };
-    bm_algo_sogi_pll_state_t st;
-    int i;
-
-    bm_algo_sogi_pll_reset(&st, &cfg);
-    for (i = 0; i < 2000; ++i) {
-        float input = sinf(cfg.nominal_omega_rad_s * (float)i * 0.0001f);
-        bm_algo_sogi_pll_step(&st, &cfg, input, 0.0001f);
-    }
-    for (i = 0; i < 2000; ++i) {
-        bm_algo_sogi_pll_step(&st, &cfg, 0.0f, 0.0001f);
-    }
-
-    TEST_ASSERT_TRUE(fabsf(st.v_alpha) < 0.001f);
-    TEST_ASSERT_TRUE(fabsf(st.v_beta) < 0.001f);
-}
-
-static void test_fixed_pi_q31_saturates(void) {
-    bm_algo_pi_q31_config_t cfg = {
-        .kp = bm_algo_float_to_q31(0.8f),
-        .ki = bm_algo_float_to_q31(0.5f),
-        .out_min = bm_algo_float_to_q31(-1.0f),
-        .out_max = bm_algo_float_to_q31(1.0f),
-        .integrator_min = bm_algo_float_to_q31(-1.0f),
-        .integrator_max = bm_algo_float_to_q31(1.0f)
-    };
-    bm_algo_pi_q31_state_t st;
-    bm_algo_q31_t out;
-    int i;
-
-    bm_algo_pi_q31_reset(&st, 0);
-    for (i = 0; i < 300; ++i) {
-        out = bm_algo_pi_q31_step(&st, &cfg,
-                                  bm_algo_float_to_q31(1.0f),
-                                  bm_algo_float_to_q31(0.01f));
-    }
-    TEST_ASSERT_FLOAT_WITHIN(0.08f, 1.0f, bm_algo_q31_to_float(out));
-}
-
-static void test_fixed_lpf1_q15_tracks_input(void) {
-    bm_algo_lpf1_q15_config_t cfg = {
-        .alpha_q15 = bm_algo_float_to_q15(0.1f)
-    };
-    bm_algo_lpf1_q15_state_t st;
-    bm_algo_q15_t v = 0;
-    int i;
-
-    bm_algo_lpf1_q15_reset(&st, 0);
-    for (i = 0; i < 500; ++i) {
-        v = bm_algo_lpf1_q15_step(&st, &cfg, BM_ALGO_Q15_ONE);
-    }
-    TEST_ASSERT_FLOAT_WITHIN(0.05f, 1.0f, bm_algo_q15_to_float(v));
-}
-
-static void test_fixed_point_saturates_before_narrowing(void) {
-    bm_algo_biquad_q15_config_t bq_cfg = {
-        .b0 = BM_ALGO_Q15_ONE,
-        .b1 = 0,
-        .b2 = 0,
-        .a1 = 0,
-        .a2 = 0
-    };
-    bm_algo_biquad_q15_state_t bq = {
-        .z1 = BM_ALGO_Q15_ONE,
-        .z2 = 0
-    };
-    bm_algo_pi_q31_config_t pi_cfg = {
-        .kp = 0,
-        .ki = 0,
-        .out_min = (bm_algo_q31_t)INT32_MIN,
-        .out_max = BM_ALGO_Q31_ONE,
-        .integrator_min = (bm_algo_q31_t)INT32_MIN,
-        .integrator_max = BM_ALGO_Q31_ONE
-    };
-    bm_algo_pi_q31_state_t pi = {
-        .integrator = BM_ALGO_Q31_ONE - 1,
-        .output = 0
-    };
-
-    TEST_ASSERT_EQUAL_INT16(
-        BM_ALGO_Q15_ONE,
-        bm_algo_biquad_q15_step(&bq, &bq_cfg, BM_ALGO_Q15_ONE));
-    (void)bm_algo_pi_q31_step(
-        &pi, &pi_cfg, BM_ALGO_Q31_ONE, bm_algo_float_to_q31(0.5f));
-    TEST_ASSERT_EQUAL_INT32(BM_ALGO_Q31_ONE, pi.integrator);
-}
-
-static void test_fixed_point_negative_full_scale_product_saturates(void) {
-    bm_algo_pi_q31_config_t pi_cfg = {
-        .kp = (bm_algo_q31_t)INT32_MIN,
-        .ki = 0,
-        .out_min = (bm_algo_q31_t)INT32_MIN,
-        .out_max = BM_ALGO_Q31_ONE,
-        .integrator_min = (bm_algo_q31_t)INT32_MIN,
-        .integrator_max = BM_ALGO_Q31_ONE
-    };
-    bm_algo_pi_q31_state_t pi;
-    bm_algo_biquad_q15_config_t bq_cfg = {
-        .b0 = (bm_algo_q15_t)INT16_MIN,
-        .b1 = 0,
-        .b2 = 0,
-        .a1 = 0,
-        .a2 = 0
-    };
-    bm_algo_biquad_q15_state_t bq;
-
-    bm_algo_pi_q31_reset(&pi, 0);
-    TEST_ASSERT_EQUAL_INT32(
-        BM_ALGO_Q31_ONE,
-        bm_algo_pi_q31_step(&pi, &pi_cfg, (bm_algo_q31_t)INT32_MIN, 1));
-
-    bm_algo_biquad_q15_reset(&bq);
-    TEST_ASSERT_EQUAL_INT16(
-        BM_ALGO_Q15_ONE,
-        bm_algo_biquad_q15_step(
-            &bq, &bq_cfg, (bm_algo_q15_t)INT16_MIN));
-}
-
-static void test_motion_and_profile_boundary_regressions(void) {
-    bm_algo_encoder_config_t enc_cfg = { .counts_per_rev = 4096u };
-    bm_algo_encoder_state_t enc;
-    bm_algo_dda_config_t dda_cfg = {
-        .x0 = 0.0f, .y0 = 0.0f, .x1 = 0.5f, .y1 = 0.0f,
-        .step_size = 0.1f
-    };
-    bm_algo_dda_state_t dda;
-    bm_algo_trapezoid_config_t trap_cfg = {
-        .max_vel = 1.0f, .max_accel = 2.0f, .max_decel = 2.0f
-    };
-    bm_algo_trapezoid_state_t trap;
-    float x = 0.0f;
-    float y = 0.0f;
-    int steps = 0;
-
-    bm_algo_encoder_reset(&enc, &enc_cfg, 2048);
-    (void)bm_algo_encoder_update(&enc, &enc_cfg, 2048, 0.001f);
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 3.14159265f, enc.position_rad);
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.0f, enc.velocity_rad_s);
-
-    bm_algo_dda_reset(&dda, &dda_cfg);
-    while (bm_algo_dda_step(&dda, &dda_cfg, &x, &y) != 0) {
-        steps++;
-        TEST_ASSERT_TRUE(steps <= 6);
-    }
-    TEST_ASSERT_EQUAL_INT(5, steps);
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.5f, x);
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.0f, y);
-
-    bm_algo_trapezoid_reset(&trap, 0.0f, 0.0f);
-    bm_algo_trapezoid_set_target(&trap, 1.0f);
-    (void)bm_algo_trapezoid_step(&trap, &trap_cfg, 2.0f);
-    TEST_ASSERT_EQUAL(1, trap.done);
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, trap.position);
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.0f, trap.velocity);
-}
-
-static void test_motor_voltage_scaling_and_deadtime(void) {
-    bm_algo_svpwm_out_t pwm;
-
-    bm_algo_svpwm(6.0f, 0.0f, 24.0f, &pwm);
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.6875f, pwm.duty_a);
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.3125f, pwm.duty_b);
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.3125f, pwm.duty_c);
-
-    TEST_ASSERT_FLOAT_WITHIN(
-        0.0001f, 3.2f,
-        bm_algo_deadtime_comp_v_period(
-            2.0f, 1.0f, 1e-6f, 20e-6f, 24.0f));
-    TEST_ASSERT_FLOAT_WITHIN(
-        0.0001f, 2.0f,
-        bm_algo_deadtime_comp_v(2.0f, 1.0f, 1e-6f, 24.0f));
-}
-
-static void test_numeric_guard_regressions(void) {
-    bm_algo_agc_config_t agc_cfg = {
-        .target_level = 1.0f,
-        .attack_coeff = 1.0f,
-        .release_coeff = 1.0f,
-        .gain = 1.0f,
-        .min_gain = 0.1f,
-        .max_gain = 4.0f,
-        .silence_threshold = 0.001f
-    };
-    bm_algo_agc_state_t agc;
-    bm_algo_kalman1d_config_t kalman_cfg = { .q = 0.0f, .r = 0.0f };
-    bm_algo_kalman1d_state_t kalman;
-    bm_algo_stats_state_t stats;
-    float silence[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-    float quiet[1] = { 0.01f };
-    float out[4];
-    int i;
-
-    TEST_ASSERT_TRUE(isinf(bm_algo_angle_wrap_rad(INFINITY)));
-    TEST_ASSERT_TRUE(isinf(bm_algo_angle_wrap_0_2pi_rad(-INFINITY)));
-
-    bm_algo_agc_reset(&agc, 2.0f);
-    bm_algo_agc_process(&agc, &agc_cfg, silence, out, 4u);
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 2.0f, agc.gain);
-    for (i = 0; i < 4; ++i) {
-        bm_algo_agc_process(&agc, &agc_cfg, quiet, out, 1u);
-    }
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 4.0f, agc.gain);
-
-    bm_algo_kalman1d_reset(&kalman, 3.0f, 0.0f);
-    TEST_ASSERT_FLOAT_WITHIN(
-        0.0001f, 3.0f,
-        bm_algo_kalman1d_update(&kalman, &kalman_cfg, 100.0f));
-    TEST_ASSERT_TRUE(isfinite(kalman.x));
-
-    TEST_ASSERT_EQUAL_INT8(INT8_MAX,
-                           bm_algo_quantize_f32_to_i8(INFINITY, 0.1f, 0));
-    TEST_ASSERT_EQUAL_INT8(INT8_MIN,
-                           bm_algo_quantize_f32_to_i8(-INFINITY, 0.1f, 0));
-    TEST_ASSERT_EQUAL_INT8(0,
-                           bm_algo_quantize_f32_to_i8(NAN, 0.1f, 0));
-
-    bm_algo_stats_reset(&stats);
-    bm_algo_stats_push(&stats, 100000.0f);
-    bm_algo_stats_push(&stats, 100001.0f);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.25f,
-                             bm_algo_stats_variance(&stats));
-}
-
-static void test_soc_and_image_boundary_regressions(void) {
-    bm_algo_soc_ekf_config_t ekf_cfg = {
-        .q_soc = 0.0f,
-        .q_bias = 0.0f,
-        .r_v = 0.01f,
-        .coulomb_efficiency = 1.0f,
-        .nominal_capacity_ah = 10.0f,
-        .ocv_slope_v_per_soc = 0.5f
-    };
-    bm_algo_soc_ekf_state_t ekf;
-    const uint8_t src[9] = {
-        255u, 255u, 255u,
-        255u, 255u, 255u,
-        255u, 255u, 255u
-    };
-    uint8_t dst[9];
-
-    bm_algo_soc_ekf_reset(&ekf, 0.8f);
-    bm_algo_soc_ekf_update_voltage(&ekf, &ekf_cfg, 3.9f, 3.9f);
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.8f, ekf.soc);
-
-    memset(dst, 0xA5, sizeof(dst));
-    bm_algo_image_erode_u8(src, dst, 3u, 3u);
-    TEST_ASSERT_EQUAL_UINT8(0u, dst[0]);
-    TEST_ASSERT_EQUAL_UINT8(255u, dst[4]);
-    TEST_ASSERT_EQUAL_UINT8(0u, dst[8]);
-}
-
-static void test_runtime_buffer_config_changes_are_rejected(void) {
-    float moving_buffer[3] = { 0.0f, 0.0f, 1234.0f };
-    bm_algo_moving_avg_config_t moving_cfg = {
-        .buffer = moving_buffer, .length = 2u
-    };
-    bm_algo_moving_avg_state_t moving;
-    float rms_buffer[3] = { 0.0f, 0.0f, 1234.0f };
-    bm_algo_rms_config_t rms_cfg = { .window_samples = 2u };
-    bm_algo_rms_state_t rms;
-    const float fir_coeffs[3] = { 1.0f, 0.0f, 0.0f };
-    float fir_delay[3] = { 0.0f, 0.0f, 1234.0f };
-    bm_algo_fir_config_t fir_cfg = {
-        .coeffs = fir_coeffs, .tap_count = 2u, .delay_line = fir_delay
-    };
-    bm_algo_fir_state_t fir;
-    const float poly_coeffs[3] = { 1.0f, 0.0f, 0.0f };
-    float poly_delay[3] = { 0.0f, 0.0f, 1234.0f };
-    bm_algo_polyphase_decim_config_t poly_cfg = {
-        .coeffs = poly_coeffs, .tap_count = 2u, .decim = 2u
-    };
-    bm_algo_polyphase_decim_state_t poly;
-    const float input = 1.0f;
-    float output = 0.0f;
-
-    TEST_ASSERT_EQUAL(0, bm_algo_moving_avg_init(&moving, &moving_cfg));
-    moving_cfg.length = 3u;
-    TEST_ASSERT_FLOAT_WITHIN(
-        0.0f, input, bm_algo_moving_avg_step(&moving, &moving_cfg, input));
-    TEST_ASSERT_FLOAT_WITHIN(0.0f, 1234.0f, moving_buffer[2]);
-
-    TEST_ASSERT_EQUAL(0, bm_algo_rms_init(&rms, &rms_cfg, rms_buffer, 2u));
-    rms_cfg.window_samples = 3u;
-    TEST_ASSERT_FLOAT_WITHIN(
-        0.0f, input, bm_algo_rms_step(&rms, &rms_cfg, input));
-    TEST_ASSERT_FLOAT_WITHIN(0.0f, 1234.0f, rms_buffer[2]);
-
-    TEST_ASSERT_EQUAL(0, bm_algo_fir_init(&fir, &fir_cfg));
-    fir_cfg.tap_count = 3u;
-    TEST_ASSERT_FLOAT_WITHIN(
-        0.0f, input, bm_algo_fir_step(&fir, &fir_cfg, input));
-    TEST_ASSERT_FLOAT_WITHIN(0.0f, 1234.0f, fir_delay[2]);
-
-    TEST_ASSERT_EQUAL(
-        0, bm_algo_polyphase_decim_init(&poly, &poly_cfg, poly_delay, 2u));
-    poly_cfg.tap_count = 3u;
-    TEST_ASSERT_EQUAL_UINT32(
-        0u,
-        bm_algo_polyphase_decim_process(
-            &poly, &poly_cfg, &input, &output, 1u));
-    TEST_ASSERT_FLOAT_WITHIN(0.0f, 1234.0f, poly_delay[2]);
-}
-
-static void test_flux_observer_and_mtpa(void) {
-    bm_algo_flux_observer_config_t obs_cfg_ls = {
-        .rs_ohm = 0.5f, .ls_h = 0.001f, .pll_kp = 10.0f, .pll_ki = 100.0f
-    };
-    bm_algo_flux_observer_config_t obs_cfg_no_ls = obs_cfg_ls;
-    bm_algo_flux_observer_state_t obs_ls;
-    bm_algo_flux_observer_state_t obs_no_ls;
-    float theta_ls;
-    float theta_no_ls;
-    int i;
-
-    obs_cfg_no_ls.ls_h = 0.0f;
-    bm_algo_flux_observer_reset(&obs_ls, 0.0f);
-    bm_algo_flux_observer_reset(&obs_no_ls, 0.0f);
-    for (i = 0; i < 100; ++i) {
-        float t = (float)i * 0.001f;
-        float v_alpha = -sinf(t);
-        float v_beta = cosf(t);
-        float i_alpha = 0.5f * sinf(t);
-        float i_beta = -0.5f * cosf(t);
-
-        theta_ls = bm_algo_flux_observer_step(&obs_ls, &obs_cfg_ls,
-                                              v_alpha, v_beta,
-                                              i_alpha, i_beta, 0.001f);
-        theta_no_ls = bm_algo_flux_observer_step(&obs_no_ls, &obs_cfg_no_ls,
-                                                   v_alpha, v_beta,
-                                                   i_alpha, i_beta, 0.001f);
-        (void)theta_ls;
-        (void)theta_no_ls;
-    }
-    TEST_ASSERT_TRUE(fabsf(obs_ls.omega_rad_s) > 0.1f);
-    TEST_ASSERT_TRUE(fabsf(obs_ls.theta_rad - obs_no_ls.theta_rad) > 0.01f);
-    TEST_ASSERT_TRUE(bm_algo_mtpa_id_ref(2.0f, 0.001f, 0.002f, 0.05f) < 0.0f);
-    TEST_ASSERT_TRUE(
-        fabsf(bm_algo_mtpa_id_ref(2.0f, 0.001f, 0.002f, 0.01f)) >
-        fabsf(bm_algo_mtpa_id_ref(2.0f, 0.001f, 0.002f, 0.20f)));
-}
-
-static void test_battery_temp_and_motor_extras(void) {
-    bm_algo_battery_temp_config_t temp_cfg = {
-        .ref_temp_c = 25.0f,
-        .capacity_coeff_per_c = 0.01f,
-        .ocv_shift_v_per_c = 0.002f
-    };
-    bm_algo_abc_t abc;
-    bm_algo_rate_est_state_t rate;
-
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, 1.1f,
-        bm_algo_battery_temp_capacity_ah(1.0f, 35.0f, &temp_cfg));
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 3.68f,
-        bm_algo_battery_temp_compensate_ocv(3.7f, 35.0f, &temp_cfg));
-
-    bm_algo_current_from_2shunt(1.0f, -0.5f, &abc);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, -0.5f, abc.ic);
-
-    bm_algo_rate_est_reset(&rate, 0.0f);
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, 10.0f,
-        bm_algo_rate_est_step(&rate, 1.0f, 0.1f));
-}
-
-static void test_zero_length_audio_is_ignored(void) {
-    bm_algo_agc_config_t agc_cfg = {
-        .target_level = 1.0f,
-        .attack_coeff = 1.0f,
-        .release_coeff = 1.0f,
-        .gain = 1.0f
-    };
-    bm_algo_vad_config_t vad_cfg = {
-        .energy_threshold = 0.1f,
-        .alpha = 1.0f
-    };
-    bm_algo_agc_state_t agc;
-    bm_algo_vad_state_t vad;
-    float sample = 1.0f;
-
-    bm_algo_agc_reset(&agc, 2.0f);
-    bm_algo_vad_reset(&vad);
-    bm_algo_agc_process(&agc, &agc_cfg, &sample, &sample, 0u);
-    bm_algo_vad_process(&vad, &vad_cfg, &sample, 0u);
-
-    TEST_ASSERT_FLOAT_WITHIN(0.0f, 2.0f, agc.gain);
-    TEST_ASSERT_FLOAT_WITHIN(0.0f, 0.0f, vad.energy);
-}
-
-static void test_vision_centroid_and_compensation(void) {
-    const uint8_t mask[9] = {
-        0u, 1u, 0u,
-        1u, 1u, 0u,
-        0u, 0u, 0u
-    };
-    float cx = 0.0f;
-    float cy = 0.0f;
-
-    TEST_ASSERT_EQUAL(0, bm_algo_vision_centroid_u8(mask, 3u, 3u, &cx, &cy));
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.667f, cx);
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.667f, cy);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f,
-        bm_algo_deadzone_inverse(0.05f, 0.1f, 2.0f));
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.2f,
-        bm_algo_deadzone_inverse(0.2f, 0.1f, 2.0f));
-}
-
-static void test_soc_ekf_and_power_quality(void) {
-    bm_algo_soc_ekf_config_t ekf_cfg = {
-        .q_soc = 1e-6f,
-        .q_bias = 1e-8f,
-        .r_v = 0.01f,
-        .coulomb_efficiency = 1.0f,
-        .nominal_capacity_ah = 10.0f,
-        .ocv_slope_v_per_soc = 0.5f
-    };
-    bm_algo_soc_ekf_state_t ekf;
-    const float harmonics[3] = { 1.0f, 0.1f, 0.05f };
-    float p;
-    float q;
-    float s;
-
-    bm_algo_soc_ekf_reset(&ekf, 0.5f);
-    bm_algo_soc_ekf_predict(&ekf, &ekf_cfg, 1.0f, 1.0f);
-    bm_algo_soc_ekf_update_voltage(&ekf, &ekf_cfg, 3.7f, 3.65f);
-    TEST_ASSERT_TRUE(ekf.soc >= 0.0f && ekf.soc <= 1.0f);
-    TEST_ASSERT_TRUE(fabsf(ekf.p10) > 0.0f);
-    TEST_ASSERT_TRUE(fabsf(ekf.bias_a) > 0.0f);
-
-    TEST_ASSERT_FLOAT_WITHIN(0.5f, 11.18f,
-        bm_algo_thd_percent(harmonics, 3u));
-    bm_algo_power_quality_pq(230.0f, 10.0f, 0.0f, &p, &q, &s);
-    TEST_ASSERT_FLOAT_WITHIN(1.0f, 2300.0f, p);
-    TEST_ASSERT_FLOAT_WITHIN(1.0f, 0.0f, q);
-}
-
-static void test_p1_k0_and_fixed_extensions(void) {
-    bm_algo_redundant_pair_config_t rp_cfg = {
-        .tolerance_abs = 0.01f,
-        .tolerance_rel = 0.0f
-    };
-    bm_algo_dob_config_t dob_cfg = { .plant_gain = 2.0f, .lpf_alpha = 0.5f };
-    bm_algo_dob_state_t dob;
-    bm_algo_svpwm_out_t pwm;
-    bm_algo_order_tracker_config_t ot_cfg = {
-        .sample_hz = 1000.0f,
-        .pole_pairs = 2.0f,
-        .lpf_alpha = 0.5f
-    };
-    bm_algo_order_tracker_state_t ot;
-    bm_algo_integrator_q31_config_t int_cfg = {
-        .min = bm_algo_float_to_q31(-1.0f),
-        .max = bm_algo_float_to_q31(1.0f)
-    };
-    bm_algo_integrator_q31_state_t int_st;
-    bm_algo_rate_limit_q31_config_t rl_cfg = {
-        .max_rise_per_s_q31 = bm_algo_float_to_q31(1.0f),
-        .max_fall_per_s_q31 = bm_algo_float_to_q31(1.0f)
-    };
-    bm_algo_rate_limit_q31_state_t rl_st;
-    bm_algo_pr_q15_config_t pr_cfg = {
-        .b0 = bm_algo_float_to_q15(0.5f),
-        .b1 = 0,
-        .b2 = 0,
-        .a1 = 0,
-        .a2 = 0,
-        .out_min = (bm_algo_q15_t)(-32768),
-        .out_max = BM_ALGO_Q15_ONE
-    };
-    bm_algo_pr_q15_state_t pr_st;
-    float disturbance;
-    bm_algo_q31_t dt_q31 = bm_algo_float_to_q31(0.01f);
-
-    TEST_ASSERT_EQUAL(0u, bm_algo_redundant_pair_step(1.0f, 1.0f, &rp_cfg));
-    TEST_ASSERT_EQUAL(BM_ALGO_FAULT_REDUNDANT_MISMATCH,
-                      bm_algo_redundant_pair_step(1.0f, 2.0f, &rp_cfg));
-
-    bm_algo_dob_reset(&dob);
-    (void)bm_algo_dob_step(&dob, &dob_cfg, 1.0f, 2.5f, &disturbance);
-    TEST_ASSERT_TRUE(fabsf(disturbance) > 0.0f);
-
-    bm_algo_svpwm_overmod(10.0f, 0.0f, 24.0f, 0.577f, &pwm);
-    TEST_ASSERT_TRUE(pwm.duty_a >= 0.0f && pwm.duty_a <= 1.0f);
-
-    bm_algo_order_tracker_reset(&ot);
-    bm_algo_order_tracker_feed(&ot, &ot_cfg, 3000.0f, 100.0f);
-    TEST_ASSERT_TRUE(ot.filtered_order > 0.0f);
-    TEST_ASSERT_TRUE(ot.shaft_hz > 0.0f);
-
-    bm_algo_integrator_q31_reset(&int_st, 0);
-    TEST_ASSERT_TRUE(bm_algo_integrator_q31_step(&int_st, &int_cfg,
-        bm_algo_float_to_q31(1.0f), dt_q31) > 0);
-
-    bm_algo_rate_limit_q31_reset(&rl_st, 0);
-    TEST_ASSERT_TRUE(bm_algo_rate_limit_q31_step(&rl_st, &rl_cfg,
-        bm_algo_float_to_q31(1.0f), dt_q31) >= 0);
-
-    TEST_ASSERT_EQUAL(0, bm_algo_deadband_q31(bm_algo_float_to_q31(0.01f),
-                                              bm_algo_float_to_q31(0.05f)));
-
-    bm_algo_pr_q15_reset(&pr_st);
-    TEST_ASSERT_TRUE(bm_algo_pr_q15_step(&pr_st, &pr_cfg,
-        bm_algo_float_to_q15(0.5f)) != 0);
-}
-
-static void test_detection_matched_and_ultrasonic(void) {
-    const float sig[8] = { 0.0f, 0.0f, 1.0f, 2.0f, 1.0f, 0.0f, 0.0f, 0.0f };
-    const float tmpl[3] = { 1.0f, 2.0f, 1.0f };
-    uint32_t idx = 0u;
-    float echo[32];
-    int32_t tof;
-    int i;
-
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, 6.0f,
-        bm_algo_matched_filter(sig, 8u, tmpl, 3u, &idx));
-    TEST_ASSERT_EQUAL_UINT32(2u, idx);
-
-    for (i = 0; i < 32; ++i) {
-        echo[i] = 0.0f;
-    }
-    echo[10] = 1.0f;
-    echo[11] = 0.8f;
-    tof = bm_algo_ultrasonic_tof(echo, 32u, 4u, 0.3f, 0.5f);
-    TEST_ASSERT_EQUAL_INT32(10, tof);
-}
-
-static void test_matched_filter_accepts_negative_correlations(void) {
-    const float signal[2] = { -2.0f, -3.0f };
-    const float template_data[1] = { 1.0f };
-    uint32_t index = UINT32_MAX;
-
-    TEST_ASSERT_FLOAT_WITHIN(
-        0.001f, -2.0f,
-        bm_algo_matched_filter(signal, 2u, template_data, 1u, &index));
-    TEST_ASSERT_EQUAL_UINT32(0u, index);
-}
-
-static void test_w2_audio_spectral_motion(void) {
-    bm_algo_eq_peaking_config_t eq_cfg = {
-        .sample_hz = 48000.0f,
-        .freq_hz = 1000.0f,
-        .q = 1.0f,
-        .gain_db = 6.0f
-    };
-    bm_algo_eq_peaking_state_t eq;
-    float in[4] = { 1.0f, 0.0f, -1.0f, 0.0f };
-    float out[4];
-    float win[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
-    float mag[4];
-    bm_algo_stepper_config_t st_cfg = { .max_velocity_steps_s = 1000.0f };
-    bm_algo_stepper_state_t st;
-    int8_t pulses[4];
-
-    TEST_ASSERT_EQUAL(0, bm_algo_eq_peaking_design(&eq, &eq_cfg));
-    bm_algo_eq_peaking_process(&eq, &eq_cfg, in, out, 4u);
-    TEST_ASSERT_TRUE(fabsf(out[0]) > 0.0f);
-
-    TEST_ASSERT_EQUAL(0, bm_algo_stft_magnitude_frame(in, win, 4u, mag));
-    TEST_ASSERT_TRUE(mag[0] >= 0.0f);
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, 1.0f,
-        bm_algo_order_from_hz(50.0f, 3000.0f, 1u));
-
-    bm_algo_stepper_reset(&st, 0);
-    TEST_ASSERT_TRUE(bm_algo_stepper_process(&st, &st_cfg, 100.0f, 0.01f,
-                                             pulses, 4u) > 0u);
-}
-
-static void test_eq_stepper_and_smith_regressions(void) {
-    bm_algo_eq_peaking_config_t eq_cfg = {
-        .sample_hz = 48000.0f,
-        .freq_hz = 1000.0f,
-        .q = 1.0f,
-        .gain_db = 0.0f
-    };
-    bm_algo_eq_peaking_state_t eq;
-    const float impulse[4] = { 1.0f, 0.0f, 0.0f, 0.0f };
-    float eq_out[4];
-    bm_algo_stepper_config_t step_cfg = {
-        .max_velocity_steps_s = 1000.0f
-    };
-    bm_algo_stepper_state_t step;
-    int8_t pulse;
-    bm_algo_smith_predictor_config_t smith_cfg = {
-        .model_gain = 1.0f,
-        .delay_steps = 1u
-    };
-    bm_algo_smith_predictor_state_t smith;
-    float delay_line[1];
-    float low_measurement;
-    float high_measurement;
-
-    TEST_ASSERT_EQUAL(0, bm_algo_eq_peaking_design(&eq, &eq_cfg));
-    bm_algo_eq_peaking_process(&eq, &eq_cfg, impulse, eq_out, 4u);
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, eq_out[0]);
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.0f, eq_out[1]);
-
-    bm_algo_stepper_reset(&step, 0);
-    TEST_ASSERT_EQUAL_UINT32(
-        1u,
-        bm_algo_stepper_process(
-            &step, &step_cfg, 250.0f, 0.01f, &pulse, 1u));
-    TEST_ASSERT_EQUAL_INT32(1, step.position_steps);
-    TEST_ASSERT_TRUE(step.phase >= 1.0f);
-
-    TEST_ASSERT_EQUAL(
-        0,
-        bm_algo_smith_predictor_init(
-            &smith, &smith_cfg, delay_line, 1u));
-    low_measurement = bm_algo_smith_predictor_step(
-        &smith, &smith_cfg, 5.0f, 2.0f, 1.0f);
-    bm_algo_smith_predictor_reset(&smith, &smith_cfg);
-    high_measurement = bm_algo_smith_predictor_step(
-        &smith, &smith_cfg, 5.0f, 3.0f, 1.0f);
-    TEST_ASSERT_TRUE(high_measurement < low_measurement);
-}
-
-static void test_review_fixes(void) {
-    bm_algo_eq_peaking_config_t bad_eq = { .sample_hz = 0.0f };
-    bm_algo_eq_peaking_state_t eq;
-    float in[4] = { 1.0f, 2.0f, 3.0f, 4.0f };
-    float out[4];
-    float ref[64];
-    float sig[64];
-    float gcc_work[512];
-    bm_algo_smith_predictor_config_t smith_cfg = {
-        .model_gain = 1.0f,
-        .delay_steps = 2u
-    };
-    float delay_line[2];
-    bm_algo_smith_predictor_state_t smith;
-    const uint8_t src[9] = { 0u };
-    int16_t gx[9];
-    int16_t gy[9];
-    int i;
-
-    memset(&eq, 0, sizeof(eq));
-    bm_algo_eq_peaking_process(&eq, &bad_eq, in, out, 4u);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, out[0]);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 4.0f, out[3]);
-
-    for (i = 0; i < 64; ++i) {
-        ref[i] = 0.0f;
-        sig[i] = 0.0f;
-    }
-    ref[10] = 1.0f;
-    sig[13] = 1.0f;
-    TEST_ASSERT_EQUAL_UINT32(512u, bm_algo_gcc_phat_work_count(64u, 10));
-    TEST_ASSERT_EQUAL_INT32(3, bm_algo_gcc_phat_delay(ref, sig, 64u, 10,
-                                                      gcc_work, 512u));
-    TEST_ASSERT_EQUAL_INT32(BM_ALGO_GCC_PHAT_DELAY_INVALID,
-                            bm_algo_gcc_phat_delay(NULL, sig, 64u, 10,
-                                                   gcc_work, 512u));
-
-    TEST_ASSERT_EQUAL(0, bm_algo_smith_predictor_init(&smith, &smith_cfg,
-                                                      delay_line, 2u));
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 2.0f,
-        bm_algo_smith_predictor_step(&smith, &smith_cfg, 5.0f, 2.0f, 1.0f));
-
-    memset(gx, 0x5A, sizeof(gx));
-    memset(gy, 0x5A, sizeof(gy));
-    bm_algo_vision_sobel_u8(src, gx, gy, 3u, 3u);
-    TEST_ASSERT_EQUAL_INT16(0, gx[0]);
-    TEST_ASSERT_EQUAL_INT16(0, gy[8]);
-}
 
 static void test_batch3_k0_extensions(void) {
     bm_algo_encoder_diag_config_t enc_diag_cfg = { .max_delta_per_step = 10 };
@@ -2391,48 +1357,791 @@ static void test_batch14_fixed_batch13_and_refs(void) {
     test_fixed_batch14_smoke();
 }
 
-void test_algorithm(void) {
-    RUN_TEST(test_common_clamp_and_deadband);
-    RUN_TEST(test_pi_step_and_saturation);
-    RUN_TEST(test_lpf1_step);
-    RUN_TEST(test_hpf1_uses_high_pass_coefficient);
-    RUN_TEST(test_ramp_reaches_target);
-    RUN_TEST(test_scurve_reaches_target);
-    RUN_TEST(test_clarke_park_roundtrip);
-    RUN_TEST(test_coulomb_soc);
-    RUN_TEST(test_rfft_execute);
-    RUN_TEST(test_single_point_windows_are_finite);
-    RUN_TEST(test_image_label_merges_connected_pixels);
-    RUN_TEST(test_linear_resampler_ratio_and_capacity);
-    RUN_TEST(test_goertzel_accepts_readonly_config);
-    RUN_TEST(test_ekf_covariance_stays_symmetric);
-    RUN_TEST(test_ukf1d_identity_tracks_measurement);
-    RUN_TEST(test_ukf1d_square_model_updates);
-    RUN_TEST(test_ekf_gate_and_gated_update);
-    RUN_TEST(test_imu_calib_apply_and_accumulator);
-    RUN_TEST(test_stft_overlap_emits_hop_frames);
-    RUN_TEST(test_mahony_uses_simultaneous_quaternion_update);
-    RUN_TEST(test_sogi_states_decay_after_input_stops);
-    RUN_TEST(test_fixed_pi_q31_saturates);
-    RUN_TEST(test_fixed_lpf1_q15_tracks_input);
-    RUN_TEST(test_fixed_point_saturates_before_narrowing);
-    RUN_TEST(test_fixed_point_negative_full_scale_product_saturates);
-    RUN_TEST(test_motion_and_profile_boundary_regressions);
-    RUN_TEST(test_motor_voltage_scaling_and_deadtime);
-    RUN_TEST(test_numeric_guard_regressions);
-    RUN_TEST(test_soc_and_image_boundary_regressions);
-    RUN_TEST(test_runtime_buffer_config_changes_are_rejected);
-    RUN_TEST(test_flux_observer_and_mtpa);
-    RUN_TEST(test_battery_temp_and_motor_extras);
-    RUN_TEST(test_zero_length_audio_is_ignored);
-    RUN_TEST(test_vision_centroid_and_compensation);
-    RUN_TEST(test_soc_ekf_and_power_quality);
-    RUN_TEST(test_p1_k0_and_fixed_extensions);
-    RUN_TEST(test_detection_matched_and_ultrasonic);
-    RUN_TEST(test_matched_filter_accepts_negative_correlations);
-    RUN_TEST(test_w2_audio_spectral_motion);
-    RUN_TEST(test_eq_stepper_and_smith_regressions);
-    RUN_TEST(test_review_fixes);
+/*
+ * 全库审查修复回归（第二批：定点数学 bug）
+ * 覆盖 P0-1 梯形刹车距离、P1-2 能量标度、P1-3 背隙双向偏移、P1-13 pid_q15 抗饱和。
+ */
+static void test_review_batch2_trapezoid_q31_vs_float(void) {
+    bm_algo_trapezoid_config_t fcfg = {
+        .max_vel = 0.5f, .max_accel = 0.1f, .max_decel = 0.1f
+    };
+    bm_algo_trapezoid_state_t fst;
+    bm_algo_trapezoid_q31_config_t qcfg;
+    bm_algo_trapezoid_q31_state_t qst;
+    bm_algo_q31_t dt_q31 = bm_algo_float_to_q31(0.05f);
+    float dt_s = 0.05f;
+    float target = 0.8f;
+    float max_err = 0.0f;
+    float max_overshoot = 0.0f;
+    int i;
+
+    qcfg.max_vel_q31 = bm_algo_float_to_q31(0.5f);
+    qcfg.max_accel_q31 = bm_algo_float_to_q31(0.1f);
+    qcfg.max_decel_q31 = bm_algo_float_to_q31(0.1f);
+
+    bm_algo_trapezoid_reset(&fst, 0.0f, 0.0f);
+    bm_algo_trapezoid_set_target(&fst, target);
+    bm_algo_trapezoid_q31_reset(&qst, 0, 0);
+    bm_algo_trapezoid_q31_set_target(&qst, bm_algo_float_to_q31(target));
+
+    for (i = 0; i < 120; ++i) {
+        float fp = bm_algo_trapezoid_step(&fst, &fcfg, dt_s);
+        float qp = bm_algo_q31_to_float(
+            bm_algo_trapezoid_q31_step(&qst, &qcfg, dt_q31));
+        float err = fp - qp;
+        if (err < 0.0f) {
+            err = -err;
+        }
+        if (err > max_err) {
+            max_err = err;
+        }
+        if (qp - target > max_overshoot) {
+            max_overshoot = qp - target;
+        }
+    }
+
+    /* 定点版与 float 参考逐步跟踪一致（累积舍入误差在合理范围内）。 */
+    TEST_ASSERT_TRUE(max_err < 0.02f);
+    /* 刹车距离修复后不应大幅过冲（旧 bug 下 stop_dist≈0 会过冲后振荡）。 */
+    TEST_ASSERT_TRUE(max_overshoot < 0.02f);
+    /* 两版均应收敛到目标。 */
+    TEST_ASSERT_TRUE(fst.done != 0);
+    TEST_ASSERT_TRUE(qst.done != 0);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, target, bm_algo_q31_to_float(qst.position));
+}
+
+static void test_review_batch2_energy_scale_consistency(void) {
+    bm_algo_energy_wh_q15_state_t s15;
+    bm_algo_energy_wh_q31_state_t s31;
+    bm_algo_q15_t p_q15 = bm_algo_float_to_q15(0.5f);
+    bm_algo_q15_t dt_q15 = bm_algo_float_to_q15(0.5f);
+    bm_algo_q31_t p_q31 = bm_algo_float_to_q31(0.5f);
+    bm_algo_q31_t dt_q31 = bm_algo_float_to_q31(0.5f);
+    bm_algo_q31_t acc15 = 0;
+    bm_algo_q31_t acc31 = 0;
+    int64_t diff;
+    int i;
+
+    bm_algo_energy_wh_q15_reset(&s15);
+    bm_algo_energy_wh_q31_reset(&s31);
+    for (i = 0; i < 10; ++i) {
+        acc15 = bm_algo_energy_wh_integrator_q15_step(&s15, p_q15, dt_q15);
+        acc31 = bm_algo_energy_wh_integrator_q31_step(&s31, p_q31, dt_q31);
+    }
+
+    /* 相同物理功率×步长下两版累计能量（同为 Q31 定标）应一致。 */
+    TEST_ASSERT_TRUE(acc15 > 0);
+    TEST_ASSERT_TRUE(acc31 > 0);
+    diff = (int64_t)acc15 - (int64_t)acc31;
+    if (diff < 0) {
+        diff = -diff;
+    }
+    TEST_ASSERT_TRUE(diff < 64);
+}
+
+static void test_review_batch2_backlash_q31_vs_float(void) {
+    bm_algo_backlash_state_t fst;
+    bm_algo_backlash_q31_state_t qst;
+    float width = 0.2f;
+    float slope = 0.05f;
+    bm_algo_q31_t wq = bm_algo_float_to_q31(width);
+    bm_algo_q31_t sq = bm_algo_float_to_q31(slope);
+    const float cmds[6] = { 0.5f, 0.5f, -0.5f, -0.5f, 0.5f, 0.5f };
+    int i;
+
+    bm_algo_backlash_reset(&fst);
+    bm_algo_backlash_q31_reset(&qst);
+
+    for (i = 0; i < 6; ++i) {
+        float fo = bm_algo_backlash_inverse(cmds[i], &fst, width, slope);
+        float qo = bm_algo_q31_to_float(bm_algo_backlash_inverse_q31(
+            bm_algo_float_to_q31(cmds[i]), &qst, wq, sq));
+        TEST_ASSERT_FLOAT_WITHIN(0.001f, fo, qo);
+    }
+
+    /* 双向独立偏移：正向 4 次调用渐进到 width=0.2，反向 2 次调用累到 0.1，
+     * 证明两方向各自累加、换向不清零（float v1.3 语义已在逐步比对中对齐）。 */
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, width, bm_algo_q31_to_float(qst.offset_fwd));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 2.0f * slope,
+                             bm_algo_q31_to_float(qst.offset_rev));
+}
+
+static void test_review_batch2_pid_q15_antiwindup_no_overflow(void) {
+    bm_algo_pid_q15_config_t cfg;
+    bm_algo_pid_q15_state_t st;
+    bm_algo_q15_t out;
+
+    /* 构造 kp=error=-32768 使 p_term=+32768（越 int16）。旧代码把 p_term
+     * 强转 Q15 会翻号成 -32768，令反算积分器符号错误（clamp 到正上限）；
+     * int64 修复后反算得负值。out_max 收窄以确保抗饱和分支触发。 */
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.kp = (bm_algo_q15_t)-32768;
+    cfg.ki = 8192;
+    cfg.kd = 0;
+    cfg.d_filter_alpha_q15 = 0;
+    cfg.integrator_min = -32767;
+    cfg.integrator_max = 32767;
+    cfg.out_min = -16384;
+    cfg.out_max = 16384;
+
+    bm_algo_pid_q15_reset(&st, 0);
+    out = bm_algo_pid_q15_step(&st, &cfg, (bm_algo_q15_t)-32768,
+                               BM_ALGO_Q15_ONE);
+
+    /* 输出饱和到收窄的 out_max。 */
+    TEST_ASSERT_EQUAL_INT(16384, (int)out);
+    /* 反算积分器必须为负（旧 bug 会因强转翻号得到正上限 +32767）。 */
+    TEST_ASSERT_TRUE(st.integrator < 0);
+    TEST_ASSERT_TRUE(st.integrator >= -32767 && st.integrator <= 32767);
+}
+
+/*
+ * ==========================================================================
+ * Phase 1 Task 1：双轨算法对照测试网（12 族 float vs Q15/Q31 逐步对照）
+ *
+ * 参见 docs/superpowers/plans/2026-07-02-arch-improvement-schedule.md。
+ * Q15/Q31 版当前均经 float 桥接实现（见 bm_algo_fixed.h @warning），
+ * 逐步对照容差：Q31 0.01f、Q15 0.02f；真定点化后本组测试是回归门。
+ * ==========================================================================
+ */
+
+/**
+ * @brief 双轨对照：differentiator Q31/Q15 与 float 版逐步一致性
+ *
+ * 幅值/频率选取保证微分量级 |dx/dt| 明显小于 1.0，避免 Q31/Q15 输出饱和。
+ */
+static void test_dualtrack_differentiator_q_vs_float(void) {
+    bm_algo_differentiator_config_t     fcfg = { .coeff = 0.3f };
+    bm_algo_differentiator_state_t      fst;
+    bm_algo_differentiator_q31_config_t q31cfg;
+    bm_algo_differentiator_q31_state_t  q31st;
+    bm_algo_differentiator_q15_config_t q15cfg;
+    bm_algo_differentiator_q15_state_t  q15st;
+    const float dt_s = 0.05f;
+    const bm_algo_q31_t dt_q31 = bm_algo_float_to_q31(dt_s);
+    const bm_algo_q15_t dt_q15 = bm_algo_float_to_q15(dt_s);
+    int i;
+
+    q31cfg.coeff_q31 = bm_algo_float_to_q31(0.3f);
+    q15cfg.coeff_q15 = bm_algo_float_to_q15(0.3f);
+
+    bm_algo_differentiator_reset(&fst);
+    bm_algo_differentiator_q31_reset(&q31st);
+    bm_algo_differentiator_q15_reset(&q15st);
+
+    for (i = 0; i < 64; ++i) {
+        float x = 0.3f * sinf((float)i * 0.05f);
+        float f_out = bm_algo_differentiator_step(&fst, &fcfg, x, dt_s);
+        float q31_out = bm_algo_q31_to_float(bm_algo_differentiator_q31_step(
+            &q31st, &q31cfg, bm_algo_float_to_q31(x), dt_q31));
+        float q15_out = bm_algo_q15_to_float(bm_algo_differentiator_q15_step(
+            &q15st, &q15cfg, bm_algo_float_to_q15(x), dt_q15));
+        TEST_ASSERT_FLOAT_WITHIN(0.01f, f_out, q31_out);
+        TEST_ASSERT_FLOAT_WITHIN(0.02f, f_out, q15_out);
+    }
+}
+
+/**
+ * @brief 双轨对照：smith_predictor Q31/Q15 与 float 版逐步一致性
+ *
+ * delay_steps=3，u_controller 幅值 <1 保证 model_gain*u 不越界。
+ */
+static void test_dualtrack_smith_predictor_q_vs_float(void) {
+    bm_algo_smith_predictor_config_t     fcfg = { .model_gain = 0.5f, .delay_steps = 3u };
+    bm_algo_smith_predictor_state_t      fst;
+    float                                f_delay[3];
+    bm_algo_smith_predictor_q31_config_t q31cfg;
+    bm_algo_smith_predictor_q31_state_t  q31st;
+    bm_algo_q31_t                        q31_delay[3];
+    bm_algo_smith_predictor_q15_config_t q15cfg;
+    bm_algo_smith_predictor_q15_state_t  q15st;
+    bm_algo_q15_t                        q15_delay[3];
+    int i;
+
+    q31cfg.model_gain_q31 = bm_algo_float_to_q31(0.5f);
+    q31cfg.delay_steps = 3u;
+    q15cfg.model_gain_q15 = bm_algo_float_to_q15(0.5f);
+    q15cfg.delay_steps = 3u;
+
+    TEST_ASSERT_EQUAL(0, bm_algo_smith_predictor_init(&fst, &fcfg, f_delay, 3u));
+    TEST_ASSERT_EQUAL(0, bm_algo_smith_predictor_q31_init(&q31st, &q31cfg, q31_delay, 3u));
+    TEST_ASSERT_EQUAL(0, bm_algo_smith_predictor_q15_init(&q15st, &q15cfg, q15_delay, 3u));
+
+    for (i = 0; i < 40; ++i) {
+        float reference = 0.5f;
+        float measurement = 0.5f;
+        float u_controller = 0.3f * sinf((float)i * 0.1f);
+        float f_err = bm_algo_smith_predictor_step(&fst, &fcfg, reference, measurement, u_controller);
+        float q31_err = bm_algo_q31_to_float(bm_algo_smith_predictor_q31_step(
+            &q31st, &q31cfg, bm_algo_float_to_q31(reference),
+            bm_algo_float_to_q31(measurement), bm_algo_float_to_q31(u_controller)));
+        float q15_err = bm_algo_q15_to_float(bm_algo_smith_predictor_q15_step(
+            &q15st, &q15cfg, bm_algo_float_to_q15(reference),
+            bm_algo_float_to_q15(measurement), bm_algo_float_to_q15(u_controller)));
+        TEST_ASSERT_FLOAT_WITHIN(0.01f, f_err, q31_err);
+        TEST_ASSERT_FLOAT_WITHIN(0.02f, f_err, q15_err);
+    }
+}
+
+/**
+ * @brief 双轨对照：moving_avg Q31/Q15 与 float 版逐步一致性（window=5）
+ */
+static void test_dualtrack_moving_avg_q_vs_float(void) {
+    float                            fbuf[5];
+    bm_algo_moving_avg_config_t      fcfg = { .buffer = fbuf, .length = 5u };
+    bm_algo_moving_avg_state_t       fst;
+    bm_algo_moving_avg_q31_config_t  q31cfg = { .window_size = 5u };
+    bm_algo_moving_avg_q31_state_t   q31st;
+    bm_algo_moving_avg_q15_config_t  q15cfg = { .window_size = 5u };
+    bm_algo_moving_avg_q15_state_t   q15st;
+    int i;
+
+    TEST_ASSERT_EQUAL(0, bm_algo_moving_avg_init(&fst, &fcfg));
+    bm_algo_moving_avg_q31_reset(&q31st);
+    bm_algo_moving_avg_q15_reset(&q15st);
+
+    for (i = 0; i < 30; ++i) {
+        float x = 0.4f * sinf((float)i * 0.15f);
+        float f_out = bm_algo_moving_avg_step(&fst, &fcfg, x);
+        float q31_out = bm_algo_q31_to_float(bm_algo_moving_avg_q31_step(
+            &q31st, &q31cfg, bm_algo_float_to_q31(x)));
+        float q15_out = bm_algo_q15_to_float(bm_algo_moving_avg_q15_step(
+            &q15st, &q15cfg, bm_algo_float_to_q15(x)));
+        TEST_ASSERT_FLOAT_WITHIN(0.01f, f_out, q31_out);
+        TEST_ASSERT_FLOAT_WITHIN(0.02f, f_out, q15_out);
+    }
+}
+
+/**
+ * @brief 双轨对照：complementary（互补滤波）Q31/Q15 与 float 版逐步一致性
+ *
+ * 比较 roll_rad/pitch_rad 姿态分量。
+ */
+static void test_dualtrack_complementary_q_vs_float(void) {
+    bm_algo_complementary_config_t     fcfg = { .alpha = 0.98f };
+    bm_algo_complementary_state_t      fst;
+    bm_algo_complementary_q31_config_t q31cfg = { .alpha_q31 = bm_algo_float_to_q31(0.98f) };
+    bm_algo_complementary_q31_state_t  q31st;
+    bm_algo_complementary_q15_config_t q15cfg = { .alpha_q15 = bm_algo_float_to_q15(0.98f) };
+    bm_algo_complementary_q15_state_t  q15st;
+    const float dt_s = 0.01f;
+    const bm_algo_q31_t dt_q31 = bm_algo_float_to_q31(dt_s);
+    const bm_algo_q15_t dt_q15 = bm_algo_float_to_q15(dt_s);
+    int i;
+
+    bm_algo_complementary_reset(&fst);
+    bm_algo_complementary_q31_reset(&q31st);
+    bm_algo_complementary_q15_reset(&q15st);
+
+    for (i = 0; i < 40; ++i) {
+        float gx = 0.1f * sinf((float)i * 0.2f);
+        float gy = 0.05f;
+
+        bm_algo_complementary_step(&fst, &fcfg, gx, gy, 0.0f, 0.0f, 0.0f, 1.0f, dt_s);
+        bm_algo_complementary_q31_step(&q31st, &q31cfg,
+            bm_algo_float_to_q31(gx), bm_algo_float_to_q31(gy), 0,
+            0, 0, BM_ALGO_Q31_ONE, dt_q31);
+        bm_algo_complementary_q15_step(&q15st, &q15cfg,
+            bm_algo_float_to_q15(gx), bm_algo_float_to_q15(gy), 0,
+            0, 0, BM_ALGO_Q15_ONE, dt_q15);
+
+        TEST_ASSERT_FLOAT_WITHIN(0.01f, fst.roll_rad, bm_algo_q31_to_float(q31st.roll_rad));
+        TEST_ASSERT_FLOAT_WITHIN(0.01f, fst.pitch_rad, bm_algo_q31_to_float(q31st.pitch_rad));
+        TEST_ASSERT_FLOAT_WITHIN(0.02f, fst.roll_rad, bm_algo_q15_to_float(q15st.roll_rad));
+        TEST_ASSERT_FLOAT_WITHIN(0.02f, fst.pitch_rad, bm_algo_q15_to_float(q15st.pitch_rad));
+    }
+}
+
+/**
+ * @brief 双轨对照：Mahony AHRS Q31/Q15 与 float 版姿态分量一致性
+ *
+ * 无磁力计观测时 yaw 不可观测（漂移方向对输入路径敏感），仅比较
+ * roll/pitch（经 bm_algo_quat_to_euler 从四元数换算）。
+ */
+static void test_dualtrack_mahony_q_vs_float(void) {
+    bm_algo_mahony_config_t     fcfg = { .kp = 2.0f, .ki = 0.01f };
+    bm_algo_mahony_state_t      fst;
+    bm_algo_euler_t             f_euler;
+    bm_algo_mahony_q31_config_t q31cfg;
+    bm_algo_mahony_q31_state_t  q31st;
+    bm_algo_quat_t              q31_quat;
+    bm_algo_euler_t             q31_euler;
+    bm_algo_mahony_q15_config_t q15cfg;
+    bm_algo_mahony_q15_state_t  q15st;
+    bm_algo_quat_t              q15_quat;
+    bm_algo_euler_t             q15_euler;
+    const float dt_s = 0.01f;
+    const bm_algo_q31_t dt_q31 = bm_algo_float_to_q31(dt_s);
+    const bm_algo_q15_t dt_q15 = bm_algo_float_to_q15(dt_s);
+    int i;
+
+    q31cfg.kp_q31 = bm_algo_float_to_q31(2.0f);
+    q31cfg.ki_q31 = bm_algo_float_to_q31(0.01f);
+    q15cfg.kp_q15 = bm_algo_float_to_q15(2.0f);
+    q15cfg.ki_q15 = bm_algo_float_to_q15(0.01f);
+
+    bm_algo_mahony_reset(&fst);
+    bm_algo_mahony_q31_reset(&q31st);
+    bm_algo_mahony_q15_reset(&q15st);
+
+    for (i = 0; i < 30; ++i) {
+        float gx = 0.05f * sinf((float)i * 0.2f);
+        float gy = 0.03f;
+
+        bm_algo_mahony_step(&fst, &fcfg, gx, gy, 0.0f, 0.0f, 0.0f, 1.0f, dt_s);
+        bm_algo_mahony_q31_step(&q31st, &q31cfg,
+            bm_algo_float_to_q31(gx), bm_algo_float_to_q31(gy), 0,
+            0, 0, BM_ALGO_Q31_ONE, dt_q31);
+        bm_algo_mahony_q15_step(&q15st, &q15cfg,
+            bm_algo_float_to_q15(gx), bm_algo_float_to_q15(gy), 0,
+            0, 0, BM_ALGO_Q15_ONE, dt_q15);
+    }
+
+    bm_algo_quat_to_euler(&fst.q, &f_euler);
+    q31_quat.w = bm_algo_q31_to_float(q31st.qw_q31);
+    q31_quat.x = bm_algo_q31_to_float(q31st.qx_q31);
+    q31_quat.y = bm_algo_q31_to_float(q31st.qy_q31);
+    q31_quat.z = bm_algo_q31_to_float(q31st.qz_q31);
+    bm_algo_quat_to_euler(&q31_quat, &q31_euler);
+    q15_quat.w = bm_algo_q15_to_float(q15st.qw_q15);
+    q15_quat.x = bm_algo_q15_to_float(q15st.qx_q15);
+    q15_quat.y = bm_algo_q15_to_float(q15st.qy_q15);
+    q15_quat.z = bm_algo_q15_to_float(q15st.qz_q15);
+    bm_algo_quat_to_euler(&q15_quat, &q15_euler);
+
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, f_euler.roll_rad, q31_euler.roll_rad);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, f_euler.pitch_rad, q31_euler.pitch_rad);
+    TEST_ASSERT_FLOAT_WITHIN(0.02f, f_euler.roll_rad, q15_euler.roll_rad);
+    TEST_ASSERT_FLOAT_WITHIN(0.02f, f_euler.pitch_rad, q15_euler.pitch_rad);
+}
+
+/**
+ * @brief 双轨对照：Madgwick AHRS Q31/Q15 与 float 版姿态分量一致性
+ *
+ * 同 Mahony：无磁力计时 yaw 不可观测，仅比较 roll/pitch。
+ */
+static void test_dualtrack_madgwick_q_vs_float(void) {
+    bm_algo_madgwick_config_t     fcfg = { .beta = 0.1f };
+    bm_algo_madgwick_state_t      fst;
+    bm_algo_euler_t               f_euler;
+    bm_algo_madgwick_q31_config_t q31cfg = { .beta_q31 = bm_algo_float_to_q31(0.1f) };
+    bm_algo_madgwick_q31_state_t  q31st;
+    bm_algo_quat_t                q31_quat;
+    bm_algo_euler_t               q31_euler;
+    bm_algo_madgwick_q15_config_t q15cfg = { .beta_q15 = bm_algo_float_to_q15(0.1f) };
+    bm_algo_madgwick_q15_state_t  q15st;
+    bm_algo_quat_t                q15_quat;
+    bm_algo_euler_t               q15_euler;
+    const float dt_s = 0.01f;
+    const bm_algo_q31_t dt_q31 = bm_algo_float_to_q31(dt_s);
+    const bm_algo_q15_t dt_q15 = bm_algo_float_to_q15(dt_s);
+    int i;
+
+    bm_algo_madgwick_reset(&fst);
+    bm_algo_madgwick_q31_reset(&q31st);
+    bm_algo_madgwick_q15_reset(&q15st);
+
+    for (i = 0; i < 30; ++i) {
+        float gx = 0.05f * sinf((float)i * 0.2f);
+        float gy = 0.03f;
+
+        bm_algo_madgwick_step(&fst, &fcfg, gx, gy, 0.0f, 0.0f, 0.0f, 1.0f, dt_s);
+        bm_algo_madgwick_q31_step(&q31st, &q31cfg,
+            bm_algo_float_to_q31(gx), bm_algo_float_to_q31(gy), 0,
+            0, 0, BM_ALGO_Q31_ONE, dt_q31);
+        bm_algo_madgwick_q15_step(&q15st, &q15cfg,
+            bm_algo_float_to_q15(gx), bm_algo_float_to_q15(gy), 0,
+            0, 0, BM_ALGO_Q15_ONE, dt_q15);
+    }
+
+    bm_algo_quat_to_euler(&fst.q, &f_euler);
+    q31_quat.w = bm_algo_q31_to_float(q31st.qw_q31);
+    q31_quat.x = bm_algo_q31_to_float(q31st.qx_q31);
+    q31_quat.y = bm_algo_q31_to_float(q31st.qy_q31);
+    q31_quat.z = bm_algo_q31_to_float(q31st.qz_q31);
+    bm_algo_quat_to_euler(&q31_quat, &q31_euler);
+    q15_quat.w = bm_algo_q15_to_float(q15st.qw_q15);
+    q15_quat.x = bm_algo_q15_to_float(q15st.qx_q15);
+    q15_quat.y = bm_algo_q15_to_float(q15st.qy_q15);
+    q15_quat.z = bm_algo_q15_to_float(q15st.qz_q15);
+    bm_algo_quat_to_euler(&q15_quat, &q15_euler);
+
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, f_euler.roll_rad, q31_euler.roll_rad);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, f_euler.pitch_rad, q31_euler.pitch_rad);
+    TEST_ASSERT_FLOAT_WITHIN(0.02f, f_euler.roll_rad, q15_euler.roll_rad);
+    TEST_ASSERT_FLOAT_WITHIN(0.02f, f_euler.pitch_rad, q15_euler.pitch_rad);
+}
+
+/**
+ * @brief 双轨对照：DDA 直线插补 Q31/Q15 与 float 版逐步一致性
+ *
+ * 先断言 done/返回状态一致，再比较坐标输出（int 状态族）。
+ */
+static void test_dualtrack_dda_q_vs_float(void) {
+    bm_algo_dda_config_t     fcfg = { 0.0f, 0.0f, 0.5f, 0.3f, 0.05f };
+    bm_algo_dda_state_t      fst;
+    bm_algo_dda_q31_config_t q31cfg;
+    bm_algo_dda_q31_state_t  q31st;
+    bm_algo_dda_q15_config_t q15cfg;
+    bm_algo_dda_q15_state_t  q15st;
+    int i;
+
+    q31cfg.x0_q31 = bm_algo_float_to_q31(0.0f);
+    q31cfg.y0_q31 = bm_algo_float_to_q31(0.0f);
+    q31cfg.x1_q31 = bm_algo_float_to_q31(0.5f);
+    q31cfg.y1_q31 = bm_algo_float_to_q31(0.3f);
+    q31cfg.step_size_q31 = bm_algo_float_to_q31(0.05f);
+
+    q15cfg.x0_q15 = bm_algo_float_to_q15(0.0f);
+    q15cfg.y0_q15 = bm_algo_float_to_q15(0.0f);
+    q15cfg.x1_q15 = bm_algo_float_to_q15(0.5f);
+    q15cfg.y1_q15 = bm_algo_float_to_q15(0.3f);
+    q15cfg.step_size_q15 = bm_algo_float_to_q15(0.05f);
+
+    bm_algo_dda_reset(&fst, &fcfg);
+    bm_algo_dda_q31_reset(&q31st, &q31cfg);
+    bm_algo_dda_q15_reset(&q15st, &q15cfg);
+
+    for (i = 0; i < 20; ++i) {
+        float x_f = 0.0f, y_f = 0.0f;
+        bm_algo_q31_t x_q31 = 0, y_q31 = 0;
+        bm_algo_q15_t x_q15 = 0, y_q15 = 0;
+        int f_ok, q31_ok, q15_ok;
+
+        f_ok = bm_algo_dda_step(&fst, &fcfg, &x_f, &y_f);
+        q31_ok = bm_algo_dda_q31_step(&q31st, &q31cfg, &x_q31, &y_q31);
+        q15_ok = bm_algo_dda_q15_step(&q15st, &q15cfg, &x_q15, &y_q15);
+
+        TEST_ASSERT_EQUAL_INT(f_ok, q31_ok);
+        TEST_ASSERT_EQUAL_INT(f_ok, q15_ok);
+        if (!f_ok) {
+            break;
+        }
+        TEST_ASSERT_FLOAT_WITHIN(0.01f, x_f, bm_algo_q31_to_float(x_q31));
+        TEST_ASSERT_FLOAT_WITHIN(0.01f, y_f, bm_algo_q31_to_float(y_q31));
+        TEST_ASSERT_FLOAT_WITHIN(0.02f, x_f, bm_algo_q15_to_float(x_q15));
+        TEST_ASSERT_FLOAT_WITHIN(0.02f, y_f, bm_algo_q15_to_float(y_q15));
+    }
+    TEST_ASSERT_TRUE(fst.done != 0);
+    TEST_ASSERT_TRUE(q31st.done != 0);
+    TEST_ASSERT_TRUE(q15st.done != 0);
+}
+
+/**
+ * @brief 双轨对照：SOGI-PLL Q31/Q15 与 float 版趋势一致性（降级）
+ *
+ * 降级原因（审查中发现的 Source 缺陷，其中未初始化读已修复，
+ * 定标域限制为 ABI 约束不在本轮修复范围）：
+ * 1) 【未修复，ABI 限制】bm_algo_sogi_pll_q31/q15_config_t 无
+ *    integrator_limit_ratio 字段，只能表达
+ *    nominal_omega_rad_s/k_sogi/k_pll；真实电网角频率
+ *    （如 2π×50≈314 rad/s）远超 Q31/Q15 的 ±1.0 定标域，
+ *    bm_algo_float_to_q31/q15() 会直接饱和到 1.0，Q 版与 float 版
+ *    config 无法表达同一物理量，逐步数值对照失去意义。
+ * 2) 【已修复】bm_algo_fixed.c 中 bm_algo_sogi_pll_q15/q31_reset()/_step()
+ *    桥接到 float 版时，局部 fcfg 曾只赋值 nominal_omega_rad_s/k_sogi/k_pll
+ *    三个字段，未赋值 bm_algo_sogi_pll_config_t::integrator_limit_ratio
+ *    （未初始化读，UB）。现已显式置 0，复用 float 实现"0 时自动取 0.2"
+ *    的既定默认限幅比语义（见 bm_algo_power.c 第 120~127 行），消除 UB。
+ * 因缺陷 1) 仍在（ABI 限制无法表达真实物理角频率），本测试仍仅对三版本
+ * 做"趋势一致性"断言（有限、theta 落在回绕域内），不做逐步数值比对；
+ * config 使用可在 Q31/Q15 定标域内精确表达的归一化角频率（非真实物理 Hz），
+ * 仅用于驱动桥接路径。
+ */
+static void test_dualtrack_sogi_pll_q_vs_float(void) {
+    bm_algo_sogi_pll_config_t     fcfg = {
+        .nominal_omega_rad_s = 0.5f, .k_sogi = 0.3f,
+        .k_pll = 0.2f, .integrator_limit_ratio = 0.2f
+    };
+    bm_algo_sogi_pll_state_t      fst;
+    bm_algo_sogi_pll_q31_config_t q31cfg;
+    bm_algo_sogi_pll_q31_state_t  q31st;
+    bm_algo_sogi_pll_q15_config_t q15cfg;
+    bm_algo_sogi_pll_q15_state_t  q15st;
+    const float dt_s = 0.01f;
+    const bm_algo_q31_t dt_q31 = bm_algo_float_to_q31(dt_s);
+    const bm_algo_q15_t dt_q15 = bm_algo_float_to_q15(dt_s);
+    int i;
+
+    q31cfg.nominal_omega_q31 = bm_algo_float_to_q31(0.5f);
+    q31cfg.k_sogi_q31 = bm_algo_float_to_q31(0.3f);
+    q31cfg.k_pll_q31 = bm_algo_float_to_q31(0.2f);
+    q15cfg.nominal_omega_q15 = bm_algo_float_to_q15(0.5f);
+    q15cfg.k_sogi_q15 = bm_algo_float_to_q15(0.3f);
+    q15cfg.k_pll_q15 = bm_algo_float_to_q15(0.2f);
+
+    bm_algo_sogi_pll_reset(&fst, &fcfg);
+    bm_algo_sogi_pll_q31_reset(&q31st, &q31cfg);
+    bm_algo_sogi_pll_q15_reset(&q15st, &q15cfg);
+
+    for (i = 0; i < 50; ++i) {
+        float v_in = sinf((float)i * 0.05f);
+        bm_algo_sogi_pll_step(&fst, &fcfg, v_in, dt_s);
+        bm_algo_sogi_pll_q31_step(&q31st, &q31cfg, bm_algo_float_to_q31(v_in), dt_q31);
+        bm_algo_sogi_pll_q15_step(&q15st, &q15cfg, bm_algo_float_to_q15(v_in), dt_q15);
+    }
+
+    TEST_ASSERT_TRUE(bm_algo_is_finite_f(fst.theta_rad));
+    TEST_ASSERT_TRUE(bm_algo_is_finite_f(fst.omega_rad_s));
+    TEST_ASSERT_TRUE(bm_algo_is_finite_f(q31st.theta_rad));
+    TEST_ASSERT_TRUE(bm_algo_is_finite_f(q31st.omega_rad_s));
+    TEST_ASSERT_TRUE(bm_algo_is_finite_f(q15st.theta_rad));
+    TEST_ASSERT_TRUE(bm_algo_is_finite_f(q15st.omega_rad_s));
+
+    /* theta 应落在 [0, 2π) 回绕域内（bm_algo_angle_wrap_0_2pi_rad 契约）。 */
+    TEST_ASSERT_TRUE(fst.theta_rad >= 0.0f && fst.theta_rad < 6.29f);
+    TEST_ASSERT_TRUE(q31st.theta_rad >= 0.0f && q31st.theta_rad < 6.29f);
+    TEST_ASSERT_TRUE(q15st.theta_rad >= 0.0f && q15st.theta_rad < 6.29f);
+}
+
+/**
+ * @brief 双轨对照：RMS（窗口方均根）Q31/Q15 与 float 版逐步一致性
+ */
+static void test_dualtrack_rms_q_vs_float(void) {
+    bm_algo_rms_config_t     fcfg = { .window_samples = 8u };
+    bm_algo_rms_state_t      fst;
+    float                    fbuf[8];
+    bm_algo_rms_q31_config_t q31cfg = { .window_size = 8u };
+    bm_algo_rms_q31_state_t  q31st;
+    bm_algo_rms_q15_config_t q15cfg = { .window_size = 8u };
+    bm_algo_rms_q15_state_t  q15st;
+    int i;
+
+    TEST_ASSERT_EQUAL(0, bm_algo_rms_init(&fst, &fcfg, fbuf, 8u));
+    bm_algo_rms_q31_reset(&q31st);
+    bm_algo_rms_q15_reset(&q15st);
+
+    for (i = 0; i < 20; ++i) {
+        float x = 0.4f * sinf((float)i * 0.3f);
+        float f_out = bm_algo_rms_step(&fst, &fcfg, x);
+        float q31_out = bm_algo_q31_to_float(
+            bm_algo_rms_q31_step(&q31st, &q31cfg, bm_algo_float_to_q31(x)));
+        float q15_out = bm_algo_q15_to_float(
+            bm_algo_rms_q15_step(&q15st, &q15cfg, bm_algo_float_to_q15(x)));
+        TEST_ASSERT_TRUE(f_out >= 0.0f);
+        TEST_ASSERT_FLOAT_WITHIN(0.01f, f_out, q31_out);
+        TEST_ASSERT_FLOAT_WITHIN(0.02f, f_out, q15_out);
+    }
+}
+
+/**
+ * @brief 双轨对照：flux_observer（磁链观测+PLL）Q31/Q15 与 float 版逐步一致性
+ *
+ * ls_h 置 0 避免磁链角在瞬态首步出现大跳变（|flux| 接近 0 时 atan2 数值
+ * 敏感）；v/i 激励为恒定小幅值，使收敛角度落在 Q31/Q15 的 ±1.0 rad
+ * 定标域内，避免角度输出饱和。
+ */
+static void test_dualtrack_flux_observer_q_vs_float(void) {
+    bm_algo_flux_observer_config_t     fcfg = {
+        .rs_ohm = 0.1f, .ls_h = 0.0f, .pll_kp = 0.5f, .pll_ki = 0.05f,
+        .flux_observer_wc_rad_s = 10.0f
+    };
+    bm_algo_flux_observer_state_t      fst;
+    bm_algo_flux_observer_q31_config_t q31cfg;
+    bm_algo_flux_observer_q31_state_t  q31st;
+    bm_algo_flux_observer_q15_config_t q15cfg;
+    bm_algo_flux_observer_q15_state_t  q15st;
+    const float dt_s = 0.001f;
+    const bm_algo_q31_t dt_q31 = bm_algo_float_to_q31(dt_s);
+    const bm_algo_q15_t dt_q15 = bm_algo_float_to_q15(dt_s);
+    const float v_alpha = 0.15f;
+    const float v_beta = 0.03f;
+    const float i_alpha = 0.05f;
+    const float i_beta = 0.01f;
+    int i;
+
+    q31cfg.rs_q31 = bm_algo_float_to_q31(0.1f);
+    q31cfg.ls_q31 = bm_algo_float_to_q31(0.0f);
+    q31cfg.pll_kp_q31 = bm_algo_float_to_q31(0.5f);
+    q31cfg.pll_ki_q31 = bm_algo_float_to_q31(0.05f);
+    q31cfg.wc_rad_s = 10.0f;
+
+    q15cfg.rs_q15 = bm_algo_float_to_q15(0.1f);
+    q15cfg.ls_q15 = bm_algo_float_to_q15(0.0f);
+    q15cfg.pll_kp_q15 = bm_algo_float_to_q15(0.5f);
+    q15cfg.pll_ki_q15 = bm_algo_float_to_q15(0.05f);
+    q15cfg.wc_rad_s = 10.0f;
+
+    bm_algo_flux_observer_reset(&fst, 0.0f);
+    bm_algo_flux_observer_q31_reset(&q31st, 0);
+    bm_algo_flux_observer_q15_reset(&q15st, 0);
+
+    for (i = 0; i < 30; ++i) {
+        float f_theta = bm_algo_flux_observer_step(&fst, &fcfg,
+            v_alpha, v_beta, i_alpha, i_beta, dt_s);
+        float q31_theta = bm_algo_q31_to_float(bm_algo_flux_observer_q31_step(
+            &q31st, &q31cfg,
+            bm_algo_float_to_q31(v_alpha), bm_algo_float_to_q31(v_beta),
+            bm_algo_float_to_q31(i_alpha), bm_algo_float_to_q31(i_beta), dt_q31));
+        float q15_theta = bm_algo_q15_to_float(bm_algo_flux_observer_q15_step(
+            &q15st, &q15cfg,
+            bm_algo_float_to_q15(v_alpha), bm_algo_float_to_q15(v_beta),
+            bm_algo_float_to_q15(i_alpha), bm_algo_float_to_q15(i_beta), dt_q15));
+
+        TEST_ASSERT_FLOAT_WITHIN(0.01f, f_theta, q31_theta);
+        TEST_ASSERT_FLOAT_WITHIN(0.02f, f_theta, q15_theta);
+    }
+}
+
+/**
+ * @brief 双轨对照：S 曲线轨迹 Q31/Q15 与 float 版趋势一致性（降级）
+ *
+ * 降级原因：bm_algo_scurve_step 用"预估制动距离 vs 剩余距离"的
+ * bang-bang 阈值比较决定加速/减速相位切换（bm_algo_profile.c 第
+ * 194~202 行）。bm_algo_scurve_q31/q15_step 每步都把 position/
+ * velocity/acceleration 经 Q31/Q15 往返量化后再调用该 float 核心
+ * （未保留跨步 float 影子状态，见 bm_algo_fixed.c 对应实现），量化引入
+ * 的极小偏差可能使阈值比较在某一步上与 float 版判定不同，导致该步起
+ * 两版进入不同的加速度相位，此后位置轨迹持续偏离（非收敛的一次性
+ * 瞬态：实测偏差随迭代增长，非固定量级），逐步数值对照不稳定。降级为
+ * 趋势一致性：三版本均应收敛（done）、收敛后位置落在各自定标域下的
+ * target 附近，且收敛所需步数量级相近（非逐步数值比对）。
+ */
+static void test_dualtrack_scurve_q_vs_float(void) {
+    bm_algo_scurve_config_t     fcfg = { .max_vel = 0.4f, .max_accel = 0.3f, .max_jerk = 3.0f };
+    bm_algo_scurve_state_t      fst;
+    bm_algo_scurve_q31_config_t q31cfg;
+    bm_algo_scurve_q31_state_t  q31st;
+    bm_algo_scurve_q15_config_t q15cfg;
+    bm_algo_scurve_q15_state_t  q15st;
+    const float dt_s = 0.02f;
+    const bm_algo_q31_t dt_q31 = bm_algo_float_to_q31(dt_s);
+    const bm_algo_q15_t dt_q15 = bm_algo_float_to_q15(dt_s);
+    const float target = 0.5f;
+    const int max_steps = 300;
+    int f_steps = -1, q31_steps = -1, q15_steps = -1;
+    int step_diff;
+    int i;
+
+    q31cfg.max_vel_q31 = bm_algo_float_to_q31(0.4f);
+    q31cfg.max_accel_q31 = bm_algo_float_to_q31(0.3f);
+    q31cfg.max_jerk_q31 = bm_algo_float_to_q31(3.0f);
+    q15cfg.max_vel_q15 = bm_algo_float_to_q15(0.4f);
+    q15cfg.max_accel_q15 = bm_algo_float_to_q15(0.3f);
+    q15cfg.max_jerk_q15 = bm_algo_float_to_q15(3.0f);
+
+    bm_algo_scurve_reset(&fst, 0.0f, 0.0f, 0.0f);
+    bm_algo_scurve_set_target(&fst, target);
+    bm_algo_scurve_q31_reset(&q31st, 0, 0, 0);
+    bm_algo_scurve_q31_set_target(&q31st, bm_algo_float_to_q31(target));
+    bm_algo_scurve_q15_reset(&q15st, 0, 0, 0);
+    bm_algo_scurve_q15_set_target(&q15st, bm_algo_float_to_q15(target));
+
+    for (i = 0; i < max_steps; ++i) {
+        if (!fst.done) {
+            (void)bm_algo_scurve_step(&fst, &fcfg, dt_s);
+            if (fst.done && f_steps < 0) {
+                f_steps = i + 1;
+            }
+        }
+        if (!q31st.done) {
+            (void)bm_algo_scurve_q31_step(&q31st, &q31cfg, dt_q31);
+            if (q31st.done && q31_steps < 0) {
+                q31_steps = i + 1;
+            }
+        }
+        if (!q15st.done) {
+            (void)bm_algo_scurve_q15_step(&q15st, &q15cfg, dt_q15);
+            if (q15st.done && q15_steps < 0) {
+                q15_steps = i + 1;
+            }
+        }
+        if (fst.done && q31st.done && q15st.done) {
+            break;
+        }
+    }
+
+    TEST_ASSERT_TRUE(fst.done != 0);
+    TEST_ASSERT_TRUE(q31st.done != 0);
+    TEST_ASSERT_TRUE(q15st.done != 0);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, target, fst.position);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, target, bm_algo_q31_to_float(q31st.position));
+    TEST_ASSERT_FLOAT_WITHIN(0.02f, target, bm_algo_q15_to_float(q15st.position));
+
+    /* 趋势一致性：收敛所需步数量级相近（非逐步数值对照）。 */
+    step_diff = f_steps - q31_steps;
+    if (step_diff < 0) {
+        step_diff = -step_diff;
+    }
+    TEST_ASSERT_TRUE(step_diff <= 20);
+    step_diff = f_steps - q15_steps;
+    if (step_diff < 0) {
+        step_diff = -step_diff;
+    }
+    TEST_ASSERT_TRUE(step_diff <= 20);
+}
+
+/**
+ * @brief 双轨对照：线性重采样 Q31/Q15 与 float 版逐步一致性
+ *
+ * 历史缺陷（已修复）：bm_algo_linear_resampler_reset() 初始相位
+ * phase=1/ratio；ratio<1（降采样——Q15/Q31 的 ratio_q31/q15 定标域
+ * 只能表达 (0,1)，因此 ratio<1 是唯一可用取值范围）时该初始相位恒
+ * >1.0，且 step() 内部相位在多次调用间可能持续 >1.0（用于计数降
+ * 采样跳步）。原桥接代码对相位字段直接复用通用
+ * bm_algo_float_to_q31/q15()（±1.0 饱和裁剪），把真实初始相位错误
+ * 拉回 [0,1) 定标域，导致 Q 版从第一次 step 起就比 float 版提前一次
+ * 输出（曾用 ratio=0.999 复现：float 首步 n=0，Q31/Q15 首步 n=1）。
+ * 现已改用相位字段专用、无 ±1.0 限幅的定标（见 bm_algo_fixed.c
+ * resample_phase_q15/q31_from_float()，缩放系数分别为 1024 / 2^24），
+ * 正确保留 >1.0 的相位语义。修复后逐步核验（ratio=0.999，15 步）：
+ * f_cnt/q31_cnt/q15_cnt 每一步都严格相等（0,1,1,...,1），故本测试已
+ * 升级为逐步对照，不再仅做趋势断言。
+ */
+static void test_dualtrack_linear_resampler_q_vs_float(void) {
+    bm_algo_linear_resampler_state_t     fst;
+    bm_algo_linear_resampler_q31_state_t q31st;
+    bm_algo_linear_resampler_q15_state_t q15st;
+    float                                f_out[8];
+    bm_algo_q31_t                        q31_out[8];
+    bm_algo_q15_t                        q15_out[8];
+    uint32_t f_cnt, q31_cnt, q15_cnt;
+    uint32_t f_total = 0u, q31_total = 0u, q15_total = 0u;
+    const float ratio = 0.999f;
+    int i;
+
+    bm_algo_linear_resampler_reset(&fst, ratio, 0.0f);
+    bm_algo_linear_resampler_q31_reset(&q31st, bm_algo_float_to_q31(ratio), 0);
+    bm_algo_linear_resampler_q15_reset(&q15st, bm_algo_float_to_q15(ratio), 0);
+
+    for (i = 0; i < 15; ++i) {
+        float x = 0.3f * sinf((float)i * 0.2f);
+        int f_rc, q31_rc, q15_rc;
+        uint32_t j;
+
+        f_rc = bm_algo_linear_resampler_step(&fst, x, f_out, 8u, &f_cnt);
+        q31_rc = bm_algo_linear_resampler_q31_step(&q31st,
+            bm_algo_float_to_q31(x), q31_out, 8u, &q31_cnt);
+        q15_rc = bm_algo_linear_resampler_q15_step(&q15st,
+            bm_algo_float_to_q15(x), q15_out, 8u, &q15_cnt);
+
+        TEST_ASSERT_TRUE(f_rc >= 0);
+        TEST_ASSERT_TRUE(q31_rc >= 0);
+        TEST_ASSERT_TRUE(q15_rc >= 0);
+        f_total += f_cnt;
+        q31_total += q31_cnt;
+        q15_total += q15_cnt;
+        /* 逐步对照：修复后 Q31/Q15 每步输出计数与 float 版严格一致
+         * （相位定标修复消除了原先的"提前一次输出"错位）。 */
+        TEST_ASSERT_EQUAL_UINT32(f_cnt, q31_cnt);
+        TEST_ASSERT_EQUAL_UINT32(f_cnt, q15_cnt);
+        for (j = 0; j < q31_cnt; ++j) {
+            float qv = bm_algo_q31_to_float(q31_out[j]);
+            TEST_ASSERT_TRUE(qv >= -1.0f && qv <= 1.0f);
+        }
+        for (j = 0; j < q15_cnt; ++j) {
+            float qv = bm_algo_q15_to_float(q15_out[j]);
+            TEST_ASSERT_TRUE(qv >= -1.0f && qv <= 1.0f);
+        }
+    }
+
+    /* 趋势一致性：三版本累计输出样本数量级相近（非逐步比对）。 */
+    TEST_ASSERT_TRUE(f_total >= 10u);
+    TEST_ASSERT_TRUE(q31_total >= 10u);
+    TEST_ASSERT_TRUE(q15_total >= 10u);
+}
+
+void test_algo_fixed(void) {
     RUN_TEST(test_batch3_k0_extensions);
     RUN_TEST(test_batch4_k0_and_fixed_batch3);
     RUN_TEST(test_batch5_k0_and_fixed_batch4);
@@ -2445,10 +2154,26 @@ void test_algorithm(void) {
     RUN_TEST(test_batch12_fixed_batch11_and_refs);
     RUN_TEST(test_batch13_fixed_batch12_and_refs);
     RUN_TEST(test_batch14_fixed_batch13_and_refs);
+    RUN_TEST(test_review_batch2_trapezoid_q31_vs_float);
+    RUN_TEST(test_review_batch2_energy_scale_consistency);
+    RUN_TEST(test_review_batch2_backlash_q31_vs_float);
+    RUN_TEST(test_review_batch2_pid_q15_antiwindup_no_overflow);
+    RUN_TEST(test_dualtrack_differentiator_q_vs_float);
+    RUN_TEST(test_dualtrack_smith_predictor_q_vs_float);
+    RUN_TEST(test_dualtrack_moving_avg_q_vs_float);
+    RUN_TEST(test_dualtrack_complementary_q_vs_float);
+    RUN_TEST(test_dualtrack_mahony_q_vs_float);
+    RUN_TEST(test_dualtrack_madgwick_q_vs_float);
+    RUN_TEST(test_dualtrack_dda_q_vs_float);
+    RUN_TEST(test_dualtrack_sogi_pll_q_vs_float);
+    RUN_TEST(test_dualtrack_rms_q_vs_float);
+    RUN_TEST(test_dualtrack_flux_observer_q_vs_float);
+    RUN_TEST(test_dualtrack_scurve_q_vs_float);
+    RUN_TEST(test_dualtrack_linear_resampler_q_vs_float);
 }
 
 int main(void) {
     UNITY_BEGIN();
-    test_algorithm();
+    test_algo_fixed();
     return UNITY_END();
 }

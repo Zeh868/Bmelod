@@ -5,6 +5,14 @@
  * Q31：1.0 ≈ 0x7FFFFFFF；Q15：1.0 = 32767。系数与信号均按 ±1.0 归一化。
  * 与 float 核分文件、分符号，不使用全局 typedef 在编译期切换 ABI。
  *
+ * @warning float 后端（S3）：以下 Q15/Q31 API 族**内部以 float 实现**
+ *          （Q→float→算→float→Q 往返，经对应 `bm_algo_*_step` 桥接）：
+ *          differentiator、scurve、DDA、complementary、madgwick、mahony、
+ *          flux_observer、sogi_pll、smith_predictor、linear_resampler。
+ *          同族 `rms_q15`/`rms_q31` 内部使用 double `sqrt`。
+ *          后果：FPU-less 平台有性能开销，且**不保证跨平台位精确复现**
+ *          （与"定点=可位精确复现"的确定性预期不符）。真定点化为后续项。
+ *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 2.4
@@ -689,14 +697,18 @@ bm_algo_q31_t bm_algo_rms_q31_step(bm_algo_rms_q31_state_t *state,
                                    bm_algo_q31_t input);
 
 typedef struct {
-    int last_direction;
-    bm_algo_q31_t backlash_offset;
+    int last_direction;         /**< 上次有效运动方向（1/-1/0） */
+    bm_algo_q31_t offset_fwd;   /**< 正向累计补偿量，范围 [0, width] */
+    bm_algo_q31_t offset_rev;   /**< 反向累计补偿量，范围 [0, width] */
 } bm_algo_backlash_q31_state_t;
 
 void bm_algo_backlash_q31_reset(bm_algo_backlash_q31_state_t *state);
 
 /**
- * @brief 背隙逆补偿（Q31）：换向时按 slope 渐补间隙
+ * @brief 背隙逆补偿（Q31）：双向独立偏移，换向时切换对应偏移继续渐进
+ *
+ * 定点移植自 float 版 v1.3（bm_algo_backlash_inverse）：正向用 offset_fwd、
+ * 反向用 offset_rev，各自向 width 渐进（每步最多 slope），换向不清零。
  *
  * @param command_q31 原始指令
  * @param state 背隙状态（不可为 NULL）
@@ -1426,9 +1438,13 @@ bm_algo_q31_t bm_algo_flux_observer_q31_step(
     bm_algo_q31_t dt_q31);
 
 typedef struct {
-    bm_algo_q15_t ratio_q15;
-    bm_algo_q15_t phase_q15;
-    bm_algo_q15_t prev_sample_q15;
+    bm_algo_q15_t ratio_q15;        /**< 输出/输入采样率比，标准 Q15（±1.0 定标域） */
+    bm_algo_q15_t phase_q15;        /**< 重采样相位，专用定标（非标准 Q15 ±1.0 域，
+                                      *   缩放系数 1024，可表达 |phase|≤32；见
+                                      *   bm_algo_fixed.c resample_phase_q15_from_float()），
+                                      *   降采样（ratio<1）时可能 >1.0，勿用
+                                      *   bm_algo_q15_to_float() 解释此字段 */
+    bm_algo_q15_t prev_sample_q15;  /**< 上一个输入样本，标准 Q15（±1.0 定标域） */
 } bm_algo_linear_resampler_q15_state_t;
 
 void bm_algo_linear_resampler_q15_reset(bm_algo_linear_resampler_q15_state_t *state,
@@ -1442,9 +1458,13 @@ int bm_algo_linear_resampler_q15_step(bm_algo_linear_resampler_q15_state_t *stat
                                       uint32_t *out_count);
 
 typedef struct {
-    bm_algo_q31_t ratio_q31;
-    bm_algo_q31_t phase_q31;
-    bm_algo_q31_t prev_sample_q31;
+    bm_algo_q31_t ratio_q31;        /**< 输出/输入采样率比，标准 Q31（±1.0 定标域） */
+    bm_algo_q31_t phase_q31;        /**< 重采样相位，专用定标（非标准 Q31 ±1.0 域，
+                                      *   缩放系数 2^24，可表达 |phase|≤128；见
+                                      *   bm_algo_fixed.c resample_phase_q31_from_float()），
+                                      *   降采样（ratio<1）时可能 >1.0，勿用
+                                      *   bm_algo_q31_to_float() 解释此字段 */
+    bm_algo_q31_t prev_sample_q31;  /**< 上一个输入样本，标准 Q31（±1.0 定标域） */
 } bm_algo_linear_resampler_q31_state_t;
 
 void bm_algo_linear_resampler_q31_reset(bm_algo_linear_resampler_q31_state_t *state,

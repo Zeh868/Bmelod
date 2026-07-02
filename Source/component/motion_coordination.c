@@ -19,6 +19,7 @@
  */
 #include "bm/component/motion_coordination.h"
 #include "bm/common/bm_types.h"
+#include "bm/component/bm_component_common.h"
 
 #include <string.h>
 
@@ -103,10 +104,7 @@ void bm_motion_coordination_step(bm_motion_coordination_axis_t *axis) {
     st->telemetry.status = BM_MOTION_COORD_TEL_VALID;
     st->telemetry.axis_count = cfg->axis_count;
 
-    if (axis->resources.publish_telemetry != NULL) {
-        axis->resources.publish_telemetry(
-            axis->resources.publish_telemetry_user, &st->telemetry);
-    }
+    BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
 }
 
 /* ---------- exec_ops 封装 ---------- */

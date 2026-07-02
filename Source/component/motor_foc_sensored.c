@@ -25,13 +25,10 @@
 #include "bm/algorithm/bm_algo_common.h"
 #include "bm/algorithm/bm_algo_motor.h"
 #include "bm/common/bm_types.h"
+#include "bm/component/bm_component_common.h"
 
 #include <math.h>
 #include <string.h>
-
-static float adc_to_current(float scale, uint16_t raw) {
-    return ((float)((int32_t)raw - 32768)) / scale;
-}
 
 static float read_theta_elec(const bm_motor_foc_sensored_axis_t *axis) {
     const bm_motor_foc_sensored_config_t *cfg = &axis->config;
@@ -78,8 +75,8 @@ static int read_current_ab(const bm_motor_foc_sensored_axis_t *axis,
     if (bm_hal_adc_read_injected(res->adc, res->adc_rank_ib, &raw_ib) != BM_OK) {
         return -1;
     }
-    *ia = adc_to_current(res->current_adc_scale, raw_ia);
-    *ib = adc_to_current(res->current_adc_scale, raw_ib);
+    *ia = bm_component_adc_to_current(res->current_adc_scale, raw_ia);
+    *ib = bm_component_adc_to_current(res->current_adc_scale, raw_ib);
     /* B3 诊断：可选回传原始计数（NULL 则跳过）。 */
     if (raw_ia_out != NULL) { *raw_ia_out = raw_ia; }
     if (raw_ib_out != NULL) { *raw_ib_out = raw_ib; }
@@ -169,11 +166,7 @@ static void sync_command(bm_motor_foc_sensored_axis_t *axis) {
 }
 
 static void publish_telemetry(const bm_motor_foc_sensored_axis_t *axis) {
-    if (axis->resources.publish_telemetry != NULL) {
-        axis->resources.publish_telemetry(
-            axis->resources.publish_telemetry_user,
-            &axis->state.telemetry);
-    }
+    BM_COMPONENT_PUBLISH_TELEMETRY(axis, &axis->state.telemetry);
 }
 
 int bm_motor_foc_sensored_validate_config(

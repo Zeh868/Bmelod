@@ -19,6 +19,8 @@
 #ifndef BM_ALGO_IMAGE_H
 #define BM_ALGO_IMAGE_H
 
+#include "bm/algorithm/bm_algo_errors.h"
+
 #include <stdint.h>
 #include <stddef.h>
 
@@ -97,7 +99,9 @@ typedef struct {
  * @param height    图像高度（像素）
  * @param blobs     输出连通域信息数组，可为 NULL（仅计数不填写）
  * @param max_blobs blobs 数组容量；blobs 为 NULL 时应为 0
- * @return 检测到的连通域总数；-1 表示参数无效或标签值溢出（超过 65535 个域）
+ * @return 检测到的连通域总数；参数无效时返回 BM_ALGO_ERR_INVALID，
+ *         标签值溢出（超过 65535 个域）时返回 BM_ALGO_ERR_OVERFLOW
+ *         （两者数值均为 -1）
  */
 int bm_algo_image_label_u8(const uint8_t *binary,
                            uint16_t *labels,
@@ -159,7 +163,7 @@ typedef struct {
  * @param src_height 源图高度（像素）
  * @param rect       裁剪矩形，包含左上角坐标及宽高
  * @param dst        输出裁剪结果，尺寸 rect->width × rect->height，调用者分配
- * @return 0 成功；-1 参数无效或裁剪区域越界
+ * @return 0 成功；BM_ALGO_ERR_INVALID 参数无效或裁剪区域越界
  */
 int bm_algo_image_crop_u8(const uint8_t *src,
                           uint32_t src_width,
@@ -179,7 +183,7 @@ int bm_algo_image_crop_u8(const uint8_t *src,
  * @param dst        输出缩放结果，尺寸 dst_width × dst_height，调用者分配
  * @param dst_width  目标宽度（像素）
  * @param dst_height 目标高度（像素）
- * @return 0 成功；-1 参数无效
+ * @return 0 成功；BM_ALGO_ERR_INVALID 参数无效
  */
 int bm_algo_image_resize_u8(const uint8_t *src,
                             uint32_t src_width,

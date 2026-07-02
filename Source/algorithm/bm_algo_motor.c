@@ -24,6 +24,17 @@
 #define BM_ALGO_SQRT3_F 1.7320508075688772f
 #endif
 
+/**
+ * @brief 弱磁 id 参考下调增益默认值（电压过饱和量→id 减量的比例系数）
+ *
+ * bm_algo_fw_id_adjust 为无状态公共 API，无 config 结构可挂载；此处以命名
+ * 常量替代硬编码字面量，保持零行为变更。运行期可调化需改该 API 签名并接入
+ * 组件 FOC config，属行为/接口重构，另立项。
+ */
+#ifndef BM_ALGO_FW_ID_GAIN_DEFAULT
+#define BM_ALGO_FW_ID_GAIN_DEFAULT 0.2f
+#endif
+
 void bm_algo_clarke(const bm_algo_abc_t *abc, bm_algo_alphabeta_t *ab) {
     if (abc == NULL || ab == NULL) {
         return;
@@ -195,6 +206,7 @@ void bm_algo_current_from_2shunt(float ia, float ib, bm_algo_abc_t *abc) {
     abc->ic = -ia - ib;
 }
 
+/* @deprecated 空操作直通（缺 PWM 周期无法补偿）；见 bm_algo_deadtime_comp_v_period。 */
 float bm_algo_deadtime_comp_v(float phase_v,
                               float phase_current_a,
                               float deadtime_s,
@@ -321,7 +333,7 @@ float bm_algo_fw_id_adjust(float id_ref_a, float vd, float vq, float v_max_pu) {
     if (v_mag <= v_max_pu) {
         return id_ref_a;
     }
-    return id_ref_a - 0.2f * (v_mag - v_max_pu);
+    return id_ref_a - BM_ALGO_FW_ID_GAIN_DEFAULT * (v_mag - v_max_pu);
 }
 
 static float norm_deg_f(float deg) {

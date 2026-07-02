@@ -113,6 +113,51 @@ void test_additive_zv_coeffs_sum_to_one(void) {
                              axis.state.a0 + axis.state.a1);
 }
 
+/*
+ * P0-5b：速度遥测不应恒为 0。整形位置在 shape_cmd 后发生变化，step 应据跨周期
+ * 差分算出非零速度（此前 prev 在同一 step 内取快照使 vel 恒为 0）。
+ */
+void test_additive_velocity_nonzero_after_shape(void) {
+    bm_additive_motion_axis_t axis;
+
+    memset(&axis, 0, sizeof(axis));
+    axis.config.natural_freq_hz = 10.0f;
+    axis.config.damping_ratio = 0.05f;
+    axis.config.dt_s = 0.001f;
+    axis.config.max_velocity_mm_s = 1.0e9f; /* 极大上限，避免饱和掩盖差分 */
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_additive_motion_init(&axis));
+
+    /* 施加阶跃使 shaped_mm 变为正值 */
+    bm_additive_motion_shape_cmd(&axis, 10.0f);
+    TEST_ASSERT_TRUE(axis.state.shaped_mm > 0.0f);
+
+    /* step 应算出非零速度（shaped_mm 相对上一周期 0 的差分 / dt） */
+    bm_additive_motion_step(&axis);
+    TEST_ASSERT_TRUE(fabsf(axis.state.telemetry.velocity_mm_s) > 0.0f);
+
+    /* 位置稳定（无新指令）后，下一 step 速度应回落到 0 */
+    bm_additive_motion_step(&axis);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, axis.state.telemetry.velocity_mm_s);
+}
+
+/* P0-5b：阻尼比 ≥ 1 时系数须有限（不产生 NaN） */
+void test_additive_overdamped_coeffs_finite(void) {
+    bm_additive_motion_axis_t axis;
+
+    memset(&axis, 0, sizeof(axis));
+    axis.config.natural_freq_hz = 10.0f;
+    axis.config.damping_ratio = 1.5f; /* 过阻尼，触发 sqrt(1-ζ²) 保护 */
+    axis.config.dt_s = 0.001f;
+    axis.config.max_velocity_mm_s = 100.0f;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_additive_motion_init(&axis));
+    /* a0/a1 须为有限值且和为 1（NaN != NaN，故等式检查同时排除 NaN） */
+    TEST_ASSERT_TRUE(axis.state.a0 == axis.state.a0);
+    TEST_ASSERT_TRUE(axis.state.a1 == axis.state.a1);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 1.0f, axis.state.a0 + axis.state.a1);
+}
+
 /* exec_ops：init → start → safe_stop 生命周期测试 */
 void test_additive_exec_ops_lifecycle(void) {
     static bm_additive_motion_axis_t axis;
@@ -155,6 +200,8 @@ int main(void) {
     RUN_TEST(test_additive_delay_steps_clamped);
     RUN_TEST(test_additive_velocity_saturation);
     RUN_TEST(test_additive_zv_coeffs_sum_to_one);
+    RUN_TEST(test_additive_velocity_nonzero_after_shape);
+    RUN_TEST(test_additive_overdamped_coeffs_finite);
     RUN_TEST(test_additive_exec_ops_lifecycle);
     RUN_TEST(test_additive_exec_ops_null_safe);
     return UNITY_END();

@@ -14,6 +14,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_comm.h"
+#include "bm/algorithm/bm_algo_errors.h"
 #include "bm/algorithm/bm_algo_spectral.h"
 #include <stddef.h>
 
@@ -175,7 +176,7 @@ int bm_algo_dtmf_detect(bm_algo_dtmf_state_t *state,
 
     if (state == NULL || config == NULL || samples == NULL ||
         symbol_out == NULL || n == 0u) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
 
     for (ri = 0u; ri < BM_ALGO_DTMF_ROW_COUNT; ++ri) {
@@ -233,12 +234,12 @@ int bm_algo_fsk2_demod_block(const float *samples,
         config->sample_hz <= 0.0f || config->bit_rate_hz <= 0.0f ||
         config->mark_hz <= 0.0f || config->space_hz <= 0.0f ||
         n == 0u || max_bits == 0u) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
 
     samples_per_bit = (uint32_t)(config->sample_hz / config->bit_rate_hz + 0.5f);
     if (samples_per_bit == 0u) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
 
     bit_idx = 0u;

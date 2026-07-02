@@ -18,6 +18,7 @@
  */
 #include "bm/component/grid_control.h"
 #include "bm/common/bm_types.h"
+#include "bm/component/bm_component_common.h"
 
 #include <string.h>
 
@@ -119,10 +120,7 @@ void bm_grid_control_step(bm_grid_control_axis_t *axis) {
             (void)axis->resources.write_output(
                 axis->resources.write_output_user, 0.0f);
         }
-        if (axis->resources.publish_telemetry != NULL) {
-            axis->resources.publish_telemetry(
-                axis->resources.publish_telemetry_user, &st->telemetry);
-        }
+        BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
         return;
     }
 
@@ -149,10 +147,7 @@ void bm_grid_control_step(bm_grid_control_axis_t *axis) {
     st->telemetry.i_meas_a = i_meas;
     st->telemetry.v_cmd = st->v_cmd;
 
-    if (axis->resources.publish_telemetry != NULL) {
-        axis->resources.publish_telemetry(
-            axis->resources.publish_telemetry_user, &st->telemetry);
-    }
+    BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
 }
 
 /* ---------- exec_ops 封装 ---------- */

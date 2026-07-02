@@ -3,7 +3,6 @@
 function(bm_export_config_enable target)
     target_compile_definitions(${target} INTERFACE
         BM_CONFIG_ENABLE_MODULE=$<BOOL:${BM_ENABLE_MODULE}>
-        BM_CONFIG_ENABLE_CHANNEL=$<BOOL:${BM_ENABLE_CHANNEL}>
         BM_CONFIG_ENABLE_SHELL=$<BOOL:${BM_ENABLE_SHELL}>
         BM_CONFIG_ENABLE_WDG=$<BOOL:${BM_ENABLE_WDG}>
         BM_CONFIG_ENABLE_HRT=$<BOOL:${BM_ENABLE_HRT}>
@@ -13,5 +12,6 @@ function(bm_export_config_enable target)
         BM_CONFIG_ENABLE_STREAM=$<BOOL:${BM_ENABLE_STREAM}>
         BM_CONFIG_ENABLE_PIPELINE=$<BOOL:${BM_ENABLE_PIPELINE}>
         BM_CONFIG_ENABLE_ALGORITHM=$<BOOL:${BM_ENABLE_ALGORITHM}>
+        BM_CONFIG_ENABLE_TT_SCHED=$<BOOL:${BM_ENABLE_TT_SCHEDULE}>
     )
 endfunction()

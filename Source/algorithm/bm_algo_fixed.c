@@ -28,6 +28,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_fixed.h"
+#include "bm/algorithm/bm_algo_errors.h"
 #include "bm/algorithm/bm_algo_profile.h"
 #include "bm/algorithm/bm_algo_signal_quality.h"
 #include "bm/algorithm/bm_algo_fusion.h"
@@ -402,7 +403,7 @@ bm_algo_q15_t bm_algo_biquad_q15_step(bm_algo_biquad_q15_state_t *state,
 
 /* ---------- 电机控制 Q31 算法族 ---------- */
 
-#define BM_ALGO_SQRT3_Q31     1860867071 /* √3 的 Q30 定点表示：round(1.7320508075688772 × 2^30)，
+#define BM_ALGO_SQRT3_Q30     1860867071 /* √3 的 Q30 定点表示：round(1.7320508075688772 × 2^30)，
                                           * 与 Q31 信号相乘后右移 30 位得到 Q31 结果（√3·v）。 */
 #define BM_ALGO_INV_SQRT3_Q31 1239850262 /* 1/sqrt(3) in Q31 = 0.577350269 */
 
@@ -467,7 +468,7 @@ void bm_algo_svpwm_q31(bm_algo_q31_t v_alpha,
         return;
     }
 
-    sqrt3_vbeta = saturate_q31_i64(((int64_t)v_beta * BM_ALGO_SQRT3_Q31) >> 30);
+    sqrt3_vbeta = saturate_q31_i64(((int64_t)v_beta * BM_ALGO_SQRT3_Q30) >> 30);
 
     va = v_alpha;
     vb = (-v_alpha + sqrt3_vbeta) >> 1;
@@ -781,9 +782,11 @@ bm_algo_q15_t bm_algo_pid_q15_step(bm_algo_pid_q15_state_t *state,
                               config->out_min, config->out_max);
 
     if (config->ki != 0 && u_sat != saturate_q15_i32(u_unsat)) {
-        state->integrator = saturate_q15_i32(
-            (((u_sat - (bm_algo_q15_t)p_term - (bm_algo_q15_t)d_term) << 15) /
-             (int32_t)config->ki));
+        /* 反算抗饱和：全程 int64 运算，避免 p_term/d_term 强转 Q15 溢出
+         * （kp=error=-32768 时 p_term=+32768 越 int16），最后统一饱和到 Q15。 */
+        int64_t back = (((int64_t)u_sat - (int64_t)p_term - (int64_t)d_term)
+                        << 15) / (int64_t)config->ki;
+        state->integrator = saturate_q15_i32(saturate_q31_i64(back));
         state->integrator = bm_algo_clamp_q15(state->integrator,
                                               config->integrator_min,
                                               config->integrator_max);
@@ -863,9 +866,11 @@ bm_algo_q31_t bm_algo_trapezoid_q31_step(bm_algo_trapezoid_q31_state_t *state,
 
     accel_step = mul_q31(config->max_accel_q31, dt_q31);
     decel_step = mul_q31(config->max_decel_q31, dt_q31);
+    /* 刹车距离 v²/(2a)：stop_num 为 Q31 表示的 v_p²（v²>>31），
+     * 除法前左移 31 补回定标，除以 (2·decel_q31) 得 Q31 刹车距离。 */
     stop_num = ((int64_t)state->velocity * (int64_t)state->velocity) >> 31;
     stop_dist = saturate_q31_i64(
-        (stop_num * 2) / (int64_t)config->max_decel_q31);
+        (stop_num << 31) / (2 * (int64_t)config->max_decel_q31));
 
     if (dist > 0) {
         if (dist > stop_dist || state->velocity < 0) {
@@ -1342,7 +1347,7 @@ bm_algo_q15_t bm_algo_rate_limit_q15_step(bm_algo_rate_limit_q15_state_t *state,
 int bm_algo_lead_lag_q15_init(bm_algo_lead_lag_q15_state_t *state,
                               const bm_algo_lead_lag_q15_config_t *config) {
     if (state == NULL || config == NULL) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
     bm_algo_lead_lag_q15_reset(state);
     return 0;
@@ -1529,7 +1534,8 @@ bm_algo_q31_t bm_algo_rms_q31_step(bm_algo_rms_q31_state_t *state,
 void bm_algo_backlash_q31_reset(bm_algo_backlash_q31_state_t *state) {
     if (state != NULL) {
         state->last_direction = 0;
-        state->backlash_offset = 0;
+        state->offset_fwd = 0;
+        state->offset_rev = 0;
     }
 }
 
@@ -1538,6 +1544,7 @@ bm_algo_q31_t bm_algo_backlash_inverse_q31(bm_algo_q31_t command_q31,
                                            bm_algo_q31_t width_q31,
                                            bm_algo_q31_t slope_q31) {
     int direction;
+    bm_algo_q31_t *p_offset; /* 指向当前方向偏移 */
     bm_algo_q31_t out;
 
     if (state == NULL || width_q31 <= 0 || slope_q31 <= 0) {
@@ -1549,29 +1556,39 @@ bm_algo_q31_t bm_algo_backlash_inverse_q31(bm_algo_q31_t command_q31,
     } else if (command_q31 < 0) {
         direction = -1;
     } else {
-        direction = state->last_direction;
+        /* command == 0：保持上次方向，不渐进，不更新 last_direction */
+        out = command_q31;
+        if (state->last_direction > 0) {
+            out = saturate_q31_i64((int64_t)out + (int64_t)state->offset_fwd);
+        } else if (state->last_direction < 0) {
+            out = saturate_q31_i64((int64_t)out - (int64_t)state->offset_rev);
+        }
+        return out;
     }
 
-    if (direction != 0 && direction != state->last_direction &&
-        state->last_direction != 0) {
-        if (state->backlash_offset < width_q31) {
-            state->backlash_offset = saturate_q31_i64(
-                (int64_t)state->backlash_offset + (int64_t)slope_q31);
-            if (state->backlash_offset > width_q31) {
-                state->backlash_offset = width_q31;
-            }
+    /*
+     * 双向独立偏移策略（对齐 float v1.3）：
+     * - 正向（direction == 1）用 offset_fwd，反向用 offset_rev。
+     * - 换向时不清零：切换到另一方向已保存的偏移继续渐进。
+     * - 首次调用（last_direction == 0）视为无换向，直接渐进当前方向偏移。
+     */
+    p_offset = (direction > 0) ? &state->offset_fwd : &state->offset_rev;
+
+    /* 渐进累加：每步最多增加 slope，上限为 width */
+    if (*p_offset < width_q31) {
+        *p_offset = saturate_q31_i64((int64_t)*p_offset + (int64_t)slope_q31);
+        if (*p_offset > width_q31) {
+            *p_offset = width_q31;
         }
     }
 
-    if (direction != 0) {
-        state->last_direction = direction;
-    }
+    state->last_direction = direction;
 
     out = command_q31;
     if (direction > 0) {
-        out = saturate_q31_i64((int64_t)out + (int64_t)state->backlash_offset);
-    } else if (direction < 0) {
-        out = saturate_q31_i64((int64_t)out - (int64_t)state->backlash_offset);
+        out = saturate_q31_i64((int64_t)out + (int64_t)state->offset_fwd);
+    } else {
+        out = saturate_q31_i64((int64_t)out - (int64_t)state->offset_rev);
     }
     return out;
 }
@@ -1681,7 +1698,7 @@ bm_algo_q15_t bm_algo_coulomb_q15_step(bm_algo_coulomb_q15_state_t *state,
 int bm_algo_lead_lag_q31_init(bm_algo_lead_lag_q31_state_t *state,
                               const bm_algo_lead_lag_q31_config_t *config) {
     if (state == NULL || config == NULL) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
     bm_algo_lead_lag_q31_reset(state);
     return 0;
@@ -1943,8 +1960,13 @@ bm_algo_q15_t bm_algo_trapezoid_q15_step(bm_algo_trapezoid_q15_state_t *state,
 
     accel_step = mul_q15(config->max_accel_q15, dt_q15);
     decel_step = mul_q15(config->max_decel_q15, dt_q15);
+    /* 刹车距离 v²/(2a)：stop_num 为 Q15 表示的 v_p²（v²>>15），
+     * 除法前左移 15 补回定标，除以 (2·decel_q15) 得 Q15 刹车距离。
+     * 用 int64 中间量防左移溢出。 */
     stop_num = ((int32_t)state->velocity * (int32_t)state->velocity) >> 15;
-    stop_dist = saturate_q15_i32((stop_num * 2) / config->max_decel_q15);
+    stop_dist = saturate_q15_i32(
+        (int32_t)(((int64_t)stop_num << 15) /
+                  (2 * (int64_t)config->max_decel_q15)));
 
     if (dist > 0) {
         if (dist > stop_dist || state->velocity < 0) {
@@ -2363,8 +2385,10 @@ bm_algo_q31_t bm_algo_energy_wh_integrator_q15_step(
         return (state != NULL) ? state->accumulated_wh_q31 : 0;
     }
 
+    /* prod = p·dt 为 Q30（Q15×Q15）。物理 Wh = P·dt/3600，累加值定标为 Q31：
+     * (prod/2^30)/3600 · 2^31 = (prod<<1)/3600，与 Q31 版标度一致。 */
     prod = (int64_t)p_q15 * (int64_t)dt_q15;
-    inc = (prod << 16) / 3600;
+    inc = (prod << 1) / 3600;
     state->accumulated_wh_q31 = saturate_q31_i64(
         (int64_t)state->accumulated_wh_q31 + inc);
     return state->accumulated_wh_q31;
@@ -2807,7 +2831,7 @@ int bm_algo_fir_q15_init(bm_algo_fir_q15_state_t *state,
         config->coeffs == NULL || config->delay_line == NULL ||
         config->tap_count == 0u ||
         config->tap_count > BM_ALGO_FIR_Q15_MAX_TAPS) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
     bm_algo_fir_q15_reset(state, config);
     return 0;
@@ -2854,7 +2878,7 @@ int bm_algo_fir_q31_init(bm_algo_fir_q31_state_t *state,
         config->coeffs == NULL || config->delay_line == NULL ||
         config->tap_count == 0u ||
         config->tap_count > BM_ALGO_FIR_Q31_MAX_TAPS) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
     bm_algo_fir_q31_reset(state, config);
     return 0;
@@ -3001,6 +3025,72 @@ bm_algo_q31_t bm_algo_flux_observer_q31_step(
     return state->theta_rad_q31;
 }
 
+/** 相位定标缩放系数（Q15）：见 resample_phase_q15_from_float() 说明。 */
+#define BM_ALGO_RESAMPLE_PHASE_Q15_SCALE 1024.0f
+/** 相位定标缩放系数（Q31）：见 resample_phase_q31_from_float() 说明。 */
+#define BM_ALGO_RESAMPLE_PHASE_Q31_SCALE 16777216.0f
+
+/**
+ * @brief 线性重采样相位字段专用定标（Q15，无 ±1.0 限幅）
+ *
+ * bm_algo_linear_resampler_reset() 初始相位 = 1/ratio；当 ratio<1
+ * （降采样，且 Q15/Q31 的 ratio_q15/q31 定标域只能表达 (0,1)，因此
+ * ratio<1 是唯一可用取值范围）时该初始相位恒 >1.0，且 step() 内部
+ * 相位在多次调用间可能持续 >1.0（用于计数降采样跳步）。若沿用通用
+ * bm_algo_float_to_q15()（±1.0 饱和裁剪），该跳步语义会在首次转换
+ * 时就被错误拉回 [0,1)，与 float 版行为系统性不一致（真 bug）。
+ * 此处改用无 ±1.0 语义限制、相位字段专用的定标：缩放系数
+ * 1024（2^10），可表达 |phase| ≤ 32767/1024 ≈ 32.0，分辨率
+ * 1/1024 ≈ 9.8e-4，覆盖常见 ≤32x 降采样场景；超出范围时退化为
+ * 饱和裁剪（极端降采样比精度损失，但不再是恒定错误）。
+ */
+static bm_algo_q15_t resample_phase_q15_from_float(float phase) {
+    float scaled = phase * BM_ALGO_RESAMPLE_PHASE_Q15_SCALE;
+
+    if (isnan(scaled) || isinf(scaled)) {
+        return 0;
+    }
+    if (scaled > 32767.0f) {
+        return (bm_algo_q15_t)32767;
+    }
+    if (scaled < -32768.0f) {
+        return (bm_algo_q15_t)(-32768);
+    }
+    return (bm_algo_q15_t)scaled;
+}
+
+/** 相位字段专用反定标（Q15），与 resample_phase_q15_from_float() 配对。 */
+static float resample_phase_q15_to_float(bm_algo_q15_t value) {
+    return (float)value / BM_ALGO_RESAMPLE_PHASE_Q15_SCALE;
+}
+
+/**
+ * @brief 线性重采样相位字段专用定标（Q31，无 ±1.0 限幅）
+ *
+ * 语义同 resample_phase_q15_from_float()；Q31 位宽更宽，缩放系数取
+ * 2^24，可表达 |phase| ≤ 2^31/2^24 = 128.0，分辨率 1/2^24，
+ * 精度远高于 Q15，覆盖场景更宽。
+ */
+static bm_algo_q31_t resample_phase_q31_from_float(float phase) {
+    float scaled = phase * BM_ALGO_RESAMPLE_PHASE_Q31_SCALE;
+
+    if (isnan(scaled) || isinf(scaled)) {
+        return 0;
+    }
+    if (scaled > 2147483647.0f) {
+        return BM_ALGO_Q31_ONE;
+    }
+    if (scaled < -2147483648.0f) {
+        return (bm_algo_q31_t)INT32_MIN;
+    }
+    return (bm_algo_q31_t)scaled;
+}
+
+/** 相位字段专用反定标（Q31），与 resample_phase_q31_from_float() 配对。 */
+static float resample_phase_q31_to_float(bm_algo_q31_t value) {
+    return (float)value / BM_ALGO_RESAMPLE_PHASE_Q31_SCALE;
+}
+
 void bm_algo_linear_resampler_q15_reset(
     bm_algo_linear_resampler_q15_state_t *state,
     bm_algo_q15_t ratio_q15,
@@ -3015,7 +3105,9 @@ void bm_algo_linear_resampler_q15_reset(
     ratio = bm_algo_q15_to_float(ratio_q15);
     bm_algo_linear_resampler_reset(&fst, ratio, bm_algo_q15_to_float(initial_q15));
     state->ratio_q15 = ratio_q15;
-    state->phase_q15 = bm_algo_float_to_q15(fst.phase);
+    /* 相位可能 >1.0（降采样跳步语义），用专用无 ±1.0 限幅定标，
+     * 不可用通用 bm_algo_float_to_q15()（见函数上方注释）。 */
+    state->phase_q15 = resample_phase_q15_from_float(fst.phase);
     state->prev_sample_q15 = initial_q15;
 }
 
@@ -3041,7 +3133,7 @@ int bm_algo_linear_resampler_q15_step(
 
     ratio = bm_algo_q15_to_float(state->ratio_q15);
     fst.ratio = ratio;
-    fst.phase = bm_algo_q15_to_float(state->phase_q15);
+    fst.phase = resample_phase_q15_to_float(state->phase_q15);
     fst.prev_sample = bm_algo_q15_to_float(state->prev_sample_q15);
     if (max_outputs > 8u) {
         max_outputs = 8u;
@@ -3049,7 +3141,7 @@ int bm_algo_linear_resampler_q15_step(
     rc = bm_algo_linear_resampler_step(
         &fst, bm_algo_q15_to_float(input_q15),
         outputs_f, max_outputs, &n);
-    state->phase_q15 = bm_algo_float_to_q15(fst.phase);
+    state->phase_q15 = resample_phase_q15_from_float(fst.phase);
     state->prev_sample_q15 = input_q15;
     *out_count = n;
     for (i = 0u; i < n; ++i) {
@@ -3072,7 +3164,9 @@ void bm_algo_linear_resampler_q31_reset(
     ratio = bm_algo_q31_to_float(ratio_q31);
     bm_algo_linear_resampler_reset(&fst, ratio, bm_algo_q31_to_float(initial_q31));
     state->ratio_q31 = ratio_q31;
-    state->phase_q31 = bm_algo_float_to_q31(fst.phase);
+    /* 相位可能 >1.0（降采样跳步语义），用专用无 ±1.0 限幅定标，
+     * 不可用通用 bm_algo_float_to_q31()（见函数上方注释）。 */
+    state->phase_q31 = resample_phase_q31_from_float(fst.phase);
     state->prev_sample_q31 = initial_q31;
 }
 
@@ -3098,7 +3192,7 @@ int bm_algo_linear_resampler_q31_step(
 
     ratio = bm_algo_q31_to_float(state->ratio_q31);
     fst.ratio = ratio;
-    fst.phase = bm_algo_q31_to_float(state->phase_q31);
+    fst.phase = resample_phase_q31_to_float(state->phase_q31);
     fst.prev_sample = bm_algo_q31_to_float(state->prev_sample_q31);
     if (max_outputs > 8u) {
         max_outputs = 8u;
@@ -3106,7 +3200,7 @@ int bm_algo_linear_resampler_q31_step(
     rc = bm_algo_linear_resampler_step(
         &fst, bm_algo_q31_to_float(input_q31),
         outputs_f, max_outputs, &n);
-    state->phase_q31 = bm_algo_float_to_q31(fst.phase);
+    state->phase_q31 = resample_phase_q31_from_float(fst.phase);
     state->prev_sample_q31 = input_q31;
     *out_count = n;
     for (i = 0u; i < n; ++i) {
@@ -3657,7 +3751,7 @@ int bm_algo_smith_predictor_q15_init(
     uint32_t line_len) {
     if (state == NULL || config == NULL || delay_line_q15 == NULL ||
         config->delay_steps == 0u || line_len < config->delay_steps) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
     state->u_delay_line_q15 = delay_line_q15;
     state->line_len = line_len;
@@ -3734,7 +3828,7 @@ int bm_algo_smith_predictor_q31_init(
     uint32_t line_len) {
     if (state == NULL || config == NULL || delay_line_q31 == NULL ||
         config->delay_steps == 0u || line_len < config->delay_steps) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
     state->u_delay_line_q31 = delay_line_q31;
     state->line_len = line_len;
@@ -3816,6 +3910,10 @@ void bm_algo_sogi_pll_q15_reset(bm_algo_sogi_pll_q15_state_t *state,
     fcfg.nominal_omega_rad_s = bm_algo_q15_to_float(config->nominal_omega_q15);
     fcfg.k_sogi = bm_algo_q15_to_float(config->k_sogi_q15);
     fcfg.k_pll = bm_algo_q15_to_float(config->k_pll_q15);
+    /* Q15 配置无 integrator_limit_ratio 字段（ABI 不扩展），
+     * 显式置 0 以复用 float 实现"0 时自动取 0.2"的既定默认语义，
+     * 避免局部 fcfg 未初始化字段被读取（UB）。 */
+    fcfg.integrator_limit_ratio = 0.0f;
     bm_algo_sogi_pll_reset(&fst, &fcfg);
     state->theta_rad = fst.theta_rad;
     state->omega_rad_s = fst.omega_rad_s;
@@ -3840,6 +3938,8 @@ void bm_algo_sogi_pll_q15_step(bm_algo_sogi_pll_q15_state_t *state,
     fcfg.nominal_omega_rad_s = bm_algo_q15_to_float(config->nominal_omega_q15);
     fcfg.k_sogi = bm_algo_q15_to_float(config->k_sogi_q15);
     fcfg.k_pll = bm_algo_q15_to_float(config->k_pll_q15);
+    /* 同 reset：显式置 0，复用 float 实现的默认限幅比（0.2），避免未初始化读。 */
+    fcfg.integrator_limit_ratio = 0.0f;
     fst.theta_rad = state->theta_rad;
     fst.omega_rad_s = state->omega_rad_s;
     fst.v_alpha = state->v_alpha;
@@ -3870,6 +3970,10 @@ void bm_algo_sogi_pll_q31_reset(bm_algo_sogi_pll_q31_state_t *state,
     fcfg.nominal_omega_rad_s = bm_algo_q31_to_float(config->nominal_omega_q31);
     fcfg.k_sogi = bm_algo_q31_to_float(config->k_sogi_q31);
     fcfg.k_pll = bm_algo_q31_to_float(config->k_pll_q31);
+    /* Q31 配置无 integrator_limit_ratio 字段（ABI 不扩展），
+     * 显式置 0 以复用 float 实现"0 时自动取 0.2"的既定默认语义，
+     * 避免局部 fcfg 未初始化字段被读取（UB）。 */
+    fcfg.integrator_limit_ratio = 0.0f;
     bm_algo_sogi_pll_reset(&fst, &fcfg);
     state->theta_rad = fst.theta_rad;
     state->omega_rad_s = fst.omega_rad_s;
@@ -3894,6 +3998,8 @@ void bm_algo_sogi_pll_q31_step(bm_algo_sogi_pll_q31_state_t *state,
     fcfg.nominal_omega_rad_s = bm_algo_q31_to_float(config->nominal_omega_q31);
     fcfg.k_sogi = bm_algo_q31_to_float(config->k_sogi_q31);
     fcfg.k_pll = bm_algo_q31_to_float(config->k_pll_q31);
+    /* 同 reset：显式置 0，复用 float 实现的默认限幅比（0.2），避免未初始化读。 */
+    fcfg.integrator_limit_ratio = 0.0f;
     fst.theta_rad = state->theta_rad;
     fst.omega_rad_s = state->omega_rad_s;
     fst.v_alpha = state->v_alpha;

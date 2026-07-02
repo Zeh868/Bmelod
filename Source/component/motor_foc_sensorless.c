@@ -18,22 +18,10 @@
 
 #include "bm/algorithm/bm_algo_common.h"
 #include "bm/common/bm_types.h"
+#include "bm/component/bm_component_common.h"
 
 #include <math.h>
 #include <string.h>
-
-/**
- * @brief 将 ADC 原始值转换为相电流（静态辅助）
- *
- * 以 raw=32768 对应零电流，满量程由 scale 决定（A/LSB 的倒数）。
- *
- * @param scale ADC 满码对应电流（A）；须 > 0
- * @param raw   ADC 原始采样值（无符号 16 位）
- * @return 对应相电流（A），正负号由原始值相对 32768 的偏差决定
- */
-static float adc_to_current(float scale, uint16_t raw) {
-    return ((float)((int32_t)raw - 32768)) / scale;
-}
 
 /**
  * @brief 判断仿真反馈是否全部激活（静态辅助）
@@ -207,8 +195,8 @@ static int read_current_ab(const bm_motor_foc_sensorless_axis_t *axis,
     if (bm_hal_adc_read_injected(res->adc, res->adc_rank_ib, &raw_ib) != BM_OK) {
         return -1;
     }
-    *ia = adc_to_current(res->current_adc_scale, raw_ia);
-    *ib = adc_to_current(res->current_adc_scale, raw_ib);
+    *ia = bm_component_adc_to_current(res->current_adc_scale, raw_ia);
+    *ib = bm_component_adc_to_current(res->current_adc_scale, raw_ib);
     return 0;
 }
 
@@ -385,6 +373,23 @@ void bm_motor_foc_sensorless_current_step(bm_motor_foc_sensorless_axis_t *axis) 
 
     st->phase_timer_s += cfg->current_dt_s;
 
+    /*
+     * 电流采样提前到相位分派之前：ALIGN / OPEN_LOOP / OBSERVER 三相均已通电，
+     * 电流环必须闭合在实测相电流上。此前仅 OBSERVER 分支采样，导致预对齐/开环
+     * 相的 ia/ib 恒为 0、read_id_iq 测得 id/iq 恒为 0，PI 以满误差积分至饱和、
+     * 预对齐注入电流不受控（P0-5a）。仿真反馈模式下电流经 sim_fb 注入
+     * （见 read_id_iq），此处跳过 ADC 采样以保持注入缝语义不变。
+     */
+    if (!use_sim) {
+        if (read_current_ab(axis, &ia, &ib) != 0) {
+            latch_fault(axis);
+            tel->status = BM_MOTOR_SL_TEL_FAULT;
+            tel->phase = BM_MOTOR_SL_PHASE_FAULT;
+            st->loop_count++;
+            return;
+        }
+    }
+
     switch (st->phase) {
     case BM_MOTOR_SL_PHASE_ALIGN:
         theta_elec = 0.0f;
@@ -421,14 +426,6 @@ void bm_motor_foc_sensorless_current_step(bm_motor_foc_sensorless_axis_t *axis) 
     case BM_MOTOR_SL_PHASE_OBSERVER:
     default:
         if (!use_sim) {
-            if (read_current_ab(axis, &ia, &ib) != 0) {
-                latch_fault(axis);
-                tel->status = BM_MOTOR_SL_TEL_FAULT;
-                tel->phase = BM_MOTOR_SL_PHASE_FAULT;
-                st->loop_count++;
-                return;
-            }
-
             theta_elec = st->observer.theta_rad;
             v_dq.id = st->last_vd_pu;
             v_dq.iq = st->last_vq_pu;
@@ -541,11 +538,7 @@ void bm_motor_foc_sensorless_exec_current(const bm_exec_t *instance) {
     axis = (bm_motor_foc_sensorless_axis_t *)instance->state;
     sync_command(axis);
     bm_motor_foc_sensorless_current_step(axis);
-    if (axis->resources.publish_telemetry != NULL) {
-        axis->resources.publish_telemetry(
-            axis->resources.publish_telemetry_user,
-            &axis->state.telemetry);
-    }
+    BM_COMPONENT_PUBLISH_TELEMETRY(axis, &axis->state.telemetry);
 }
 
 /**

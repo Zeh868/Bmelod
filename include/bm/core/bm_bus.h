@@ -292,6 +292,12 @@ int bm_bus_validate(const bm_bus_t *h);
  * "同一时刻只有 owner 核进入写路径"这一上层契约——多核下由 **bm_cpu_is_owner()** 守卫
  * 拒绝非 owner 核进入写路径（返回 BM_ERR_INVALID）；单核编译为 no-op（零开销）。
  *
+ * @warning 单一写上下文契约（P1-1）：多核构建下 `BUS_LOCK` 为空操作，
+ *          `write_in_progress` 的"查 0 再置 1"非原子，可被 **owner 核内 ISR**
+ *          在窗口内抢占（volatile 只防缓存不保证 RMW 原子性）。故每个 bus
+ *          仅允许**单一写上下文**：owner 核内亦不得由 ISR 与主循环双写者并发写
+ *          同一 bus。需 ISR+主循环双写者时应改用独立 bus 或上层串行化。
+ *
  * @param h        bus 句柄指针
  * @param slot_out 输出：写槽指针（类型强转后使用）
  * @return BM_OK 成功借到槽；BM_ERR_OVERFLOW QUEUE 模式环满；
@@ -570,5 +576,21 @@ extern void (*bm_bus_test_latest_read_hook)(bm_bus_storage_t *st);
  */
 extern void (*bm_bus_test_latest_multi_read_hook)(bm_bus_storage_t *st);
 #endif
+
+#ifdef BM_BUS_ALLOW_INTERNAL
+/**
+ * @brief LATEST 拷出并回传本次 seqlock 校验通过的稳定序号（内部只读 seq 访问器，仅门面库可见，公共 API 零增长）
+ *
+ * 与 bm_bus_latest_read 同一 seqlock 循环，额外经 out_seq 回传 seq2==seq1 的稳定序号；
+ * seq 与拷到的值来自同一次校验，无 TOCTOU。供 bm_tt_schedule seq-delta 判龄使用。
+ * 仅在定义 BM_BUS_ALLOW_INTERNAL 的翻译单元可见（照 BM_ENABLE_BUS_TEST_HOOK 弱强制模式）。
+ *
+ * @param h        bus 句柄（LATEST 模式）
+ * @param dst      目标缓冲，大小须 >= elem_size
+ * @param out_seq  回传稳定序号（偶数）；仅 BM_OK 时有效
+ * @return 同 bm_bus_latest_read
+ */
+int bm_bus_latest_read_seq(const bm_bus_t *h, void *dst, uint32_t *out_seq);
+#endif /* BM_BUS_ALLOW_INTERNAL */
 
 #endif /* BM_BUS_H */

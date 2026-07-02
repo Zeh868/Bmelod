@@ -33,7 +33,7 @@ python tools/measure_wcet.py --label stream_array_mvdr `
 | Label | 命令摘要 | 基线 cycles | 本次 cycles | 偏差 (%) | Pass/Fail | 日期 |
 |-------|----------|-------------|-------------|----------|-----------|------|
 | stream_array_mvdr | QEMU netduinoplus2 | （待填） | | | | |
-| test_algorithm | native_sim 单元 | （待填） | | | | |
+| test_algo_* | native_sim 单元（拆分后 6 个目标） | （待填） | | | | |
 
 ## 与 WCET 报告关系
 

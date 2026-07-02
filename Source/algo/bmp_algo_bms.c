@@ -9,15 +9,25 @@
 
 #include <string.h>
 
+/* 默认 OCV↔SOC 曲线（config 未提供自定义表时使用） */
 static const float s_soc_table[] = { 0.0f, 0.5f, 1.0f };
 static const float s_ocv_table[] = { 3.0f, 3.6f, 4.2f };
+#define BMP_BMS_OCV_DEFAULT_POINTS 3u
 
-static float bmp_bms_voltage_to_soc(float voltage_v) {
+static float bmp_bms_voltage_to_soc(const bmp_bms_config_t *config,
+                                    float voltage_v) {
     bm_algo_ocv_table_t table;
 
-    table.soc_table = s_soc_table;
-    table.ocv_table = s_ocv_table;
-    table.point_count = 3u;
+    if (config->ocv_soc_table != NULL && config->ocv_voltage_table != NULL &&
+        config->ocv_point_count >= 2u) {
+        table.soc_table = config->ocv_soc_table;
+        table.ocv_table = config->ocv_voltage_table;
+        table.point_count = config->ocv_point_count;
+    } else {
+        table.soc_table = s_soc_table;
+        table.ocv_table = s_ocv_table;
+        table.point_count = BMP_BMS_OCV_DEFAULT_POINTS;
+    }
     return bm_algo_ocv_lookup_soc(&table, voltage_v);
 }
 
@@ -64,7 +74,7 @@ int bmp_bms_fusion_step(bmp_bms_state_t *state,
     state->soc_coulomb = bm_algo_coulomb_step(&coulomb_st, &coulomb_cfg,
                                               current_a, dt_s);
     state->charge_ah = coulomb_st.charge_ah;
-    soc_ocv = bmp_bms_voltage_to_soc(voltage_v);
+    soc_ocv = bmp_bms_voltage_to_soc(config, voltage_v);
     fusion_cfg.ocv_weight = config->ocv_weight;
     fused = bm_algo_soc_fusion_step(state->soc_coulomb, soc_ocv, &fusion_cfg);
     *soc_out = fused;

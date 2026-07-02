@@ -14,6 +14,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_fft.h"
+#include "bm/algorithm/bm_algo_errors.h"
 #include <stddef.h>
 
 #include <math.h>
@@ -148,7 +149,7 @@ int bm_algo_cfft_f32_init(bm_algo_cfft_f32_t *fft,
                           uint32_t work_count) {
     if (fft == NULL || work == NULL || !bm_algo_fft_is_supported_size(size) ||
         work_count < 2u * size) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
     fft->size = size;
     fft->work = work;
@@ -160,7 +161,7 @@ int bm_algo_cfft_f32_init(bm_algo_cfft_f32_t *fft,
 
 int bm_algo_cfft_f32_forward(bm_algo_cfft_f32_t *fft, float *real_imag) {
     if (fft == NULL || real_imag == NULL) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
     fft_radix2(real_imag, fft->size, 0);
     return 0;
@@ -168,7 +169,7 @@ int bm_algo_cfft_f32_forward(bm_algo_cfft_f32_t *fft, float *real_imag) {
 
 int bm_algo_cfft_f32_inverse(bm_algo_cfft_f32_t *fft, float *real_imag) {
     if (fft == NULL || real_imag == NULL) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
     fft_radix2(real_imag, fft->size, 1);
     return 0;
@@ -200,7 +201,7 @@ int bm_algo_rfft_f32_execute(bm_algo_rfft_f32_t *fft,
 
     if (fft == NULL || time_data == NULL || spectrum_mag == NULL ||
         cfft->work == NULL) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
 
     for (i = 0u; i < fft->size; ++i) {

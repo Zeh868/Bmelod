@@ -16,6 +16,7 @@
 #include "bm/component/power_control.h"
 #include "bm/algorithm/bm_algo_common.h"
 #include "bm/common/bm_types.h"
+#include "bm/component/bm_component_common.h"
 
 #include <string.h>
 
@@ -162,10 +163,28 @@ void bm_power_control_current_step(bm_power_control_axis_t *axis) {
     if (st->fault_latched) {
         st->telemetry.status = BM_POWER_CTRL_TEL_FAULT;
         st->telemetry.duty = st->duty;
-        if (axis->resources.publish_telemetry != NULL) {
-            axis->resources.publish_telemetry(
-                axis->resources.publish_telemetry_user, &st->telemetry);
+        BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
+        return;
+    }
+
+    /*
+     * 未使能时输出安全占空比并冻结电流环积分（P2-4）。此前 current_step 不检查
+     * ENABLED，禁用状态下仍以 i_ref=0 运行 PI 并写 duty，与 power_converter
+     * “disable 即输出安全 duty” 语义不一致，且积分器持续累积。此处对齐语义：
+     * 降至 duty_min、复位积分器、写安全值后照常发布遥测。
+     */
+    if ((st->cmd.status & BM_POWER_CTRL_CMD_ENABLED) == 0u) {
+        st->duty = cfg->duty_min;
+        bm_algo_pi_reset(&st->pi_current, 0.0f);
+        if (axis->resources.write_duty != NULL) {
+            (void)axis->resources.write_duty(axis->resources.write_duty_user,
+                                             st->duty);
         }
+        st->current_loops++;
+        st->telemetry.sequence = st->current_loops;
+        st->telemetry.status = BM_POWER_CTRL_TEL_VALID;
+        st->telemetry.duty = st->duty;
+        BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
         return;
     }
 
@@ -193,10 +212,7 @@ void bm_power_control_current_step(bm_power_control_axis_t *axis) {
     st->telemetry.i_out_a = i_out;
     st->telemetry.v_out_v = v_out;
 
-    if (axis->resources.publish_telemetry != NULL) {
-        axis->resources.publish_telemetry(
-            axis->resources.publish_telemetry_user, &st->telemetry);
-    }
+    BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
 }
 
 /**

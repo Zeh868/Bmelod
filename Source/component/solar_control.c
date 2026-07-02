@@ -19,6 +19,7 @@
  */
 #include "bm/component/solar_control.h"
 #include "bm/common/bm_types.h"
+#include "bm/component/bm_component_common.h"
 
 #include <string.h>
 
@@ -127,10 +128,7 @@ void bm_solar_control_step(bm_solar_control_axis_t *axis) {
         st->telemetry.current_a = current;
         st->telemetry.power_w = 0.0f;
         st->telemetry.v_ref_v = st->v_ref_v;
-        if (axis->resources.publish_telemetry != NULL) {
-            axis->resources.publish_telemetry(
-                axis->resources.publish_telemetry_user, &st->telemetry);
-        }
+        BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
         return;
     }
 
@@ -165,10 +163,7 @@ void bm_solar_control_step(bm_solar_control_axis_t *axis) {
     st->telemetry.power_w = power;
     st->telemetry.v_ref_v = v_ref;
 
-    if (axis->resources.publish_telemetry != NULL) {
-        axis->resources.publish_telemetry(
-            axis->resources.publish_telemetry_user, &st->telemetry);
-    }
+    BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
 }
 
 /* ---------- exec_ops 封装 ---------- */

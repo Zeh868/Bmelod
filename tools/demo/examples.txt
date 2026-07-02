@@ -16,3 +16,4 @@ multi_axis_sync
 stream_frontend
 stream_array_mvdr
 tinyml_graph
+tt_schedule_balance

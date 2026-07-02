@@ -73,6 +73,7 @@ typedef struct {
     uint32_t delay_steps;
     float last_cmd_mm;
     float shaped_mm;
+    float prev_shaped_mm;   /**< 上一周期 step 时的 shaped_mm，用于速度差分 */
     uint32_t step_count;
     bm_additive_motion_telemetry_t telemetry;
 } bm_additive_motion_state_t;

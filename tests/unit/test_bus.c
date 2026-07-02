@@ -26,8 +26,25 @@
 BM_BUS_DEFINE(tb_q, uint32_t, 4u, 1u, BM_BUS_QUEUE);
 BM_BUS_DEFINE(tb_s, uint32_t, 8u, 3u, BM_BUS_SIGNAL);
 BM_BUS_DEFINE(tb_l, uint32_t, 4u, 1u, BM_BUS_LATEST);
+/* Task 10（bm_tt_schedule 判龄前置）：内部 seq 访问器专用 bus，需 BM_BUS_ALLOW_INTERNAL 才可见 */
+BM_BUS_DEFINE(seqbus, uint32_t, 3u, 1u, BM_BUS_LATEST);   /* cap>=3 三缓冲 */
 
 static bm_bus_t g_bus_q, g_bus_s, g_bus_l;
+
+#ifdef BM_BUS_ALLOW_INTERNAL
+/**
+ * @brief 小发布助手：acquire_write → memcpy → commit（仓内 LATEST 无单调用 write）
+ */
+static int seqbus_publish(bm_bus_t *h, uint32_t v) {
+    void *slot;
+    int rc = bm_bus_acquire_write(h, &slot);
+    if (rc != BM_OK) {
+        return rc;
+    }
+    (void)memcpy(slot, &v, sizeof v);
+    return bm_bus_commit(h);
+}
+#endif /* BM_BUS_ALLOW_INTERNAL */
 
 void setUp(void) {
     bm_bus_cfg_t cfg = { .owner_cpu = 0u };
@@ -1317,6 +1334,54 @@ void test_latest_multi_read_after_reset(void) {
     TEST_ASSERT_EQUAL(BM_ERR_WOULD_BLOCK, bm_bus_latest_read(&g_bus_l, &dst));
 }
 
+#ifdef BM_BUS_ALLOW_INTERNAL
+/**
+ * @brief bm_bus_latest_read_seq 回传稳定 seq：未发布 WOULD_BLOCK、发布后 seq 为偶且随发布前进。
+ *
+ * 供 bm_tt_schedule seq-delta 判龄使用的内部 API 验证：仅在 BM_BUS_ALLOW_INTERNAL 下可见。
+ */
+void test_latest_read_seq_returns_stable_seq(void) {
+    bm_bus_t bus;
+    bm_bus_cfg_t cfg = {0};
+    uint32_t got = 0u, seq0 = 0u, seq1 = 0u;
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&bus, &seqbus_storage, &cfg));
+    /* 未发布：WOULD_BLOCK */
+    TEST_ASSERT_EQUAL(BM_ERR_WOULD_BLOCK, bm_bus_latest_read_seq(&bus, &got, &seq0));
+    /* 发布一次 */
+    TEST_ASSERT_EQUAL(BM_OK, seqbus_publish(&bus, 0x1234u));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_latest_read_seq(&bus, &got, &seq0));
+    TEST_ASSERT_EQUAL_HEX32(0x1234u, got);
+    TEST_ASSERT_EQUAL_UINT32(0u, seq0 & 1u);          /* 稳定=偶 */
+    /* 再发布：seq 前进（+2） */
+    TEST_ASSERT_EQUAL(BM_OK, seqbus_publish(&bus, 0x5678u));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_latest_read_seq(&bus, &got, &seq1));
+    TEST_ASSERT_EQUAL_HEX32(0x5678u, got);
+    TEST_ASSERT_TRUE((uint32_t)(seq1 - seq0) >= 2u);  /* 无符号 delta 前进 */
+    bm_bus_reset(&bus);   /* 幂等复位，供 setUp/tearDown 复用 */
+}
+
+/**
+ * @brief 参数校验：h=NULL、dst=NULL、out_seq=NULL 均返回 BM_ERR_INVALID。
+ */
+void test_latest_read_seq_invalid_params(void) {
+    uint32_t dst = 0u, seq = 0u;
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_bus_latest_read_seq(NULL, &dst, &seq));
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_bus_latest_read_seq(&g_bus_l, NULL, &seq));
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_bus_latest_read_seq(&g_bus_l, &dst, NULL));
+}
+
+/**
+ * @brief 非 LATEST 模式调用 bm_bus_latest_read_seq 返回 BM_ERR_NOT_SUPPORTED。
+ *
+ * QUEUE / SIGNAL 模式不支持内部 seq 访问器。
+ */
+void test_latest_read_seq_wrong_mode(void) {
+    uint32_t dst = 0u, seq = 0u;
+    TEST_ASSERT_EQUAL(BM_ERR_NOT_SUPPORTED, bm_bus_latest_read_seq(&g_bus_q, &dst, &seq));
+    TEST_ASSERT_EQUAL(BM_ERR_NOT_SUPPORTED, bm_bus_latest_read_seq(&g_bus_s, &dst, &seq));
+}
+#endif /* BM_BUS_ALLOW_INTERNAL */
+
 #ifdef BM_ENABLE_BUS_TEST_HOOK
 /* DET-01 seqlock 扩展：模拟写者在拷贝窗口持续推进 seq，使 seqlock 始终失稳，
  * 触达重试上界路径（bm_bus_latest_read 有界验证）。 */
@@ -1428,6 +1493,12 @@ int main(void) {
 #ifdef BM_ENABLE_BUS_TEST_HOOK
     /* DET-01 seqlock 扩展：bm_bus_latest_read 重试上界（需 BM_ENABLE_BUS_TEST_HOOK 编入测试缝）*/
     RUN_TEST(test_latest_multi_read_retry_bounded_under_contention);
+#endif
+#ifdef BM_BUS_ALLOW_INTERNAL
+    /* Task 10：bm_bus_latest_read_seq 内部 seq 访问器（需 BM_BUS_ALLOW_INTERNAL 编入测试缝）*/
+    RUN_TEST(test_latest_read_seq_returns_stable_seq);
+    RUN_TEST(test_latest_read_seq_invalid_params);
+    RUN_TEST(test_latest_read_seq_wrong_mode);
 #endif
     return UNITY_END();
 }

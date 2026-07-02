@@ -5,6 +5,13 @@
  *
  * `bm_mp_partition_build_and_validate()` 在 Bootstrap 阶段根据注册表与资源拓扑
  * 生成 event/module owner 映射及 `partition_crc`。
+ *
+ * @warning 缓存一致性前提（P1-10）：内部全局表（`s_event_owner`/`s_module_owner`/
+ *          `s_event_name`）位于普通 BSS，从核经 boot_phase acquire 读取。此路径
+ *          **仅在缓存一致性多核硬件上成立**；非相干 AMP 上这些表无 cache 维护
+ *          （不同于 IPC 矩阵/relay 有 non-cacheable 放置与 cache 操作），且当前
+ *          **无编译期护栏**（无 `#error`）阻止误用。非相干 AMP 目标须自行将分区表
+ *          置于相干/非缓存内存并做 cache 维护，否则从核可能读到陈旧 owner 映射。
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-14

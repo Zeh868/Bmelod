@@ -48,4 +48,8 @@
 #include "bm/hybrid/bm_pipeline.h"
 #endif
 
+#if BM_CONFIG_ENABLE_TT_SCHED
+#include "bm/hybrid/bm_tt_schedule.h"
+#endif
+
 #endif /* BM_HYBRID_H */

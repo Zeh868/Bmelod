@@ -20,6 +20,8 @@
 #ifndef BM_ALGO_SPECTRAL_H
 #define BM_ALGO_SPECTRAL_H
 
+#include "bm/algorithm/bm_algo_errors.h"
+
 #include <stdint.h>
 #include <stddef.h>
 
@@ -110,7 +112,7 @@ typedef struct {
  *                      超出上限时返回 -1（与 feed 内部 64 点栈帧限制一致）
  * @param ring_buffer   调用方提供的环形缓冲，长度 >= frame_size
  * @param ring_buffer_len  ring_buffer 可用长度
- * @return 0 成功；-1 参数无效或 frame_size 超限
+ * @return 0 成功；BM_ALGO_ERR_INVALID 参数无效或 frame_size 超限
  */
 int bm_algo_stft_overlap_init(bm_algo_stft_overlap_t *state,
                               const bm_algo_stft_overlap_config_t *config,
@@ -122,7 +124,8 @@ void bm_algo_stft_overlap_reset(bm_algo_stft_overlap_t *state);
  *
  * @param magnitude_out 调用者工作区，长度 >= frame_size/2 + 1
  * @param magnitude_len 缓冲区长度
- * @return 1 输出一帧；0 继续积累；-1 参数错误
+ * @return 1 输出一帧；0 继续积累；BM_ALGO_ERR_INVALID 参数错误；
+ *         内部栈帧缓冲容量不足时返回 BM_ALGO_ERR_OVERFLOW（数值均为 -1）
  */
 int bm_algo_stft_overlap_feed(bm_algo_stft_overlap_t *state,
                               const bm_algo_stft_overlap_config_t *config,

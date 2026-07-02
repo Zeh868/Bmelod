@@ -16,6 +16,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_fusion.h"
+#include "bm/algorithm/bm_algo_errors.h"
 #include "bm/algorithm/bm_algo_common.h"
 #include <stddef.h>
 
@@ -32,6 +33,11 @@
 
 #ifndef BM_ALGO_PI_F
 #define BM_ALGO_PI_F 3.14159265358979323846f
+#endif
+
+/** π/2（万向锁时 pitch 饱和至 ±90°）；保持原字面量值不变 */
+#ifndef BM_ALGO_HALF_PI_F
+#define BM_ALGO_HALF_PI_F 1.5707963f
 #endif
 
 static float inv_sqrt(float x) {
@@ -271,7 +277,7 @@ void bm_algo_quat_to_euler(const bm_algo_quat_t *q, bm_algo_euler_t *euler) {
 
     sinp = 2.0f * (q->w * q->y - q->z * q->x);
     if (fabsf(sinp) >= 1.0f) {
-        euler->pitch_rad = (sinp > 0.0f) ? 1.5707963f : -1.5707963f;
+        euler->pitch_rad = (sinp > 0.0f) ? BM_ALGO_HALF_PI_F : -BM_ALGO_HALF_PI_F;
     } else {
         euler->pitch_rad = asinf(sinp);
     }
@@ -321,11 +327,11 @@ int bm_algo_imu_calib_accumulator_feed(bm_algo_imu_calib_accumulator_t *acc,
     uint32_t i;
 
     if (acc == NULL || raw_gyro == NULL || raw_accel == NULL) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
     for (i = 0u; i < 3u; ++i) {
         if (!isfinite(raw_gyro[i]) || !isfinite(raw_accel[i])) {
-            return -1;
+            return BM_ALGO_ERR_INVALID;
         }
         acc->gyro_sum[i] += raw_gyro[i];
         acc->accel_sum[i] += raw_accel[i];
@@ -343,7 +349,7 @@ int bm_algo_imu_calib_accumulator_finish(
 
     if (acc == NULL || expected_accel == NULL || out_config == NULL ||
         acc->sample_count == 0u) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
     inv_n = 1.0f / (float)acc->sample_count;
     for (i = 0u; i < 3u; ++i) {

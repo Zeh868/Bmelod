@@ -20,6 +20,7 @@
 #include "bm/component/mobile_base_control.h"
 #include "bm/algorithm/bm_algo_common.h"
 #include "bm/common/bm_types.h"
+#include "bm/component/bm_component_common.h"
 
 #include <math.h>
 #include <string.h>
@@ -103,7 +104,7 @@ void bm_mobile_base_control_step(bm_mobile_base_control_axis_t *axis) {
 
     if (cfg->enable_slope_feedforward) {
         slope_ff = cfg->slope_feedforward_gain *
-                   sinf(cfg->slope_angle_rad) * 9.81f;
+                   sinf(cfg->slope_angle_rad) * BM_GRAVITY_M_S2;
         v += slope_ff;
     }
 
@@ -129,10 +130,7 @@ void bm_mobile_base_control_step(bm_mobile_base_control_axis_t *axis) {
     st->telemetry.right_wheel_m_s = right;
     st->telemetry.slope_feedforward_m_s = slope_ff;
 
-    if (axis->resources.publish_telemetry != NULL) {
-        axis->resources.publish_telemetry(
-            axis->resources.publish_telemetry_user, &st->telemetry);
-    }
+    BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
 }
 
 void bm_mobile_base_control_exec_step(const bm_exec_t *instance) {

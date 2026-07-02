@@ -55,17 +55,18 @@
 
 /* ---- 阶段 2：payload 通道 config ---- */
 
+/* MP payload 通道容量：真源在 bm_config.h，此处仅 MP 名别名桥接 */
 #ifndef BM_CONFIG_MP_IPC_CMD_RING_DEPTH
-/** @brief 命令 FIFO 环深度，必须为 2 的幂 */
-#define BM_CONFIG_MP_IPC_CMD_RING_DEPTH  8u
+/** @brief 命令 FIFO 环深度，必须为 2 的幂（桥接 BM_CONFIG_IPC_CMD_RING_DEPTH） */
+#define BM_CONFIG_MP_IPC_CMD_RING_DEPTH  BM_CONFIG_IPC_CMD_RING_DEPTH
 #endif
 #ifndef BM_CONFIG_MP_IPC_CMD_PAYLOAD_SIZE
-/** @brief 命令 payload 定长字节槽（阶段 5 校准） */
-#define BM_CONFIG_MP_IPC_CMD_PAYLOAD_SIZE  32u
+/** @brief 命令 payload 定长字节槽（桥接 BM_CONFIG_IPC_CMD_PAYLOAD_SIZE） */
+#define BM_CONFIG_MP_IPC_CMD_PAYLOAD_SIZE  BM_CONFIG_IPC_CMD_PAYLOAD_SIZE
 #endif
 #ifndef BM_CONFIG_MP_IPC_TEL_PAYLOAD_SIZE
-/** @brief 遥测 payload 定长字节槽（阶段 5 校准） */
-#define BM_CONFIG_MP_IPC_TEL_PAYLOAD_SIZE  32u
+/** @brief 遥测 payload 定长字节槽（桥接 BM_CONFIG_IPC_TEL_PAYLOAD_SIZE） */
+#define BM_CONFIG_MP_IPC_TEL_PAYLOAD_SIZE  BM_CONFIG_IPC_TEL_PAYLOAD_SIZE
 #endif
 
 #if (BM_CONFIG_MP_IPC_CMD_RING_DEPTH & (BM_CONFIG_MP_IPC_CMD_RING_DEPTH - 1u)) != 0u

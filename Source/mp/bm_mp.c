@@ -5,8 +5,8 @@
  *
  * 主循环顺序：stream drain → IPC drain → ticker → event process。
  * @author zeh (china_qzh@163.com)
- * @version 1.6
- * @date 2026-06-18
+ * @version 1.7
+ * @date 2026-06-29
  *
  * @par 修改日志:
  *
@@ -19,6 +19,7 @@
  * 2026-06-15       1.5            zeh            从核入口补定时器初始化以支撑 boot 超时
  * 2026-06-18       1.6            zeh            周期判定抽为可测纯函数；超限计数原子化并可查询；
  *                                               硬实时下周期超限/IPC 序列异常触发 safe-stop
+ * 2026-06-29       1.7            zeh            mp_period_overrun_record CAS 环加 F-6 重试上界
  *
  */
 #include "bm/mp/bm_mp.h"
@@ -54,9 +55,16 @@
 /* Forward declaration of WDG gate installer */
 void bm_mp_install_wdg_gate(void);
 
-#ifndef BM_CONFIG_MP_MAIN_LOOP_MAX_SPINS
-#define BM_CONFIG_MP_MAIN_LOOP_MAX_SPINS  100000u
-#endif
+/**
+ * @brief 从核定时器 fallback 频率（Hz）
+ *
+ * 依据：当 1000000/BM_CONFIG_HRT_TICK_US 计算得 0（HRT_TICK_US 过大）时兜底，
+ * 保证 bm_hal_timer_init 得到非零频率，1000Hz 对应 1ms tick。
+ */
+#define MP_FALLBACK_TIMER_HZ  1000u
+
+/* BM_CONFIG_MP_MAIN_LOOP_MAX_SPINS 由 bm/mp/bm_mp.h 提供（默认桥接 bm_config.h
+ * 的 BM_CONFIG_MAIN_LOOP_MAX_SPINS），此处不再重复本地 fallback（S5）。 */
 
 /**
  * 诊断：主循环周期等待超限次数（饱和计数）。
@@ -68,21 +76,34 @@ uint32_t bm_mp_main_loop_overrun_count(void) {
     return bm_atomic_ipc_load_u32(&s_enforce_period_overrun_count);
 }
 
-/** 原子饱和递增超限计数（多核共享，CAS 重试至 UINT32_MAX 封顶） */
+/**
+ * @brief 原子饱和递增周期超限计数（多核共享）
+ *
+ * [F-6] CAS 环上界与 bm_critical.c:bm_atomic_inc 对齐：
+ * 争用超 BM_CONFIG_ATOMIC_MAX_RETRIES 次后饱和写入 UINT32_MAX，
+ * 避免无限自旋拖死主循环（诊断计数容忍饱和语义，无需精确值）。
+ * 注意：s_enforce_period_overrun_count 类型为 bm_atomic_ipc_u32_t（跨核原子），
+ * 不可替换为非 ipc 原子操作。
+ */
 static void mp_period_overrun_record(void) {
-    for (;;) {
-        uint32_t cur = bm_atomic_ipc_load_u32(&s_enforce_period_overrun_count);
-        uint32_t expected;
+    uint32_t retry;
+    uint32_t cur = bm_atomic_ipc_load_u32(&s_enforce_period_overrun_count);
+
+    for (retry = 0u; retry < BM_CONFIG_ATOMIC_MAX_RETRIES; retry++) {
+        uint32_t desired;
 
         if (cur == UINT32_MAX) {
             return;
         }
-        expected = cur;
+        desired = cur + 1u;
         if (bm_atomic_ipc_compare_exchange_u32(
-                &s_enforce_period_overrun_count, &expected, cur + 1u)) {
+                &s_enforce_period_overrun_count, &cur, desired)) {
             return;
         }
+        /* CAS 失败时 cur 已被更新为当前实际值，直接重试 */
     }
+    /* [F-6] 争用超 BM_CONFIG_ATOMIC_MAX_RETRIES 次，饱和到 UINT32_MAX */
+    bm_atomic_ipc_store_u32(&s_enforce_period_overrun_count, UINT32_MAX);
 }
 
 int bm_mp_main_loop_period_elapsed(uint32_t start_ticks, uint32_t now_ticks,
@@ -100,7 +121,7 @@ int bm_mp_main_loop_period_elapsed(uint32_t start_ticks, uint32_t now_ticks,
 }
 
 static bm_atomic_ipc_u32_t s_demo_max_loops =
-    BM_ATOMIC_IPC_U32_INIT(2000u);
+    BM_ATOMIC_IPC_U32_INIT(BM_CONFIG_MP_DEMO_MAX_LOOPS);
 /*
  * 确定性流式跨核可见性：demo stop 标志使用原子操作，
  * 保证在无缓存一致性硬件的 AMP 上也具有跨核可见性。
@@ -352,7 +373,7 @@ void bm_mp_cpu_secondary_entry(void) {
         uint32_t hz = 1000000u / BM_CONFIG_HRT_TICK_US;
 
         if (hz == 0u) {
-            hz = 1000u;
+            hz = MP_FALLBACK_TIMER_HZ;
         }
         (void)bm_hal_timer_init(hz);
     }

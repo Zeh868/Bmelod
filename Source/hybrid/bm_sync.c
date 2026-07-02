@@ -21,7 +21,6 @@
 #include "bm_sync.h"
 #include "bm_config.h"
 #include "bm/core/bm_cpu_local.h"
-#include "bm/core/bm_cpu_local.h"
 #include "bm_critical_wrap.h"
 #include "bm_sync_hal.h"
 #include "bm_log.h"
@@ -34,8 +33,10 @@ typedef struct {
 
 typedef struct {
     bm_sync_cpu_state_t state;
-    uint8_t padding[BM_CONFIG_CACHE_LINE -
-                    (sizeof(bm_sync_cpu_state_t) % BM_CONFIG_CACHE_LINE)];
+    uint8_t padding[(sizeof(bm_sync_cpu_state_t) % BM_CONFIG_CACHE_LINE)
+        ? (BM_CONFIG_CACHE_LINE - (sizeof(bm_sync_cpu_state_t) %
+                                   BM_CONFIG_CACHE_LINE))
+        : 0];
 } bm_sync_cpu_storage_t;
 
 static BM_CACHE_ALIGNAS(BM_CONFIG_CACHE_LINE)
@@ -54,18 +55,21 @@ static bm_sync_cpu_state_t *sync_this(void) {
     return &g_sync_cpu[cpu].state;
 }
 
-#define g_active_domain  (sync_this()->active_domain)
-#define g_state          (sync_this()->state)
-
 /**
  * @brief 原子提交活动域和公开状态（本核）
  */
 static void sync_set_state(const bm_sync_domain_t *domain,
                            bm_sync_state_t state) {
-    bm_irq_state_t irq_state = BM_CRITICAL_ENTER();
+    bm_sync_cpu_state_t *s = sync_this();
+    bm_irq_state_t irq_state;
 
-    g_active_domain = domain;
-    g_state = state;
+    /* fail-closed：CPU 越界无本核状态时不解引用，直接返回（P1-4） */
+    if (!s) {
+        return;
+    }
+    irq_state = BM_CRITICAL_ENTER();
+    s->active_domain = domain;
+    s->state = state;
     BM_CRITICAL_EXIT(irq_state);
 }
 
@@ -74,13 +78,25 @@ static void sync_set_state(const bm_sync_domain_t *domain,
  */
 static void sync_snapshot(const bm_sync_domain_t **domain_out,
                           bm_sync_state_t *state_out) {
-    bm_irq_state_t irq_state = BM_CRITICAL_ENTER();
+    bm_sync_cpu_state_t *s = sync_this();
+    bm_irq_state_t irq_state;
 
+    /* fail-closed：无本核状态时输出安全默认值（IDLE/无活动域），避免调用方读到未初始化局部（P1-4） */
+    if (!s) {
+        if (domain_out) {
+            *domain_out = NULL;
+        }
+        if (state_out) {
+            *state_out = BM_SYNC_STATE_IDLE;
+        }
+        return;
+    }
+    irq_state = BM_CRITICAL_ENTER();
     if (domain_out) {
-        *domain_out = g_active_domain;
+        *domain_out = s->active_domain;
     }
     if (state_out) {
-        *state_out = g_state;
+        *state_out = s->state;
     }
     BM_CRITICAL_EXIT(irq_state);
 }

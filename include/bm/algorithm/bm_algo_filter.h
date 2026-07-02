@@ -18,6 +18,8 @@
 #ifndef BM_ALGO_FILTER_H
 #define BM_ALGO_FILTER_H
 
+#include "bm/algorithm/bm_algo_errors.h"
+
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -159,7 +161,7 @@ float bm_algo_biquad_step(bm_algo_biquad_state_t *state,
  * @param sample_hz 采样率（Hz）
  * @param center_hz 陷波中心（Hz）
  * @param q 品质因数（>0）
- * @return 0 成功；-1 参数无效
+ * @return 0 成功；BM_ALGO_ERR_INVALID 参数无效
  */
 int bm_algo_biquad_notch_update(bm_algo_biquad_config_t *config,
                                 bm_algo_biquad_state_t *state,

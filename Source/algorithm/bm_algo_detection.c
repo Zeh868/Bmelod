@@ -16,6 +16,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_detection.h"
+#include "bm/algorithm/bm_algo_errors.h"
 #include <stddef.h>
 
 #include <float.h>
@@ -99,10 +100,11 @@ int32_t bm_algo_ultrasonic_tof(const float *echo,
     uint32_t i;
     float envelope = 0.0f;
     float alpha;
-    int32_t peak_idx = -1;
+    /* 未检测到时的哨兵值，语义同 BM_ALGO_ERR_NOT_FOUND（数值 -1）。 */
+    int32_t peak_idx = BM_ALGO_ERR_NOT_FOUND;
 
     if (echo == NULL || n == 0u || min_delay >= n) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
 
     alpha = envelope_alpha;

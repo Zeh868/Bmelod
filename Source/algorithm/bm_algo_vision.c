@@ -15,6 +15,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_vision.h"
+#include "bm/algorithm/bm_algo_errors.h"
 
 #include <limits.h>
 #include <stddef.h>
@@ -69,10 +70,11 @@ int bm_algo_vision_centroid_u8(const uint8_t *mask,
     float sum_y = 0.0f;
 
     if (mask == NULL || cx == NULL || cy == NULL || width == 0u || height == 0u) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
     if (width > UINT32_MAX / height) {
-        return -1;
+        /* width * height 相乘会溢出 uint32_t。 */
+        return BM_ALGO_ERR_OVERFLOW;
     }
 
     for (y = 0u; y < height; ++y) {
@@ -86,7 +88,8 @@ int bm_algo_vision_centroid_u8(const uint8_t *mask,
     }
 
     if (count == 0u) {
-        return -1;
+        /* mask 内无前景像素，无质心可计算。 */
+        return BM_ALGO_ERR_NOT_FOUND;
     }
 
     *cx = sum_x / (float)count;
@@ -115,7 +118,7 @@ int bm_algo_vision_block_flow_u8(const uint8_t *prev,
         block_size > width - bx || block_size > height - by ||
         bx > INT32_MAX || by > INT32_MAX ||
         search_radius >= INT32_MAX) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
 
     for (sdy = -(int32_t)search_radius; sdy <= (int32_t)search_radius; ++sdy) {
@@ -158,7 +161,8 @@ int bm_algo_vision_block_flow_u8(const uint8_t *prev,
     *dx = best_dx;
     *dy = best_dy;
     if (best_sad == UINT64_MAX) {
-        return -1;
+        /* 搜索窗口内所有候选位置均越界，未产生任何有效匹配。 */
+        return BM_ALGO_ERR_NOT_FOUND;
     }
     return 0;
 }

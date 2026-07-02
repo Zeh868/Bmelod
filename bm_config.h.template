@@ -1,57 +1,138 @@
 /*
- * Copy to the application directory as bm_config.h.
- * Put that directory before bmelod-baremetal/include in the include path.
- * Application API entry: #include "bmelod.h"
+ * bm_config.h 应用配置模板（完整旋钮清单，随 include/bm_config.h 同步维护）
+ *
+ * 用法：复制为应用目录下的 bm_config.h（或经 CMake BM_CONFIG_FILE 指定的
+ * force-include 头），并令该目录先于 bmelod/include 出现在编译器 include 路径。
+ * 由于本文件与框架默认头同名同 include-path 语义，等价于完整替换默认配置，
+ * 因此不要添加 `#ifndef BM_CONFIG_H` 之类的外层 include guard——保持每条
+ * `#define` 直接生效即可；仅需按需修改数值，其余保持默认值不动。
+ *
+ * 应用 API 入口：#include "bmelod.h"
+ *
+ * 结构与 include/bm_config.h 分区一一对应；新增/删除旋钮时两处需同步，
+ * 可用 `python tools/check_config_template.py` 做防漂移校验。
  */
-#ifndef BM_CONFIG_H
-#define BM_CONFIG_H
 
-/* Component switches (align with CMake BM_ENABLE_* / PROFILE) */
-#define BM_CONFIG_ENABLE_ULTRA              0
-#define BM_CONFIG_ENABLE_MODULE             1
-#define BM_CONFIG_ENABLE_SHELL              0
-#define BM_CONFIG_ENABLE_WDG                1
-#define BM_CONFIG_ENABLE_HRT                0
-#define BM_CONFIG_ENABLE_TICKER             0
-#define BM_CONFIG_ENABLE_EXEC          0
-#define BM_CONFIG_ENABLE_SYNC               0
+/* ---- 组件开关（与 CMake BM_ENABLE_* / PROFILE 对齐） ---- */
+#define BM_CONFIG_ENABLE_ULTRA               0   /* 8 位超轻量剖面；置 1 后忽略其余组件开关 */
+#define BM_CONFIG_ENABLE_MODULE              1   /* 模块系统（BM_MODULE_DEFINE） */
+#define BM_CONFIG_ENABLE_CHANNEL             0   /* 预留位，当前框架未消费 */
+#define BM_CONFIG_ENABLE_SHELL               0   /* Shell 命令行 */
+#define BM_CONFIG_ENABLE_WDG                 1   /* 看门狗模块管理 */
+#define BM_CONFIG_ENABLE_HRT                 0   /* 硬实时槽（HRT） */
+#define BM_CONFIG_ENABLE_TICKER              0   /* 软实时节拍器 */
+#define BM_CONFIG_ENABLE_EXEC                0   /* 执行实例 / 资源声明子系统 */
+#define BM_CONFIG_ENABLE_SYNC                0   /* 多实例相位同步 */
+#define BM_CONFIG_ENABLE_STREAM              0   /* 流式域（Block/Frame RT） */
+#define BM_CONFIG_ENABLE_PIPELINE            0   /* Pipeline 组件 */
+#define BM_CONFIG_ENABLE_ALGORITHM           0   /* 算法库（Source/algorithm） */
+#define BM_CONFIG_ENABLE_TT_SCHED            0   /* 时间触发调度门面（bm_tt_schedule） */
 
-/* Event system */
-#define BM_CONFIG_MAX_EVENT_TYPES           16
-#define BM_CONFIG_MAX_EVENT_SUBSCRIBERS     32
-#define BM_CONFIG_EVENT_QUEUE_SIZE          16
-#define BM_CONFIG_EVENT_PRIORITIES          4
-#define BM_CONFIG_EVENT_INLINE_DATA_SIZE     8
-/* EVENT_QUEUE_SIZE must be divisible by EVENT_PRIORITIES; quotient a power of 2 */
+/* ---- 流式域（Block/Frame RT） ---- */
+#define BM_CONFIG_STREAM_MAX_BLOCKS          4u  /* 流缓冲块数上限，取值须在 [2,32] */
 
-/* Module system */
-#define BM_CONFIG_MAX_MODULES               8
+/* ---- 日志 ---- */
+#define BM_CONFIG_ENABLE_LOG                 1   /* 日志子系统总开关 */
+#define BM_CONFIG_LOG_LEVEL                  2   /* 日志级别：E=0,W=1,I=2,D=3,T=4 */
+#define BM_CONFIG_LOG_BUF_SIZE               128 /* 单条日志格式化缓冲区字节数 */
+#define BM_CONFIG_LOG_USE_STDIO              0   /* 是否用 stdio 输出日志 */
 
-/* Shell system */
-#define BM_CONFIG_SHELL_BUF_SIZE            64
-#define BM_CONFIG_SHELL_MAX_ARGS            4
-#define BM_CONFIG_SHELL_MAX_CMDS            8
+/* ---- Console 诊断 I/O 后端（日志 / Shell 分通道） ---- */
+#define BM_CONFIG_CONSOLE_LOG_BACKEND         0  /* 0=NONE,1=STDIO,2=UART,3=RTT；默认随 LOG_USE_STDIO 派生 */
+#define BM_CONFIG_CONSOLE_CLI_BACKEND         0  /* CLI 后端，默认与日志后端一致 */
+#define BM_CONFIG_CONSOLE_MP_CLI_BOOTSTRAP_ONLY 1 /* 多核 CLI 是否仅 bootstrap 核可用 */
 
-/* Watchdog */
-#define BM_CONFIG_MAX_WDG_MODULES           4
-#define BM_CONFIG_WDG_MAX_NAME_LEN          32
+/* ---- 核心事件子系统 ---- */
+#define BM_CONFIG_MAX_EVENT_TYPES            16  /* 事件类型上限 */
+#define BM_CONFIG_MAX_EVENT_SUBSCRIBERS      32  /* 订阅者上限 */
+#define BM_CONFIG_EVENT_QUEUE_SIZE           16  /* 须能被 EVENT_PRIORITIES 整除，商为 2 的幂 */
+#define BM_CONFIG_EVENT_PRIORITIES           4   /* 优先级档位数 */
+#define BM_CONFIG_EVENT_INLINE_DATA_SIZE     8   /* 事件内联数据字节数 */
+#define BM_CONFIG_EVENT_PRIORITY_BURST_MAX   8   /* 单优先级单次派发上限 */
 
-/* bm-ultra */
-#define BM_CONFIG_ULTRA_MAX_EVENT_TYPES     8
-#define BM_CONFIG_ULTRA_MAX_EVENT_DATA_SIZE 8
-#define BM_CONFIG_ULTRA_QUEUE_DEPTH         8
+/* ---- 可选组件容量 ---- */
+#define BM_CONFIG_MAX_MODULES                8   /* 模块表容量 */
+#define BM_CONFIG_SHELL_BUF_SIZE             64  /* Shell 行缓冲字节数 */
+#define BM_CONFIG_SHELL_MAX_ARGS             4   /* Shell 单命令最大参数数 */
+#define BM_CONFIG_SHELL_MAX_CMDS             8   /* Shell 命令表容量 */
+#define BM_CONFIG_SHELL_MAX_NAME_LEN         16  /* Shell 命令名最大长度 */
+#define BM_CONFIG_MAX_WDG_MODULES            4   /* 看门狗登记模块数上限 */
+#define BM_CONFIG_WDG_MODULE_TIMEOUT_MS      1000 /* 模块喂狗超时（毫秒） */
+#define BM_CONFIG_WDG_MAX_NAME_LEN           32  /* 看门狗模块名最大长度 */
 
-/* Hybrid domain (optional) */
-#define BM_CONFIG_ENABLE_PRIORITY_MASK      0
-#define BM_CONFIG_HRT_PRIORITY_THRESHOLD      4
-#define BM_CONFIG_HRT_TICK_US               100
-#define BM_CONFIG_HRT_MAX_SLOTS             16
-#define BM_CONFIG_TICKER_MAX_SLOTS          8
-#define BM_CONFIG_TICKER_MAX_CATCHUP        4
-#define BM_CONFIG_MAX_EXEC_SLOTS            32
-#define BM_CONFIG_MAX_EXEC_INSTANCES        16
-#define BM_CONFIG_MAX_RESOURCE_CLAIMS       64
-#define BM_CONFIG_MAX_SYNC_MEMBERS          BM_CONFIG_MAX_EXEC_INSTANCES
-#define BM_CONFIG_SYNC_MAX_PHASE_TICKS      1000000000u
+/* ---- 持久化 KV 存储（路线图 #10） ---- */
+#define BM_CONFIG_PERSIST_MAX_ENTRIES        16u /* 最大 KV 条目数（RAM 表容量） */
+#define BM_CONFIG_PERSIST_KEY_MAX_LEN        15u /* 键名最大长度（不含 null 终止符） */
+#define BM_CONFIG_PERSIST_VAL_MAX_LEN        64u /* 值最大字节数 */
 
-#endif
+/* ---- Ultra 超轻量剖面（header-only） ---- */
+#define BM_CONFIG_ULTRA_MAX_EVENT_TYPES      8   /* Ultra 剖面事件类型上限 */
+#define BM_CONFIG_ULTRA_QUEUE_DEPTH          8   /* Ultra 剖面事件队列深度 */
+#define BM_CONFIG_ULTRA_MAX_EVENT_DATA_SIZE  8   /* Ultra 剖面事件数据字节数 */
+
+/* ---- 混合域（可选） ---- */
+#define BM_CONFIG_ENABLE_PRIORITY_MASK       0   /* 优先级屏蔽开关 */
+#define BM_CONFIG_HRT_PRIORITY_THRESHOLD     4   /* HRT 优先级阈值 */
+#define BM_CONFIG_HRT_TICK_US                100 /* HRT 节拍周期（微秒） */
+#define BM_CONFIG_HRT_MAX_SLOTS              16  /* HRT 槽位上限 */
+#define BM_CONFIG_HRT_DISPATCH_PER_ISR       16  /* 单次 ISR 派发槽位数；默认=HRT_MAX_SLOTS */
+
+/* ---- bm_tt_schedule（时间触发调度门面） ---- */
+#define BM_CONFIG_TT_SCHED_MAX_ENTRIES       16u /* 调度条目上限 */
+#define BM_CONFIG_TT_SCHED_MAX_FRAMES        256u /* LCM 帧数护栏，防止周期组合爆炸 */
+#define BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE     64u /* 单条目数据元素字节数上限 */
+#define BM_CONFIG_TT_SCHED_MAX_INPUTS        8u  /* 单任务输入数上界（init 期校验） */
+
+#define BM_CONFIG_TICKER_MAX_SLOTS           8   /* 软实时节拍器槽位上限 */
+#define BM_CONFIG_TICKER_MAX_CATCHUP         4   /* 节拍器单次追赶上限 */
+#define BM_CONFIG_MAX_EXEC_SLOTS             32  /* 执行槽位上限 */
+#define BM_CONFIG_MAX_EXEC_INSTANCES         16  /* 执行实例上限 */
+#define BM_CONFIG_MAX_RESOURCE_CLAIMS        64  /* 资源声明上限 */
+#define BM_CONFIG_MAX_SYNC_MEMBERS           16  /* 同步组成员上限；默认=MAX_EXEC_INSTANCES */
+#define BM_CONFIG_SYNC_MAX_PHASE_TICKS       1000000000u /* 相位计数上界 */
+
+/* ---- 单核运行与 cache-line 默认值 ---- */
+#define BM_CONFIG_CPU_COUNT                  1u  /* 核数，单核默认 1 */
+#define BM_CONFIG_CACHE_LINE                 64  /* cache-line 字节数，用于对齐 */
+#define BM_CONFIG_EVENT_PROCESS_BUDGET       16u /* 主循环单次事件处理预算 */
+#define BM_CONFIG_STREAM_DRAIN_BUDGET        4u  /* 主循环单次流式块排空预算 */
+#define BM_CONFIG_RELAY_DRAIN_BUDGET         4u  /* 主循环单次 relay 排空预算 */
+#define BM_CONFIG_RELAY_REGISTRY_MAX         4u  /* relay 注册表容量 */
+#define BM_CONFIG_STREAM_DRAIN_WCET_PER_BLOCK_US 50u /* 单块流式排空 WCET（微秒） */
+#define BM_CONFIG_STREAM_ACCOUNT_WCET_PER_BLOCK_US 1u /* 单块流式记账 WCET（微秒，须非零） */
+#define BM_CONFIG_RELAY_DRAIN_WCET_PER_SLOT_US 40u /* 单槽 relay 排空 WCET（微秒） */
+#define BM_CONFIG_MAIN_LOOP_PERIOD_US        1000u /* 主循环周期（微秒） */
+#define BM_CONFIG_MAIN_LOOP_MAX_SPINS        100000u /* 主循环最大自旋迭代数 */
+#define BM_CONFIG_MAIN_LOOP_FIXED_OVERHEAD_US 4u  /* 主循环固定开销（微秒） */
+#define BM_CONFIG_MAIN_LOOP_DEADLINE_US      5000u /* 主循环截止时间（微秒） */
+#define BM_CONFIG_BOOT_BARRIER_TIMEOUT_US    5000000u /* 多核启动屏障超时（微秒） */
+
+/* ---- IPC / 多核（MP） ---- */
+#define BM_CONFIG_IPC_EVENT_RING_DEPTH       8u  /* IPC 事件环深度 */
+#define BM_CONFIG_IPC_PER_SOURCE_BUDGET      4u  /* 每源 IPC 排空预算 */
+#define BM_CONFIG_IPC_DRAIN_BUDGET           0u  /* IPC 总排空预算；默认由 CPU_COUNT 派生，单核为 0 */
+#define BM_CONFIG_IPC_CMD_RING_DEPTH         8u  /* 命令 FIFO 环深度（须为 2 的幂） */
+#define BM_CONFIG_IPC_CMD_PAYLOAD_SIZE       32u /* 命令 payload 定长字节槽 */
+#define BM_CONFIG_IPC_TEL_PAYLOAD_SIZE       32u /* 遥测 payload 定长字节槽 */
+#define BM_CONFIG_MP_DEMO_MAX_LOOPS          2000u /* MP demo 主循环最大迭代数 */
+#define BM_CONFIG_WDG_HB_TIMEOUT_MS          500u /* 跨核心跳看门狗超时（毫秒） */
+#define BM_CONFIG_RESOURCE_TOPOLOGY_MAX      32u /* 资源拓扑表容量 */
+#define BM_CONFIG_EXPERIMENTAL_STREAM        0u  /* 实验性流式特性开关 */
+#define BM_CONFIG_PROFILE_STREAM_GATE_ENFORCED 0 /* 流式剖面强制门禁；默认=HARD_RT_PROFILE */
+#define BM_CONFIG_IPC_MEMORY_COHERENT_OR_NONCACHEABLE 1u /* IPC 内存一致性/不可缓存假设成立 */
+#define BM_CONFIG_HARD_RT_PROFILE            0   /* 硬实时剖面（开启后禁止 stdio 控制台后端） */
+
+/* ---- 日志环形缓冲 / RTA / 原子重试 ---- */
+#define BM_CONFIG_LOG_RING_DEPTH             16u /* 日志环形缓冲深度 */
+#define BM_CONFIG_LOG_RING                   0   /* 是否启用日志环形缓冲 */
+#define BM_CONFIG_LOG_DRAIN_BUDGET           2u  /* 主循环单次日志排空预算 */
+#define BM_CONFIG_LOG_DRAIN_WCET_PER_MSG_US  100u /* 单条日志排空 WCET（微秒） */
+#define BM_CONFIG_RTA_MAX_ITERATIONS         128u /* RTA（响应时间分析）最大迭代数 */
+#define BM_CONFIG_ATOMIC_MAX_RETRIES         8u  /* 原子 CAS 重试上界（须 >= 1） */
+#define BM_CONFIG_BUS_LATEST_MAX_RETRIES     8u  /* bm_bus LATEST 读路径 spin 重试上界（须 >= 1） */
+#define BM_CONFIG_BOOTSTRAP_CPU              0u  /* 引导核 ID */
+
+/* ---- 硬件相关常量（非 BM_CONFIG_ 前缀，component 层复用） ---- */
+#define BM_ADC_MIDPOINT_16BIT                32768 /* 16 位 ADC 零点中点；12 位等平台须按实际分辨率覆盖 */
+#define BM_SPEED_OF_LIGHT_M_S                3.0e8f /* 真空光速（m/s），雷达距离换算用 */
+#define BM_GRAVITY_M_S2                      9.81f  /* 标准重力加速度（m/s²），坡道/惯性补偿用 */

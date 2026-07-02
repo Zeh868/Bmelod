@@ -5,7 +5,8 @@
  * 支持两种工作模式：
  *   - BM_SPECTRAL_MODE_GOERTZEL：Goertzel 单频幅值检测，适合已知特征频率；
  *   - BM_SPECTRAL_MODE_STFT：逐帧 STFT 幅度谱，stft_frame_size 须为
- *     bm_algo_fft_is_supported_size 认可的点数（64/128/256/512/1024）。
+ *     bm_algo_fft_is_supported_size 认可的点数，且 ≤ BM_SPECTRAL_STFT_MAX_FRAME
+ *     （即 64/128/256；底层为 O(n²) DFT，更长帧的 WCET 不可接受，见该宏说明）。
  *
  * 两种模式均支持阶次换算（bm_algo_order_from_hz），通过 shaft_rpm 参数传入
  * 机械转速。
@@ -41,6 +42,16 @@ extern "C" {
 #define BM_SPECTRAL_DIAG_TEL_ACCUMULATING (1u << 2u)
 
 #define BM_SPECTRAL_DIAG_MAX_BINS  64u
+
+/**
+ * @brief STFT 帧长上限（点）
+ *
+ * 底层 bm_algo_stft_magnitude_frame 为逐 bin 逐样本 cosf/sinf 的 O(n²) 朴素
+ * DFT：512 点一帧约 26 万次、1024 点约 100 万次三角函数，WCET 深坑（P2-7）。
+ * 组件侧将 STFT 帧长收紧到 256（约 6.5 万次三角运算），在可接受的实时预算内
+ * 放行。更长帧需接入 radix-2 FFT（bm_algo_fft.c 已具备），为后续项。
+ */
+#define BM_SPECTRAL_STFT_MAX_FRAME  256u
 
 typedef struct {
     uint32_t sequence;

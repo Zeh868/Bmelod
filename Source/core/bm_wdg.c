@@ -5,8 +5,8 @@
  *
  * 所有已注册模块均按时喂狗后才向硬件 WDG 提交喂狗信号。
  * @author zeh (china_qzh@163.com)
- * @version 1.4
- * @date 2026-06-26
+ * @version 1.5
+ * @date 2026-06-29
  *
  * @par 修改日志:
  *
@@ -16,6 +16,7 @@
  * 2026-06-11       1.2            zeh            独立 fed 标志、临界区、防重名注册
  * 2026-06-15       1.3            zeh            运行期喂狗后冻结注册表
  * 2026-06-26       1.4            zeh            时间基迁至 bm_uptime_us()（#9-2a）
+ * 2026-06-29       1.5            zeh            register/feed_module 收敛为单段临界区，消除栈上整表拷贝
  *
  */
 #include "bm_wdg.h"
@@ -121,18 +122,22 @@ static int wdg_module_fresh(const bm_wdg_module_t *mod, uint64_t now_us,
 /**
  * @brief 注册一个需喂狗的软件模块
  *
+ * 在**单段临界区**内完成重名扫描与插入，日志在出锁后根据结果码发出。
+ * 消除了原三段式（锁内拷整表→锁外 strcmp→再锁内 generation 复核）带来的
+ * 栈上 ~512 B 整表拷贝与 TOCTOU 舞步；单锁内读写一致，O(n) 有界扫描
+ * （n ≤ BM_CONFIG_MAX_WDG_MODULES）。
+ * 临界区内禁止 BM_LOGx，以整型 result 记录结果，出锁后再输出日志。
+ *
  * @param name 模块名称字符串
  * @return BM_OK 成功；BM_ERR_NO_MEM 注册表已满；BM_ERR_INVALID 参数无效；
- *         BM_ERR_ALREADY 同名模块已注册
+ *         BM_ERR_ALREADY 同名模块已注册；BM_ERR_BUSY 注册表已冻结
  */
 int bm_wdg_register(const char *name) {
-    char registered_names[BM_CONFIG_MAX_WDG_MODULES]
-                         [BM_CONFIG_WDG_MAX_NAME_LEN];
     size_t name_len;
     uint32_t count;
-    uint32_t generation;
     uint32_t i;
     bm_irq_state_t s;
+    int result;
 
 #if BM_CPU_LOCAL_ENABLE_ROUTE
     if (!bm_hal_cpu_is_bootstrap()) {
@@ -143,67 +148,68 @@ int bm_wdg_register(const char *name) {
         return BM_ERR_INVALID;
     }
 
+    /* 单段临界区：扫描重名 + 插入，临界区内不调用 BM_LOGx */
     s = BM_CRITICAL_ENTER();
-    count = _wdg_module_count;
-    generation = _wdg_generation;
     if (_wdg_registry_frozen) {
         BM_CRITICAL_EXIT(s);
         return BM_ERR_BUSY;
     }
+    count = _wdg_module_count;
     if (count > BM_CONFIG_MAX_WDG_MODULES) {
         BM_CRITICAL_EXIT(s);
         return BM_ERR_INVALID;
     }
+    result = BM_OK;
     for (i = 0u; i < count; i++) {
-        memcpy(registered_names[i], _wdg_modules[i].name,
-               BM_CONFIG_WDG_MAX_NAME_LEN);
-    }
-    BM_CRITICAL_EXIT(s);
-
-    for (i = 0u; i < count; i++) {
-        if (strcmp(registered_names[i], name) == 0) {
-            BM_LOGW("wdg", "module '%s' already registered", name);
-            return BM_ERR_ALREADY;
+        if (strcmp(_wdg_modules[i].name, name) == 0) {
+            result = BM_ERR_ALREADY;
+            break;
         }
     }
-
-    s = BM_CRITICAL_ENTER();
-    if (_wdg_registry_frozen ||
-        _wdg_generation != generation || _wdg_module_count != count) {
-        BM_CRITICAL_EXIT(s);
-        return BM_ERR_BUSY;
+    if (result == BM_OK) {
+        if (count >= BM_CONFIG_MAX_WDG_MODULES) {
+            result = BM_ERR_NO_MEM;
+        } else {
+            memcpy(_wdg_modules[count].name, name, name_len + 1u);
+            _wdg_modules[count].last_feed_us = 0u;
+            _wdg_modules[count].fed = false;
+            _wdg_module_count = count + 1u;
+            _wdg_generation++;
+        }
     }
-    if (count >= BM_CONFIG_MAX_WDG_MODULES) {
-        BM_CRITICAL_EXIT(s);
-        BM_LOGW("wdg", "register table full");
-        return BM_ERR_NO_MEM;
-    }
-    memcpy(_wdg_modules[count].name, name, name_len + 1u);
-    _wdg_modules[count].last_feed_us = 0u;
-    _wdg_modules[count].fed = false;
-    _wdg_module_count = count + 1u;
-    _wdg_generation++;
     BM_CRITICAL_EXIT(s);
 
-    BM_LOGI("wdg", "module '%s' registered", name);
-    return BM_OK;
+    /* 锁外输出日志，文案与返回码与原版保持一致 */
+    if (result == BM_ERR_ALREADY) {
+        BM_LOGW("wdg", "module '%s' already registered", name);
+    } else if (result == BM_ERR_NO_MEM) {
+        BM_LOGW("wdg", "register table full");
+    } else {
+        BM_LOGI("wdg", "module '%s' registered", name);
+    }
+    return result;
 }
 
 /**
  * @brief 记录指定模块的喂狗时间戳
  *
+ * 在**单段临界区**内直接对注册名表做有界 strcmp 扫描（≤ _wdg_module_count），
+ * 找到后在同一临界区内更新 last_feed_us 与 fed 标志，日志移至锁外。
+ * 消除了原两段式（锁内拷整表→锁外 strcmp→再锁内 generation 复核）的
+ * 栈上 ~512 B 整表拷贝与 TOCTOU generation 自增舞步；
+ * feed 路径不再 bump _wdg_generation（该自增仅服务于已删除的复核 dance，
+ * 全库无其他依赖，bm_wdg_feed() 最终复核以 wdg_module_fresh() 为门控）。
+ * 临界区内禁止 BM_LOGx，以 bool found 记录结果，出锁后再输出日志。
+ *
  * @param name 模块名称字符串
  */
 void bm_wdg_feed_module(const char *name) {
-    char registered_names[BM_CONFIG_MAX_WDG_MODULES]
-                         [BM_CONFIG_WDG_MAX_NAME_LEN];
     size_t name_len;
     uint32_t count;
-    uint32_t generation;
-    uint32_t found = BM_CONFIG_MAX_WDG_MODULES;
     uint32_t i;
     uint64_t now_us;
     bm_irq_state_t s;
+    bool found;
 
 #if BM_CPU_LOCAL_ENABLE_ROUTE
     if (!bm_hal_cpu_is_bootstrap()) {
@@ -217,43 +223,32 @@ void bm_wdg_feed_module(const char *name) {
     }
     (void)name_len;
 
+    now_us = bm_uptime_us();  /* 锁外采样时间戳，避免临界区调用 syscall */
+
+    /* 单段临界区：扫描 + 更新，临界区内不调用 BM_LOGx */
     s = BM_CRITICAL_ENTER();
     count = _wdg_module_count;
-    generation = _wdg_generation;
     if (count > BM_CONFIG_MAX_WDG_MODULES) {
         BM_CRITICAL_EXIT(s);
         BM_LOGW("wdg", "feed module table corrupt");
         return;
     }
+    found = false;
     for (i = 0u; i < count; i++) {
-        memcpy(registered_names[i], _wdg_modules[i].name,
-               BM_CONFIG_WDG_MAX_NAME_LEN);
-    }
-    BM_CRITICAL_EXIT(s);
-
-    for (i = 0u; i < count; i++) {
-        if (strcmp(registered_names[i], name) == 0) {
-            found = i;
+        if (strcmp(_wdg_modules[i].name, name) == 0) {
+            _wdg_modules[i].last_feed_us = now_us;
+            _wdg_modules[i].fed = true;
+            found = true;
             break;
         }
     }
-    if (found == BM_CONFIG_MAX_WDG_MODULES) {
+    BM_CRITICAL_EXIT(s);
+
+    /* 锁外输出日志，文案与原版保持一致 */
+    if (!found) {
         BM_LOGW("wdg", "feed unknown module '%s'", name);
         return;
     }
-
-    now_us = bm_uptime_us();
-    s = BM_CRITICAL_ENTER();
-    if (_wdg_generation != generation || _wdg_module_count != count ||
-        strcmp(_wdg_modules[found].name, registered_names[found]) != 0) {
-        BM_CRITICAL_EXIT(s);
-        BM_LOGW("wdg", "feed module table changed");
-        return;
-    }
-    _wdg_modules[found].last_feed_us = now_us;
-    _wdg_modules[found].fed = true;
-    _wdg_generation++;
-    BM_CRITICAL_EXIT(s);
     BM_LOGT("wdg", "feed module '%s'", name);
 }
 

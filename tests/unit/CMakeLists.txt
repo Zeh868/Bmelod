@@ -50,6 +50,26 @@ if(BM_ENABLE_BUS)
         bm_add_test(test_bus test_bus.c bm_core)
     endif()
     target_compile_definitions(test_bus PRIVATE BM_ENABLE_BUS_TEST_HOOK=1)
+    target_compile_definitions(test_bus PRIVATE BM_BUS_ALLOW_INTERNAL=1)
+
+    # 确定性 L1 C1：bus retry-bound（DET-01）+ 非阻塞已由 test_bus 证明，纳入 determinism 标签
+    set_tests_properties(test_bus PROPERTIES LABELS "determinism")
+
+    # ---- 显式缺口登记（非占位，各有触发条件）----
+    # [C2 缺口] exec drain budget 有界：bm_exec_drain_streams(budget) 需 exec+stream 已初始化；
+    #   BM_ENABLE_EXEC_TEST_HOOK 宏在代码库中未找到（grep 2026-06-30 确认）。
+    #   触发条件：待 bm_exec.h 增加 BM_ENABLE_EXEC_TEST_HOOK 或等效 hook 后，
+    #   在 test_det_bounded.c 新增 test_det_bounded_exec_drain_budget 用例，
+    #   注入固定数量 stream 块，断言 drain_streams(N) 处理条数 <= N。
+    #
+    # [C5-CAS 缺口] atomic CAS 迭代次数有界（多核路径）：
+    #   单核 native 不激活 CAS 环（BM_CPU_LOCAL_ENABLE_ROUTE 默认 OFF）；
+    #   多核有界性通过 bm_critical.c:78 + BM_CONFIG_ATOMIC_MAX_RETRIES=8 静态保证，
+    #   对应确定性审查报告 D3/D6；L1 暂无 test hook 直接观测重试次数。
+    #   触发条件：BM_CONFIG_SMP=ON 时可用 QEMU -smp 在竞争窗口插入延迟观测。
+    #
+    # [C6 缺口] ipc 非阻塞返回：BM_CONFIG_SMP=OFF 默认，bm_mp/ipc 不可用。
+    #   触发条件：BM_CONFIG_SMP=ON SMP 构建 + bm_mp_add_test 中新增 ipc 非阻塞用例。
     bm_add_test(test_bus_migration test_bus_migration.c bm_core)
 
     # BM_BUS_IPC 模式契约测试：native 桩后端（fifo_stub + latest_stub）覆盖 FIFO 保序/满/空、
@@ -114,6 +134,67 @@ if(BM_ENABLE_HRT)
         ${CMAKE_SOURCE_DIR}/portable/sim/native)
 endif()
 
+if(BM_ENABLE_TT_SCHEDULE)
+    # Task 3：输入冻结 + seq-delta 判龄；走门面 API + 公共 bus API，
+    # 但测试内直接调用 bm_bus_latest_read_seq 验证 seq 语义，
+    # 该内部访问器原型受 BM_BUS_ALLOW_INTERNAL 门控，需 PRIVATE 定义（照 test_bus）。
+    bm_add_test(test_tt_schedule test_tt_schedule.c bm_tt_schedule)
+    target_compile_definitions(test_tt_schedule PRIVATE BM_BUS_ALLOW_INTERNAL=1)
+    # A5：本门面全静态分配（无 malloc/calloc/realloc/free 符号）+ 循环上界
+    # 均受 init 期校验（entry_count/input_count/n_frames ≤ 编译期上界），
+    # 纳入既有 determinism 回归面（见 test_tt_schedule.c 场景19注释）。
+    set_tests_properties(test_tt_schedule PROPERTIES LABELS "determinism")
+
+    # A5 补丁（Task 8 评审 Important-1）：零动态分配符号级机械检查——
+    # 对 bm_tt_schedule 静态库产物的 COFF/ELF 符号表做扫描，命中
+    # malloc/calloc/realloc/free 任一外部引用即 FAIL。比人工 grep 源码更
+    # 权威：检查的是最终编译产物的真实符号引用，不依赖人工核对源码是否
+    # 遗漏（见 tests/unit/support/check_no_alloc_symbols.cmake）。
+    # MSVC 用 dumpbin /symbols；GNU 用 nm。若工具链下找不到对应工具，
+    # 该检查不注册（不硬凑一个跑不了的假测试）。
+    if(MSVC)
+        find_program(BM_DUMPBIN_EXE dumpbin)
+        if(BM_DUMPBIN_EXE)
+            add_test(NAME test_tt_schedule_symbols_no_alloc
+                COMMAND ${CMAKE_COMMAND}
+                    -DTOOL_ID=MSVC
+                    -DDUMPBIN_EXE=${BM_DUMPBIN_EXE}
+                    -DLIB_PATH=$<TARGET_FILE:bm_tt_schedule>
+                    -P ${CMAKE_SOURCE_DIR}/tests/unit/support/check_no_alloc_symbols.cmake)
+            set_tests_properties(test_tt_schedule_symbols_no_alloc PROPERTIES
+                LABELS "determinism")
+        else()
+            message(WARNING "dumpbin 未找到：test_tt_schedule_symbols_no_alloc 未注册"
+                             "（需在 vcvars 环境下 configure 才能被 find_program 发现）")
+        endif()
+    elseif(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        find_program(BM_NM_EXE nm)
+        if(BM_NM_EXE)
+            add_test(NAME test_tt_schedule_symbols_no_alloc
+                COMMAND ${CMAKE_COMMAND}
+                    -DTOOL_ID=GNU
+                    -DNM_EXE=${BM_NM_EXE}
+                    -DLIB_PATH=$<TARGET_FILE:bm_tt_schedule>
+                    -P ${CMAKE_SOURCE_DIR}/tests/unit/support/check_no_alloc_symbols.cmake)
+            set_tests_properties(test_tt_schedule_symbols_no_alloc PROPERTIES
+                LABELS "determinism")
+        else()
+            message(WARNING "nm 未找到：test_tt_schedule_symbols_no_alloc 未注册")
+        endif()
+    endif()
+
+    # Task 7：host dump 工具，装配示例调度表并导出 bm_tt_schedule_report
+    # 到 build/schedule_map.txt，供开发者人工核对调度概览（非单元测试，
+    # 随 ALL 目标构建）。
+    add_executable(tt_schedule_map_dump ${CMAKE_SOURCE_DIR}/tests/tools/tt_schedule_map_dump.c)
+    target_link_libraries(tt_schedule_map_dump PRIVATE bm_tt_schedule bm_core bm_hal bm_hal_native)
+    bm_target_internal_includes(tt_schedule_map_dump)
+    add_custom_target(schedule-map ALL
+        COMMAND tt_schedule_map_dump ${CMAKE_BINARY_DIR}/schedule_map.txt
+        DEPENDS tt_schedule_map_dump
+        COMMENT "Generating build/schedule_map.txt")
+endif()
+
 if(BM_ENABLE_TICKER)
     bm_add_test(test_ticker test_ticker.c bm_ticker)
     target_include_directories(test_ticker PRIVATE
@@ -147,9 +228,21 @@ target_include_directories(test_hal_dma_stream PRIVATE
     ${CMAKE_SOURCE_DIR}/portable/sim/native)
 
 if(BM_ENABLE_ALGORITHM)
-    bm_add_test(test_algorithm test_algorithm.c bm_algorithm)
+    # test_algorithm.c 按域拆分（架构改进计划任务 1.5b 项 6）：原单一 3300+ 行
+    # 文件替换为 6 个按主题分组的独立 Unity 可执行文件，纯移动不改测试内容。
+    bm_add_test(test_algo_basic test_algo_basic.c bm_algorithm)
+    bm_add_test(test_algo_filter test_algo_filter.c bm_algorithm)
+    bm_add_test(test_algo_motor test_algo_motor.c bm_algorithm)
+    bm_add_test(test_algo_fusion test_algo_fusion.c bm_algorithm)
+    bm_add_test(test_algo_fixed test_algo_fixed.c bm_algorithm)
+    bm_add_test(test_algo_misc test_algo_misc.c bm_algorithm)
     if(NOT MSVC)
-        target_link_libraries(test_algorithm PRIVATE m)
+        target_link_libraries(test_algo_basic PRIVATE m)
+        target_link_libraries(test_algo_filter PRIVATE m)
+        target_link_libraries(test_algo_motor PRIVATE m)
+        target_link_libraries(test_algo_fusion PRIVATE m)
+        target_link_libraries(test_algo_fixed PRIVATE m)
+        target_link_libraries(test_algo_misc PRIVATE m)
     endif()
 endif()
 
@@ -244,6 +337,11 @@ endif()
 if(TARGET bm_component_tinyml)
     bm_add_test(test_tinyml_adapter test_tinyml_adapter.c bm_component_tinyml)
 endif()
+
+# C3+C4+C5：有界+非阻塞多路径
+bm_add_test(test_det_bounded test_det_bounded.c bm_core)
+target_compile_definitions(test_det_bounded PRIVATE BM_ENABLE_EVENT_TEST_HOOK=1)
+set_tests_properties(test_det_bounded PROPERTIES LABELS "determinism")
 
 if(TARGET bm_component_control_loop)
     bm_add_test(test_control_loop test_control_loop.c bm_component_control_loop)
@@ -362,6 +460,18 @@ if(BM_CONFIG_SMP AND TARGET bm_mp)
         target_link_libraries(test_mp PRIVATE bm_module bm_ticker)
     endif()
 
+    # [A4 缺口登记] 多核确定性测试（test_mp / test_mp_period 等）已有并发跑通证据：
+    #   native 40/0 + qemu -smp 2 35/35 均实跑。
+    # 触发条件：BM_CONFIG_SMP=ON 时将下列 SMP 测试纳入 determinism 标签。
+    if(BM_CONFIG_SMP)
+        set_tests_properties(test_mp PROPERTIES LABELS "determinism")
+        if(TARGET test_mp_period)
+            set_tests_properties(test_mp_period PROPERTIES LABELS "determinism")
+        endif()
+    endif()
+    # [A4 未决] qemu_conc_core / qemu_bus_smp 等专项并发确定性测试（seqlock 真并发下
+    #   逐位可复现性量化断言）属 L2 范围，待 P2 期 QEMU icount 构建时补入。
+
     bm_mp_add_test(test_mp_profile test_mp_profile.c)
     if(TARGET bm_module AND TARGET bm_ticker)
         target_link_libraries(test_mp_profile PRIVATE bm_module bm_ticker)
@@ -399,4 +509,47 @@ if(BM_CONFIG_SMP AND TARGET bm_mp)
     add_test(NAME test_log_mp COMMAND test_log_mp)
 
     bm_mp_add_test(test_console test_console.c)
+endif()
+
+# ===== 确定性验证 L1（功能确定性）测试套件 =====
+if(TARGET bm_algorithm)
+    bm_add_test(test_det_repro test_det_repro.c bm_algorithm)
+    if(NOT MSVC)
+        target_link_libraries(test_det_repro PRIVATE m)
+    endif()
+    set_tests_properties(test_det_repro PROPERTIES LABELS "determinism")
+endif()
+
+# A3 框架 round-trip 可复现性（需要 BM_ENABLE_BUS 使 bm_bus 符号可用）
+if(BM_ENABLE_BUS)
+    bm_add_test(test_det_roundtrip test_det_roundtrip.c bm_core)
+    set_tests_properties(test_det_roundtrip PROPERTIES LABELS "determinism")
+endif()
+
+# B 块：全框架零分配稳态练习（需 BM_ENABLE_BUS 使 bm_bus 符号可用）
+if(TARGET bm_algorithm AND BM_ENABLE_BUS AND BM_ENABLE_HRT)
+    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        add_executable(test_det_zeroalloc
+            test_det_zeroalloc.c
+            support/det_trap_alloc.c)
+        target_link_libraries(test_det_zeroalloc PRIVATE
+            "-Wl,--start-group"
+            unity bm_algorithm bm_core bm_hrt bm_hal bm_hal_native
+            "-Wl,--end-group"
+            m)
+        target_link_options(test_det_zeroalloc PRIVATE
+            "-Wl,--wrap=malloc"
+            "-Wl,--wrap=calloc"
+            "-Wl,--wrap=realloc"
+            "-Wl,--wrap=free")
+        bm_target_internal_includes(test_det_zeroalloc)
+        target_include_directories(test_det_zeroalloc PRIVATE
+            ${CMAKE_SOURCE_DIR}/tests/unit/unity)
+        add_test(NAME test_det_zeroalloc COMMAND test_det_zeroalloc)
+    else()
+        # MSVC：CRT 钩子计数（smoke 路径，权威在 GNU --wrap）
+        bm_add_test(test_det_zeroalloc test_det_zeroalloc.c
+            "bm_algorithm;bm_core;bm_hrt")
+    endif()
+    set_tests_properties(test_det_zeroalloc PROPERTIES LABELS "determinism")
 endif()

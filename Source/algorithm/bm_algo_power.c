@@ -20,6 +20,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_power.h"
+#include "bm/algorithm/bm_algo_errors.h"
 #include "bm/algorithm/bm_algo_common.h"
 #include <stddef.h>
 
@@ -204,7 +205,7 @@ int bm_algo_rms_init(bm_algo_rms_state_t *state,
                      uint32_t buflen) {
     if (state == NULL || config == NULL || buffer == NULL ||
         buflen < config->window_samples || config->window_samples == 0u) {
-        return -1;
+        return BM_ALGO_ERR_INVALID;
     }
     state->buffer = buffer;
     state->buflen = buflen;

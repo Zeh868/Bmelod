@@ -97,7 +97,8 @@ void bm_algo_voltage_limit(float *vd, float *vq, float v_max);
 void bm_algo_current_from_2shunt(float ia, float ib, bm_algo_abc_t *abc);
 
 /**
- * @deprecated 缺少 PWM 周期，无法进行量纲正确的补偿；保持输入不变。
+ * @deprecated 缺少 PWM 周期，无法进行量纲正确的补偿，仅原样返回 phase_v（空操作直通）。
+ *             请改用 bm_algo_deadtime_comp_v_period()（补偿量 = sign(I)·Vbus·deadtime/period）。
  */
 float bm_algo_deadtime_comp_v(float phase_v,
                               float phase_current_a,
