@@ -59,8 +59,10 @@ typedef struct {
 
 typedef struct {
     bm_exec_cpu_state_t state;
-    uint8_t padding[BM_CONFIG_CACHE_LINE -
-                    (sizeof(bm_exec_cpu_state_t) % BM_CONFIG_CACHE_LINE)];
+    uint8_t padding[(sizeof(bm_exec_cpu_state_t) % BM_CONFIG_CACHE_LINE)
+        ? (BM_CONFIG_CACHE_LINE - (sizeof(bm_exec_cpu_state_t) %
+                                   BM_CONFIG_CACHE_LINE))
+        : 0];
 } bm_exec_cpu_storage_t;
 
 static BM_CACHE_ALIGNAS(BM_CONFIG_CACHE_LINE)
@@ -75,14 +77,6 @@ static bm_exec_cpu_state_t *bm_exec_this(void) {
     }
     return &g_exec_cpu[cpu].state;
 }
-
-#define g_instances       (bm_exec_this()->instances)
-#define g_instance_count  (bm_exec_this()->instance_count)
-#define g_bindings        (bm_exec_this()->bindings)
-#define g_binding_count   (bm_exec_this()->binding_count)
-#define g_hrt_slots       (bm_exec_this()->hrt_slots)
-#define g_hrt_slot_count  (bm_exec_this()->hrt_slot_count)
-#define g_init_done_count (bm_exec_this()->init_done_count)
 
 /**
  * @brief 设置 IRQ 释放门控回调
@@ -304,21 +298,21 @@ static void bm_exec_run_binding(void *context) {
  * @brief 清零运行时全局状态（实例表、绑定表、HRT 槽）
  */
 static void exec_clear_runtime(void) {
-    if (!exec_cpu_valid()) {
+    bm_exec_cpu_state_t *state = bm_exec_this();
+    uint32_t n;
+
+    if (state == NULL) {
         return;
     }
-    {
-        uint32_t n;
-        for (n = 0u; n < BM_CONFIG_MAX_EXEC_INSTANCES; ++n) {
-            g_instances[n] = NULL;
-        }
+    for (n = 0u; n < BM_CONFIG_MAX_EXEC_INSTANCES; ++n) {
+        state->instances[n] = NULL;
     }
-    g_instance_count = 0u;
-    memset(g_bindings, 0, sizeof(g_bindings));
-    g_binding_count = 0u;
-    memset(g_hrt_slots, 0, sizeof(g_hrt_slots));
-    g_hrt_slot_count = 0u;
-    g_init_done_count = 0u;
+    state->instance_count = 0u;
+    memset(state->bindings, 0, sizeof(state->bindings));
+    state->binding_count = 0u;
+    memset(state->hrt_slots, 0, sizeof(state->hrt_slots));
+    state->hrt_slot_count = 0u;
+    state->init_done_count = 0u;
     exec_set_session(BM_EXEC_SESSION_NONE);
 }
 
@@ -340,12 +334,16 @@ static void exec_clear_runtime(void) {
  * @return 实际消费块数
  */
 static int exec_drain_stream_slots(uint32_t budget) {
+    bm_exec_cpu_state_t *state = bm_exec_this();
     uint32_t i;
     uint32_t s;
     uint32_t drained = 0u;
 
-    for (i = 0u; i < g_instance_count && drained < budget; ++i) {
-        const bm_exec_t *inst = g_instances[i];
+    if (state == NULL) {
+        return 0;
+    }
+    for (i = 0u; i < state->instance_count && drained < budget; ++i) {
+        const bm_exec_t *inst = state->instances[i];
         for (s = 0u; s < inst->slot_count && drained < budget; ++s) {
             const bm_exec_slot_t *slot = &inst->slots[s];
 
@@ -362,7 +360,7 @@ static int exec_drain_stream_slots(uint32_t budget) {
                 }
                 exec_run_block_slot(inst, slot, block);
                 drained++;
-                if (exec_get_session(bm_exec_this()) != BM_EXEC_SESSION_STARTED) {
+                if (exec_get_session(state) != BM_EXEC_SESSION_STARTED) {
                     return (int)drained;
                 }
             }
@@ -396,11 +394,15 @@ int bm_exec_drain_streams(uint32_t budget) {
  * @brief 解绑所有 stream 槽的 ready handler
  */
 static void exec_unbind_stream_slots(void) {
+    bm_exec_cpu_state_t *state = bm_exec_this();
     uint32_t i;
     uint32_t s;
 
-    for (i = 0u; i < g_instance_count; ++i) {
-        const bm_exec_t *inst = g_instances[i];
+    if (state == NULL) {
+        return;
+    }
+    for (i = 0u; i < state->instance_count; ++i) {
+        const bm_exec_t *inst = state->instances[i];
         for (s = 0u; s < inst->slot_count; ++s) {
             const bm_exec_slot_t *slot = &inst->slots[s];
             if (slot->kind == BM_EXEC_SLOT_BLOCK ||
@@ -417,12 +419,16 @@ static void exec_unbind_stream_slots(void) {
  * @brief 解绑所有硬件槽位的外部中断/定时器
  */
 static void exec_unbind_all_hardware(void) {
+    bm_exec_cpu_state_t *state = bm_exec_this();
     uint32_t i;
     uint32_t s;
 
     exec_unbind_stream_slots();
-    for (i = 0u; i < g_instance_count; ++i) {
-        const bm_exec_t *inst = g_instances[i];
+    if (state == NULL) {
+        return;
+    }
+    for (i = 0u; i < state->instance_count; ++i) {
+        const bm_exec_t *inst = state->instances[i];
         for (s = 0u; s < inst->slot_count; ++s) {
             const bm_exec_slot_t *slot = &inst->slots[s];
             if (slot->kind == BM_EXEC_SLOT_HARDWARE && slot->bind) {
@@ -436,15 +442,19 @@ static void exec_unbind_all_hardware(void) {
  * @brief 停止 HRT、安全停机、解绑硬件并清空运行时状态
  */
 static void exec_teardown_session(void) {
+    bm_exec_cpu_state_t *state = bm_exec_this();
     uint32_t i;
 
+    if (state == NULL) {
+        return;
+    }
     exec_set_session(BM_EXEC_SESSION_STOPPING);
     bm_hrt_stop();
     exec_unbind_all_hardware();
 
-    if (g_instance_count > 0u) {
-        for (i = g_instance_count; i > 0u; --i) {
-            const bm_exec_t *inst = g_instances[i - 1u];
+    if (state->instance_count > 0u) {
+        for (i = state->instance_count; i > 0u; --i) {
+            const bm_exec_t *inst = state->instances[i - 1u];
             if (inst && inst->ops && inst->ops->safe_stop) {
                 inst->ops->safe_stop(inst);
             }
@@ -459,9 +469,14 @@ static void exec_teardown_session(void) {
  * @brief 按逆序回滚已完成的实例 init，调用 safe_stop
  */
 static void exec_rollback_inits(void) {
-    while (g_init_done_count > 0u) {
-        g_init_done_count--;
-        const bm_exec_t *inst = g_instances[g_init_done_count];
+    bm_exec_cpu_state_t *state = bm_exec_this();
+
+    if (state == NULL) {
+        return;
+    }
+    while (state->init_done_count > 0u) {
+        state->init_done_count--;
+        const bm_exec_t *inst = state->instances[state->init_done_count];
         if (inst->ops && inst->ops->safe_stop) {
             inst->ops->safe_stop(inst);
         }
@@ -562,16 +577,20 @@ static int validate_instance(const bm_exec_t *inst) {
 }
 
 static int validate_stream_owner(void) {
+    bm_exec_cpu_state_t *state = bm_exec_this();
     uint32_t i;
     uint32_t s;
 
+    if (state == NULL) {
+        return BM_ERR_INVALID;
+    }
     /*
      * 该校验在实例 init op 之后运行（on_ready 通常在 init 期经
      * bm_stream_set_ready_handler / bm_stream_init 之前配置），故能可靠拦截
      * 「绑定 exec block/frame 槽 + on_ready 回调」的双消费者组合（契约 3）。
      */
-    for (i = 0u; i < g_instance_count; ++i) {
-        const bm_exec_t *inst = g_instances[i];
+    for (i = 0u; i < state->instance_count; ++i) {
+        const bm_exec_t *inst = state->instances[i];
         for (s = 0u; s < inst->slot_count; ++s) {
             const bm_exec_slot_t *slot = &inst->slots[s];
             if ((slot->kind == BM_EXEC_SLOT_BLOCK ||
@@ -630,25 +649,29 @@ static int validate_unique_ids(const bm_exec_t *const *instances,
  */
 static int assemble_tables(const bm_exec_t *const *instances,
                            uint32_t count) {
+    bm_exec_cpu_state_t *state = bm_exec_this();
     uint32_t i;
     uint32_t s;
 
-    g_binding_count = 0u;
-    g_hrt_slot_count = 0u;
+    if (state == NULL) {
+        return BM_ERR_INVALID;
+    }
+    state->binding_count = 0u;
+    state->hrt_slot_count = 0u;
 
     for (i = 0u; i < count; ++i) {
         const bm_exec_t *inst = instances[i];
         for (s = 0u; s < inst->slot_count; ++s) {
             const bm_exec_slot_t *slot = &inst->slots[s];
 
-            if (g_binding_count >= BM_CONFIG_MAX_EXEC_SLOTS) {
+            if (state->binding_count >= BM_CONFIG_MAX_EXEC_SLOTS) {
                 return BM_ERR_OVERFLOW;
             }
             if (slot->kind == BM_EXEC_SLOT_BLOCK ||
                 slot->kind == BM_EXEC_SLOT_FRAME) {
                 uint32_t b;
-                for (b = 0u; b < g_binding_count; ++b) {
-                    const bm_exec_slot_t *bound_slot = g_bindings[b].slot;
+                for (b = 0u; b < state->binding_count; ++b) {
+                    const bm_exec_slot_t *bound_slot = state->bindings[b].slot;
                     if ((bound_slot->kind == BM_EXEC_SLOT_BLOCK ||
                          bound_slot->kind == BM_EXEC_SLOT_FRAME) &&
                         bound_slot->stream == slot->stream) {
@@ -656,23 +679,23 @@ static int assemble_tables(const bm_exec_t *const *instances,
                     }
                 }
             }
-            g_bindings[g_binding_count].instance = inst;
-            g_bindings[g_binding_count].slot = slot;
-            g_binding_count++;
+            state->bindings[state->binding_count].instance = inst;
+            state->bindings[state->binding_count].slot = slot;
+            state->binding_count++;
 
             if (slot->kind != BM_EXEC_SLOT_PERIODIC) {
                 continue;
             }
-            if (g_hrt_slot_count >= BM_CONFIG_HRT_MAX_SLOTS) {
+            if (state->hrt_slot_count >= BM_CONFIG_HRT_MAX_SLOTS) {
                 return BM_ERR_OVERFLOW;
             }
-            g_hrt_slots[g_hrt_slot_count].period_us = slot->period_us;
-            g_hrt_slots[g_hrt_slot_count].trigger = BM_HRT_TRIGGER_TIMER;
-            g_hrt_slots[g_hrt_slot_count].callback = bm_exec_run_binding;
-            g_hrt_slots[g_hrt_slot_count].context =
-                &g_bindings[g_binding_count - 1u];
-            g_hrt_slots[g_hrt_slot_count].name = slot->name;
-            g_hrt_slot_count++;
+            state->hrt_slots[state->hrt_slot_count].period_us = slot->period_us;
+            state->hrt_slots[state->hrt_slot_count].trigger = BM_HRT_TRIGGER_TIMER;
+            state->hrt_slots[state->hrt_slot_count].callback = bm_exec_run_binding;
+            state->hrt_slots[state->hrt_slot_count].context =
+                &state->bindings[state->binding_count - 1u];
+            state->hrt_slots[state->hrt_slot_count].name = slot->name;
+            state->hrt_slot_count++;
         }
     }
 
@@ -709,13 +732,14 @@ static int validate_instances_on_this_cpu(const bm_exec_t *const *instances,
  * @return BM_OK 成功；负值为各阶段错误码
  */
 int bm_exec_init_all(const bm_exec_t *const *instances, uint32_t count) {
+    bm_exec_cpu_state_t *state = bm_exec_this();
     const bm_resource_claim_t *claim_ptrs[BM_CONFIG_MAX_EXEC_INSTANCES];
     uint32_t claim_counts[BM_CONFIG_MAX_EXEC_INSTANCES];
     uint32_t i;
     uint32_t s;
     int rc;
 
-    if (!exec_cpu_valid() || !instances || count == 0u ||
+    if (state == NULL || !instances || count == 0u ||
         count > BM_CONFIG_MAX_EXEC_INSTANCES) {
         BM_LOGE("exec", "init_all invalid count=%u", (unsigned)count);
         return BM_ERR_INVALID;
@@ -751,9 +775,9 @@ int bm_exec_init_all(const bm_exec_t *const *instances, uint32_t count) {
     }
 
     for (i = 0u; i < count; ++i) {
-        g_instances[i] = instances[i];
+        state->instances[i] = instances[i];
     }
-    g_instance_count = count;
+    state->instance_count = count;
 
     rc = assemble_tables(instances, count);
     if (rc != BM_OK) {
@@ -761,8 +785,8 @@ int bm_exec_init_all(const bm_exec_t *const *instances, uint32_t count) {
         return rc;
     }
 
-    if (g_hrt_slot_count > 0u) {
-        rc = bm_hrt_init(g_hrt_slots, g_hrt_slot_count);
+    if (state->hrt_slot_count > 0u) {
+        rc = bm_hrt_init(state->hrt_slots, state->hrt_slot_count);
         if (rc != BM_OK) {
             exec_clear_runtime();
             return rc;
@@ -777,7 +801,7 @@ int bm_exec_init_all(const bm_exec_t *const *instances, uint32_t count) {
             exec_abort_session();
             return rc;
         }
-        g_init_done_count++;
+        state->init_done_count++;
     }
 
     rc = validate_stream_owner();
@@ -799,10 +823,10 @@ int bm_exec_init_all(const bm_exec_t *const *instances, uint32_t count) {
             }
 
             hal_binding.callback = bm_exec_run_binding;
-            for (b = 0u; b < g_binding_count; ++b) {
-                if (g_bindings[b].instance == inst &&
-                    g_bindings[b].slot == slot) {
-                    binding = &g_bindings[b];
+            for (b = 0u; b < state->binding_count; ++b) {
+                if (state->bindings[b].instance == inst &&
+                    state->bindings[b].slot == slot) {
+                    binding = &state->bindings[b];
                     break;
                 }
             }
@@ -821,7 +845,7 @@ int bm_exec_init_all(const bm_exec_t *const *instances, uint32_t count) {
 
     exec_set_session(BM_EXEC_SESSION_INITED);
     BM_LOGI("exec", "init_all ok count=%u hrt_slots=%u",
-            (unsigned)count, (unsigned)g_hrt_slot_count);
+            (unsigned)count, (unsigned)state->hrt_slot_count);
     return BM_OK;
 }
 
@@ -833,9 +857,13 @@ int bm_exec_init_all(const bm_exec_t *const *instances, uint32_t count) {
  * @return BM_OK 成功；BM_ERR_INVALID 参数不匹配；负值为 start 失败码
  */
 static int exec_ensure_hrt_started(void) {
+    bm_exec_cpu_state_t *state = bm_exec_this();
     int rc;
 
-    if (g_hrt_slot_count == 0u) {
+    if (state == NULL) {
+        return BM_ERR_INVALID;
+    }
+    if (state->hrt_slot_count == 0u) {
         return BM_OK;
     }
     rc = bm_hrt_start();
@@ -846,23 +874,24 @@ static int exec_ensure_hrt_started(void) {
 }
 
 int bm_exec_start_all(const bm_exec_t *const *instances, uint32_t count) {
+    bm_exec_cpu_state_t *state = bm_exec_this();
     uint32_t i;
     int rc;
 
-    if (!exec_cpu_valid() || !instances || count == 0u ||
-        count != g_instance_count) {
+    if (state == NULL || !instances || count == 0u ||
+        count != state->instance_count) {
         return BM_ERR_INVALID;
     }
     /* atomic acquire-load 保证状态可见性 */
-    if (exec_get_session(bm_exec_this()) == BM_EXEC_SESSION_STARTED) {
+    if (exec_get_session(state) == BM_EXEC_SESSION_STARTED) {
         return BM_ERR_ALREADY;
     }
-    if (exec_get_session(bm_exec_this()) != BM_EXEC_SESSION_INITED) {
+    if (exec_get_session(state) != BM_EXEC_SESSION_INITED) {
         return BM_ERR_NOT_INIT;
     }
 
     for (i = 0u; i < count; ++i) {
-        if (!instances[i] || instances[i] != g_instances[i]) {
+        if (!instances[i] || instances[i] != state->instances[i]) {
             return BM_ERR_INVALID;
         }
         rc = instances[i]->ops->start(instances[i]);
@@ -898,12 +927,13 @@ int bm_exec_start_all(const bm_exec_t *const *instances, uint32_t count) {
  */
 int bm_exec_irq_release_all(void) {
 #if BM_CPU_LOCAL_ENABLE_ROUTE
+    bm_exec_cpu_state_t *state = bm_exec_this();
     int rc;
 
-    if (!exec_cpu_valid()) {
+    if (state == NULL) {
         return BM_ERR_INVALID;
     }
-    if (exec_get_session(bm_exec_this()) != BM_EXEC_SESSION_STARTED) {
+    if (exec_get_session(state) != BM_EXEC_SESSION_STARTED) {
         return BM_ERR_NOT_INIT;
     }
     rc = exec_ensure_hrt_started();
@@ -1000,11 +1030,13 @@ int bm_exec_irq_release_on_this_cpu(void) {
  */
 void bm_exec_safe_stop_all(const bm_exec_t *const *instances,
                            uint32_t count) {
-    if (!exec_cpu_valid()) {
+    bm_exec_cpu_state_t *state = bm_exec_this();
+
+    if (state == NULL) {
         return;
     }
     if ((instances == NULL && count > 0u) ||
-        (instances != NULL && count != g_instance_count)) {
+        (instances != NULL && count != state->instance_count)) {
         BM_LOGW("exec", "safe_stop_all ignored external instance table");
     }
 

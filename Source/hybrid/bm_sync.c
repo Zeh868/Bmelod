@@ -33,8 +33,10 @@ typedef struct {
 
 typedef struct {
     bm_sync_cpu_state_t state;
-    uint8_t padding[BM_CONFIG_CACHE_LINE -
-                    (sizeof(bm_sync_cpu_state_t) % BM_CONFIG_CACHE_LINE)];
+    uint8_t padding[(sizeof(bm_sync_cpu_state_t) % BM_CONFIG_CACHE_LINE)
+        ? (BM_CONFIG_CACHE_LINE - (sizeof(bm_sync_cpu_state_t) %
+                                   BM_CONFIG_CACHE_LINE))
+        : 0];
 } bm_sync_cpu_storage_t;
 
 static BM_CACHE_ALIGNAS(BM_CONFIG_CACHE_LINE)

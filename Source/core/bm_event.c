@@ -111,8 +111,10 @@ typedef struct {
 
 typedef struct {
     bm_event_cpu_state_t state;
-    uint8_t padding[BM_CONFIG_CACHE_LINE -
-                    (sizeof(bm_event_cpu_state_t) % BM_CONFIG_CACHE_LINE)];
+    uint8_t padding[(sizeof(bm_event_cpu_state_t) % BM_CONFIG_CACHE_LINE)
+        ? (BM_CONFIG_CACHE_LINE - (sizeof(bm_event_cpu_state_t) %
+                                   BM_CONFIG_CACHE_LINE))
+        : 0];
 } bm_event_cpu_storage_t;
 
 static BM_CACHE_ALIGNAS(BM_CONFIG_CACHE_LINE)
@@ -173,28 +175,6 @@ static bm_event_cpu_state_t *bm_event_this(void) {
     return &g_event_cpu[cpu].state;
 }
 
-static int event_require_cpu(void) {
-    if (bm_event_this() == NULL) {
-        BM_LOGE("event", "invalid cpu %u", (unsigned)BM_CPU_THIS());
-        return BM_ERR_INVALID;
-    }
-    return BM_OK;
-}
-
-#define _event_types        (bm_event_this()->event_types)
-#define _subscribers        (bm_event_this()->subscribers)
-#define _prio_items         (bm_event_this()->prio_items)
-#define _prio_read          (bm_event_this()->prio_read)
-#define _prio_write         (bm_event_this()->prio_write)
-#define _next_subscriber_id (bm_event_this()->next_subscriber_id)
-#define _queue_dropped      (bm_event_this()->queue_dropped)
-#define _dispatch_skipped   (bm_event_this()->dispatch_skipped)
-#define _reentrancy_rejected (bm_event_this()->reentrancy_rejected)
-#define _dispatch_depth     (bm_event_this()->dispatch_depth)
-#define _events_since_fair  (bm_event_this()->events_since_fair)
-#define _fair_prio_cursor   (bm_event_this()->fair_prio_cursor)
-#define _subscriptions_frozen (bm_event_this()->subscriptions_frozen)
-
 /**
  * @brief 复制队列项，正确处理内联数据指针自引用
  *
@@ -224,9 +204,14 @@ static int _queue_item_valid(const bm_queue_item_t *item) {
 }
 
 static void _prio_queues_reset(void) {
-    memset(_prio_items, 0, sizeof(_prio_items));
-    memset(_prio_read, 0, sizeof(_prio_read));
-    memset(_prio_write, 0, sizeof(_prio_write));
+    bm_event_cpu_state_t *state = bm_event_this();
+
+    if (state == NULL) {
+        return;
+    }
+    memset(state->prio_items, 0, sizeof(state->prio_items));
+    memset(state->prio_read, 0, sizeof(state->prio_read));
+    memset(state->prio_write, 0, sizeof(state->prio_write));
 }
 
 /** 校验优先级队列读写索引在槽位掩码范围内（fail-stop） */
@@ -241,11 +226,12 @@ static int _prio_indices_valid(uint32_t read_idx, uint32_t write_idx,
  * 冻结前会审计已注册但无订阅者的事件类型并打印 warning。
  */
 void bm_event_freeze_subscriptions(void) {
+    bm_event_cpu_state_t *state = bm_event_this();
     bm_irq_state_t s;
     uint32_t i;
     uint32_t unbound_count = 0u;
 
-    if (event_require_cpu() != BM_OK) {
+    if (state == NULL) {
         return;
     }
     s = BM_CRITICAL_ENTER();
@@ -254,12 +240,13 @@ void bm_event_freeze_subscriptions(void) {
      * 非 hard RT 剖面仅 warning；hard RT 由 partition_build 前置 fail-closed。
      */
     for (i = 0u; i < BM_CONFIG_MAX_EVENT_TYPES; i++) {
-        if (_event_types[i].name != NULL && _event_types[i].head == NULL) {
+        if (state->event_types[i].name != NULL &&
+            state->event_types[i].head == NULL) {
             unbound_count =
                 bm_u32_saturating_inc(unbound_count);
         }
     }
-    _subscriptions_frozen = true;
+    state->subscriptions_frozen = true;
     BM_CRITICAL_EXIT(s);
     if (unbound_count > 0u) {
         BM_LOGW("event", "%u registered types have no subscribers",
@@ -274,29 +261,30 @@ void bm_event_freeze_subscriptions(void) {
  * 清空事件类型、订阅者、优先级队列与统计计数器。
  */
 void bm_event_reset(void) {
+    bm_event_cpu_state_t *state = bm_event_this();
     bm_irq_state_t s;
 
-    if (event_require_cpu() != BM_OK) {
+    if (state == NULL) {
         return;
     }
     s = BM_CRITICAL_ENTER();
-    if (_dispatch_depth > 0u) {
-        _reentrancy_rejected =
-            bm_u32_saturating_inc(_reentrancy_rejected);
+    if (state->dispatch_depth > 0u) {
+        state->reentrancy_rejected =
+            bm_u32_saturating_inc(state->reentrancy_rejected);
         BM_CRITICAL_EXIT(s);
         return;
     }
-    memset(_event_types, 0, sizeof(_event_types));
-    memset(_subscribers, 0, sizeof(_subscribers));
+    memset(state->event_types, 0, sizeof(state->event_types));
+    memset(state->subscribers, 0, sizeof(state->subscribers));
     _prio_queues_reset();
-    _next_subscriber_id = 1;
-    _queue_dropped = 0;
-    _dispatch_skipped = 0;
-    _reentrancy_rejected = 0;
-    _dispatch_depth = 0u;
-    _events_since_fair = 0u;
-    _fair_prio_cursor = (BM_CONFIG_EVENT_PRIORITIES > 1) ? 1u : 0u;
-    _subscriptions_frozen = false;
+    state->next_subscriber_id = 1;
+    state->queue_dropped = 0;
+    state->dispatch_skipped = 0;
+    state->reentrancy_rejected = 0;
+    state->dispatch_depth = 0u;
+    state->events_since_fair = 0u;
+    state->fair_prio_cursor = (BM_CONFIG_EVENT_PRIORITIES > 1) ? 1u : 0u;
+    state->subscriptions_frozen = false;
     BM_CRITICAL_EXIT(s);
     BM_LOGI("event", "event bus reset");
 }
@@ -310,7 +298,9 @@ void bm_event_reset(void) {
  *         BM_ERR_ALREADY 该类型已注册
  */
 int bm_event_register_type(bm_event_type_t type, const char *name) {
-    if (event_require_cpu() != BM_OK) {
+    bm_event_cpu_state_t *state = bm_event_this();
+
+    if (state == NULL) {
         return BM_ERR_INVALID;
     }
     if (type >= BM_CONFIG_MAX_EVENT_TYPES || !name) {
@@ -321,18 +311,18 @@ int bm_event_register_type(bm_event_type_t type, const char *name) {
     /*
      * 冻结后禁止注册新事件类型，保证分区器 event→owner 表不变。
      */
-    if (_subscriptions_frozen || _dispatch_depth > 0u) {
-        _reentrancy_rejected =
-            bm_u32_saturating_inc(_reentrancy_rejected);
+    if (state->subscriptions_frozen || state->dispatch_depth > 0u) {
+        state->reentrancy_rejected =
+            bm_u32_saturating_inc(state->reentrancy_rejected);
         BM_CRITICAL_EXIT(s);
         return BM_ERR_BUSY;
     }
-    if (_event_types[type].name != NULL) {
+    if (state->event_types[type].name != NULL) {
         BM_CRITICAL_EXIT(s);
         BM_LOGW("event", "type %u already registered", (unsigned)type);
         return BM_ERR_ALREADY;
     }
-    _event_types[type].name = name;
+    state->event_types[type].name = name;
     BM_CRITICAL_EXIT(s);
     BM_LOGD("event", "type %u registered as '%s'", (unsigned)type, name);
     return BM_OK;
@@ -344,9 +334,14 @@ int bm_event_register_type(bm_event_type_t type, const char *name) {
  * 冻结后或在分发回调内调用 subscribe/unsubscribe 会拒绝。
  */
 static int event_subscription_change_allowed(void) {
-    if (_subscriptions_frozen || _dispatch_depth > 0u) {
-        _reentrancy_rejected =
-            bm_u32_saturating_inc(_reentrancy_rejected);
+    bm_event_cpu_state_t *state = bm_event_this();
+
+    if (state == NULL) {
+        return BM_ERR_INVALID;
+    }
+    if (state->subscriptions_frozen || state->dispatch_depth > 0u) {
+        state->reentrancy_rejected =
+            bm_u32_saturating_inc(state->reentrancy_rejected);
         return BM_ERR_BUSY;
     }
     return BM_OK;
@@ -363,7 +358,9 @@ static int event_subscription_change_allowed(void) {
  */
 int bm_event_subscribe(bm_event_type_t type, bm_event_callback_t cb,
                        void *user_data, bm_event_subscriber_id_t *id) {
-    if (event_require_cpu() != BM_OK) {
+    bm_event_cpu_state_t *state = bm_event_this();
+
+    if (state == NULL) {
         return BM_ERR_INVALID;
     }
     if (!cb || type >= BM_CONFIG_MAX_EVENT_TYPES) {
@@ -380,7 +377,7 @@ int bm_event_subscribe(bm_event_type_t type, bm_event_callback_t cb,
         BM_CRITICAL_EXIT(s);
         return allowed;
     }
-    if (_event_types[type].name == NULL) {
+    if (state->event_types[type].name == NULL) {
         BM_CRITICAL_EXIT(s);
         return BM_ERR_NOT_INIT;
     }
@@ -389,7 +386,7 @@ int bm_event_subscribe(bm_event_type_t type, bm_event_callback_t cb,
      * 保证分发时间为 O(1) 且 WCET 可预测。
      */
     {
-        bm_subscriber_t *sub_iter = _event_types[type].head;
+        bm_subscriber_t *sub_iter = state->event_types[type].head;
         uint32_t type_sub_count = 0u;
 
         while (sub_iter) {
@@ -418,8 +415,8 @@ int bm_event_subscribe(bm_event_type_t type, bm_event_callback_t cb,
     }
 #endif
     for (i = 0; i < BM_CONFIG_MAX_EVENT_SUBSCRIBERS; i++) {
-        if (_subscribers[i].id == 0) {
-            sub = &_subscribers[i];
+        if (state->subscribers[i].id == 0) {
+            sub = &state->subscribers[i];
             break;
         }
     }
@@ -428,7 +425,7 @@ int bm_event_subscribe(bm_event_type_t type, bm_event_callback_t cb,
         BM_LOGW("event", "subscribe no free slot for type=%u", (unsigned)type);
         return BM_ERR_NO_MEM;
     }
-    if (_next_subscriber_id == 0u) {
+    if (state->next_subscriber_id == 0u) {
         BM_CRITICAL_EXIT(s);
         BM_LOGW("event", "subscribe id exhausted");
         return BM_ERR_NO_MEM;
@@ -436,9 +433,9 @@ int bm_event_subscribe(bm_event_type_t type, bm_event_callback_t cb,
 
     sub->cb = cb;
     sub->user_data = user_data;
-    sub->id = _next_subscriber_id++;
-    sub->next = _event_types[type].head;
-    _event_types[type].head = sub;
+    sub->id = state->next_subscriber_id++;
+    sub->next = state->event_types[type].head;
+    state->event_types[type].head = sub;
     if (id) {
         *id = sub->id;
     }
@@ -456,7 +453,9 @@ int bm_event_subscribe(bm_event_type_t type, bm_event_callback_t cb,
  * @return BM_OK 成功；负值表示失败原因
  */
 int bm_event_unsubscribe(bm_event_type_t type, bm_event_subscriber_id_t id) {
-    if (event_require_cpu() != BM_OK) {
+    bm_event_cpu_state_t *state = bm_event_this();
+
+    if (state == NULL) {
         return BM_ERR_INVALID;
     }
     if (type >= BM_CONFIG_MAX_EVENT_TYPES || id == 0) {
@@ -470,11 +469,11 @@ int bm_event_unsubscribe(bm_event_type_t type, bm_event_subscriber_id_t id) {
         BM_CRITICAL_EXIT(s);
         return allowed;
     }
-    if (_event_types[type].name == NULL) {
+    if (state->event_types[type].name == NULL) {
         BM_CRITICAL_EXIT(s);
         return BM_ERR_NOT_INIT;
     }
-    bm_subscriber_t **pp = &_event_types[type].head;
+    bm_subscriber_t **pp = &state->event_types[type].head;
     while (*pp) {
         if ((*pp)->id == id) {
             bm_subscriber_t *to_remove = *pp;
@@ -501,38 +500,42 @@ static int _prio_push_copy(bm_event_priority_t prio, const bm_event_t *event,
      * 每优先级独立环形队列，深度为 2 的幂以便用掩码代替取模，
      * 缩短临界区内的索引运算时间。
      */
+    bm_event_cpu_state_t *state = bm_event_this();
     uint32_t mask = BM_EVENT_QUEUE_DEPTH_PER_PRIO - 1u;
     uint32_t next;
     bm_queue_item_t *item;
     bm_irq_state_t s;
 
+    if (state == NULL) {
+        return BM_ERR_INVALID;
+    }
     if (prio >= BM_CONFIG_EVENT_PRIORITIES) {
         return BM_ERR_INVALID;
     }
 
     s = BM_CRITICAL_ENTER();
-    if (_prio_indices_valid(_prio_read[prio], _prio_write[prio], mask) !=
-        BM_OK) {
+    if (_prio_indices_valid(state->prio_read[prio], state->prio_write[prio],
+                            mask) != BM_OK) {
         BM_CRITICAL_EXIT(s);
         BM_LOGE("event", "push corrupt indices prio=%u", (unsigned)prio);
         return BM_ERR_INVALID;
     }
-    next = (_prio_write[prio] + 1u) & mask;
-    if (next == _prio_read[prio]) {
-        _queue_dropped = bm_u32_saturating_inc(_queue_dropped);
+    next = (state->prio_write[prio] + 1u) & mask;
+    if (next == state->prio_read[prio]) {
+        state->queue_dropped = bm_u32_saturating_inc(state->queue_dropped);
         BM_CRITICAL_EXIT(s);
         BM_LOGW("event", "queue overflow type=%u prio=%u",
                 (unsigned)event->type, (unsigned)prio);
         return BM_ERR_OVERFLOW;
     }
 
-    if (data && len > sizeof(_prio_items[prio][0].inline_data)) {
+    if (data && len > sizeof(state->prio_items[prio][0].inline_data)) {
         BM_CRITICAL_EXIT(s);
         BM_LOGE("event", "payload too large len=%u", (unsigned)len);
         return BM_ERR_NO_MEM;
     }
 
-    item = &_prio_items[prio][_prio_write[prio] & mask];
+    item = &state->prio_items[prio][state->prio_write[prio] & mask];
     item->event = *event;
 
     if (data && len > 0u) {
@@ -544,7 +547,7 @@ static int _prio_push_copy(bm_event_priority_t prio, const bm_event_t *event,
         item->event.data_len = 0;
     }
 
-    _prio_write[prio] = next;
+    state->prio_write[prio] = next;
     BM_CRITICAL_EXIT(s);
     return BM_OK;
 }
@@ -559,6 +562,7 @@ static int event_publish_impl(bm_event_type_t type, bm_event_priority_t prio,
                               const void *data, size_t len,
                               bool from_isr,
                               bool preserve_source) {
+    bm_event_cpu_state_t *state = bm_event_this();
     bm_event_t ev;
     bm_irq_state_t s;
     int forwarded;
@@ -581,7 +585,7 @@ static int event_publish_impl(bm_event_type_t type, bm_event_priority_t prio,
      */
     (void)from_isr;
 
-    if (event_require_cpu() != BM_OK) {
+    if (state == NULL) {
         return BM_ERR_INVALID;
     }
     if (type >= BM_CONFIG_MAX_EVENT_TYPES ||
@@ -608,7 +612,7 @@ static int event_publish_impl(bm_event_type_t type, bm_event_priority_t prio,
     }
 
     s = BM_CRITICAL_ENTER();
-    if (_event_types[type].name == NULL) {
+    if (state->event_types[type].name == NULL) {
         BM_CRITICAL_EXIT(s);
         return BM_ERR_NOT_INIT;
     }
@@ -761,69 +765,75 @@ int bm_event_publish_event_from_isr(const bm_event_t *event) {
 }
 
 static int _queue_pop_highest_prio(bm_queue_item_t *out) {
-    bm_irq_state_t s = BM_CRITICAL_ENTER();
+    bm_event_cpu_state_t *state = bm_event_this();
+    bm_irq_state_t s;
     uint32_t prio;
     uint32_t selected = BM_CONFIG_EVENT_PRIORITIES;
     uint32_t mask = BM_EVENT_QUEUE_DEPTH_PER_PRIO - 1u;
     bool lower_prio_pending = false;
 
+    if (state == NULL) {
+        return BM_ERR_INVALID;
+    }
+    s = BM_CRITICAL_ENTER();
+
     for (prio = 0u; prio < BM_CONFIG_EVENT_PRIORITIES; ++prio) {
-        if (_prio_indices_valid(_prio_read[prio], _prio_write[prio], mask) !=
-            BM_OK) {
+        if (_prio_indices_valid(state->prio_read[prio], state->prio_write[prio],
+                                mask) != BM_OK) {
             BM_CRITICAL_EXIT(s);
             BM_LOGE("event", "pop corrupt indices prio=%u", (unsigned)prio);
             return BM_ERR_INVALID;
         }
         if (selected == BM_CONFIG_EVENT_PRIORITIES &&
-            _prio_read[prio] != _prio_write[prio]) {
+            state->prio_read[prio] != state->prio_write[prio]) {
             selected = prio;
         }
     }
 
     if (selected == BM_CONFIG_EVENT_PRIORITIES) {
-        _events_since_fair = 0u;
+        state->events_since_fair = 0u;
         BM_CRITICAL_EXIT(s);
         return BM_ERR_WOULD_BLOCK;
     }
 
     for (prio = selected + 1u; prio < BM_CONFIG_EVENT_PRIORITIES; ++prio) {
-        if (_prio_read[prio] != _prio_write[prio]) {
+        if (state->prio_read[prio] != state->prio_write[prio]) {
             lower_prio_pending = true;
             break;
         }
     }
 
     if (lower_prio_pending &&
-        _events_since_fair >= BM_CONFIG_EVENT_PRIORITY_BURST_MAX) {
+        state->events_since_fair >= BM_CONFIG_EVENT_PRIORITY_BURST_MAX) {
         /*
-         * 公平性轮转：从 _fair_prio_cursor 出发，循环扫描寻找
+         * 公平性轮转：从 fair_prio_cursor 出发，循环扫描寻找
          * 优先级低于 selected（数值更大）的非空队列。
          * 使用模运算回绕扫描，candidate > selected 确保只选更低优先级。
          */
         for (prio = 0u; prio < BM_CONFIG_EVENT_PRIORITIES; ++prio) {
             uint32_t candidate =
-                (_fair_prio_cursor + prio) % BM_CONFIG_EVENT_PRIORITIES;
+                (state->fair_prio_cursor + prio) % BM_CONFIG_EVENT_PRIORITIES;
 
             if (candidate > selected &&
-                _prio_read[candidate] != _prio_write[candidate]) {
+                state->prio_read[candidate] != state->prio_write[candidate]) {
                 selected = candidate;
                 break;
             }
         }
-        _fair_prio_cursor = (selected + 1u) % BM_CONFIG_EVENT_PRIORITIES;
-        _events_since_fair = 0u;
+        state->fair_prio_cursor = (selected + 1u) % BM_CONFIG_EVENT_PRIORITIES;
+        state->events_since_fair = 0u;
     } else if (lower_prio_pending) {
-        _events_since_fair =
-            bm_u32_saturating_inc(_events_since_fair);
+        state->events_since_fair =
+            bm_u32_saturating_inc(state->events_since_fair);
     } else {
-        _events_since_fair = 0u;
+        state->events_since_fair = 0u;
     }
 
     {
-        uint32_t slot = _prio_read[selected] & mask;
+        uint32_t slot = state->prio_read[selected] & mask;
 
-        _queue_item_copy(out, &_prio_items[selected][slot]);
-        _prio_read[selected] = (_prio_read[selected] + 1u) & mask;
+        _queue_item_copy(out, &state->prio_items[selected][slot]);
+        state->prio_read[selected] = (state->prio_read[selected] + 1u) & mask;
     }
     BM_CRITICAL_EXIT(s);
     return BM_OK;
@@ -835,11 +845,13 @@ static int _queue_pop_highest_prio(bm_queue_item_t *out) {
  * @return 丢弃计数
  */
 uint32_t bm_event_get_dropped_count(void) {
-    if (event_require_cpu() != BM_OK) {
+    bm_event_cpu_state_t *state = bm_event_this();
+
+    if (state == NULL) {
         return 0u;
     }
     bm_irq_state_t s = BM_CRITICAL_ENTER();
-    uint32_t dropped = _queue_dropped;
+    uint32_t dropped = state->queue_dropped;
     BM_CRITICAL_EXIT(s);
     return dropped;
 }
@@ -850,11 +862,13 @@ uint32_t bm_event_get_dropped_count(void) {
  * @return 跳过计数
  */
 uint32_t bm_event_get_dispatch_skipped_count(void) {
-    if (event_require_cpu() != BM_OK) {
+    bm_event_cpu_state_t *state = bm_event_this();
+
+    if (state == NULL) {
         return 0u;
     }
     bm_irq_state_t s = BM_CRITICAL_ENTER();
-    uint32_t skipped = _dispatch_skipped;
+    uint32_t skipped = state->dispatch_skipped;
     BM_CRITICAL_EXIT(s);
     return skipped;
 }
@@ -865,11 +879,13 @@ uint32_t bm_event_get_dispatch_skipped_count(void) {
  * @return 拒绝计数
  */
 uint32_t bm_event_get_reentrancy_rejected_count(void) {
-    if (event_require_cpu() != BM_OK) {
+    bm_event_cpu_state_t *state = bm_event_this();
+
+    if (state == NULL) {
         return 0u;
     }
     bm_irq_state_t s = BM_CRITICAL_ENTER();
-    uint32_t rejected = _reentrancy_rejected;
+    uint32_t rejected = state->reentrancy_rejected;
     BM_CRITICAL_EXIT(s);
     return rejected;
 }
@@ -881,11 +897,12 @@ uint32_t bm_event_get_reentrancy_rejected_count(void) {
  * @return 实际处理事件数；负值表示错误
  */
 int bm_event_process(uint32_t max_events) {
+    bm_event_cpu_state_t *state = bm_event_this();
     uint32_t processed = 0u;
     uint32_t i;
     bm_irq_state_t entry_state;
 
-    if (event_require_cpu() != BM_OK) {
+    if (state == NULL) {
         return BM_ERR_INVALID;
     }
 
@@ -893,7 +910,7 @@ int bm_event_process(uint32_t max_events) {
      * 确定性流式防护：订阅表冻结后才允许分发。
      * 冻结前调用 process 可能遍历正在修改的链表，导致悬空指针。
      */
-    if (!_subscriptions_frozen) {
+    if (!state->subscriptions_frozen) {
         BM_LOGW("event", "process blocked: subscriptions not frozen");
         return BM_ERR_NOT_INIT;
     }
@@ -903,13 +920,13 @@ int bm_event_process(uint32_t max_events) {
      * 回调中再次调用 process 返回 BM_ERR_BUSY。
      */
     entry_state = BM_CRITICAL_ENTER();
-    if (_dispatch_depth > 0u) {
-        _reentrancy_rejected =
-            bm_u32_saturating_inc(_reentrancy_rejected);
+    if (state->dispatch_depth > 0u) {
+        state->reentrancy_rejected =
+            bm_u32_saturating_inc(state->reentrancy_rejected);
         BM_CRITICAL_EXIT(entry_state);
         return BM_ERR_BUSY;
     }
-    _dispatch_depth++;
+    state->dispatch_depth++;
     BM_CRITICAL_EXIT(entry_state);
 
     for (i = 0u; i < max_events; i++) {
@@ -918,8 +935,8 @@ int bm_event_process(uint32_t max_events) {
 
         if (rc == BM_ERR_INVALID) {
             bm_irq_state_t s = BM_CRITICAL_ENTER();
-            _dispatch_skipped =
-                bm_u32_saturating_inc(_dispatch_skipped);
+            state->dispatch_skipped =
+                bm_u32_saturating_inc(state->dispatch_skipped);
             BM_CRITICAL_EXIT(s);
             BM_LOGE("event", "process corrupt queue");
             break;
@@ -933,8 +950,8 @@ int bm_event_process(uint32_t max_events) {
                     (unsigned)item.event.type,
                     (unsigned)item.event.data_len);
             bm_irq_state_t s = BM_CRITICAL_ENTER();
-            _dispatch_skipped =
-                bm_u32_saturating_inc(_dispatch_skipped);
+            state->dispatch_skipped =
+                bm_u32_saturating_inc(state->dispatch_skipped);
             BM_CRITICAL_EXIT(s);
             processed++;
             continue;
@@ -949,7 +966,7 @@ int bm_event_process(uint32_t max_events) {
 
             /* 在临界区内读链表头（单指针读，冻结后安全） */
             bm_irq_state_t s = BM_CRITICAL_ENTER();
-            sub = _event_types[item.event.type].head;
+            sub = state->event_types[item.event.type].head;
             BM_CRITICAL_EXIT(s);
 
             while (sub) {
@@ -963,7 +980,7 @@ int bm_event_process(uint32_t max_events) {
     }
 
     entry_state = BM_CRITICAL_ENTER();
-    _dispatch_depth--;
+    state->dispatch_depth--;
     BM_CRITICAL_EXIT(entry_state);
 
     BM_LOGT("event", "processed %u events", (unsigned)processed);
@@ -979,12 +996,13 @@ int bm_event_process(uint32_t max_events) {
  * @return BM_OK 成功；负值表示失败
  */
 int bm_event_test_inject(const bm_event_t *event, bm_event_priority_t prio) {
+    bm_event_cpu_state_t *state = bm_event_this();
     uint32_t mask = BM_EVENT_QUEUE_DEPTH_PER_PRIO - 1u;
     uint32_t next;
     bm_queue_item_t *item;
     bm_irq_state_t s;
 
-    if (event_require_cpu() != BM_OK) {
+    if (state == NULL) {
         return BM_ERR_INVALID;
     }
     if (!event || prio >= BM_CONFIG_EVENT_PRIORITIES) {
@@ -992,26 +1010,26 @@ int bm_event_test_inject(const bm_event_t *event, bm_event_priority_t prio) {
     }
 
     s = BM_CRITICAL_ENTER();
-    if (_prio_indices_valid(_prio_read[prio], _prio_write[prio], mask) !=
-        BM_OK) {
+    if (_prio_indices_valid(state->prio_read[prio], state->prio_write[prio],
+                            mask) != BM_OK) {
         BM_CRITICAL_EXIT(s);
         return BM_ERR_INVALID;
     }
-    next = (_prio_write[prio] + 1u) & mask;
-    if (next == _prio_read[prio]) {
-        _queue_dropped = bm_u32_saturating_inc(_queue_dropped);
+    next = (state->prio_write[prio] + 1u) & mask;
+    if (next == state->prio_read[prio]) {
+        state->queue_dropped = bm_u32_saturating_inc(state->queue_dropped);
         BM_CRITICAL_EXIT(s);
         return BM_ERR_OVERFLOW;
     }
 
-    item = &_prio_items[prio][_prio_write[prio] & mask];
+    item = &state->prio_items[prio][state->prio_write[prio] & mask];
     memset(item, 0, sizeof(*item));
     item->event = *event;
     if (event->data && event->data_len <= sizeof(item->inline_data)) {
         memcpy(item->inline_data, event->data, event->data_len);
         item->event.data = item->inline_data;
     }
-    _prio_write[prio] = next;
+    state->prio_write[prio] = next;
     BM_CRITICAL_EXIT(s);
     return BM_OK;
 }

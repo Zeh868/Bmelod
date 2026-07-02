@@ -45,8 +45,10 @@ typedef struct {
 
 typedef struct {
     bm_module_cpu_state_t state;
-    uint8_t padding[BM_CONFIG_CACHE_LINE -
-                    (sizeof(bm_module_cpu_state_t) % BM_CONFIG_CACHE_LINE)];
+    uint8_t padding[(sizeof(bm_module_cpu_state_t) % BM_CONFIG_CACHE_LINE)
+        ? (BM_CONFIG_CACHE_LINE - (sizeof(bm_module_cpu_state_t) %
+                                   BM_CONFIG_CACHE_LINE))
+        : 0];
 } bm_module_cpu_storage_t;
 
 static BM_CACHE_ALIGNAS(BM_CONFIG_CACHE_LINE)
@@ -61,20 +63,6 @@ static bm_module_cpu_state_t *bm_module_this(void) {
     }
     return &g_module_cpu[cpu].state;
 }
-
-#if BM_CPU_LOCAL_ENABLE_ROUTE
-static int module_require_cpu(void) {
-    if (bm_module_this() == NULL) {
-        BM_LOGE("module", "invalid cpu %u", (unsigned)BM_CPU_THIS());
-        return BM_ERR_INVALID;
-    }
-    return BM_OK;
-}
-#endif
-
-#define _modules             (bm_module_this()->modules)
-#define _module_count        (bm_module_this()->module_count)
-#define _modules_initialized (bm_module_this()->initialized)
 
 /**
  * @brief 设置模块归属解析器
@@ -103,12 +91,17 @@ uint32_t bm_module_count(void) {
  * @brief 按 priority 升序对模块表冒泡排序
  */
 static void _sort_modules(void) {
-    for (uint32_t i = 0; i < _module_count; i++) {
-        for (uint32_t j = i + 1; j < _module_count; j++) {
-            if (_modules[i].priority > _modules[j].priority) {
-                bm_module_t tmp = _modules[i];
-                _modules[i] = _modules[j];
-                _modules[j] = tmp;
+    bm_module_cpu_state_t *state = bm_module_this();
+
+    if (state == NULL) {
+        return;
+    }
+    for (uint32_t i = 0; i < state->module_count; i++) {
+        for (uint32_t j = i + 1; j < state->module_count; j++) {
+            if (state->modules[i].priority > state->modules[j].priority) {
+                bm_module_t tmp = state->modules[i];
+                state->modules[i] = state->modules[j];
+                state->modules[j] = tmp;
             }
         }
     }
@@ -118,13 +111,17 @@ static void _sort_modules(void) {
  * @brief init 失败时逆序回滚已初始化模块
  */
 static int _rollback_inits(uint32_t through_index) {
+    bm_module_cpu_state_t *state = bm_module_this();
     int rc = BM_OK;
 
+    if (state == NULL) {
+        return BM_OK;
+    }
     while (through_index > 0u) {
         through_index--;
-        if (_modules[through_index].state == BM_MODULE_STATE_INITED) {
-            if (_modules[through_index].deinit) {
-                int r = _modules[through_index].deinit();
+        if (state->modules[through_index].state == BM_MODULE_STATE_INITED) {
+            if (state->modules[through_index].deinit) {
+                int r = state->modules[through_index].deinit();
 
                 if (r != BM_OK) {
                     BM_LOGE("module", "init rollback failed idx=%u rc=%d",
@@ -135,7 +132,7 @@ static int _rollback_inits(uint32_t through_index) {
                     continue;
                 }
             }
-            _modules[through_index].state = BM_MODULE_STATE_UNINIT;
+            state->modules[through_index].state = BM_MODULE_STATE_UNINIT;
         }
     }
     return rc;
@@ -145,13 +142,17 @@ static int _rollback_inits(uint32_t through_index) {
  * @brief start 失败时逆序停止已启动模块
  */
 static int _rollback_starts(uint32_t through_index) {
+    bm_module_cpu_state_t *state = bm_module_this();
     int rc = BM_OK;
 
+    if (state == NULL) {
+        return BM_OK;
+    }
     while (through_index > 0u) {
         through_index--;
-        if (_modules[through_index].state == BM_MODULE_STATE_STARTED) {
-            if (_modules[through_index].stop) {
-                int r = _modules[through_index].stop();
+        if (state->modules[through_index].state == BM_MODULE_STATE_STARTED) {
+            if (state->modules[through_index].stop) {
+                int r = state->modules[through_index].stop();
 
                 if (r != BM_OK) {
                     BM_LOGE("module", "start rollback failed idx=%u rc=%d",
@@ -162,7 +163,7 @@ static int _rollback_starts(uint32_t through_index) {
                     continue;
                 }
             }
-            _modules[through_index].state = BM_MODULE_STATE_INITED;
+            state->modules[through_index].state = BM_MODULE_STATE_INITED;
         }
     }
     return rc;
@@ -175,14 +176,19 @@ static int _rollback_starts(uint32_t through_index) {
  */
 #if !BM_CPU_LOCAL_ENABLE_ROUTE
 static int _module_init_all(bool reset_event_bus) {
-    bm_irq_state_t s = BM_CRITICAL_ENTER();
+    bm_module_cpu_state_t *state = bm_module_this();
+    bm_irq_state_t s;
 
-    if (_modules_initialized != BM_MODULES_UNINITIALIZED) {
+    if (state == NULL) {
+        return BM_ERR_INVALID;
+    }
+    s = BM_CRITICAL_ENTER();
+    if (state->initialized != BM_MODULES_UNINITIALIZED) {
         BM_CRITICAL_EXIT(s);
         BM_LOGW("module", "init_all already done");
         return BM_ERR_ALREADY;
     }
-    _modules_initialized = BM_MODULES_INITIALIZING;
+    state->initialized = BM_MODULES_INITIALIZING;
     BM_CRITICAL_EXIT(s);
 
     /*
@@ -193,7 +199,7 @@ static int _module_init_all(bool reset_event_bus) {
         BM_LOGE("module", "module table truncated: %u > %u",
                 (unsigned)_bm_module_count, (unsigned)BM_CONFIG_MAX_MODULES);
         s = BM_CRITICAL_ENTER();
-        _modules_initialized = BM_MODULES_UNINITIALIZED;
+        state->initialized = BM_MODULES_UNINITIALIZED;
         BM_CRITICAL_EXIT(s);
         return BM_ERR_OVERFLOW;
     }
@@ -202,53 +208,53 @@ static int _module_init_all(bool reset_event_bus) {
         bm_event_reset();
     }
 
-    _module_count = _bm_module_count;
-    for (uint32_t i = 0u; i < _module_count; i++) {
+    state->module_count = _bm_module_count;
+    for (uint32_t i = 0u; i < state->module_count; i++) {
         if (_bm_module_table[i] == NULL) {
             BM_LOGE("module", "module table contains null entry idx=%u",
                     (unsigned)i);
             s = BM_CRITICAL_ENTER();
-            _module_count = 0u;
-            _modules_initialized = BM_MODULES_UNINITIALIZED;
+            state->module_count = 0u;
+            state->initialized = BM_MODULES_UNINITIALIZED;
             BM_CRITICAL_EXIT(s);
             return BM_ERR_INVALID;
         }
-        memcpy(&_modules[i], _bm_module_table[i], sizeof(bm_module_t));
+        memcpy(&state->modules[i], _bm_module_table[i], sizeof(bm_module_t));
     }
-    for (uint32_t i = 0u; i < _module_count; i++) {
-        _modules[i].state = BM_MODULE_STATE_UNINIT;
+    for (uint32_t i = 0u; i < state->module_count; i++) {
+        state->modules[i].state = BM_MODULE_STATE_UNINIT;
     }
     _sort_modules();
 
-    BM_LOGI("module", "init_all count=%u", (unsigned)_module_count);
-    for (uint32_t i = 0u; i < _module_count; i++) {
-        int r = _modules[i].init ? _modules[i].init() : BM_OK;
+    BM_LOGI("module", "init_all count=%u", (unsigned)state->module_count);
+    for (uint32_t i = 0u; i < state->module_count; i++) {
+        int r = state->modules[i].init ? state->modules[i].init() : BM_OK;
 
         if (r == BM_OK) {
-            _modules[i].state = BM_MODULE_STATE_INITED;
+            state->modules[i].state = BM_MODULE_STATE_INITED;
             BM_LOGD("module", "'%s' inited",
-                    _modules[i].name ? _modules[i].name : "(null)");
+                    state->modules[i].name ? state->modules[i].name : "(null)");
         } else {
             int rollback_rc;
 
             BM_LOGE("module", "'%s' init failed rc=%d",
-                    _modules[i].name ? _modules[i].name : "(null)", r);
+                    state->modules[i].name ? state->modules[i].name : "(null)", r);
             rollback_rc = _rollback_inits(i);
             if (rollback_rc != BM_OK) {
                 s = BM_CRITICAL_ENTER();
-                _modules_initialized = BM_MODULES_CLEANUP_PENDING;
+                state->initialized = BM_MODULES_CLEANUP_PENDING;
                 BM_CRITICAL_EXIT(s);
             } else {
                 s = BM_CRITICAL_ENTER();
-                _module_count = 0u;
-                _modules_initialized = BM_MODULES_UNINITIALIZED;
+                state->module_count = 0u;
+                state->initialized = BM_MODULES_UNINITIALIZED;
                 BM_CRITICAL_EXIT(s);
             }
             return r;
         }
     }
     s = BM_CRITICAL_ENTER();
-    _modules_initialized = BM_MODULES_READY;
+    state->initialized = BM_MODULES_READY;
     BM_CRITICAL_EXIT(s);
     /*
      * 冻结事件订阅表：流式运行期间订阅链表不可变，
@@ -319,8 +325,15 @@ int bm_module_start_all(void) {
             " use bm_module_start_on_this_cpu() on the owner CPU");
     return BM_ERR_INVALID;
 #else
-    bm_irq_state_t s = BM_CRITICAL_ENTER();
-    int initialized = _modules_initialized;
+    bm_module_cpu_state_t *state = bm_module_this();
+    bm_irq_state_t s;
+    int initialized;
+
+    if (state == NULL) {
+        return BM_ERR_INVALID;
+    }
+    s = BM_CRITICAL_ENTER();
+    initialized = state->initialized;
 
     if (initialized == BM_MODULES_INITIALIZING ||
         initialized == BM_MODULES_TRANSITIONING ||
@@ -332,28 +345,28 @@ int bm_module_start_all(void) {
         BM_CRITICAL_EXIT(s);
         return BM_ERR_NOT_INIT;
     }
-    _modules_initialized = BM_MODULES_TRANSITIONING;
+    state->initialized = BM_MODULES_TRANSITIONING;
     BM_CRITICAL_EXIT(s);
 
-    for (uint32_t i = 0u; i < _module_count; i++) {
-        if (_modules[i].state == BM_MODULE_STATE_INITED ||
-            _modules[i].state == BM_MODULE_STATE_STOPPED) {
-            int r = _modules[i].start ? _modules[i].start() : BM_OK;
+    for (uint32_t i = 0u; i < state->module_count; i++) {
+        if (state->modules[i].state == BM_MODULE_STATE_INITED ||
+            state->modules[i].state == BM_MODULE_STATE_STOPPED) {
+            int r = state->modules[i].start ? state->modules[i].start() : BM_OK;
 
             if (r == BM_OK) {
-                _modules[i].state = BM_MODULE_STATE_STARTED;
+                state->modules[i].state = BM_MODULE_STATE_STARTED;
                 BM_LOGD("module", "'%s' started",
-                        _modules[i].name ? _modules[i].name : "(null)");
+                        state->modules[i].name ? state->modules[i].name : "(null)");
             } else {
                 BM_LOGE("module", "'%s' start failed rc=%d",
-                        _modules[i].name ? _modules[i].name : "(null)", r);
+                        state->modules[i].name ? state->modules[i].name : "(null)", r);
                 if (_rollback_starts(i) != BM_OK) {
                     s = BM_CRITICAL_ENTER();
-                    _modules_initialized = BM_MODULES_CLEANUP_PENDING;
+                    state->initialized = BM_MODULES_CLEANUP_PENDING;
                     BM_CRITICAL_EXIT(s);
                 } else {
                     s = BM_CRITICAL_ENTER();
-                    _modules_initialized = BM_MODULES_READY;
+                    state->initialized = BM_MODULES_READY;
                     BM_CRITICAL_EXIT(s);
                 }
                 return r;
@@ -361,7 +374,7 @@ int bm_module_start_all(void) {
         }
     }
     s = BM_CRITICAL_ENTER();
-    _modules_initialized = BM_MODULES_READY;
+    state->initialized = BM_MODULES_READY;
     BM_CRITICAL_EXIT(s);
     return BM_OK;
 #endif
@@ -378,28 +391,33 @@ int bm_module_stop_all(void) {
             " stop modules on each CPU individually");
     return BM_ERR_INVALID;
 #else
-    bm_irq_state_t s = BM_CRITICAL_ENTER();
+    bm_module_cpu_state_t *state = bm_module_this();
+    bm_irq_state_t s;
     int rc = BM_OK;
 
-    if (_modules_initialized == BM_MODULES_INITIALIZING ||
-        _modules_initialized == BM_MODULES_TRANSITIONING ||
-        _modules_initialized == BM_MODULES_CLEANUP_PENDING) {
+    if (state == NULL) {
+        return BM_ERR_INVALID;
+    }
+    s = BM_CRITICAL_ENTER();
+    if (state->initialized == BM_MODULES_INITIALIZING ||
+        state->initialized == BM_MODULES_TRANSITIONING ||
+        state->initialized == BM_MODULES_CLEANUP_PENDING) {
         BM_CRITICAL_EXIT(s);
         return BM_ERR_BUSY;
     }
-    if (_modules_initialized == BM_MODULES_UNINITIALIZED) {
+    if (state->initialized == BM_MODULES_UNINITIALIZED) {
         BM_CRITICAL_EXIT(s);
         return BM_OK;
     }
-    _modules_initialized = BM_MODULES_TRANSITIONING;
+    state->initialized = BM_MODULES_TRANSITIONING;
     BM_CRITICAL_EXIT(s);
 
-    for (int i = (int)_module_count - 1; i >= 0; i--) {
-        if (_modules[i].state == BM_MODULE_STATE_STARTED) {
-            int r = _modules[i].stop ? _modules[i].stop() : BM_OK;
+    for (int i = (int)state->module_count - 1; i >= 0; i--) {
+        if (state->modules[i].state == BM_MODULE_STATE_STARTED) {
+            int r = state->modules[i].stop ? state->modules[i].stop() : BM_OK;
 
             if (r == BM_OK) {
-                _modules[i].state = BM_MODULE_STATE_STOPPED;
+                state->modules[i].state = BM_MODULE_STATE_STOPPED;
             } else {
                 BM_LOGE("module", "stop failed idx=%d rc=%d", i, r);
                 if (rc == BM_OK) {
@@ -409,7 +427,7 @@ int bm_module_stop_all(void) {
         }
     }
     s = BM_CRITICAL_ENTER();
-    _modules_initialized = BM_MODULES_READY;
+    state->initialized = BM_MODULES_READY;
     BM_CRITICAL_EXIT(s);
     BM_LOGI("module", "stop_all done");
     return rc;
@@ -427,21 +445,25 @@ int bm_module_deinit_all(void) {
             " deinit modules on each CPU individually");
     return BM_ERR_INVALID;
 #else
+    bm_module_cpu_state_t *state = bm_module_this();
     bm_irq_state_t s;
     int rc = BM_OK;
 
+    if (state == NULL) {
+        return BM_ERR_INVALID;
+    }
     s = BM_CRITICAL_ENTER();
-    if (_modules_initialized == BM_MODULES_INITIALIZING ||
-        _modules_initialized == BM_MODULES_TRANSITIONING) {
+    if (state->initialized == BM_MODULES_INITIALIZING ||
+        state->initialized == BM_MODULES_TRANSITIONING) {
         BM_CRITICAL_EXIT(s);
         return BM_ERR_BUSY;
     }
-    _modules_initialized = BM_MODULES_CLEANUP_PENDING;
+    state->initialized = BM_MODULES_CLEANUP_PENDING;
     BM_CRITICAL_EXIT(s);
 
-    for (int i = (int)_module_count - 1; i >= 0; i--) {
-        if (_modules[i].state == BM_MODULE_STATE_STARTED) {
-            int r = _modules[i].stop ? _modules[i].stop() : BM_OK;
+    for (int i = (int)state->module_count - 1; i >= 0; i--) {
+        if (state->modules[i].state == BM_MODULE_STATE_STARTED) {
+            int r = state->modules[i].stop ? state->modules[i].stop() : BM_OK;
 
             if (r != BM_OK) {
                 BM_LOGE("module", "deinit stop failed idx=%d rc=%d", i, r);
@@ -450,11 +472,11 @@ int bm_module_deinit_all(void) {
                 }
                 continue;
             }
-            _modules[i].state = BM_MODULE_STATE_STOPPED;
+            state->modules[i].state = BM_MODULE_STATE_STOPPED;
         }
-        if (_modules[i].state != BM_MODULE_STATE_UNINIT &&
-            _modules[i].deinit) {
-            int r = _modules[i].deinit();
+        if (state->modules[i].state != BM_MODULE_STATE_UNINIT &&
+            state->modules[i].deinit) {
+            int r = state->modules[i].deinit();
             if (r != BM_OK) {
                 if (rc == BM_OK) {
                     rc = r;
@@ -462,17 +484,17 @@ int bm_module_deinit_all(void) {
                 continue;
             }
         }
-        _modules[i].state = BM_MODULE_STATE_UNINIT;
+        state->modules[i].state = BM_MODULE_STATE_UNINIT;
     }
     if (rc != BM_OK) {
         s = BM_CRITICAL_ENTER();
-        _modules_initialized = BM_MODULES_CLEANUP_PENDING;
+        state->initialized = BM_MODULES_CLEANUP_PENDING;
         BM_CRITICAL_EXIT(s);
         BM_LOGW("module", "deinit_all completed with errors rc=%d", rc);
     } else {
         s = BM_CRITICAL_ENTER();
-        _modules_initialized = BM_MODULES_UNINITIALIZED;
-        _module_count = 0u;
+        state->initialized = BM_MODULES_UNINITIALIZED;
+        state->module_count = 0u;
         BM_CRITICAL_EXIT(s);
         BM_LOGI("module", "deinit_all done");
     }
@@ -485,14 +507,19 @@ int bm_module_deinit_all(void) {
  */
 #if !BM_CPU_LOCAL_ENABLE_ROUTE
 static int _module_init_all_for_domain(bm_domain_t domain, bool reset_event_bus) {
-    bm_irq_state_t s = BM_CRITICAL_ENTER();
+    bm_module_cpu_state_t *state = bm_module_this();
+    bm_irq_state_t s;
 
-    if (_modules_initialized != BM_MODULES_UNINITIALIZED) {
+    if (state == NULL) {
+        return BM_ERR_INVALID;
+    }
+    s = BM_CRITICAL_ENTER();
+    if (state->initialized != BM_MODULES_UNINITIALIZED) {
         BM_CRITICAL_EXIT(s);
         BM_LOGW("module", "init_all_for_domain already done");
         return BM_ERR_ALREADY;
     }
-    _modules_initialized = BM_MODULES_INITIALIZING;
+    state->initialized = BM_MODULES_INITIALIZING;
     BM_CRITICAL_EXIT(s);
 
     /*
@@ -503,7 +530,7 @@ static int _module_init_all_for_domain(bm_domain_t domain, bool reset_event_bus)
         BM_LOGE("module", "module table truncated: %u > %u",
                 (unsigned)_bm_module_count, (unsigned)BM_CONFIG_MAX_MODULES);
         s = BM_CRITICAL_ENTER();
-        _modules_initialized = BM_MODULES_UNINITIALIZED;
+        state->initialized = BM_MODULES_UNINITIALIZED;
         BM_CRITICAL_EXIT(s);
         return BM_ERR_OVERFLOW;
     }
@@ -512,56 +539,58 @@ static int _module_init_all_for_domain(bm_domain_t domain, bool reset_event_bus)
         bm_event_reset();
     }
 
-    _module_count = 0;
+    state->module_count = 0;
     for (uint32_t i = 0u; i < _bm_module_count; i++) {
         if (_bm_module_table[i] == NULL) {
             BM_LOGE("module", "module table contains null entry idx=%u",
                     (unsigned)i);
             s = BM_CRITICAL_ENTER();
-            _module_count = 0u;
-            _modules_initialized = BM_MODULES_UNINITIALIZED;
+            state->module_count = 0u;
+            state->initialized = BM_MODULES_UNINITIALIZED;
             BM_CRITICAL_EXIT(s);
             return BM_ERR_INVALID;
         }
         if (_bm_module_table[i]->domain == domain ||
             _bm_module_table[i]->domain == BM_DOMAIN_COMMON) {
-            memcpy(&_modules[_module_count], _bm_module_table[i], sizeof(bm_module_t));
-            _modules[_module_count].state = BM_MODULE_STATE_UNINIT;
-            _module_count++;
+            memcpy(&state->modules[state->module_count], _bm_module_table[i],
+                   sizeof(bm_module_t));
+            state->modules[state->module_count].state = BM_MODULE_STATE_UNINIT;
+            state->module_count++;
         }
     }
 
     _sort_modules();
 
-    BM_LOGI("module", "init_all_for_domain count=%u", (unsigned)_module_count);
-    for (uint32_t i = 0u; i < _module_count; i++) {
-        int r = _modules[i].init ? _modules[i].init() : BM_OK;
+    BM_LOGI("module", "init_all_for_domain count=%u",
+            (unsigned)state->module_count);
+    for (uint32_t i = 0u; i < state->module_count; i++) {
+        int r = state->modules[i].init ? state->modules[i].init() : BM_OK;
 
         if (r == BM_OK) {
-            _modules[i].state = BM_MODULE_STATE_INITED;
+            state->modules[i].state = BM_MODULE_STATE_INITED;
             BM_LOGD("module", "'%s' inited",
-                    _modules[i].name ? _modules[i].name : "(null)");
+                    state->modules[i].name ? state->modules[i].name : "(null)");
         } else {
             int rollback_rc;
 
             BM_LOGE("module", "'%s' init failed rc=%d",
-                    _modules[i].name ? _modules[i].name : "(null)", r);
+                    state->modules[i].name ? state->modules[i].name : "(null)", r);
             rollback_rc = _rollback_inits(i);
             if (rollback_rc != BM_OK) {
                 s = BM_CRITICAL_ENTER();
-                _modules_initialized = BM_MODULES_CLEANUP_PENDING;
+                state->initialized = BM_MODULES_CLEANUP_PENDING;
                 BM_CRITICAL_EXIT(s);
             } else {
                 s = BM_CRITICAL_ENTER();
-                _module_count = 0u;
-                _modules_initialized = BM_MODULES_UNINITIALIZED;
+                state->module_count = 0u;
+                state->initialized = BM_MODULES_UNINITIALIZED;
                 BM_CRITICAL_EXIT(s);
             }
             return r;
         }
     }
     s = BM_CRITICAL_ENTER();
-    _modules_initialized = BM_MODULES_READY;
+    state->initialized = BM_MODULES_READY;
     BM_CRITICAL_EXIT(s);
     bm_event_freeze_subscriptions();
     if (s_freeze_hook) {
@@ -640,10 +669,11 @@ int bm_module_init_on_this_cpu(void) {
 #if !BM_CPU_LOCAL_ENABLE_ROUTE
     return bm_module_init_all();
 #else
+    bm_module_cpu_state_t *state = bm_module_this();
     bm_irq_state_t s;
     uint32_t i;
 
-    if (module_require_cpu() != BM_OK) {
+    if (state == NULL) {
         return BM_ERR_INVALID;
     }
     if (!s_owner_resolver) {
@@ -651,25 +681,25 @@ int bm_module_init_on_this_cpu(void) {
     }
 
     s = BM_CRITICAL_ENTER();
-    if (_modules_initialized != BM_MODULES_UNINITIALIZED) {
+    if (state->initialized != BM_MODULES_UNINITIALIZED) {
         BM_CRITICAL_EXIT(s);
         return BM_ERR_ALREADY;
     }
-    _modules_initialized = BM_MODULES_INITIALIZING;
+    state->initialized = BM_MODULES_INITIALIZING;
     BM_CRITICAL_EXIT(s);
 
     if (_bm_module_count > BM_CONFIG_MAX_MODULES) {
         s = BM_CRITICAL_ENTER();
-        _modules_initialized = BM_MODULES_UNINITIALIZED;
+        state->initialized = BM_MODULES_UNINITIALIZED;
         BM_CRITICAL_EXIT(s);
         return BM_ERR_OVERFLOW;
     }
 
-    _module_count = 0u;
+    state->module_count = 0u;
     for (i = 0u; i < _bm_module_count; i++) {
         if (_bm_module_table[i] == NULL) {
             s = BM_CRITICAL_ENTER();
-            _modules_initialized = BM_MODULES_UNINITIALIZED;
+            state->initialized = BM_MODULES_UNINITIALIZED;
             BM_CRITICAL_EXIT(s);
             return BM_ERR_INVALID;
         }
@@ -681,28 +711,30 @@ int bm_module_init_on_this_cpu(void) {
                 continue;
             }
         }
-        memcpy(&_modules[_module_count], _bm_module_table[i], sizeof(bm_module_t));
-        _modules[_module_count].state = BM_MODULE_STATE_UNINIT;
-        _module_count++;
+        memcpy(&state->modules[state->module_count], _bm_module_table[i],
+               sizeof(bm_module_t));
+        state->modules[state->module_count].state = BM_MODULE_STATE_UNINIT;
+        state->module_count++;
     }
 
     _sort_modules();
-    BM_LOGI("module", "init_on_this_cpu count=%u", (unsigned)_module_count);
-    for (i = 0u; i < _module_count; i++) {
-        int r = _modules[i].init ? _modules[i].init() : BM_OK;
+    BM_LOGI("module", "init_on_this_cpu count=%u",
+            (unsigned)state->module_count);
+    for (i = 0u; i < state->module_count; i++) {
+        int r = state->modules[i].init ? state->modules[i].init() : BM_OK;
 
         if (r != BM_OK) {
             (void)_rollback_inits(i);
             s = BM_CRITICAL_ENTER();
-            _module_count = 0u;
-            _modules_initialized = BM_MODULES_UNINITIALIZED;
+            state->module_count = 0u;
+            state->initialized = BM_MODULES_UNINITIALIZED;
             BM_CRITICAL_EXIT(s);
             return r;
         }
-        _modules[i].state = BM_MODULE_STATE_INITED;
+        state->modules[i].state = BM_MODULE_STATE_INITED;
     }
     s = BM_CRITICAL_ENTER();
-    _modules_initialized = BM_MODULES_READY;
+    state->initialized = BM_MODULES_READY;
     BM_CRITICAL_EXIT(s);
     /*
      * 冻结本 CPU 的订阅表与注册表。按 CPU 路由时，两者均操作
@@ -725,38 +757,39 @@ int bm_module_start_on_this_cpu(void) {
 #if !BM_CPU_LOCAL_ENABLE_ROUTE
     return bm_module_start_all();
 #else
+    bm_module_cpu_state_t *state = bm_module_this();
     bm_irq_state_t s;
     uint32_t i;
 
-    if (module_require_cpu() != BM_OK) {
+    if (state == NULL) {
         return BM_ERR_INVALID;
     }
 
     s = BM_CRITICAL_ENTER();
-    if (_modules_initialized != BM_MODULES_READY) {
+    if (state->initialized != BM_MODULES_READY) {
         BM_CRITICAL_EXIT(s);
         return BM_ERR_NOT_INIT;
     }
-    _modules_initialized = BM_MODULES_TRANSITIONING;
+    state->initialized = BM_MODULES_TRANSITIONING;
     BM_CRITICAL_EXIT(s);
 
-    for (i = 0u; i < _module_count; i++) {
-        if (_modules[i].state == BM_MODULE_STATE_INITED ||
-            _modules[i].state == BM_MODULE_STATE_STOPPED) {
-            int r = _modules[i].start ? _modules[i].start() : BM_OK;
+    for (i = 0u; i < state->module_count; i++) {
+        if (state->modules[i].state == BM_MODULE_STATE_INITED ||
+            state->modules[i].state == BM_MODULE_STATE_STOPPED) {
+            int r = state->modules[i].start ? state->modules[i].start() : BM_OK;
 
             if (r != BM_OK) {
                 (void)_rollback_starts(i);
                 s = BM_CRITICAL_ENTER();
-                _modules_initialized = BM_MODULES_READY;
+                state->initialized = BM_MODULES_READY;
                 BM_CRITICAL_EXIT(s);
                 return r;
             }
-            _modules[i].state = BM_MODULE_STATE_STARTED;
+            state->modules[i].state = BM_MODULE_STATE_STARTED;
         }
     }
     s = BM_CRITICAL_ENTER();
-    _modules_initialized = BM_MODULES_READY;
+    state->initialized = BM_MODULES_READY;
     BM_CRITICAL_EXIT(s);
     return BM_OK;
 #endif

@@ -58,8 +58,10 @@ typedef struct {
 
 typedef struct {
     bm_hrt_cpu_state_t state;
-    uint8_t padding[BM_CONFIG_CACHE_LINE -
-                    (sizeof(bm_hrt_cpu_state_t) % BM_CONFIG_CACHE_LINE)];
+    uint8_t padding[(sizeof(bm_hrt_cpu_state_t) % BM_CONFIG_CACHE_LINE)
+        ? (BM_CONFIG_CACHE_LINE - (sizeof(bm_hrt_cpu_state_t) %
+                                   BM_CONFIG_CACHE_LINE))
+        : 0];
 } bm_hrt_cpu_storage_t;
 
 static BM_CACHE_ALIGNAS(BM_CONFIG_CACHE_LINE)
@@ -77,19 +79,9 @@ static bm_hrt_cpu_state_t *bm_hrt_this(void) {
     return &g_hrt_cpu[cpu].state;
 }
 
-#define g_slots       (bm_hrt_this()->slots)
-#define g_slot_count  (bm_hrt_this()->slot_count)
-#define g_initialized (bm_hrt_this()->initialized)
-#define g_started     (bm_hrt_this()->started)
-
 /** @brief 检查启动门控是否允许启动 HRT */
 static int hrt_require_irq_released(void) {
     return s_start_gate ? s_start_gate() : BM_OK;
-}
-
-/** @brief 检查当前 CPU 的 HRT 状态是否有效 */
-static int hrt_cpu_valid(void) {
-    return bm_hrt_this() != NULL;
 }
 
 /**
@@ -143,10 +135,12 @@ static uint32_t hrt_deadline_from(uint32_t base, uint32_t period) {
  * 已被释放的槽位数据（use-after-free）。
  */
 static void hrt_stop_locked(void) {
-    if (!hrt_cpu_valid()) {
+    bm_hrt_cpu_state_t *state = bm_hrt_this();
+
+    if (state == NULL) {
         return;
     }
-    if (!g_started) {
+    if (!state->started) {
         return;
     }
     bm_hal_timer_stop();
@@ -157,18 +151,19 @@ static void hrt_stop_locked(void) {
      */
     bm_atomic_ipc_fence_full();
     bm_hal_timer_set_callback(NULL);
-    g_started = 0;
+    state->started = 0;
 }
 
 /**
  * @brief 扫描所有槽并触发到期回调
  */
 static void hrt_dispatch(void) {
+    bm_hrt_cpu_state_t *state = bm_hrt_this();
     uint32_t now = bm_hal_timer_get_ticks();
     uint32_t i;
     uint32_t fired = 0u;
 
-    if (!hrt_cpu_valid()) {
+    if (state == NULL) {
         return;
     }
     /*
@@ -176,9 +171,9 @@ static void hrt_dispatch(void) {
      * 各回调 WCET 须相对 BM_CONFIG_HRT_TICK_US 预算，以保证 ISR
      * 总时长有界且确定。
      */
-    for (i = 0u; i < g_slot_count &&
+    for (i = 0u; i < state->slot_count &&
          fired < BM_CONFIG_HRT_DISPATCH_PER_ISR; ++i) {
-        bm_hrt_runtime_slot_t *slot = &g_slots[i];
+        bm_hrt_runtime_slot_t *slot = &state->slots[i];
 
         if (slot->pub.trigger != BM_HRT_TRIGGER_TIMER) {
             continue;
@@ -222,10 +217,12 @@ static void hrt_timer_isr(void) {
  * @brief 协作式轮询 HRT（用于 QEMU 慢仿真等无精确中断场景）
  */
 void bm_hrt_poll(void) {
+    bm_hrt_cpu_state_t *state = bm_hrt_this();
+
     if (bm_hal_in_isr()) {
         return;
     }
-    if (!hrt_cpu_valid() || !g_started) {
+    if (state == NULL || !state->started) {
         return;
     }
     hrt_dispatch();
@@ -264,6 +261,7 @@ static int validate_slot(const bm_hrt_slot_t *slot) {
  * @return BM_OK 成功；BM_ERR_INVALID 参数无效；BM_ERR_OVERFLOW 槽数超限
  */
 int bm_hrt_init(const bm_hrt_slot_t *slots, uint32_t slot_count) {
+    bm_hrt_cpu_state_t *state = bm_hrt_this();
     bm_irq_state_t irq_state;
     uint32_t i;
     uint32_t now;
@@ -274,7 +272,7 @@ int bm_hrt_init(const bm_hrt_slot_t *slots, uint32_t slot_count) {
      * 完成，使失败路径的日志（snprintf + ring 推送）不延长关中断时长，
      * 满足确定性流式对临界区时长可预测的要求。
      */
-    if (!hrt_cpu_valid()) {
+    if (state == NULL) {
         return BM_ERR_INVALID;
     }
     if (!slots && slot_count > 0u) {
@@ -294,20 +292,21 @@ int bm_hrt_init(const bm_hrt_slot_t *slots, uint32_t slot_count) {
     }
 
     irq_state = BM_CRITICAL_ENTER();
-    if (g_started) {
+    if (state->started) {
         rc = BM_ERR_ALREADY;
         goto out;
     }
-    memset(g_slots, 0, sizeof(g_slots));
-    g_slot_count = slot_count;
+    memset(state->slots, 0, sizeof(state->slots));
+    state->slot_count = slot_count;
     now = bm_hal_timer_get_ticks();
     for (i = 0u; i < slot_count; ++i) {
-        g_slots[i].pub = slots[i];
-        g_slots[i].period_ticks = slots[i].period_us / BM_CONFIG_HRT_TICK_US;
-        g_slots[i].next_tick =
-            hrt_deadline_from(now, g_slots[i].period_ticks);
+        state->slots[i].pub = slots[i];
+        state->slots[i].period_ticks =
+            slots[i].period_us / BM_CONFIG_HRT_TICK_US;
+        state->slots[i].next_tick =
+            hrt_deadline_from(now, state->slots[i].period_ticks);
     }
-    g_initialized = 1;
+    state->initialized = 1;
     rc = BM_OK;
 
 out:
@@ -328,22 +327,23 @@ out:
  *         其他为 HAL 初始化错误码
  */
 int bm_hrt_start(void) {
+    bm_hrt_cpu_state_t *state = bm_hrt_this();
     bm_irq_state_t irq_state = BM_CRITICAL_ENTER();
     int rc = BM_OK;
 
-    if (!hrt_cpu_valid()) {
+    if (state == NULL) {
         rc = BM_ERR_INVALID;
         goto out;
     }
-    if (g_started) {
+    if (state->started) {
         rc = BM_ERR_ALREADY;
         goto out;
     }
-    if (!g_initialized) {
+    if (!state->initialized) {
         rc = BM_ERR_NOT_INIT;
         goto out;
     }
-    if (g_slot_count == 0u) {
+    if (state->slot_count == 0u) {
         goto out;
     }
 
@@ -363,15 +363,15 @@ int bm_hrt_start(void) {
     }
 
     irq_state = BM_CRITICAL_ENTER();
-    if (g_started || !g_initialized) {
-        if (g_started) {
+    if (state->started || !state->initialized) {
+        if (state->started) {
             bm_hal_timer_stop();
             bm_hal_timer_set_callback(NULL);
         }
         BM_CRITICAL_EXIT(irq_state);
         BM_LOGW("hrt", "start race: started=%d init=%d",
-                (int)g_started, (int)g_initialized);
-        return g_started ? BM_ERR_ALREADY : BM_ERR_NOT_INIT;
+                (int)state->started, (int)state->initialized);
+        return state->started ? BM_ERR_ALREADY : BM_ERR_NOT_INIT;
     }
 
     bm_hal_timer_set_callback(hrt_timer_isr);
@@ -380,13 +380,13 @@ int bm_hrt_start(void) {
         uint32_t now = bm_hal_timer_get_ticks();
         uint32_t i;
 
-        for (i = 0u; i < g_slot_count; ++i) {
-            g_slots[i].next_tick =
-                hrt_deadline_from(now, g_slots[i].period_ticks);
+        for (i = 0u; i < state->slot_count; ++i) {
+            state->slots[i].next_tick =
+                hrt_deadline_from(now, state->slots[i].period_ticks);
         }
     }
 
-    g_started = 1;
+    state->started = 1;
 
 out:
     BM_CRITICAL_EXIT(irq_state);
@@ -404,10 +404,11 @@ out:
  * @brief 停止 HRT 定时器并注销 ISR 回调
  */
 void bm_hrt_stop(void) {
+    bm_hrt_cpu_state_t *state = bm_hrt_this();
     bm_irq_state_t irq_state = BM_CRITICAL_ENTER();
     int stopped = 0;
 
-    if (hrt_cpu_valid() && g_started) {
+    if (state != NULL && state->started) {
         hrt_stop_locked();
         stopped = 1;
     }
@@ -421,17 +422,18 @@ void bm_hrt_stop(void) {
  * @brief 停止调度器并清空全部槽位状态
  */
 void bm_hrt_reset(void) {
+    bm_hrt_cpu_state_t *state = bm_hrt_this();
     bm_irq_state_t irq_state = BM_CRITICAL_ENTER();
     int reset = 0;
 
-    if (!hrt_cpu_valid()) {
+    if (state == NULL) {
         BM_CRITICAL_EXIT(irq_state);
         return;
     }
     hrt_stop_locked();
-    memset(g_slots, 0, sizeof(g_slots));
-    g_slot_count = 0u;
-    g_initialized = 0;
+    memset(state->slots, 0, sizeof(state->slots));
+    state->slot_count = 0u;
+    state->initialized = 0;
     reset = 1;
     BM_CRITICAL_EXIT(irq_state);
     if (reset) {
@@ -446,11 +448,12 @@ void bm_hrt_reset(void) {
  * @return miss 次数；索引无效返回 0
  */
 uint32_t bm_hrt_get_deadline_missed(uint32_t slot_index) {
+    bm_hrt_cpu_state_t *state = bm_hrt_this();
     bm_irq_state_t irq_state = BM_CRITICAL_ENTER();
     uint32_t count = 0u;
 
-    if (hrt_cpu_valid() && bm_index_in_range_u32(slot_index, g_slot_count)) {
-        count = g_slots[slot_index].deadline_missed;
+    if (state != NULL && bm_index_in_range_u32(slot_index, state->slot_count)) {
+        count = state->slots[slot_index].deadline_missed;
     }
     BM_CRITICAL_EXIT(irq_state);
     return count;
@@ -462,17 +465,18 @@ uint32_t bm_hrt_get_deadline_missed(uint32_t slot_index) {
  * @return 总 miss 次数
  */
 uint32_t bm_hrt_get_deadline_missed_total(void) {
+    bm_hrt_cpu_state_t *state = bm_hrt_this();
     bm_irq_state_t irq_state = BM_CRITICAL_ENTER();
     uint32_t total = 0u;
     uint32_t i;
 
-    if (!hrt_cpu_valid()) {
+    if (state == NULL) {
         BM_CRITICAL_EXIT(irq_state);
         return 0u;
     }
-    for (i = 0u; i < g_slot_count; ++i) {
+    for (i = 0u; i < state->slot_count; ++i) {
         total = bm_u32_saturating_add(
-            total, g_slots[i].deadline_missed);
+            total, state->slots[i].deadline_missed);
     }
     BM_CRITICAL_EXIT(irq_state);
     return total;
@@ -484,8 +488,9 @@ uint32_t bm_hrt_get_deadline_missed_total(void) {
  * @return 非零已启动；0 未启动或无效 CPU
  */
 int bm_hrt_is_started(void) {
+    bm_hrt_cpu_state_t *state = bm_hrt_this();
     bm_irq_state_t irq_state = BM_CRITICAL_ENTER();
-    int started = hrt_cpu_valid() ? g_started : 0;
+    int started = (state != NULL) ? state->started : 0;
 
     BM_CRITICAL_EXIT(irq_state);
     return started;
