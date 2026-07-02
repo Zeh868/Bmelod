@@ -261,6 +261,10 @@ if(BM_ENABLE_TT_SCHEDULE)
     target_link_libraries(bm_tt_schedule PUBLIC bm_hrt bm_core)   # 接法 B compute 不依赖 bm_exec
     target_compile_definitions(bm_tt_schedule PRIVATE BM_BUS_ALLOW_INTERNAL=1)
     bm_target_internal_includes(bm_tt_schedule)
+    if(BM_ENABLE_WCET_MON)
+        target_link_libraries(bm_tt_schedule PRIVATE bm_wcet_mon)
+        target_compile_definitions(bm_tt_schedule PRIVATE BM_TT_SCHED_WCET_MON=1)
+    endif()
     target_link_libraries(bm_framework INTERFACE bm_tt_schedule)
 endif()
 

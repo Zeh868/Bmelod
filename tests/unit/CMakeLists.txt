@@ -1,9 +1,14 @@
 function(bm_add_test TEST_NAME TEST_SRC TEST_LIBRARY)
     add_executable(${TEST_NAME} ${TEST_SRC})
+    # BM_ENABLE_WCET_MON 打开时 bm_tt_schedule 会 PRIVATE 链 bm_wcet_mon，其自身
+    # PUBLIC 链的 bm_core/bm_hal 会在 GNU 静态库单趟解析下于组外再出现一次，
+    # 脱离 bm_hal_native 覆盖范围导致 bm_hal_uptime_ns_raw 未解析；把 bm_wcet_mon
+    # 一并纳入组内即可让重复的 core/hal 链路仍落在 backend 覆盖范围内解析。
     if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
         target_link_libraries(${TEST_NAME} PRIVATE
             "-Wl,--start-group"
             unity ${TEST_LIBRARY} bm_core bm_hal bm_hal_native
+            $<$<BOOL:${BM_ENABLE_WCET_MON}>:bm_wcet_mon>
             "-Wl,--end-group")
     else()
         target_link_libraries(${TEST_NAME} PRIVATE
@@ -187,7 +192,18 @@ if(BM_ENABLE_TT_SCHEDULE)
     # 到 build/schedule_map.txt，供开发者人工核对调度概览（非单元测试，
     # 随 ALL 目标构建）。
     add_executable(tt_schedule_map_dump ${CMAKE_SOURCE_DIR}/tests/tools/tt_schedule_map_dump.c)
-    target_link_libraries(tt_schedule_map_dump PRIVATE bm_tt_schedule bm_core bm_hal bm_hal_native)
+    # 同 bm_add_test 注释：BM_ENABLE_WCET_MON 打开时需把 bm_wcet_mon 纳入同一 GNU
+    # 静态库解析组，否则其 PUBLIC 链 bm_core/bm_hal 在组外重复出现时脱离
+    # bm_hal_native 覆盖范围，bm_hal_uptime_ns_raw 未解析。
+    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        target_link_libraries(tt_schedule_map_dump PRIVATE
+            "-Wl,--start-group"
+            bm_tt_schedule bm_core bm_hal bm_hal_native
+            $<$<BOOL:${BM_ENABLE_WCET_MON}>:bm_wcet_mon>
+            "-Wl,--end-group")
+    else()
+        target_link_libraries(tt_schedule_map_dump PRIVATE bm_tt_schedule bm_core bm_hal bm_hal_native)
+    endif()
     bm_target_internal_includes(tt_schedule_map_dump)
     add_custom_target(schedule-map ALL
         COMMAND tt_schedule_map_dump ${CMAKE_BINARY_DIR}/schedule_map.txt
@@ -226,6 +242,13 @@ if(BM_ENABLE_WCET_MON)
                 LABELS "determinism")
         endif()
     endif()
+endif()
+
+if(BM_ENABLE_TT_SCHEDULE AND BM_ENABLE_WCET_MON)
+    bm_add_test(test_tt_wcet test_tt_wcet.c "bm_tt_schedule;bm_wcet_mon")
+    target_include_directories(test_tt_wcet PRIVATE
+        ${CMAKE_SOURCE_DIR}/portable/sim/native)
+    set_tests_properties(test_tt_wcet PROPERTIES LABELS "determinism")
 endif()
 
 if(BM_ENABLE_TICKER)
