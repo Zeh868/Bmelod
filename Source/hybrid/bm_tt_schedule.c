@@ -27,8 +27,8 @@
  * 域·预算账（无硬时间格语义，逐行列 wcet_us + 建议 run_pending budget）。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.5
- * @date 2026-07-01
+ * @version 1.6
+ * @date 2026-07-02
  *
  * @par 修改日志:
  *
@@ -42,12 +42,16 @@
  *                                                 预发布 safe_default + baseline_seq），删临时兜底
  * 2026-07-01       1.5            zeh            Task 7：RTA rt_slot 导出 + 调度概览 report
  *                                                 （ISR 时间格视图 + MAINLOOP 预算账）真实现
+ * 2026-07-02       1.6            zeh            SAFE-2 wcet_mon 门控接入
  *
  */
 #include "bm_tt_schedule.h"
 #include "bm_config.h"
 #include "bm_log.h"
 #include "bm_safety.h"
+#if BM_TT_SCHED_WCET_MON
+#include "bm/hybrid/bm_wcet_mon.h"
+#endif
 
 #include <stdio.h>
 #include <string.h>
@@ -298,6 +302,66 @@ static int tt_frame_check(const bm_tt_schedule_t *s, uint32_t n_frames) {
     return BM_OK;
 }
 
+#if BM_TT_SCHED_WCET_MON
+/** TT 任务 span 池：多表共享、按 init 先后取用（spec §4.2） */
+typedef struct {
+    const bm_tt_activity_t *act;  /**< 键：activity 指针；NULL=空槽 */
+    bm_wcet_span_t          span;
+} tt_wcet_slot_t;
+
+static tt_wcet_slot_t tt_wcet_slots[BM_CONFIG_WCET_MON_MAX_SPANS];
+static uint32_t       tt_wcet_used;
+
+/** @brief 按 activity 指针找 span（有界线性扫描，上界 MAX_SPANS） */
+static bm_wcet_span_t *tt_wcet_span_for(const bm_tt_activity_t *act) {
+    for (uint32_t i = 0u; i < tt_wcet_used; ++i) {
+        if (tt_wcet_slots[i].act == act) {
+            return &tt_wcet_slots[i].span;
+        }
+    }
+    return NULL;
+}
+
+/**
+ * @brief init 期给 activity 配 span：已映射则复位观测面复用（不二次注册），
+ *        新映射则从池取槽并注册；池/注册表耗尽返回 BM_ERR_NO_MEM
+ */
+static int tt_wcet_attach(const bm_tt_activity_t *act) {
+    bm_wcet_span_t *sp = tt_wcet_span_for(act);
+    int rc;
+
+    if (sp != NULL) { /* re-init：复位观测面复用；register 幂等（监控模块可能已被重新 init 清过表） */
+        (void)memset(sp, 0, sizeof(*sp));
+        sp->name = act->name;
+        sp->budget_us = act->wcet_us;
+        rc = bm_wcet_mon_register(sp);
+        return (rc == BM_ERR_ALREADY) ? BM_OK : rc;
+    }
+    if (tt_wcet_used >= BM_CONFIG_WCET_MON_MAX_SPANS) {
+        return BM_ERR_NO_MEM;
+    }
+    sp = &tt_wcet_slots[tt_wcet_used].span;
+    (void)memset(sp, 0, sizeof(*sp));
+    sp->name = act->name;
+    sp->budget_us = act->wcet_us;
+    rc = bm_wcet_mon_register(sp);
+    if (rc != BM_OK) {
+        return rc;
+    }
+    tt_wcet_slots[tt_wcet_used].act = act;
+    tt_wcet_used++;
+    return BM_OK;
+}
+
+#define TT_WCET_BEGIN(a) bm_wcet_mon_begin(tt_wcet_span_for(a))
+#define TT_WCET_END(a)   bm_wcet_mon_end(tt_wcet_span_for(a))
+#define TT_WCET_MISS(a)  bm_wcet_mon_report_miss(tt_wcet_span_for(a))
+#else
+#define TT_WCET_BEGIN(a) ((void)0)
+#define TT_WCET_END(a)   ((void)0)
+#define TT_WCET_MISS(a)  ((void)0)
+#endif /* BM_TT_SCHED_WCET_MON */
+
 /**
  * @brief 初始化调度表：校验 + 算 N=LCM + 节拍负载校验 + 预发布 safe_default
  *
@@ -393,6 +457,14 @@ int bm_tt_schedule_init(bm_tt_schedule_t *sched) {
         a->rt->pending = 0u;
         a->rt->fresh = 0u;
         a->rt->overrun_count = 0u;
+#if BM_TT_SCHED_WCET_MON
+        {
+            int wrc = tt_wcet_attach(a);
+            if (wrc != BM_OK) {
+                return wrc; /* 池/注册表耗尽：宁可 init 失败不悄悄不监控 */
+            }
+        }
+#endif
     }
 
     sched->n_frames = n;
@@ -473,6 +545,7 @@ void bm_tt_schedule_tick(bm_tt_schedule_t *sched) {
         if (a->domain == BM_TT_DOMAIN_ISR) {
             if (a->rt->running) {
                 a->rt->overrun_count += 1u; /* 上拍未完 → 本拍整体跳过，不发布 */
+                TT_WCET_MISS(a);
                 continue;
             }
             {
@@ -480,7 +553,9 @@ void bm_tt_schedule_tick(bm_tt_schedule_t *sched) {
 
                 a->rt->running = 1u;
                 tt_freeze_inputs(sched, a);
+                TT_WCET_BEGIN(a);
                 a->step(&ctx, a->state);
+                TT_WCET_END(a);
                 tt_publish(sched, a);
                 a->rt->phase ^= 1u;
                 a->rt->running = 0u;
@@ -492,6 +567,7 @@ void bm_tt_schedule_tick(bm_tt_schedule_t *sched) {
             }
             if (a->rt->pending) {
                 a->rt->overrun_count += 1u; /* 主循环还没消化上一拍 → 丢、不重冻结 */
+                TT_WCET_MISS(a);
             } else {
                 tt_freeze_inputs(sched, a);
                 a->rt->pending = 1u;
@@ -536,7 +612,9 @@ uint32_t bm_tt_schedule_run_pending(bm_tt_schedule_t *sched, uint32_t budget) {
         if (!a->rt->pending) {
             continue;
         }
+        TT_WCET_BEGIN(a);
         a->step(&ctx, a->state); /* 重计算在主循环跑 */
+        TT_WCET_END(a);
         a->rt->phase ^= 1u;      /* 完成结果落 phase^1，待下一次 tick 发布 */
         a->rt->fresh = 1u;
         a->rt->pending = 0u;
