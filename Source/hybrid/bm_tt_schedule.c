@@ -47,6 +47,7 @@
 #include "bm_tt_schedule.h"
 #include "bm_config.h"
 #include "bm_log.h"
+#include "bm_safety.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -78,6 +79,15 @@ struct bm_let_ctx {
 static void tt_freeze_inputs(bm_tt_schedule_t *s, bm_tt_activity_t *a) {
     uint32_t period_us = s->minor_us * a->every;
     uint32_t off = 0u;
+    /*
+     * 饱和阈值：miss 增至该值后 age = miss×period 便达到 UINT32_MAX，此后停增
+     * 以防 miss 自身回绕（P1-5）。用 miss 与阈值比较判定饱和，替代旧实现复用
+     * age_us==UINT32_MAX 哨兵——读失败路径也写该哨兵，会与"真饱和"混淆，导致
+     * 下一拍读成功但 seq 未变时误挡 miss 自增、age 少计一拍。period_us==0 时
+     * age 恒 0 不会饱和，阈值取 UINT32_MAX 仅防 miss 回绕。
+     */
+    uint32_t miss_saturated = (period_us == 0u) ? 0xFFFFFFFFu
+                                                : (0xFFFFFFFFu / period_us);
 
     for (uint8_t i = 0u; i < a->input_count; ++i) {
         const bm_let_input_t *in = &a->inputs[i];
@@ -96,7 +106,7 @@ static void tt_freeze_inputs(bm_tt_schedule_t *s, bm_tt_activity_t *a) {
             if (seq != a->rt->baseline_seq[i]) {
                 a->rt->miss[i] = 0u;
                 a->rt->baseline_seq[i] = seq;
-            } else if (a->rt->age_us[i] != 0xFFFFFFFFu) {
+            } else if (a->rt->miss[i] < miss_saturated) {
                 /* 尚未饱和才继续自增 miss，避免超长断流后 miss 自身回绕 */
                 a->rt->miss[i] += 1u;
             }
@@ -258,7 +268,8 @@ static int tt_frame_check(const bm_tt_schedule_t *s, uint32_t n_frames) {
 
     for (uint8_t k = 0u; k < s->entry_count; ++k) {
         if (s->entries[k]->domain == BM_TT_DOMAIN_ISR) {
-            sum += s->entries[k]->wcet_us;
+            /* 饱和加：裸 u32 加法回绕会让超载和绕回小值假性通过快路（P1-6） */
+            sum = bm_u32_saturating_add(sum, s->entries[k]->wcet_us);
         }
     }
     if (sum <= s->minor_us) {

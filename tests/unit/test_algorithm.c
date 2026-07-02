@@ -2391,7 +2391,149 @@ static void test_batch14_fixed_batch13_and_refs(void) {
     test_fixed_batch14_smoke();
 }
 
+/*
+ * 全库审查修复回归（第二批：定点数学 bug）
+ * 覆盖 P0-1 梯形刹车距离、P1-2 能量标度、P1-3 背隙双向偏移、P1-13 pid_q15 抗饱和。
+ */
+static void test_review_batch2_trapezoid_q31_vs_float(void) {
+    bm_algo_trapezoid_config_t fcfg = {
+        .max_vel = 0.5f, .max_accel = 0.1f, .max_decel = 0.1f
+    };
+    bm_algo_trapezoid_state_t fst;
+    bm_algo_trapezoid_q31_config_t qcfg;
+    bm_algo_trapezoid_q31_state_t qst;
+    bm_algo_q31_t dt_q31 = bm_algo_float_to_q31(0.05f);
+    float dt_s = 0.05f;
+    float target = 0.8f;
+    float max_err = 0.0f;
+    float max_overshoot = 0.0f;
+    int i;
+
+    qcfg.max_vel_q31 = bm_algo_float_to_q31(0.5f);
+    qcfg.max_accel_q31 = bm_algo_float_to_q31(0.1f);
+    qcfg.max_decel_q31 = bm_algo_float_to_q31(0.1f);
+
+    bm_algo_trapezoid_reset(&fst, 0.0f, 0.0f);
+    bm_algo_trapezoid_set_target(&fst, target);
+    bm_algo_trapezoid_q31_reset(&qst, 0, 0);
+    bm_algo_trapezoid_q31_set_target(&qst, bm_algo_float_to_q31(target));
+
+    for (i = 0; i < 120; ++i) {
+        float fp = bm_algo_trapezoid_step(&fst, &fcfg, dt_s);
+        float qp = bm_algo_q31_to_float(
+            bm_algo_trapezoid_q31_step(&qst, &qcfg, dt_q31));
+        float err = fp - qp;
+        if (err < 0.0f) {
+            err = -err;
+        }
+        if (err > max_err) {
+            max_err = err;
+        }
+        if (qp - target > max_overshoot) {
+            max_overshoot = qp - target;
+        }
+    }
+
+    /* 定点版与 float 参考逐步跟踪一致（累积舍入误差在合理范围内）。 */
+    TEST_ASSERT_TRUE(max_err < 0.02f);
+    /* 刹车距离修复后不应大幅过冲（旧 bug 下 stop_dist≈0 会过冲后振荡）。 */
+    TEST_ASSERT_TRUE(max_overshoot < 0.02f);
+    /* 两版均应收敛到目标。 */
+    TEST_ASSERT_TRUE(fst.done != 0);
+    TEST_ASSERT_TRUE(qst.done != 0);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, target, bm_algo_q31_to_float(qst.position));
+}
+
+static void test_review_batch2_energy_scale_consistency(void) {
+    bm_algo_energy_wh_q15_state_t s15;
+    bm_algo_energy_wh_q31_state_t s31;
+    bm_algo_q15_t p_q15 = bm_algo_float_to_q15(0.5f);
+    bm_algo_q15_t dt_q15 = bm_algo_float_to_q15(0.5f);
+    bm_algo_q31_t p_q31 = bm_algo_float_to_q31(0.5f);
+    bm_algo_q31_t dt_q31 = bm_algo_float_to_q31(0.5f);
+    bm_algo_q31_t acc15 = 0;
+    bm_algo_q31_t acc31 = 0;
+    int64_t diff;
+    int i;
+
+    bm_algo_energy_wh_q15_reset(&s15);
+    bm_algo_energy_wh_q31_reset(&s31);
+    for (i = 0; i < 10; ++i) {
+        acc15 = bm_algo_energy_wh_integrator_q15_step(&s15, p_q15, dt_q15);
+        acc31 = bm_algo_energy_wh_integrator_q31_step(&s31, p_q31, dt_q31);
+    }
+
+    /* 相同物理功率×步长下两版累计能量（同为 Q31 定标）应一致。 */
+    TEST_ASSERT_TRUE(acc15 > 0);
+    TEST_ASSERT_TRUE(acc31 > 0);
+    diff = (int64_t)acc15 - (int64_t)acc31;
+    if (diff < 0) {
+        diff = -diff;
+    }
+    TEST_ASSERT_TRUE(diff < 64);
+}
+
+static void test_review_batch2_backlash_q31_vs_float(void) {
+    bm_algo_backlash_state_t fst;
+    bm_algo_backlash_q31_state_t qst;
+    float width = 0.2f;
+    float slope = 0.05f;
+    bm_algo_q31_t wq = bm_algo_float_to_q31(width);
+    bm_algo_q31_t sq = bm_algo_float_to_q31(slope);
+    const float cmds[6] = { 0.5f, 0.5f, -0.5f, -0.5f, 0.5f, 0.5f };
+    int i;
+
+    bm_algo_backlash_reset(&fst);
+    bm_algo_backlash_q31_reset(&qst);
+
+    for (i = 0; i < 6; ++i) {
+        float fo = bm_algo_backlash_inverse(cmds[i], &fst, width, slope);
+        float qo = bm_algo_q31_to_float(bm_algo_backlash_inverse_q31(
+            bm_algo_float_to_q31(cmds[i]), &qst, wq, sq));
+        TEST_ASSERT_FLOAT_WITHIN(0.001f, fo, qo);
+    }
+
+    /* 双向独立偏移：正向 4 次调用渐进到 width=0.2，反向 2 次调用累到 0.1，
+     * 证明两方向各自累加、换向不清零（float v1.3 语义已在逐步比对中对齐）。 */
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, width, bm_algo_q31_to_float(qst.offset_fwd));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 2.0f * slope,
+                             bm_algo_q31_to_float(qst.offset_rev));
+}
+
+static void test_review_batch2_pid_q15_antiwindup_no_overflow(void) {
+    bm_algo_pid_q15_config_t cfg;
+    bm_algo_pid_q15_state_t st;
+    bm_algo_q15_t out;
+
+    /* 构造 kp=error=-32768 使 p_term=+32768（越 int16）。旧代码把 p_term
+     * 强转 Q15 会翻号成 -32768，令反算积分器符号错误（clamp 到正上限）；
+     * int64 修复后反算得负值。out_max 收窄以确保抗饱和分支触发。 */
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.kp = (bm_algo_q15_t)-32768;
+    cfg.ki = 8192;
+    cfg.kd = 0;
+    cfg.d_filter_alpha_q15 = 0;
+    cfg.integrator_min = -32767;
+    cfg.integrator_max = 32767;
+    cfg.out_min = -16384;
+    cfg.out_max = 16384;
+
+    bm_algo_pid_q15_reset(&st, 0);
+    out = bm_algo_pid_q15_step(&st, &cfg, (bm_algo_q15_t)-32768,
+                               BM_ALGO_Q15_ONE);
+
+    /* 输出饱和到收窄的 out_max。 */
+    TEST_ASSERT_EQUAL_INT(16384, (int)out);
+    /* 反算积分器必须为负（旧 bug 会因强转翻号得到正上限 +32767）。 */
+    TEST_ASSERT_TRUE(st.integrator < 0);
+    TEST_ASSERT_TRUE(st.integrator >= -32767 && st.integrator <= 32767);
+}
+
 void test_algorithm(void) {
+    RUN_TEST(test_review_batch2_trapezoid_q31_vs_float);
+    RUN_TEST(test_review_batch2_energy_scale_consistency);
+    RUN_TEST(test_review_batch2_backlash_q31_vs_float);
+    RUN_TEST(test_review_batch2_pid_q15_antiwindup_no_overflow);
     RUN_TEST(test_common_clamp_and_deadband);
     RUN_TEST(test_pi_step_and_saturation);
     RUN_TEST(test_lpf1_step);

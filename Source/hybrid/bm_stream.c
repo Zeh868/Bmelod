@@ -57,22 +57,10 @@ static int stream_valid(const bm_stream_t *stream) {
 }
 
 /**
- * @brief 校验 stream 的 owner_cpu 字段合法（内部辅助）
- *
- * 委托 bm_cpu_is_owner() 统一原语：单核 no-op，多核校验 owner_cpu 范围与当前核匹配。
- * BM_CPU_ANY（0xFFu）视为任意核，恒真。
- */
-static int stream_owner_cpu_valid(const bm_stream_t *stream) {
-    if (stream == NULL) {
-        return 0;
-    }
-    return bm_cpu_is_owner(stream->owner_cpu);
-}
-
-/**
  * @brief 校验当前 CPU 是否为 stream 的属主（内部辅助）
  *
  * 委托 bm_cpu_is_owner() 统一原语：单核 no-op，多核强制 owner 核一致性检查。
+ * BM_CPU_ANY（0xFFu）视为任意核，恒真。
  */
 static int stream_owner_valid(const bm_stream_t *stream) {
     if (stream == NULL) {
@@ -162,7 +150,7 @@ int bm_stream_init(bm_stream_t *stream,
     uint32_t descriptor_capacity;
     uint8_t *base;
 
-    if (!stream || !stream_owner_cpu_valid(stream) || !stream_owner_valid(stream) ||
+    if (!stream || !stream_owner_valid(stream) ||
         !stream->blocks || !payloads || block_count < 2u ||
         block_count > BM_CONFIG_STREAM_MAX_BLOCKS || block_bytes == 0u ||
         block_bytes > (UINT32_MAX / block_count)) {
@@ -462,8 +450,27 @@ int bm_stream_drain(bm_stream_t *stream, uint32_t budget) {
         notified++;
     }
 
-    if (bm_stream_ready_count(stream) == 0u) {
-        stream->pending_drain = 0u;
+    /*
+     * ready 扫描与清 pending_drain 须在同一临界区内完成：否则与 ISR 生产者
+     * commit（置 ready + pending_drain=1）竞态，会把刚置位的 pending_drain
+     * 误清为 0，丢失一次 drain 通知（P2-1）。就地扫描避免嵌套临界区。
+     */
+    {
+        bm_irq_state_t irq = BM_STREAM_CRITICAL_ENTER();
+        uint32_t i;
+        int any_ready = 0;
+
+        for (i = 0u; i < stream->block_count; ++i) {
+            if (bm_block_state_load(&stream->blocks[i]) ==
+                BM_BLOCK_STATE_READY) {
+                any_ready = 1;
+                break;
+            }
+        }
+        if (!any_ready) {
+            stream->pending_drain = 0u;
+        }
+        BM_STREAM_CRITICAL_EXIT(irq);
     }
     return (int)notified;
 }

@@ -28,12 +28,19 @@
 
 static int ts_aligned(uint32_t a, uint32_t b, uint32_t tol_us) {
     uint32_t d;
+    uint32_t diff;
 
     if (a == 0u || b == 0u) {
         return 0;
     }
-    d = (a > b) ? (a - b) : (b - a);
-    return (d <= tol_us) ? 1 : 0;
+    /*
+     * u32 微秒时间戳约 71.6 分钟回绕一次（P1-15）。朴素的 (a>b)?(a-b):(b-a)
+     * 在回绕瞬间会把邻近两拍误判为相隔数千万微秒。改用回绕安全差：无符号减法
+     * 得模 2^32 差，超过半程则取补码绝对值，得到真正的最短时间间隔。
+     */
+    d = a - b;
+    diff = (d > 0x80000000u) ? (uint32_t)(-(int32_t)d) : d;
+    return (diff <= tol_us) ? 1 : 0;
 }
 
 static float rpm_to_m_s(float rpm, float radius_m) {

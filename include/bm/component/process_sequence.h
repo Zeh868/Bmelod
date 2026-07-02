@@ -2,7 +2,8 @@
  * @file process_sequence.h
  * @brief 简化 IEC 定时器与顺序状态机（E1 骨架）
  *
- * 提供 TON/TOF 计数器与多步顺序联锁，支持步超时与条件回调。
+ * 提供 TON/TOF 计数器与多步顺序联锁，支持步驻留时间与联锁条件回调。
+ * 注：本状态机不含故障态；联锁不满足时仅阻塞等待，不触发超时故障。
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
@@ -59,7 +60,14 @@ typedef struct {
  * @brief 单步配置
  */
 typedef struct {
-    float timeout_s; /**< 步超时时间（s）；≤ 0 表示无超时（永久等待联锁） */
+    /**
+     * @brief 步驻留（最短保持）时间（s）
+     *
+     * 语义为「进入下一步前本步须保持的最短时长」，而非超时门限（字段名 timeout_s
+     * 为历史遗留，保留以维持 API 兼容）。联锁满足且步内计时 ≥ 该值时推进；
+     * ≤ 0 表示无驻留要求，联锁一满足即刻推进。联锁始终不满足则永久停留本步。
+     */
+    float timeout_s;
 } bm_process_sequence_step_config_t;
 
 /**
@@ -171,8 +179,9 @@ void bm_process_sequence_start(bm_process_sequence_axis_t *axis);
  * @brief 执行一步顺序状态机推进
  *
  * 若 running=0 或 done=1 则静默返回。
- * 累加步内计时；若联锁满足且（超时有效时）步内计时达到 timeout_s，
- * 则推进到下一步；完成所有步后置 done=1, running=0。
+ * 累加步内计时；若联锁满足且步内计时达到该步驻留时间 timeout_s（≤0 时无驻留
+ * 要求），则推进到下一步；完成所有步后置 done=1, running=0。
+ * 联锁不满足时仅阻塞等待，不进入故障态。
  *
  * @param axis           实例指针；为 NULL 时静默返回
  * @param interlock      联锁回调，可为 NULL（NULL 时视为始终满足）

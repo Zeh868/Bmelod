@@ -2,7 +2,9 @@
  * @file process_sequence.c
  * @brief 简化 IEC 定时器与顺序状态机实现
  *
- * 维护 TON/TOF 计时与顺序步索引，联锁失败或超时进入故障态。
+ * 维护 TON/TOF 计时与顺序步索引。推进规则：联锁满足且步内计时达到该步的
+ * 驻留时间（steps[].timeout_s，实为最短保持时间而非超时门限）后进入下一步；
+ * 联锁不满足时仅阻塞在当前步等待，本状态机不实现故障态，也无超时转故障逻辑。
  *
  * @author zeh (china_qzh@163.com)
  * @version 0.2

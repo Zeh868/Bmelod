@@ -385,6 +385,23 @@ void bm_motor_foc_sensorless_current_step(bm_motor_foc_sensorless_axis_t *axis) 
 
     st->phase_timer_s += cfg->current_dt_s;
 
+    /*
+     * 电流采样提前到相位分派之前：ALIGN / OPEN_LOOP / OBSERVER 三相均已通电，
+     * 电流环必须闭合在实测相电流上。此前仅 OBSERVER 分支采样，导致预对齐/开环
+     * 相的 ia/ib 恒为 0、read_id_iq 测得 id/iq 恒为 0，PI 以满误差积分至饱和、
+     * 预对齐注入电流不受控（P0-5a）。仿真反馈模式下电流经 sim_fb 注入
+     * （见 read_id_iq），此处跳过 ADC 采样以保持注入缝语义不变。
+     */
+    if (!use_sim) {
+        if (read_current_ab(axis, &ia, &ib) != 0) {
+            latch_fault(axis);
+            tel->status = BM_MOTOR_SL_TEL_FAULT;
+            tel->phase = BM_MOTOR_SL_PHASE_FAULT;
+            st->loop_count++;
+            return;
+        }
+    }
+
     switch (st->phase) {
     case BM_MOTOR_SL_PHASE_ALIGN:
         theta_elec = 0.0f;
@@ -421,14 +438,6 @@ void bm_motor_foc_sensorless_current_step(bm_motor_foc_sensorless_axis_t *axis) 
     case BM_MOTOR_SL_PHASE_OBSERVER:
     default:
         if (!use_sim) {
-            if (read_current_ab(axis, &ia, &ib) != 0) {
-                latch_fault(axis);
-                tel->status = BM_MOTOR_SL_TEL_FAULT;
-                tel->phase = BM_MOTOR_SL_PHASE_FAULT;
-                st->loop_count++;
-                return;
-            }
-
             theta_elec = st->observer.theta_rad;
             v_dq.id = st->last_vd_pu;
             v_dq.iq = st->last_vq_pu;

@@ -115,6 +115,37 @@ static uint32_t partition_crc32(const uint8_t *data, uint32_t len) {
     return bm_crc32(data, len);
 }
 
+/**
+ * @brief 链式 CRC 累积：以前段结果作为本段初值继续累积
+ *
+ * @details 替代原先四段独立 CRC 的 XOR 组合。XOR 组合下"两数组内容互换"
+ * 与"成对差错"会相互抵消、检不出；链式则顺序敏感，前段每字节经移位寄存器
+ * 传播进后段，成对差错不再抵消，强化跨核一致性校验（P1-8）。多项式与
+ * bm_crc32 相同（0xEDB88320，reflected）；seed 为前段返回值，不做初始/末尾
+ * 取反，仅作为串接寄存器初值。
+ *
+ * @param seed 前段 CRC 结果（首段应传 partition_crc32(...) 的返回值）
+ * @param data 本段输入字节
+ * @param len  本段字节长度
+ * @return 累积后的 CRC 值
+ */
+static uint32_t partition_crc32_chain(uint32_t seed, const uint8_t *data,
+                                      uint32_t len) {
+    uint32_t crc = seed;
+    uint32_t i;
+
+    for (i = 0u; i < len; i++) {
+        uint32_t b;
+
+        crc ^= data[i];
+        for (b = 0u; b < 8u; b++) {
+            uint32_t mask = (uint32_t)(-(int32_t)(crc & 1u));
+            crc = (crc >> 1u) ^ (0xEDB88320u & mask);
+        }
+    }
+    return crc;
+}
+
 int bm_mp_partition_register_event_owner(bm_event_type_t type,
                                          const char *name,
                                          uint8_t owner_cpu) {
@@ -241,12 +272,16 @@ int bm_mp_partition_build_and_validate(void) {
                     i < BM_CONFIG_MAX_MODULES; i++) {
         const bm_module_t *mod = partition_module_table()[i];
 
-        if (mod != NULL && mod->owner_cpu != BM_CPU_ANY &&
-            mod->owner_cpu < cpu_count) {
-            s_module_owner[i] = mod->owner_cpu;
-        } else {
+        if (mod == NULL || mod->owner_cpu == BM_CPU_ANY) {
             s_module_owner[i] = (uint8_t)(rr % cpu_count);
             rr++;
+        } else if (mod->owner_cpu < cpu_count) {
+            s_module_owner[i] = mod->owner_cpu;
+        } else {
+            /* 非法 owner_cpu 不再静默回落 RR，与事件 decl 路径一致报错（P1-7） */
+            BM_LOGE("mp_part", "module %u invalid owner_cpu %u",
+                    (unsigned)i, (unsigned)mod->owner_cpu);
+            return BM_ERR_INVALID;
         }
     }
 
@@ -254,15 +289,19 @@ int bm_mp_partition_build_and_validate(void) {
     s_partition.layout_version = BM_MP_PARTITION_LAYOUT_VERSION;
     s_partition.event_owner = s_event_owner;
     s_partition.module_owner = s_module_owner;
-    s_partition.partition_crc = partition_crc32(
-        (const uint8_t *)&cpu_count, (uint32_t)sizeof(cpu_count));
-    s_partition.partition_crc ^= partition_crc32(
-        (const uint8_t *)&s_partition.layout_version,
-        (uint32_t)sizeof(s_partition.layout_version));
-    s_partition.partition_crc ^= partition_crc32(
-        s_event_owner, (uint32_t)sizeof(s_event_owner));
-    s_partition.partition_crc ^= partition_crc32(
-        s_module_owner, (uint32_t)sizeof(s_module_owner));
+    {
+        /* 链式 CRC：前段结果作后段初值，替代 XOR 组合（P1-8） */
+        uint32_t crc = partition_crc32(
+            (const uint8_t *)&cpu_count, (uint32_t)sizeof(cpu_count));
+        crc = partition_crc32_chain(crc,
+            (const uint8_t *)&s_partition.layout_version,
+            (uint32_t)sizeof(s_partition.layout_version));
+        crc = partition_crc32_chain(crc,
+            s_event_owner, (uint32_t)sizeof(s_event_owner));
+        crc = partition_crc32_chain(crc,
+            s_module_owner, (uint32_t)sizeof(s_module_owner));
+        s_partition.partition_crc = crc;
+    }
 
     s_partition_built = 1;
 #if BM_CONFIG_ENABLE_MODULE

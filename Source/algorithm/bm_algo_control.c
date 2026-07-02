@@ -91,15 +91,11 @@ void bm_algo_pi_reset(bm_algo_pi_state_t *state, float output) {
 void bm_algo_pi_bumpless_reset(bm_algo_pi_state_t *state,
                                const bm_algo_pi_config_t *config,
                                float output) {
-    float p_term;
-
     if (state == NULL || config == NULL) {
         return;
     }
 
     output = bm_algo_clamp_f(output, config->out_min, config->out_max);
-    p_term = config->kp * 0.0f;
-    (void)p_term;
 
     if (config->ki != 0.0f) {
         state->integrator = output / config->ki;

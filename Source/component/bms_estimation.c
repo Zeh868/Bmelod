@@ -113,13 +113,13 @@ void bm_bms_estimation_step(bm_bms_estimation_axis_t *axis) {
                 voltage_v, temp_c, &cfg->temp);
             bm_algo_soc_ekf_update_voltage(&st->soc_ekf, &ekf_cfg,
                                            ocv_comp_v, ocv_from_soc);
-        } else {
-            ocv_comp_v = bm_algo_battery_temp_compensate_ocv(
-                voltage_v, temp_c, &cfg->temp);
-            ocv_from_soc = ocv_comp_v;
-            bm_algo_soc_ekf_update_voltage(&st->soc_ekf, &ekf_cfg,
-                                           ocv_comp_v, ocv_from_soc);
         }
+        /*
+         * 无 OCV 表时跳过量测更新，仅保留预测步（P2-6）。此前的 else 分支以
+         * ocv_from_soc = ocv_comp_v 自比，量测新息恒为 0，更新步空转（无害但
+         * 浪费算力且误导阅读）。缺 SOC-OCV 映射时 EKF 无从校正，正确做法是
+         * 只做预测、不做更新。
+         */
 
         st->soc_fused = st->soc_ekf.soc;
     } else {

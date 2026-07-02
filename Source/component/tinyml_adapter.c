@@ -29,6 +29,7 @@
 #include "bm/algorithm/bm_algo_features.h"
 
 #include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 
 /**
@@ -139,6 +140,10 @@ int bm_tinyml_tensor_alloc_i8(bm_tinyml_arena_t *arena,
 
     for (i = 0u; i < ndim; ++i) {
         if (dims[i] == 0u) {
+            return -1;
+        }
+        /* 维度乘积 u32 溢出防护（P2-8）：乘前判 count > UINT32_MAX/dims[i] */
+        if (count > UINT32_MAX / dims[i]) {
             return -1;
         }
         count *= dims[i];

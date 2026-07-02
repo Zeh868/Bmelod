@@ -655,6 +655,14 @@ int bm_event_publish_copy_from_source(bm_event_type_t type,
     if (source_id >= BM_CONFIG_CPU_COUNT) {
         return BM_ERR_INVALID;
     }
+    /*
+     * 用原始 len 校验（截断前）：本路径以 event_template 传递载荷长度，若先
+     * 截断为 uint8_t 再入队，len=256 会截为 0 静默"成功"、len=257~264 静默截断。
+     * 与 bm_event_publish_copy（传原始 size_t len）行为对齐，超限返回 NO_MEM（P0-4）。
+     */
+    if (len > BM_CONFIG_EVENT_INLINE_DATA_SIZE) {
+        return BM_ERR_NO_MEM;
+    }
     event.type = type;
     event.priority = prio;
     event.source_id = source_id;

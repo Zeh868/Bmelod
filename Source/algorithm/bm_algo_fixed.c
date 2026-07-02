@@ -781,9 +781,11 @@ bm_algo_q15_t bm_algo_pid_q15_step(bm_algo_pid_q15_state_t *state,
                               config->out_min, config->out_max);
 
     if (config->ki != 0 && u_sat != saturate_q15_i32(u_unsat)) {
-        state->integrator = saturate_q15_i32(
-            (((u_sat - (bm_algo_q15_t)p_term - (bm_algo_q15_t)d_term) << 15) /
-             (int32_t)config->ki));
+        /* 反算抗饱和：全程 int64 运算，避免 p_term/d_term 强转 Q15 溢出
+         * （kp=error=-32768 时 p_term=+32768 越 int16），最后统一饱和到 Q15。 */
+        int64_t back = (((int64_t)u_sat - (int64_t)p_term - (int64_t)d_term)
+                        << 15) / (int64_t)config->ki;
+        state->integrator = saturate_q15_i32(saturate_q31_i64(back));
         state->integrator = bm_algo_clamp_q15(state->integrator,
                                               config->integrator_min,
                                               config->integrator_max);
@@ -863,9 +865,11 @@ bm_algo_q31_t bm_algo_trapezoid_q31_step(bm_algo_trapezoid_q31_state_t *state,
 
     accel_step = mul_q31(config->max_accel_q31, dt_q31);
     decel_step = mul_q31(config->max_decel_q31, dt_q31);
+    /* 刹车距离 v²/(2a)：stop_num 为 Q31 表示的 v_p²（v²>>31），
+     * 除法前左移 31 补回定标，除以 (2·decel_q31) 得 Q31 刹车距离。 */
     stop_num = ((int64_t)state->velocity * (int64_t)state->velocity) >> 31;
     stop_dist = saturate_q31_i64(
-        (stop_num * 2) / (int64_t)config->max_decel_q31);
+        (stop_num << 31) / (2 * (int64_t)config->max_decel_q31));
 
     if (dist > 0) {
         if (dist > stop_dist || state->velocity < 0) {
@@ -1529,7 +1533,8 @@ bm_algo_q31_t bm_algo_rms_q31_step(bm_algo_rms_q31_state_t *state,
 void bm_algo_backlash_q31_reset(bm_algo_backlash_q31_state_t *state) {
     if (state != NULL) {
         state->last_direction = 0;
-        state->backlash_offset = 0;
+        state->offset_fwd = 0;
+        state->offset_rev = 0;
     }
 }
 
@@ -1538,6 +1543,7 @@ bm_algo_q31_t bm_algo_backlash_inverse_q31(bm_algo_q31_t command_q31,
                                            bm_algo_q31_t width_q31,
                                            bm_algo_q31_t slope_q31) {
     int direction;
+    bm_algo_q31_t *p_offset; /* 指向当前方向偏移 */
     bm_algo_q31_t out;
 
     if (state == NULL || width_q31 <= 0 || slope_q31 <= 0) {
@@ -1549,29 +1555,39 @@ bm_algo_q31_t bm_algo_backlash_inverse_q31(bm_algo_q31_t command_q31,
     } else if (command_q31 < 0) {
         direction = -1;
     } else {
-        direction = state->last_direction;
+        /* command == 0：保持上次方向，不渐进，不更新 last_direction */
+        out = command_q31;
+        if (state->last_direction > 0) {
+            out = saturate_q31_i64((int64_t)out + (int64_t)state->offset_fwd);
+        } else if (state->last_direction < 0) {
+            out = saturate_q31_i64((int64_t)out - (int64_t)state->offset_rev);
+        }
+        return out;
     }
 
-    if (direction != 0 && direction != state->last_direction &&
-        state->last_direction != 0) {
-        if (state->backlash_offset < width_q31) {
-            state->backlash_offset = saturate_q31_i64(
-                (int64_t)state->backlash_offset + (int64_t)slope_q31);
-            if (state->backlash_offset > width_q31) {
-                state->backlash_offset = width_q31;
-            }
+    /*
+     * 双向独立偏移策略（对齐 float v1.3）：
+     * - 正向（direction == 1）用 offset_fwd，反向用 offset_rev。
+     * - 换向时不清零：切换到另一方向已保存的偏移继续渐进。
+     * - 首次调用（last_direction == 0）视为无换向，直接渐进当前方向偏移。
+     */
+    p_offset = (direction > 0) ? &state->offset_fwd : &state->offset_rev;
+
+    /* 渐进累加：每步最多增加 slope，上限为 width */
+    if (*p_offset < width_q31) {
+        *p_offset = saturate_q31_i64((int64_t)*p_offset + (int64_t)slope_q31);
+        if (*p_offset > width_q31) {
+            *p_offset = width_q31;
         }
     }
 
-    if (direction != 0) {
-        state->last_direction = direction;
-    }
+    state->last_direction = direction;
 
     out = command_q31;
     if (direction > 0) {
-        out = saturate_q31_i64((int64_t)out + (int64_t)state->backlash_offset);
-    } else if (direction < 0) {
-        out = saturate_q31_i64((int64_t)out - (int64_t)state->backlash_offset);
+        out = saturate_q31_i64((int64_t)out + (int64_t)state->offset_fwd);
+    } else {
+        out = saturate_q31_i64((int64_t)out - (int64_t)state->offset_rev);
     }
     return out;
 }
@@ -1943,8 +1959,13 @@ bm_algo_q15_t bm_algo_trapezoid_q15_step(bm_algo_trapezoid_q15_state_t *state,
 
     accel_step = mul_q15(config->max_accel_q15, dt_q15);
     decel_step = mul_q15(config->max_decel_q15, dt_q15);
+    /* 刹车距离 v²/(2a)：stop_num 为 Q15 表示的 v_p²（v²>>15），
+     * 除法前左移 15 补回定标，除以 (2·decel_q15) 得 Q15 刹车距离。
+     * 用 int64 中间量防左移溢出。 */
     stop_num = ((int32_t)state->velocity * (int32_t)state->velocity) >> 15;
-    stop_dist = saturate_q15_i32((stop_num * 2) / config->max_decel_q15);
+    stop_dist = saturate_q15_i32(
+        (int32_t)(((int64_t)stop_num << 15) /
+                  (2 * (int64_t)config->max_decel_q15)));
 
     if (dist > 0) {
         if (dist > stop_dist || state->velocity < 0) {
@@ -2363,8 +2384,10 @@ bm_algo_q31_t bm_algo_energy_wh_integrator_q15_step(
         return (state != NULL) ? state->accumulated_wh_q31 : 0;
     }
 
+    /* prod = p·dt 为 Q30（Q15×Q15）。物理 Wh = P·dt/3600，累加值定标为 Q31：
+     * (prod/2^30)/3600 · 2^31 = (prod<<1)/3600，与 Q31 版标度一致。 */
     prod = (int64_t)p_q15 * (int64_t)dt_q15;
-    inc = (prod << 16) / 3600;
+    inc = (prod << 1) / 3600;
     state->accumulated_wh_q31 = saturate_q31_i64(
         (int64_t)state->accumulated_wh_q31 + inc);
     return state->accumulated_wh_q31;

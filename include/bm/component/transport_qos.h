@@ -67,6 +67,8 @@ typedef struct {
     float    jitter_ms;
     float    latency_ema_ms;
     float    tokens;
+    uint32_t last_token_ms;   /**< 上次令牌补充时刻（ms），配合 have_token_time */
+    int      have_token_time; /**< 非零：last_token_ms 已初始化 */
     int      have_prev;
     uint32_t step_count;
     bm_transport_qos_telemetry_t telemetry;

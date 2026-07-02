@@ -137,6 +137,19 @@
 #define BM_CONFIG_MP_IPC_DRAIN_WCET_PER_MSG_US  BM_CONFIG_IPC_DRAIN_WCET_PER_MSG_US
 #endif
 
+/**
+ * @brief 主循环 event process 每条消息的 WCET 预算（微秒）
+ *
+ * @details 语义独立于 IPC 拷贝 WCET（BM_CONFIG_MP_IPC_DRAIN_WCET_PER_MSG_US）：
+ * 事件分发是"队列取出 + 回调派发"，与跨核 IPC payload 拷贝并非同一工作量，
+ * 复用后者常量属语义错位（P2-3）。默认桥接到 IPC 每消息 WCET 以保持既有数值
+ * 行为不变；配置可独立覆盖本旋钮，使预算更贴近事件派发的实测 WCET。
+ */
+#ifndef BM_CONFIG_MP_EVENT_PROCESS_WCET_PER_MSG_US
+#define BM_CONFIG_MP_EVENT_PROCESS_WCET_PER_MSG_US \
+    BM_CONFIG_MP_IPC_DRAIN_WCET_PER_MSG_US
+#endif
+
 #ifndef BM_CONFIG_MP_RELAY_DRAIN_BUDGET
 #define BM_CONFIG_MP_RELAY_DRAIN_BUDGET  BM_CONFIG_RELAY_DRAIN_BUDGET
 #endif

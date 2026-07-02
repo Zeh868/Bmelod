@@ -689,14 +689,18 @@ bm_algo_q31_t bm_algo_rms_q31_step(bm_algo_rms_q31_state_t *state,
                                    bm_algo_q31_t input);
 
 typedef struct {
-    int last_direction;
-    bm_algo_q31_t backlash_offset;
+    int last_direction;         /**< 上次有效运动方向（1/-1/0） */
+    bm_algo_q31_t offset_fwd;   /**< 正向累计补偿量，范围 [0, width] */
+    bm_algo_q31_t offset_rev;   /**< 反向累计补偿量，范围 [0, width] */
 } bm_algo_backlash_q31_state_t;
 
 void bm_algo_backlash_q31_reset(bm_algo_backlash_q31_state_t *state);
 
 /**
- * @brief 背隙逆补偿（Q31）：换向时按 slope 渐补间隙
+ * @brief 背隙逆补偿（Q31）：双向独立偏移，换向时切换对应偏移继续渐进
+ *
+ * 定点移植自 float 版 v1.3（bm_algo_backlash_inverse）：正向用 offset_fwd、
+ * 反向用 offset_rev，各自向 width 渐进（每步最多 slope），换向不清零。
  *
  * @param command_q31 原始指令
  * @param state 背隙状态（不可为 NULL）

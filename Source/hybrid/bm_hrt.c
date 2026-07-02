@@ -23,7 +23,6 @@
 #include "bm_config.h"
 #include "bm/common/bm_atomic_ipc.h"
 #include "bm/core/bm_cpu_local.h"
-#include "bm/core/bm_cpu_local.h"
 #include "bm_critical_wrap.h"
 #include "bm_hal_timer.h"
 #include "bm_log.h"
@@ -212,9 +211,6 @@ static void hrt_dispatch(void) {
     }
 }
 
-/**
- * @brief HAL 定时器 ISR 入口，分派 HRT 回调
- */
 /**
  * @brief HAL 定时器 ISR 入口，分派 HRT 回调
  */

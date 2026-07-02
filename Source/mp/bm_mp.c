@@ -55,9 +55,8 @@
 /* Forward declaration of WDG gate installer */
 void bm_mp_install_wdg_gate(void);
 
-#ifndef BM_CONFIG_MP_MAIN_LOOP_MAX_SPINS
-#define BM_CONFIG_MP_MAIN_LOOP_MAX_SPINS  100000u
-#endif
+/* BM_CONFIG_MP_MAIN_LOOP_MAX_SPINS 由 bm/mp/bm_mp.h 提供（默认桥接 bm_config.h
+ * 的 BM_CONFIG_MAIN_LOOP_MAX_SPINS），此处不再重复本地 fallback（S5）。 */
 
 /**
  * 诊断：主循环周期等待超限次数（饱和计数）。

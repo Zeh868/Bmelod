@@ -48,6 +48,14 @@ static void zv_compute_coeffs(bm_additive_motion_axis_t *axis) {
 
     wn = 2.0f * 3.14159265f * cfg->natural_freq_hz;
     zeta = (cfg->damping_ratio > 0.0f) ? cfg->damping_ratio : 0.01f;
+    /*
+     * ZV 整形器公式仅对欠阻尼系统（ζ<1）成立：ζ≥1 时 sqrtf(1-ζ²) 取负数
+     * 平方根产生 NaN 并污染 a0/a1 系数。此处将阻尼比饱和到 0.999，退化为
+     * 近临界阻尼的安全整形，保证系数有限、fail-safe（P0-5b）。
+     */
+    if (zeta > 0.999f) {
+        zeta = 0.999f;
+    }
     K = expf(-zeta * 3.14159265f / sqrtf(1.0f - zeta * zeta));
     st->a0 = 1.0f / (1.0f + K);
     st->a1 = K / (1.0f + K);
@@ -82,6 +90,7 @@ void bm_additive_motion_reset(bm_additive_motion_axis_t *axis) {
     axis->state.buffer_head = 0u;
     axis->state.last_cmd_mm = 0.0f;
     axis->state.shaped_mm = 0.0f;
+    axis->state.prev_shaped_mm = 0.0f;
     axis->state.step_count = 0u;
     memset(&axis->state.telemetry, 0, sizeof(axis->state.telemetry));
     zv_compute_coeffs(axis);
@@ -130,7 +139,6 @@ void bm_additive_motion_step(bm_additive_motion_axis_t *axis) {
     bm_additive_motion_state_t *st;
     float pos = 0.0f;
     float vel;
-    float prev;
 
     if (axis == NULL ||
         bm_additive_motion_validate_config(&axis->config) != BM_OK) {
@@ -139,16 +147,26 @@ void bm_additive_motion_step(bm_additive_motion_axis_t *axis) {
 
     cfg = &axis->config;
     st = &axis->state;
-    prev = st->shaped_mm;
 
+    /*
+     * read_z 提供 Z 轴实测位置反馈：本组件为前馈 ZV 整形（不闭环反馈），
+     * 故 pos 目前仅作为驱动侧采样推进的注入缝保留，暂不参与整形运算。
+     */
     if (axis->resources.read_z != NULL) {
         (void)axis->resources.read_z(axis->resources.read_z_user, &pos);
     }
+    (void)pos;
 
-    vel = (st->shaped_mm - prev) / cfg->dt_s;
+    /*
+     * 速度由整形位置相对「上一周期 step」的差分求得（P0-5b）。此前 prev 在同
+     * 一次 step 内取 shaped_mm 快照、其间无人改写 shaped_mm，导致 vel 恒为 0、
+     * 下方限速判断成为死代码。改用跨周期持久的 prev_shaped_mm 后差分才有意义。
+     */
+    vel = (st->shaped_mm - st->prev_shaped_mm) / cfg->dt_s;
     if (fabsf(vel) > cfg->max_velocity_mm_s) {
         vel = (vel > 0.0f) ? cfg->max_velocity_mm_s : -cfg->max_velocity_mm_s;
     }
+    st->prev_shaped_mm = st->shaped_mm;
 
     if (axis->resources.write_z != NULL) {
         (void)axis->resources.write_z(axis->resources.write_z_user,
@@ -204,6 +222,7 @@ void bm_additive_motion_exec_safe_stop(const bm_exec_t *instance) {
     }
     axis = (bm_additive_motion_axis_t *)instance->state;
     axis->state.shaped_mm = 0.0f;
+    axis->state.prev_shaped_mm = 0.0f;
     axis->state.last_cmd_mm = 0.0f;
     if (axis->resources.write_z != NULL) {
         (void)axis->resources.write_z(axis->resources.write_z_user, 0.0f);

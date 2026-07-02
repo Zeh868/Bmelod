@@ -294,8 +294,9 @@ int bm_algo_image_crop_u8(const uint8_t *src,
         return -1;
     }
 
-    if (rect->x + rect->width > src_width ||
-        rect->y + rect->height > src_height) {
+    /* 越界检查用减法避免 u32 加法回绕（x 接近 UINT32_MAX 时 x+width 溢出）。 */
+    if (rect->x >= src_width || rect->width > src_width - rect->x ||
+        rect->y >= src_height || rect->height > src_height - rect->y) {
         return -1;
     }
 

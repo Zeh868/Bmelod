@@ -195,6 +195,7 @@ void bm_algo_current_from_2shunt(float ia, float ib, bm_algo_abc_t *abc) {
     abc->ic = -ia - ib;
 }
 
+/* @deprecated 空操作直通（缺 PWM 周期无法补偿）；见 bm_algo_deadtime_comp_v_period。 */
 float bm_algo_deadtime_comp_v(float phase_v,
                               float phase_current_a,
                               float deadtime_s,

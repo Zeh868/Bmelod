@@ -29,7 +29,8 @@
  * @brief 校验频谱诊断配置参数合法性
  *
  * STFT 模式额外检查：
- *   - stft_frame_size 须为 FFT 支持的点数（64/128/256/512/1024）；
+ *   - stft_frame_size 须为 FFT 支持的点数（64/128/256/512/1024），且
+ *     ≤ BM_SPECTRAL_STFT_MAX_FRAME（=256），以约束 O(n²) DFT 的 WCET（P2-7）；
  *   - stft_frame / stft_window / stft_magnitude 缓冲指针均须非 NULL。
  *
  * @param config 配置指针，NULL 时返回 BM_ERR_INVALID
@@ -47,6 +48,15 @@ int bm_spectral_diagnostics_validate_config(
         }
         /* 校验 stft_frame_size 是否为 FFT 支持的合法点数 */
         if (!bm_algo_fft_is_supported_size(config->stft_frame_size)) {
+            return BM_ERR_INVALID;
+        }
+        /*
+         * WCET 护栏（P2-7）：底层 bm_algo_stft_magnitude_frame 为 O(n²) 朴素
+         * DFT，帧长越大三角函数调用量呈平方增长。组件侧将帧长收紧到
+         * BM_SPECTRAL_STFT_MAX_FRAME(256)，拒绝 512/1024 等深坑尺寸；
+         * 更长帧需接入 radix-2 FFT（后续项）。
+         */
+        if (config->stft_frame_size > BM_SPECTRAL_STFT_MAX_FRAME) {
             return BM_ERR_INVALID;
         }
     }
