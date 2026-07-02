@@ -303,9 +303,6 @@ static void bm_exec_run_binding(void *context) {
 /**
  * @brief 清零运行时全局状态（实例表、绑定表、HRT 槽）
  */
-/**
- * @brief 清零运行时全局状态（实例表、绑定表、HRT 槽）
- */
 static void exec_clear_runtime(void) {
     if (!exec_cpu_valid()) {
         return;
@@ -381,10 +378,15 @@ static int exec_drain_stream_slots(uint32_t budget) {
  * @return 实际消费块数；未启动或在 ISR 中返回 0
  */
 int bm_exec_drain_streams(uint32_t budget) {
+    const bm_exec_cpu_state_t *state = bm_exec_this();
     if (bm_hal_in_isr()) {
         return 0;
     }
-    if (exec_get_session(bm_exec_this()) != BM_EXEC_SESSION_STARTED) {
+    /* fail-closed：当前核无 exec 状态（未注册/越界）时不解引用，直接返回 0（P1-4） */
+    if (state == NULL) {
+        return 0;
+    }
+    if (exec_get_session(state) != BM_EXEC_SESSION_STARTED) {
         return 0;
     }
     return exec_drain_stream_slots(budget);

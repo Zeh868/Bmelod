@@ -197,7 +197,12 @@ static int validate_cpu(uint8_t cpu, bm_mp_schedule_cpu_report_t *report_out) {
         }
         cpu_slot_count++;
         if (s->period_us > 0u) {
-            util_ppm += (execution_us * 1000000ull) /
+            /*
+             * 利用率求和用向上取整（保守方向）：floor 除法会低估利用率，让临界
+             * 超载配置误判可调度；护栏应宁可高估、不可漏判（P2-3）。
+             */
+            util_ppm += (execution_us * 1000000ull +
+                         (uint64_t)s->period_us - 1u) /
                         (uint64_t)s->period_us;
         }
     }
@@ -281,7 +286,7 @@ int bm_mp_schedule_register_main_loop_overhead(uint8_t cpu) {
     wcet_us += BM_CONFIG_MP_RELAY_DRAIN_BUDGET *
                BM_CONFIG_MP_RELAY_DRAIN_WCET_PER_SLOT_US;
     wcet_us += BM_CONFIG_MP_EVENT_PROCESS_BUDGET *
-               BM_CONFIG_MP_IPC_DRAIN_WCET_PER_MSG_US;
+               BM_CONFIG_MP_EVENT_PROCESS_WCET_PER_MSG_US;
     wcet_us += BM_CONFIG_MP_MAIN_LOOP_FIXED_OVERHEAD_US;
     wcet_us += BM_CONFIG_MP_STREAM_DRAIN_BUDGET *
                BM_CONFIG_MP_STREAM_ACCOUNT_WCET_PER_BLOCK_US;

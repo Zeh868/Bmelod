@@ -28,6 +28,14 @@ _Static_assert(BM_CONFIG_MP_IPC_CMD_PAYLOAD_SIZE >= 1u,
                "BM_CONFIG_MP_IPC_CMD_PAYLOAD_SIZE must be at least 1");
 _Static_assert(BM_CONFIG_MP_IPC_TEL_PAYLOAD_SIZE >= 1u,
                "BM_CONFIG_MP_IPC_TEL_PAYLOAD_SIZE must be at least 1");
+/*
+ * cmd_ring 用自由递增 u32 游标 `% DEPTH`：非 2 的幂时 2^32 回绕处 (DEPTH 不整除
+ * 2^32) 槽位错位，回绕瞬间一次静默错读。此处与取模用法同处坐实 2 的幂不变量
+ * （P1-9；bm_mp_ipc.h 另有 #error 兜底，双保险）。
+ */
+_Static_assert((BM_CONFIG_MP_IPC_CMD_RING_DEPTH &
+                (BM_CONFIG_MP_IPC_CMD_RING_DEPTH - 1u)) == 0u,
+               "BM_CONFIG_MP_IPC_CMD_RING_DEPTH must be a power of two");
 #endif
 
 /* ------------------------------------------------------------------ */
@@ -265,14 +273,21 @@ static int lat_acq_r(void *c, const void **slot_out)
     bm_mp_ipc_tel_channel_t *t   = &ctx->m->tel_channel[ctx->source][ctx->target];
     uint32_t s   = bm_atomic_ipc_load_u32(&t->seq);
     uint32_t crc;
+    uint32_t published_crc;
 
     if (s == 0u || (s & 1u) != 0u) { return BM_ERR_WOULD_BLOCK; } /* 未发布/写进行中 */
     memcpy(ctx->scratch_r, t->payload, ctx->elem);
+    /*
+     * 读序契约：published crc32 与 payload 属同一 seqlock 快照，必须在复验 seq
+     * 之前拷入局部变量，纳入保护窗口。否则写者若在"复验通过"与"读 crc32"之间
+     * 发布新值，旧 payload 会与新 crc32 比较，误报 BM_ERR_INVALID（P0-3）。
+     */
+    published_crc = t->crc32;
     crc = bm_crc32(ctx->scratch_r, ctx->elem);
     bm_atomic_ipc_fence_acquire();
     /* seqlock 验证：若写者在拷贝窗口内发布新值，seq 已变，失稳即返回，不自旋 */
     if (bm_atomic_ipc_load_u32(&t->seq) != s) { return BM_ERR_WOULD_BLOCK; }
-    if (crc != t->crc32)                       { return BM_ERR_INVALID; }
+    if (crc != published_crc)                  { return BM_ERR_INVALID; }
     *slot_out = ctx->scratch_r;
     return BM_OK;
 }

@@ -1,18 +1,20 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file bm_hal_timer.c
- * @brief 瀹氭椂鍣?HAL 鍒嗗彂灞傦紙濂戠害 鈫?driver API锛?
+ * @brief 定时器 HAL 分发层（契约 → driver API）
  *
- * 鏈?BM_DRV_HAS_BACKEND 鏃惰浆鍙戣嚦 Port driver API锛涘惁鍒欐彁渚涙々瀹炵幇銆? * native_sim 璺緞鍙粡 BM_NATIVE_SIM_TIMER_CPU_LOCAL 鍚敤杞欢瀹氭椂鍣ㄣ€? * @author zeh (china_qzh@163.com)
+ * 有 BM_DRV_HAS_BACKEND 时转发至 Port driver API；否则提供桩实现。
+ * native_sim 路径可经 BM_NATIVE_SIM_TIMER_CPU_LOCAL 启用软件定时器。
+ * @author zeh (china_qzh@163.com)
  * @version 1.2
  * @date 2026-06-15
  *
- * @par 淇敼鏃ュ織:
+ * @par 修改日志:
  *
  *    Date         Version        Author          Description
- * 2026-06-14       1.0            zeh            姝ｅ紡鍙戝竷
- * 2026-06-15       1.1            zeh            闈炴硶 CPU timer handle fail-closed
- * 2026-06-15       1.2            zeh            闈炴硶 CPU epoch 浣跨敤鏃犳晥鍝ㄥ叺
+ * 2026-06-14       1.0            zeh            正式发布
+ * 2026-06-15       1.1            zeh            非法 CPU timer handle fail-closed
+ * 2026-06-15       1.2            zeh            非法 CPU epoch 使用无效哨兵
  *
  */
 #include "bm_drv_timer.h"
@@ -63,10 +65,12 @@ static const struct bm_timer_driver_api timer_stub = {
 #endif
 
 /*
- * CPU 缁村害鐨勬椂閽?epoch 鏁扮粍鈥斺€旀寜 CPU 璺敱鏃堕』淇濊瘉鍙鎬э細
- * - 缂撳瓨涓€鑷存€х‖浠讹細release/acquire 閰嶅鍗宠冻澶熴€? * - 闈炰竴鑷寸紦瀛樺钩鍙帮細鏈々鍦ㄩ潪 NOOP D-cache 骞冲彴棰濆鎵ц
- *   cache clean/invalidate锛涗粛寮虹儓寤鸿灏?epoch 缃簬涓嶅彲缂撳瓨 SRAM
- *   锛圡PU/MMU 灞炴€э級浠ヨ幏寰楃‘瀹氭€?WCET銆? */
+ * CPU 维度的时钟 epoch 数组——按 CPU 路由时须保证可见性：
+ * - 缓存一致性硬件：release/acquire 配对即足够。
+ * - 非一致缓存平台：本核在非 NOOP D-cache 平台额外执行
+ *   cache clean/invalidate；仍强烈建议将 epoch 置于不可缓存 SRAM
+ *   （MPU/MMU 属性）以获得确定性 WCET。
+ */
 static bm_atomic_ipc_u32_t s_clock_epoch[BM_CONFIG_CPU_COUNT];
 
 int bm_hal_timer_init(uint32_t freq_hz) {
@@ -107,8 +111,8 @@ uint16_t bm_hal_timer_clock_id_for_cpu(uint32_t cpu) {
         return UINT16_MAX;
     }
     /*
-     * 濮旀墭 bm_timestamp_clock_for_cpu() 鎵ц瀹為檯鏄犲皠锛?
-     * 閬垮厤涓ゅ閲嶅缁存姢 clock_id 鍒嗛厤閫昏緫銆?
+     * 委托 bm_timestamp_clock_for_cpu() 执行实际映射，
+     * 避免两处重复维护 clock_id 分配逻辑。
      */
     return bm_timestamp_clock_for_cpu(cpu);
 }
@@ -151,7 +155,9 @@ uint32_t bm_hal_timer_clock_epoch_for_cpu(uint32_t cpu) {
         return UINT32_MAX;
     }
     /*
-     * 闈炰竴鑷寸紦瀛樺钩鍙帮細璇诲彇鍓?invalidate锛岀‘淇濊鍒版渶鏂?epoch銆?     * 鍦ㄧ紦瀛樹竴鑷存€х‖浠舵垨 NOOP 骞冲彴涓婏紝invalidate 閫€鍖栦负 acquire fence銆?     */
+     * 非一致缓存平台：读取前 invalidate，确保读到最新 epoch。
+     * 在缓存一致性硬件或 NOOP 平台上，invalidate 退化为 acquire fence。
+     */
     if (!bm_hal_cache_is_noop()) {
         bm_hal_cache_invalidate(&s_clock_epoch[cpu],
                                 (uint32_t)sizeof(s_clock_epoch[cpu]));
@@ -182,7 +188,9 @@ void bm_hal_timer_bump_clock_epoch(uint32_t cpu) {
     if (cpu < BM_CONFIG_CPU_COUNT) {
         bm_atomic_ipc_inc_u32(&s_clock_epoch[cpu]);
         /*
-         * 闈炰竴鑷寸紦瀛樺钩鍙帮細鑷鍚?clean锛屽皢鏂?epoch 鍐欏叆鍏变韩鍐呭瓨銆?         * 鍦ㄧ紦瀛樹竴鑷存€х‖浠舵垨 NOOP 骞冲彴涓婏紝clean 閫€鍖栦负 release fence銆?         */
+         * 非一致缓存平台：自增后 clean，将新 epoch 写入共享内存。
+         * 在缓存一致性硬件或 NOOP 平台上，clean 退化为 release fence。
+         */
         if (!bm_hal_cache_is_noop()) {
             bm_hal_cache_clean(&s_clock_epoch[cpu],
                                (uint32_t)sizeof(s_clock_epoch[cpu]));
