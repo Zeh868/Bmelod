@@ -83,6 +83,7 @@ static const bm_wcet_span_t *span_by_name(const char *name) {
 void setUp(void) {
     bm_bus_cfg_t cfg = { .owner_cpu = 0u };
     bm_hal_uptime_native_reset();
+    bm_hal_uptime_native_set_virtual(1);
     bm_wcet_mon_init();
     g_evt_overrun_n = 0u; g_evt_miss_n = 0u; g_last_span = NULL;
     g_isr_step_cost_us = 0u;

@@ -10,6 +10,7 @@
 
 void setUp(void) {
     bm_hal_uptime_native_reset();
+    bm_hal_uptime_native_set_virtual(1);
     bm_wcet_mon_init();
 }
 

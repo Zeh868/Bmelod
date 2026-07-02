@@ -211,6 +211,14 @@ void bm_hal_wdg_native_reset_feed_count(void) {
 static volatile uint64_t s_uptime_offset_ns;
 
 /**
+ * @brief 纯虚拟时钟开关（0=真实时钟+偏移量，非0=只返回偏移量）
+ *
+ * 由 bm_hal_uptime_native_set_virtual 显式控制；bm_hal_uptime_native_reset()
+ * 不改变此开关状态。
+ */
+static volatile int s_uptime_virtual;
+
+/**
  * @brief 测试辅助：将 uptime 偏移量推进 delta_us 微秒
  *
  * @param delta_us 推进量（微秒）
@@ -221,9 +229,21 @@ void bm_hal_uptime_native_advance_us(uint64_t delta_us) {
 
 /**
  * @brief 测试辅助：重置 uptime 偏移量为 0
+ *
+ * 仅清零偏移量，不改变虚拟时钟开关（开关由测试通过
+ * bm_hal_uptime_native_set_virtual 显式控制）。
  */
 void bm_hal_uptime_native_reset(void) {
     s_uptime_offset_ns = 0u;
+}
+
+/**
+ * @brief 测试辅助：切换 uptime 是否使用纯虚拟时钟
+ *
+ * @param enable 非 0 启用纯虚拟时钟；0 恢复真实时钟 + 偏移量
+ */
+void bm_hal_uptime_native_set_virtual(int enable) {
+    s_uptime_virtual = enable;
 }
 
 #ifdef _WIN32
@@ -235,9 +255,12 @@ void bm_hal_uptime_native_reset(void) {
  *   ns = (count - base) * 1e9 / freq
  *
  * 同样拆分避免 count * 1e9 的中间溢出。
- * 测试时可通过 bm_hal_uptime_native_advance_us() 叠加偏移，模拟时间流逝。
+ * 测试时可通过 bm_hal_uptime_native_advance_us() 叠加偏移，模拟时间流逝；
+ * 若通过 bm_hal_uptime_native_set_virtual(1) 启用纯虚拟时钟，则不叠加
+ * QPC 真实分量，只返回偏移量，消除微秒级精确断言的墙钟泄漏。
  *
- * @return 自首次调用起经过的纳秒数（含测试偏移量，uint64_t，单调不减）
+ * @return 自首次调用起经过的纳秒数（含测试偏移量，uint64_t，单调不减）；
+ *         纯虚拟时钟模式下只返回偏移量
  */
 uint64_t bm_hal_uptime_ns_raw(void) {
     static LARGE_INTEGER s_freq;
@@ -248,6 +271,9 @@ uint64_t bm_hal_uptime_ns_raw(void) {
     uint64_t freq;
     uint64_t real_ns;
 
+    if (s_uptime_virtual) {
+        return s_uptime_offset_ns;
+    }
     if (!s_init) {
         QueryPerformanceFrequency(&s_freq);
         QueryPerformanceCounter(&s_base);
@@ -268,13 +294,19 @@ uint64_t bm_hal_uptime_ns_raw(void) {
 /**
  * @brief native_sim POSIX 单调时钟后端（clock_gettime CLOCK_MONOTONIC）
  *
- * 测试时可通过 bm_hal_uptime_native_advance_us() 叠加偏移，模拟时间流逝。
+ * 测试时可通过 bm_hal_uptime_native_advance_us() 叠加偏移，模拟时间流逝；
+ * 若通过 bm_hal_uptime_native_set_virtual(1) 启用纯虚拟时钟，则不叠加
+ * clock_gettime 真实分量，只返回偏移量，消除微秒级精确断言的墙钟泄漏。
  *
- * @return 自系统启动起经过的纳秒数（含测试偏移量，uint64_t，单调不减）
+ * @return 自系统启动起经过的纳秒数（含测试偏移量，uint64_t，单调不减）；
+ *         纯虚拟时钟模式下只返回偏移量
  */
 uint64_t bm_hal_uptime_ns_raw(void) {
     struct timespec ts;
 
+    if (s_uptime_virtual) {
+        return s_uptime_offset_ns;
+    }
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint64_t)ts.tv_sec * 1000000000u
          + (uint64_t)ts.tv_nsec
