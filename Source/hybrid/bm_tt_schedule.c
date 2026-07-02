@@ -27,8 +27,8 @@
  * 域·预算账（无硬时间格语义，逐行列 wcet_us + 建议 run_pending budget）。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.6
- * @date 2026-07-02
+ * @version 1.7
+ * @date 2026-07-03
  *
  * @par 修改日志:
  *
@@ -43,6 +43,8 @@
  * 2026-07-01       1.5            zeh            Task 7：RTA rt_slot 导出 + 调度概览 report
  *                                                 （ISR 时间格视图 + MAINLOOP 预算账）真实现
  * 2026-07-02       1.6            zeh            SAFE-2 wcet_mon 门控接入
+ * 2026-07-03       1.7            zeh            report 框架开销占位升级为 BM_CONFIG_TT_SCHED_OVERHEAD_US
+ *                                                 可配置项 + 开销标注行 + 账外免责行
  *
  */
 #include "bm_tt_schedule.h"
@@ -623,11 +625,6 @@ uint32_t bm_tt_schedule_run_pending(bm_tt_schedule_t *sched, uint32_t budget) {
     return ran;
 }
 
-/** report 框架开销占位（Task 7）：本格 Σ step wcet 之外，ISR 派发/上下文
- *  切换等框架自身开销尚无实测数据，先占位为 0，待后续 Task 用真机实测
- *  校准后替换为非零常量或可配置项。 */
-#define TT_REPORT_OVERHEAD_US_PLACEHOLDER 0u
-
 /** report 逐行栈缓冲上界（字节）。上界估算见 bm_tt_schedule_report 注释：
  *  activity 名 63B + 中文表头 ~100B + 数个 uint32_t 十进制字段 + 分隔符，留余量。 */
 #define TT_REPORT_LINE_MAX 200
@@ -637,7 +634,7 @@ uint32_t bm_tt_schedule_run_pending(bm_tt_schedule_t *sched, uint32_t budget) {
  *
  * @param s 调度表实例（只读 entries）
  * @param t 目标 minor 格（0..n_frames-1）
- * @return Σ 命中该格的 ISR 域 activity wcet_us（不含框架开销占位）
+ * @return Σ 命中该格的 ISR 域 activity wcet_us（不含框架开销，由调用方叠加）
  */
 static uint32_t tt_report_frame_sum_us(const bm_tt_schedule_t *s, uint32_t t) {
     uint32_t sum = 0u;
@@ -667,15 +664,18 @@ static uint32_t tt_report_frame_sum_us(const bm_tt_schedule_t *s, uint32_t t) {
  *
  * 块①：ISR 域·时间格视图。表头固定含子串
  * "[时间来源: 声明 wcet_us · 计划视图]"（标注这是基于任务声明 wcet_us
- * 的静态计划推演，非真机实测）；每个 ISR 域 activity 一行列
+ * 的静态计划推演，非真机实测）；表头行后紧跟一行框架开销标注
+ * "开销: %uus [%s]"（取值来自 bm_config 的 `BM_CONFIG_TT_SCHED_OVERHEAD_US`，
+ * 可 per-target 覆盖，标定态由 `BM_CONFIG_TT_SCHED_OVERHEAD_CALIBRATED`
+ * 决定显示"已标定"/"未标定占位"）；每个 ISR 域 activity 一行列
  * name/every/at/wcet_us；随后经 `tt_report_frame_sum_us` 扫描
- * `sched->n_frames` 个 minor 格（叠加框架开销占位
- * `TT_REPORT_OVERHEAD_US_PLACEHOLDER`，当前为 0，待后续 Task 实测校准）
+ * `sched->n_frames` 个 minor 格（叠加框架开销 `BM_CONFIG_TT_SCHED_OVERHEAD_US`）
  * 找出峰值格，输出该格是否 `≤ minor_us`。
  *
  * 块②：MAINLOOP 域·预算账。MAINLOOP 域无硬时间格语义，不做展开——逐行
  * 列每个 MAINLOOP 域 activity 的 `wcet_us` 与建议 `run_pending` budget
- * （固定给 1，供开发者对照真机主循环率手工核对，非精确算法）。
+ * （固定给 1，供开发者对照真机主循环率手工核对，非精确算法）。报告末尾
+ * 追加一行账外免责提示：本表只计 TT 门面自身负载，账外中断/slot 不在内。
  *
  * @param sched 调度表实例（只读）
  * @param emit 逐行输出回调
@@ -696,6 +696,11 @@ void bm_tt_schedule_report(const bm_tt_schedule_t *sched,
                    sched->name);
     emit(line, u);
 
+    (void)snprintf(line, sizeof line, "  开销: %uus [%s]",
+                   (unsigned)BM_CONFIG_TT_SCHED_OVERHEAD_US,
+                   (BM_CONFIG_TT_SCHED_OVERHEAD_CALIBRATED) ? "已标定" : "未标定占位");
+    emit(line, u);
+
     for (uint8_t k = 0u; k < sched->entry_count; ++k) {
         const bm_tt_activity_t *a = sched->entries[k];
 
@@ -709,7 +714,7 @@ void bm_tt_schedule_report(const bm_tt_schedule_t *sched,
     }
 
     for (uint32_t t = 0u; t < sched->n_frames; ++t) {
-        uint32_t cur = tt_report_frame_sum_us(sched, t) + TT_REPORT_OVERHEAD_US_PLACEHOLDER;
+        uint32_t cur = tt_report_frame_sum_us(sched, t) + BM_CONFIG_TT_SCHED_OVERHEAD_US;
 
         if (cur > peak_us) {
             peak_us = cur;
@@ -736,6 +741,8 @@ void bm_tt_schedule_report(const bm_tt_schedule_t *sched,
                        a->name, a->wcet_us);
         emit(line, u);
     }
+
+    emit("注: 本表仅含 TT 门面负载,账外中断/slot 不在内", u);
 }
 
 /**

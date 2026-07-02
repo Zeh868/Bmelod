@@ -234,6 +234,12 @@
 #ifndef BM_CONFIG_TT_SCHED_MAX_INPUTS
 #define BM_CONFIG_TT_SCHED_MAX_INPUTS        8u      /* 单任务输入数理智上界（init 期校验，防误配） */
 #endif
+#ifndef BM_CONFIG_TT_SCHED_OVERHEAD_US
+#define BM_CONFIG_TT_SCHED_OVERHEAD_US       0u      /* 每 minor 格框架派发开销(µs)，真机标定后回填 */
+#endif
+#ifndef BM_CONFIG_TT_SCHED_OVERHEAD_CALIBRATED
+#define BM_CONFIG_TT_SCHED_OVERHEAD_CALIBRATED 0     /* 0=未标定占位 1=已实测标定 */
+#endif
 #if BM_CONFIG_TT_SCHED_MAX_FRAMES < 1u
 #error "BM_CONFIG_TT_SCHED_MAX_FRAMES must be at least 1"
 #endif
