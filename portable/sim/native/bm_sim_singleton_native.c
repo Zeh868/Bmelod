@@ -5,14 +5,15 @@
  *
  * 临界区与屏障由所选 arch/backend 实现提供。
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-14
+ * @version 1.2
+ * @date 2026-07-02
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
  * 2026-06-14       1.1            zeh            临界区拆至 arch/host 与 MP 专用文件
+ * 2026-07-02       1.2            zeh            新增 opt-in 纯虚拟时钟（bm_hal_uptime_native_set_virtual），消除 µs 级精确断言的墙钟泄漏
  *
  */
 #include "bm_drv_timer.h"
