@@ -285,6 +285,18 @@
  * 为形如 `{ 80000000u, 160000000u, 240000000u }` 的花括号初始化列表（框架
  * 不提供缺省值——不定义即视为没有 DVFS，只按 BM_CONFIG_CPU_FREQ_HZ 单频率
  * 分析），schedule-map 工具会为每个频率各出一张理论换算表 + 一张对比总表。
+ *
+ * @note 锚点语义（务必遵守，否则频率缩放结果全错）：本宏是所有任务
+ * `wcet_us` 声明/实测时所在的锚点频率（ref_clk）——schedule-map 按
+ * `wcet(f) = ceil(wcet_ref × ref/f)` 从这个锚点外推其它频率的估算峰值。
+ * 由此派生两条强约束：
+ * (1) 本宏取值**须为** BM_CONFIG_CPU_DVFS_POINTS_HZ 点集之一（必须是
+ *     你实际测过 wcet 的那个工作点，不能是任意值）；
+ * (2) **声明了** BM_CONFIG_CPU_DVFS_POINTS_HZ **就必须声明**本宏——
+ *     有 DVFS 点集而无锚点，缩放换算找不到基准，schedule-map 工具会
+ *     退化为单表并给出明确告警。
+ * 对应的 port 层运行期开机对账见 bm_hal_cpu_freq_check_config()
+ * （`include/hal/bm_hal_cpu.h`）。
  */
 #ifndef BM_CONFIG_CPU_FREQ_HZ
 #define BM_CONFIG_CPU_FREQ_HZ                 0u

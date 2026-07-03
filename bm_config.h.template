@@ -103,7 +103,9 @@
  * 若存在 DVFS 多档主频，可额外定义 BM_CONFIG_CPU_DVFS_POINTS_HZ 为花括号
  * 初始化列表，例如：
  *   #define BM_CONFIG_CPU_DVFS_POINTS_HZ { 80000000u, 160000000u, 240000000u }
- * 该宏框架不提供缺省值，不定义即视为没有 DVFS。 */
+ * 该宏框架不提供缺省值，不定义即视为没有 DVFS。
+ * 锚点语义：本宏须为 DVFS 点集之一（wcet 就是在这个工作点测的）；
+ * 声明了 DVFS 点集就必须声明本宏，否则无法频率缩放。 */
 #define BM_CONFIG_CPU_FREQ_HZ                 0u
 #define BM_CONFIG_CACHE_LINE                 64  /* cache-line 字节数，用于对齐 */
 #define BM_CONFIG_EVENT_PROCESS_BUDGET       16u /* 主循环单次事件处理预算 */

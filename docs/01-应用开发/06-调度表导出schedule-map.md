@@ -289,6 +289,25 @@ schedule-map 对"频率会变"这件事的立场很明确，避免被误用成�
    `1`——这一步是本门面对"声明值 vs 实测值"边界的唯一升级路径，`report`/
    `report_json` 会如实反映 `overhead_calibrated=true`，下游工具据此
    知道这份负载账里的开销数字不再是占位。
+4. **主频数据来自 config，不来自 port 运行期查询**：`ref_clk_hz`/
+   `operating_points_hz` 这两个字段的数据源是应用层 `BM_CONFIG_CPU_FREQ_HZ`
+   /`BM_CONFIG_CPU_DVFS_POINTS_HZ`（`include/bm_config.h`），不是
+   `bm_hal_cpu_freq_*` 这套 port 层接口（[HAL 契约与移植要点
+   §CPU 主频接口](../03-移植与IDE集成/01-HAL契约与移植要点.md#cpu-主频接口bm_hal_cpu_freq_)）
+   的运行期查询结果——出表程序跑在宿主 PC（host 构建），链接的是 native
+   port，读不到目标芯片（如 ESP32）的运行期真值，只能读 host 可见的静态
+   config 声明；`bm_hal_cpu_freq_*` 面向的是目标板运行期（未来 PM）与开机
+   自检，两条线各喂各的消费者，互不覆盖。声明了 `BM_CONFIG_CPU_DVFS_POINTS_HZ`
+   （多档主频）时，`schedule_map_tool.py` 会为每个频率各出一张理论换算表
+   （`OP @<Hz>: est 峰值 ... (estimated)`），再加一张跨频率的对比总表；只声
+   明单一 `BM_CONFIG_CPU_FREQ_HZ` 时只出锚点频率下的这一张表。若应用声明了
+   DVFS 点集却漏声明 `BM_CONFIG_CPU_FREQ_HZ` 锚点（`ref_clk_hz==0` 但
+   `operating_points_hz` 非空），工具退化为只出单表，并给出明确告警"声明了
+   DVFS 点但缺 `BM_CONFIG_CPU_FREQ_HZ` 锚点，无法频率缩放"（区别于两者都未
+   声明时"参考时钟未声明"的泛化告警）——因为频率缩放公式
+   `wcet(f) = ceil(wcet_ref × ref/f)` 必须有锚点 `ref` 才能外推。真正"运行
+   期切频"（PM 依据负载/温度动态选档、并在切频后按新频率重新估算）不在
+   本工具范围内，属于后续 PM 子系统的能力。
 
 ---
 
