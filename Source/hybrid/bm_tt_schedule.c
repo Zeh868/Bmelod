@@ -27,7 +27,7 @@
  * 域·预算账（无硬时间格语义，逐行列 wcet_us + 建议 run_pending budget）。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.8
+ * @version 1.9
  * @date 2026-07-03
  *
  * @par 修改日志:
@@ -47,6 +47,9 @@
  *                                                 可配置项 + 开销标注行 + 账外免责行
  * 2026-07-03       1.8            zeh            Task 2：新增 bm_tt_schedule_report_json 机器可读
  *                                                 JSON 导出（schema v1）
+ * 2026-07-03       1.9            zeh            修复 report_json 的 operating_points_hz 单行拼装
+ *                                                 越界读：改为兼容 msvcrt snprintf 截断不补 NUL
+ *                                                 语义的判定 + 强制界内 NUL 兜底
  *
  */
 #include "bm_tt_schedule.h"
@@ -836,16 +839,48 @@ void bm_tt_schedule_report_json(const bm_tt_schedule_t *sched,
     (void)snprintf(line, sizeof line, "  \"ref_clk_hz\": %u,", meta->ref_clk_hz);
     emit(line, u);
     {
-        size_t off = 0u;
+        /* operating_points_hz 是本函数唯一的变长累加拼装（工作点个数不定，
+         * 其余字段都是短定长格式）。这里不能沿用"用 snprintf 返回值累加
+         * off、假设截断后仍 NUL 结尾"的写法：本机 mingw 链接的 snprintf 是
+         * msvcrt 语义——截断时返回 -1 且**不补 NUL 终止符**（已实测：
+         * `snprintf(buf,5,"%u",123456789)` 返回 -1 且 buf 无 NUL），与 C99
+         * "截断时返回本应写入的长度、且仍以 NUL 结尾" 不同。若 operating
+         * point 数量足够多把行填满（约 ≥16 个），旧写法会让 `line` 在其
+         * 200 字节数组内找不到 NUL，emit/strlen 经此读越界。
+         * 修法：每次 snprintf 后用 `n<0 || (size_t)n>=剩余空间` 统一判定
+         * 截断（该判据同时覆盖 msvcrt 与 C99 两种语义），一旦判定截断立即
+         * 停止后续追加；无论走到哪个分支，收尾前都强制
+         * `line[sizeof line - 1] = '\0'` 兜底，不依赖 snprintf 是否替我们
+         * 补了 NUL——这样 `line` 传给 emit 前恒是数组界内的合法 C 字符串。
+         * 代价：工作点过多时收尾的 "]," 可能被截断丢失，JSON 末尾数组语法
+         * 不完整；但内存安全优先于这种边界情形下的 JSON 严格合法性，且
+         * 该丢失只发生在极端工作点数量下，属已知取舍。 */
+        size_t off;
         int n = snprintf(line, sizeof line, "  \"operating_points_hz\": [");
-        off = (n > 0) ? (size_t)n : 0u;
-        for (uint8_t i = 0u; i < meta->operating_point_count && off < sizeof line; ++i) {
-            n = snprintf(line + off, sizeof line - off, "%s%u",
-                         (i > 0u) ? ", " : "", meta->operating_points_hz[i]);
-            off += (n > 0) ? (size_t)n : 0u;
+
+        if (n < 0 || (size_t)n >= sizeof line) {
+            off = sizeof line - 1u; /* 前缀本身都放不下：视为已写满，直接进入收尾兜底 */
+        } else {
+            off = (size_t)n;
         }
-        (void)snprintf(line + ((off < sizeof line) ? off : sizeof line - 1u),
-                       (off < sizeof line) ? sizeof line - off : 1u, "],");
+        for (uint8_t i = 0u; i < meta->operating_point_count && off < sizeof line - 1u; ++i) {
+            size_t remain = sizeof line - off;
+
+            n = snprintf(line + off, remain, "%s%u",
+                        (i > 0u) ? ", " : "", meta->operating_points_hz[i]);
+            if (n < 0 || (size_t)n >= remain) {
+                off = sizeof line - 1u; /* 本次截断：停止追加，交给下面的强制 NUL 兜底 */
+                break;
+            }
+            off += (size_t)n;
+        }
+        if (off < sizeof line - 1u) {
+            size_t remain = sizeof line - off;
+
+            n = snprintf(line + off, remain, "],");
+            off = (n < 0 || (size_t)n >= remain) ? (sizeof line - 1u) : (off + (size_t)n);
+        }
+        line[sizeof line - 1u] = '\0'; /* 兜底：不管上面截断与否，强制界内 NUL 终止 */
         emit(line, u);
     }
     emit("  \"tasks\": [", u);

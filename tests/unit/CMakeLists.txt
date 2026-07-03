@@ -205,7 +205,11 @@ if(BM_ENABLE_TT_SCHEDULE)
         INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/tests/tools
         REF_CLK_HZ 240000000
         OPERATING_POINTS 240000000 80000000)
-    bm_target_internal_includes(bm_schedule_map_dump)
+    # 交叉编译分支下 bm_add_schedule_map 建的是 add_custom_target（非可执行目标），
+    # 对其调 target_include_directories 会在 configure 期报错；仅 native 分支需要此调用。
+    if(NOT CMAKE_CROSSCOMPILING)
+        bm_target_internal_includes(bm_schedule_map_dump)
+    endif()
     add_custom_target(schedule-map ALL DEPENDS bm_schedule_map_dump)
 
     add_executable(bm_schedule_map_dump_bad
