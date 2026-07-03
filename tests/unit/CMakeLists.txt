@@ -213,6 +213,39 @@ if(BM_ENABLE_TT_SCHEDULE)
         COMMAND tt_schedule_map_dump ${CMAKE_BINARY_DIR}/schedule_map.txt
         DEPENDS tt_schedule_map_dump
         COMMENT "Generating build/schedule_map.txt")
+
+    # schedule-map v2: generic dump main + fixture register units (2 good
+    # tables + 1 gate negative table). See Task 3 of
+    # docs/superpowers/plans/2026-07-03-schedule-map-export.md.
+    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/schedule_map_out ${CMAKE_BINARY_DIR}/schedule_map_out_bad)
+    add_executable(bm_schedule_map_dump
+        ${CMAKE_SOURCE_DIR}/tools/schedule_map/bm_schedule_map_main.c
+        ${CMAKE_SOURCE_DIR}/tests/tools/schedule_map_fixture.c
+        ${CMAKE_SOURCE_DIR}/tests/tools/schedule_map_fixture_reg.c)
+    add_executable(bm_schedule_map_dump_bad
+        ${CMAKE_SOURCE_DIR}/tools/schedule_map/bm_schedule_map_main.c
+        ${CMAKE_SOURCE_DIR}/tests/tools/schedule_map_fixture_bad.c)
+    foreach(_smd bm_schedule_map_dump bm_schedule_map_dump_bad)
+        target_include_directories(${_smd} PRIVATE
+            ${CMAKE_SOURCE_DIR}/tools/schedule_map ${CMAKE_SOURCE_DIR}/tests/tools)
+        bm_target_internal_includes(${_smd})
+        # Same GNU/non-GNU link-group pattern as tt_schedule_map_dump above.
+        if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+            target_link_libraries(${_smd} PRIVATE
+                "-Wl,--start-group"
+                bm_tt_schedule bm_core bm_hal bm_hal_native
+                $<$<BOOL:${BM_ENABLE_WCET_MON}>:bm_wcet_mon>
+                "-Wl,--end-group")
+        else()
+            target_link_libraries(${_smd} PRIVATE bm_tt_schedule bm_core bm_hal bm_hal_native)
+        endif()
+    endforeach()
+    add_test(NAME schedule_map_dump_ok
+        COMMAND bm_schedule_map_dump ${CMAKE_BINARY_DIR}/schedule_map_out)
+    add_test(NAME schedule_map_dump_gate
+        COMMAND bm_schedule_map_dump_bad ${CMAKE_BINARY_DIR}/schedule_map_out_bad)
+    set_tests_properties(schedule_map_dump_gate PROPERTIES WILL_FAIL TRUE)
+    set_tests_properties(schedule_map_dump_ok schedule_map_dump_gate PROPERTIES LABELS "determinism")
 endif()
 
 if(BM_ENABLE_WCET_MON)
