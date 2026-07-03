@@ -219,14 +219,156 @@ bm_tt_schedule_report(&sched_axis, print_line, NULL);
 
 ---
 
-## 9. 错误码
+## 9. JSON 导出：`bm_tt_schedule_report_json`
+
+`bm_tt_schedule_report` 是给人看的文本报告；`bm_tt_schedule_report_json`
+是给**工具**看的机读报告（schema v1），逐行经 `emit` 回调发出一个 JSON
+对象，字段顺序固定、内容确定性（同一调度表状态永远输出逐字节相同的
+结果）。用途：喂给 `tools/schedule_map_tool.py` 做多核/跨核复合分析（见
+[../01-应用开发/06-调度表导出schedule-map](../01-应用开发/06-调度表导出schedule-map.md)）。
+
+```c
+void bm_tt_schedule_report_json(const bm_tt_schedule_t *sched,
+                                 const bm_tt_schedule_json_meta_t *meta,
+                                 void (*emit)(const char *line, void *u), void *u);
+```
+
+- `sched`：只读调度表实例。
+- `meta`：调用方提供的导出元信息，**传 `NULL` 等价于全零**（`cpu=0`、
+  `ref_clk_hz=0`、无工作点）——不会因为调用方偷懒不传而报错，只是频率
+  缩放这类需要参考时钟的分析会被下游工具跳过并 WARN。
+- `emit`/`u`：与 `bm_tt_schedule_report` 相同的逐行输出约定。
+
+### 9.1 `bm_tt_schedule_json_meta_t`
+
+| 字段 | 类型 | 含义 |
+|------|------|------|
+| `cpu` | `uint8_t` | 本表所属 CPU 编号；单核填 0 |
+| `ref_clk_hz` | `uint32_t` | 声明 `wcet_us` 时所依据的参考时钟频率；0=未声明（下游频率缩放分析跳过） |
+| `operating_points_hz` | `const uint32_t *` | 工作点频率数组，可为 `NULL` |
+| `operating_point_count` | `uint8_t` | 工作点个数 |
+
+### 9.2 schema v1 字段表
+
+顶层对象：
+
+| 字段 | 类型 | 语义 |
+|------|------|------|
+| `schema_version` | int | 恒为 `1` |
+| `sched_name` | string | `BM_SCHEDULE_DEFINE` 的 `#id` |
+| `cpu` | int | 取自 `meta->cpu` |
+| `minor_us` | int | 时间格粒度 |
+| `n_frames` | int | 超周期帧数，`LCM(每任务 every)` |
+| `hyperperiod_us` | int | `minor_us × n_frames`（`uint64_t` 打印，避免大表溢出） |
+| `overhead_us` | int | `BM_CONFIG_TT_SCHED_OVERHEAD_US`（每 minor 格框架派发开销声明值） |
+| `overhead_calibrated` | bool | `BM_CONFIG_TT_SCHED_OVERHEAD_CALIBRATED`：`false`=占位估算，`true`=真机实测回填 |
+| `ref_clk_hz` | int | 取自 `meta->ref_clk_hz` |
+| `operating_points_hz` | int[] | 取自 `meta->operating_points_hz` |
+| `tasks[]` | object[] | 逐 activity（顺序=`entries` 声明顺序） |
+| `frames[]` | object[] | 逐 minor 格（`t` 升序 0..n_frames-1） |
+| `edges[]` | object[] | 预留，本轮恒为空数组，未来任务填充 |
+
+`tasks[]` 每项：
+
+| 字段 | 语义 |
+|------|------|
+| `name` | 声明宏 `#id` 字符串化，恒为合法 C 标识符，天然免转义 |
+| `every`/`at` | 分频/相位，同 `BM_LET_DEFINE_*` 参数 |
+| `wcet_us` | 声明的最坏执行时间 |
+| `domain` | `"isr"` / `"mainloop"` |
+| `kind` | 本轮恒为 `"compute"` |
+| `period_us`/`deadline_us` | 均为 `minor_us × every`（LET 语义：deadline 恒等于周期） |
+| `inputs`/`outputs` | 输入/输出绑定数量 |
+
+`frames[]` 每项：
+
+| 字段 | 语义 |
+|------|------|
+| `t` | 第几个 minor 格（0..n_frames-1） |
+| `isr_load_us` | 该拍命中的 ISR 域任务 `wcet_us` 之和 **+** `overhead_us`（框架派发开销计入 ISR 域账） |
+| `mainloop_pending_us` | 该拍命中的 MAINLOOP 域任务 `wcet_us` 之和（静态计划视图，非运行时实测；不含 `overhead_us`——那是 ISR 域派发成本，与 MAINLOOP 无关） |
+
+**`estimated` 语义**：JSON 本体只吐"声明值"（`wcet_us`/`overhead_us` 均
+来自静态声明或 bm_config，不是运行时采样），任何跨工作点频率缩放得到
+的数字都是下游工具（`schedule_map_tool.py`）算出来附加标注
+`(estimated)` 的推算值，本 API 不做频率缩放,也不产出"estimated"字样。
+
+### 9.3 三档场景下的最小导出思路
+
+一档（native/CMake）走 `bm_add_schedule_map`（见 06 文档 §2），构建期
+自动跑通 `report_json`；二/三档（Keil/IAR、真实 target）没有构建期跑
+host 程序的条件时，可以在 target 固件里直接调用本 API，把 JSON 经串口
+（UART）逐行吐出，PC 端抓下来存成 `.json` 文件再喂
+`tools/schedule_map_tool.py`：
+
+```c
+static void uart_emit_line(const char *line, void *u) {
+    (void)u;
+    uart_write_line(line); /* 逐行发送，一行一次 uart_write + 换行 */
+}
+
+void debug_dump_schedule_json(void) {
+    bm_tt_schedule_json_meta_t meta = {
+        .cpu = 0u, .ref_clk_hz = 168000000u,
+        .operating_points_hz = NULL, .operating_point_count = 0u,
+    };
+    bm_tt_schedule_report_json(&sched_axis, &meta, uart_emit_line, NULL);
+}
+```
+
+详细的二/三档抓取步骤见
+[../01-应用开发/06-调度表导出schedule-map](../01-应用开发/06-调度表导出schedule-map.md) §5。
+
+### 9.4 注册单元契约（`bm_schedule_map_reg.h`）
+
+`tools/schedule_map/bm_schedule_map_reg.h` 定义的是"注册单元"（register
+unit）——一个只列清单、不含业务逻辑的小翻译单元，通用 dump 程序
+`bm_schedule_map_main.c` 只认这五个符号，不认识任何具体调度表名字：
+
+```c
+typedef struct {
+    bm_tt_schedule_t *sched; /* 表实例（extern 引用应用装配文件里的静态实例） */
+    uint8_t            cpu;   /* 表所属 CPU */
+} bm_schedule_map_entry_t;
+
+extern const bm_schedule_map_entry_t g_bm_schedule_map_entries[];
+extern const uint32_t g_bm_schedule_map_entry_count;
+extern const uint32_t g_bm_schedule_map_ref_clk_hz;
+extern const uint32_t g_bm_schedule_map_op_points_hz[];
+extern const uint32_t g_bm_schedule_map_op_point_count;
+
+int bm_schedule_map_setup(void); /* init 前的准备工作（如 bm_bus_open） */
+```
+
+`bm_add_schedule_map()`（见 06 文档 §2）会自动生成满足该契约的 `.c`；
+IDE 二/三档没有 CMake 时可手写，等价样例见
+`tests/tools/schedule_map_fixture_reg.c`：
+
+```c
+#include "bm_schedule_map_reg.h"
+#include "schedule_map_fixture.h"
+
+const bm_schedule_map_entry_t g_bm_schedule_map_entries[] = {
+    { &sched_fixture_a, 0u },
+    { &sched_fixture_b, 1u },
+};
+const uint32_t g_bm_schedule_map_entry_count = 2u;
+const uint32_t g_bm_schedule_map_ref_clk_hz  = 240000000u;
+const uint32_t g_bm_schedule_map_op_points_hz[] = { 240000000u, 80000000u };
+const uint32_t g_bm_schedule_map_op_point_count = 2u;
+
+int bm_schedule_map_setup(void) { return schedule_map_fixture_setup(); }
+```
+
+## 10. 错误码
 
 | 码 | 场景 |
 |----|------|
 | `BM_ERR_INVALID` | `minor_us`/`entry_count`/`every`/`at`/`input_count`/`elem_size` 越界；`safe_default` 为空；`LCM(every)` 超 `BM_CONFIG_TT_SCHED_MAX_FRAMES`；某 minor 格 ISR 域 wcet 之和超载；`rt_slot_at` 索引越界 |
 
-## 10. 相关文档
+## 11. 相关文档
 
 - 混合域接线总览：[../01-应用开发/05-混合域接线](../01-应用开发/05-混合域接线.md)
+- 调度表导出三档接入：[../01-应用开发/06-调度表导出schedule-map](../01-应用开发/06-调度表导出schedule-map.md)
 - `bm_hrt`：[bm_hrt.md](bm_hrt.md)
 - `bm_exec`（`bm_exec_drain_streams` 主循环并列写法）：[bm_exec.md](bm_exec.md)
