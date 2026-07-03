@@ -48,10 +48,17 @@ endif()
 # BM_HAL_CPU_HAS_PORT_FREQ：声明本 vendor 已提供 CPU 主频三接口
 # （bm_hal_cpu_freq_esp32.c 中的 freq_hz/freq_points/freq_set），令桩
 # `Source/hal/bm_hal_cpu_stub.c` 让出同名符号、避免重复定义。
-# 【未决风险，上板须核对】桩文件属 `bm_hal` 目标，不属本 vendor 目标；
-# 该 PUBLIC 定义能否传递到消费方 IDF 工程编译桩 TU 时的编译命令行，
-# 取决于消费方如何组织组件依赖与编译定义传播，本仓无法验证。若未生效，
-# 链接期会出现桩与本 vendor 的 freq 三函数重复定义。
+# 【机制说明，非充分条件】此处的 PUBLIC 定义只对本 vendor 目标的**消费方**
+# （即 target_link_libraries 链接了 bm_vendor_esp32_idf 的目标）生效；桩
+# `bm_hal_cpu_stub.c` 属 `bm_hal` 目标，而 `bm_hal` 只链 `bm_config`、并不
+# 依赖本 vendor（依赖方向是 vendor→bm_config，不是 bm_hal→vendor），因此
+# 这条 PUBLIC 定义**到不了**桩所在的编译单元。真正让桩让出符号的途径是：
+# 消费方 ESP-IDF 工程**全局**定义 `BM_HAL_CPU_HAS_PORT_FREQ`（idf.py 组件级
+# `-D`，或经 `bm_config.h` 的 include 链，如在其 `bm_config_app.h` 里
+# `#define`），使其在编译 `bm_hal_cpu_stub.c` 时可见。本行 PUBLIC 定义予以
+# 保留，仅作为“消费方若确实令 `bm_hal` 依赖本 vendor 目标”这一非常规接线
+# 下的兜底，不能单独依赖它去重；若两侧都未生效，链接期会出现桩与本 vendor
+# 的 freq 三函数重复定义。
 target_compile_definitions(bm_vendor_esp32_idf PUBLIC
     BM_DRV_HAS_BACKEND
     BM_ESP32_BAREMETAL=1

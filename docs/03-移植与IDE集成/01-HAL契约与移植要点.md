@@ -132,14 +132,20 @@ config 配置的目标"，让开机对账在 host 上也能一致通过：
 
 **桩与真机 port 的去重约定 `BM_HAL_CPU_HAS_PORT_FREQ`**：`bm_hal_cpu_stub.c`
 默认提供这 3 个函数（服务 native/qemu 等未单独实现的后端），但真机 port
-若自带专属实现文件（如 esp32 的 `bm_hal_cpu_freq_esp32.c`），需要在该 port
-的构建目标上 `target_compile_definitions(... PUBLIC BM_HAL_CPU_HAS_PORT_FREQ)`
-（见 `portable/vendor/esp32_idf/CMakeLists.txt`），桩文件据此
+若自带专属实现文件（如 esp32 的 `bm_hal_cpu_freq_esp32.c`），桩文件据
 `#ifndef BM_HAL_CPU_HAS_PORT_FREQ` 让出这 3 个符号，避免与 port 专属实现
-重复定义、链接失败。**移植新真机 port 且自带 freq 实现时务必同步声明这个
-宏**；由于桩文件与真机 port 通常分属不同 CMake 目标，`PUBLIC` 编译定义能
-否传播到消费方工程编译桩这个翻译单元的命令行，取决于消费方如何组织组件
-依赖，上板集成时需核对，未生效会在链接期报重复定义。
+重复定义、链接失败。**关键点：该宏必须到达桩文件 `bm_hal_cpu_stub.c` 所在
+编译单元才有效**——桩属 `bm_hal` 目标，`bm_hal` 只链 `bm_config`、并不
+依赖真机 port 所在的 vendor 目标（依赖方向是 vendor→bm_config），所以在
+vendor 目标上加 `target_compile_definitions(... PUBLIC
+BM_HAL_CPU_HAS_PORT_FREQ)`（如 `portable/vendor/esp32_idf/CMakeLists.txt`
+里那条）**不足以**传到桩：PUBLIC 编译定义只会传给链接了该 vendor 目标的
+消费方，而 `bm_hal` 不是它的消费方。真正可靠的途径是让消费方 IDF 工程
+**全局**定义这个宏——idf.py 组件级 `-D BM_HAL_CPU_HAS_PORT_FREQ`，或经
+`bm_config.h` 的 include 链（如在其 `bm_config_app.h` 里 `#define`）——
+使其在编译 `bm_hal_cpu_stub.c` 时可见。**移植新真机 port 且自带 freq
+实现时务必按此方式全局声明这个宏**；未生效会在链接期报桩与 port 专属实现
+重复定义。
 
 ### 开机对账 `bm_hal_cpu_freq_check_config()`
 

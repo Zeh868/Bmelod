@@ -15,14 +15,16 @@
  *       消费方在 ESP-IDF 工程内构建时须按实际 IDF 版本核对该头文件名，
  *       如有出入需替换本文件顶部的 include。
  *
- * @note 本文件所在的 `bm_vendor_esp32_idf` 静态库通过
- *       `target_compile_definitions(... PUBLIC BM_HAL_CPU_HAS_PORT_FREQ)`
- *       声明"本 port 已提供 freq 三函数"，用于让桩 `bm_hal_cpu_stub.c`
- *       让出同名符号、避免重复定义。但桩文件属 `bm_hal` 目标而非
- *       `bm_vendor_esp32_idf` 目标，跨目标的 PUBLIC 编译定义能否传递到
- *       消费方 IDF 工程编译桩 TU 时的编译命令行，取决于消费方如何组织
- *       组件依赖——本仓无法验证，上板集成时须核对（否则会出现桩与本文件
- *       freq 三函数重复定义、链接失败）。
+ * @note 本文件所在的 `bm_vendor_esp32_idf` 静态库上虽挂了
+ *       `target_compile_definitions(... PUBLIC BM_HAL_CPU_HAS_PORT_FREQ)`，
+ *       但该 PUBLIC 定义只对本 vendor 目标的消费方生效，桩
+ *       `bm_hal_cpu_stub.c` 属 `bm_hal` 目标、`bm_hal` 并不依赖本 vendor
+ *       （依赖方向是 vendor→bm_config），故这条定义**到不了**桩的编译单元。
+ *       桩要让出本文件的 freq 三函数，须由消费方 ESP-IDF 工程**全局**定义
+ *       `BM_HAL_CPU_HAS_PORT_FREQ`（idf.py 组件级 `-D`，或经
+ *       `bm_config.h` 的 include 链，如在其 `bm_config_app.h` 里
+ *       `#define`），使其在编译 `bm_hal_cpu_stub.c` 时可见；否则本文件与
+ *       桩的 freq 三函数会重复定义、链接失败。
  *
  * @author zeh (china_qzh@163.com)
  * @version 1.0
