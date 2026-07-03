@@ -145,6 +145,10 @@ if(BM_ENABLE_TT_SCHEDULE)
     # 该内部访问器原型受 BM_BUS_ALLOW_INTERNAL 门控，需 PRIVATE 定义（照 test_bus）。
     bm_add_test(test_tt_schedule test_tt_schedule.c bm_tt_schedule)
     target_compile_definitions(test_tt_schedule PRIVATE BM_BUS_ALLOW_INTERNAL=1)
+
+    # Task 2 (schedule-map v2): bm_tt_schedule_report_json machine-readable export (schema v1).
+    bm_add_test(test_tt_schedule_json test_tt_schedule_json.c bm_tt_schedule)
+    set_tests_properties(test_tt_schedule_json PROPERTIES LABELS "determinism")
     # A5：本门面全静态分配（无 malloc/calloc/realloc/free 符号）+ 循环上界
     # 均受 init 期校验（entry_count/input_count/n_frames ≤ 编译期上界），
     # 纳入既有 determinism 回归面（见 test_tt_schedule.c 场景19注释）。

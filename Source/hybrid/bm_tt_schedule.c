@@ -27,7 +27,7 @@
  * 域·预算账（无硬时间格语义，逐行列 wcet_us + 建议 run_pending budget）。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.7
+ * @version 1.8
  * @date 2026-07-03
  *
  * @par 修改日志:
@@ -45,6 +45,8 @@
  * 2026-07-02       1.6            zeh            SAFE-2 wcet_mon 门控接入
  * 2026-07-03       1.7            zeh            report 框架开销占位升级为 BM_CONFIG_TT_SCHED_OVERHEAD_US
  *                                                 可配置项 + 开销标注行 + 账外免责行
+ * 2026-07-03       1.8            zeh            Task 2: add bm_tt_schedule_report_json machine-
+ *                                                 readable JSON export (schema v1)
  *
  */
 #include "bm_tt_schedule.h"
@@ -743,6 +745,139 @@ void bm_tt_schedule_report(const bm_tt_schedule_t *sched,
     }
 
     emit("注: 本表仅含 TT 门面负载,账外中断/slot 不在内", u);
+}
+
+/**
+ * @brief report_json helper: sum wcet_us of MAINLOOP-domain activities hitting frame @p t
+ *
+ * @details Mirrors `tt_report_frame_sum_us` but filters `domain == BM_TT_DOMAIN_MAINLOOP`
+ * instead of ISR. Used to populate the `mainloop_pending_us` field per frame: since
+ * MAINLOOP-domain step execution is deferred to `bm_tt_schedule_run_pending`, this is a
+ * static (declared wcet_us) plan-view sum, not a runtime measurement.
+ *
+ * @param s schedule table instance (read-only entries)
+ * @param t target minor frame (0..n_frames-1)
+ * @return sum of wcet_us for MAINLOOP-domain activities hitting frame @p t
+ */
+static uint32_t tt_report_frame_mainloop_us(const bm_tt_schedule_t *s, uint32_t t) {
+    uint32_t sum = 0u;
+
+    for (uint8_t k = 0u; k < s->entry_count; ++k) {
+        const bm_tt_activity_t *a = s->entries[k];
+
+        if (a->domain != BM_TT_DOMAIN_MAINLOOP || a->every == 0u) {
+            continue;
+        }
+        if ((t % a->every) == a->at) {
+            sum += a->wcet_us;
+        }
+    }
+    return sum;
+}
+
+/**
+ * @brief Emit a machine-readable JSON report of the schedule table (schema v1).
+ *
+ * @details Uses the same fixed-size stack line buffer / bounded-`snprintf` strategy as
+ * `bm_tt_schedule_report` (zero dynamic allocation). Field semantics:
+ * - `hyperperiod_us = (uint64_t)minor_us * n_frames`, computed and printed via `%llu` with an
+ *   explicit cast to avoid `uint32_t` overflow for large tables.
+ * - `isr_load_us` for frame `t` is `tt_report_frame_sum_us(sched, t)` plus
+ *   `BM_CONFIG_TT_SCHED_OVERHEAD_US` (declared-wcet plan view, framework dispatch overhead
+ *   included).
+ * - `mainloop_pending_us` for frame `t` is `tt_report_frame_mainloop_us(sched, t)` (sum of
+ *   wcet_us for MAINLOOP-domain activities hitting that frame; excludes overhead, which is an
+ *   ISR-domain dispatch cost).
+ * - Per-task `period_us`/`deadline_us` are both `minor_us * every` (LET semantics: deadline
+ *   equals period, matching `bm_tt_schedule_rt_slot_at`).
+ * - Task `name` is taken from the declaration macro's `#id` stringification, which is always a
+ *   valid C identifier; it therefore never requires JSON string escaping.
+ * - `edges` is emitted as an empty array, reserved for a future task.
+ *
+ * If @p meta is NULL, an all-zero default is used (cpu=0, ref_clk_hz=0, no operating points).
+ *
+ * @param sched schedule table instance (read-only)
+ * @param meta export metadata; NULL falls back to an all-zero default
+ * @param emit per-line output callback
+ * @param u opaque context forwarded to @p emit
+ */
+void bm_tt_schedule_report_json(const bm_tt_schedule_t *sched,
+                                const bm_tt_schedule_json_meta_t *meta,
+                                void (*emit)(const char *line, void *u), void *u) {
+    char line[TT_REPORT_LINE_MAX];
+    bm_tt_schedule_json_meta_t m0 = { 0u, 0u, NULL, 0u };
+
+    if (sched == NULL || emit == NULL) {
+        return;
+    }
+    if (meta == NULL) {
+        meta = &m0;
+    }
+
+    emit("{", u);
+    emit("  \"schema_version\": 1,", u);
+    (void)snprintf(line, sizeof line, "  \"sched_name\": \"%s\",", sched->name);
+    emit(line, u);
+    (void)snprintf(line, sizeof line, "  \"cpu\": %u,", (unsigned)meta->cpu);
+    emit(line, u);
+    (void)snprintf(line, sizeof line, "  \"minor_us\": %u,", sched->minor_us);
+    emit(line, u);
+    (void)snprintf(line, sizeof line, "  \"n_frames\": %u,", sched->n_frames);
+    emit(line, u);
+    (void)snprintf(line, sizeof line, "  \"hyperperiod_us\": %llu,",
+                   (unsigned long long)sched->minor_us * sched->n_frames);
+    emit(line, u);
+    (void)snprintf(line, sizeof line, "  \"overhead_us\": %u,",
+                   (unsigned)BM_CONFIG_TT_SCHED_OVERHEAD_US);
+    emit(line, u);
+    (void)snprintf(line, sizeof line, "  \"overhead_calibrated\": %s,",
+                   (BM_CONFIG_TT_SCHED_OVERHEAD_CALIBRATED) ? "true" : "false");
+    emit(line, u);
+    (void)snprintf(line, sizeof line, "  \"ref_clk_hz\": %u,", meta->ref_clk_hz);
+    emit(line, u);
+    {
+        size_t off = 0u;
+        int n = snprintf(line, sizeof line, "  \"operating_points_hz\": [");
+        off = (n > 0) ? (size_t)n : 0u;
+        for (uint8_t i = 0u; i < meta->operating_point_count && off < sizeof line; ++i) {
+            n = snprintf(line + off, sizeof line - off, "%s%u",
+                         (i > 0u) ? ", " : "", meta->operating_points_hz[i]);
+            off += (n > 0) ? (size_t)n : 0u;
+        }
+        (void)snprintf(line + ((off < sizeof line) ? off : sizeof line - 1u),
+                       (off < sizeof line) ? sizeof line - off : 1u, "],");
+        emit(line, u);
+    }
+    emit("  \"tasks\": [", u);
+    for (uint8_t k = 0u; k < sched->entry_count; ++k) {
+        const bm_tt_activity_t *a = sched->entries[k];
+        unsigned long long period = (unsigned long long)sched->minor_us * a->every;
+
+        (void)snprintf(line, sizeof line,
+                       "    {\"name\": \"%s\", \"every\": %u, \"at\": %u, \"wcet_us\": %u, "
+                       "\"domain\": \"%s\", \"kind\": \"compute\", \"period_us\": %llu, "
+                       "\"deadline_us\": %llu, \"inputs\": %u, \"outputs\": %u}%s",
+                       a->name, (unsigned)a->every, (unsigned)a->at, a->wcet_us,
+                       (a->domain == BM_TT_DOMAIN_ISR) ? "isr" : "mainloop",
+                       period, period,
+                       (unsigned)a->input_count, (unsigned)a->output_count,
+                       (k + 1u < sched->entry_count) ? "," : "");
+        emit(line, u);
+    }
+    emit("  ],", u);
+    emit("  \"frames\": [", u);
+    for (uint32_t t = 0u; t < sched->n_frames; ++t) {
+        (void)snprintf(line, sizeof line,
+                       "    {\"t\": %u, \"isr_load_us\": %u, \"mainloop_pending_us\": %u}%s",
+                       t,
+                       tt_report_frame_sum_us(sched, t) + BM_CONFIG_TT_SCHED_OVERHEAD_US,
+                       tt_report_frame_mainloop_us(sched, t),
+                       (t + 1u < sched->n_frames) ? "," : "");
+        emit(line, u);
+    }
+    emit("  ],", u);
+    emit("  \"edges\": []", u);
+    emit("}", u);
 }
 
 /**

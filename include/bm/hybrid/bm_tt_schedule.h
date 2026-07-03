@@ -15,8 +15,8 @@
  * @core_affinity 本核（per-CPU）
  * 调度表实例、rt 状态均为静态分配，跨核使用需各核独立实例。
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-07-01
+ * @version 1.2
+ * @date 2026-07-03
  *
  * @par 修改日志:
  *
@@ -25,6 +25,8 @@
  * 2026-07-01       1.1            zeh            `BM_LET_DEFINE` 拆分为 `BM_LET_DEFINE_ISR`/
  *                                                 `BM_LET_DEFINE_MAINLOOP`（内部通用形式
  *                                                 `BM_LET_DEFINE_EX`），domain 由宏名显式区分
+ * 2026-07-03       1.2            zeh            Task 2: add `bm_tt_schedule_report_json` machine-
+ *                                                 readable JSON export (schema v1) + meta struct
  *
  */
 #ifndef BM_TT_SCHEDULE_H
@@ -191,6 +193,41 @@ uint32_t bm_tt_schedule_run_pending(bm_tt_schedule_t *sched, uint32_t budget);
  */
 void bm_tt_schedule_report(const bm_tt_schedule_t *sched,
                            void (*emit)(const char *line, void *u), void *u);
+
+/**
+ * @brief JSON export metadata (supplied by app/registration unit; NULL == all-zero).
+ */
+typedef struct {
+    uint8_t         cpu;                    /**< CPU this table belongs to; 0 for single-core. */
+    uint32_t        ref_clk_hz;             /**< Reference clock for declared wcet; 0 = undeclared. */
+    const uint32_t *operating_points_hz;    /**< Operating-point frequency array, may be NULL. */
+    uint8_t         operating_point_count;  /**< Number of operating points. */
+} bm_tt_schedule_json_meta_t;
+
+/**
+ * @brief Emit a machine-readable JSON report of the schedule table (schema v1).
+ *
+ * @details Emits one JSON object, one text line at a time via @p emit, covering
+ * schedule identity (name/minor_us/n_frames/hyperperiod_us), framework overhead
+ * (`BM_CONFIG_TT_SCHED_OVERHEAD_US` / `BM_CONFIG_TT_SCHED_OVERHEAD_CALIBRATED`),
+ * caller-supplied meta (cpu/ref_clk_hz/operating_points_hz), a `tasks` array
+ * (one entry per activity, in `entries` order; `name` is taken from the
+ * declaration macro's `#id` stringification, which is always a valid C
+ * identifier and therefore never needs JSON escaping), a `frames` array
+ * (one entry per minor frame, t ascending, with `isr_load_us` including
+ * `BM_CONFIG_TT_SCHED_OVERHEAD_US` and `mainloop_pending_us` summing the
+ * wcet_us of MAINLOOP-domain activities hitting that frame), and a reserved
+ * empty `edges` array (populated by a future task). Output is deterministic:
+ * identical schedule state always yields byte-identical output.
+ *
+ * @param sched schedule table instance (read-only)
+ * @param meta export metadata; NULL falls back to an all-zero default
+ * @param emit per-line output callback
+ * @param u opaque context forwarded to @p emit
+ */
+void bm_tt_schedule_report_json(const bm_tt_schedule_t *sched,
+                                const bm_tt_schedule_json_meta_t *meta,
+                                void (*emit)(const char *line, void *u), void *u);
 
 /**
  * @brief 查询调度表可导出的 RTA slot 数量
