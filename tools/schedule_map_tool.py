@@ -222,12 +222,11 @@ def render(tables, per_table, warns, global_hyper):
             lines.append("  频率对比总表:")
             for ft in a["freq_tables"]:
                 tag = "基准/声明" if ft["is_ref"] else "理论/estimated"
+                verdict = "排得下 ✓" if ft["feasible"] else "超载 ✗"
                 if t.get("interference_sources"):
-                    verdict = "排得下 ✓" if ft["feasible"] else "超载 ✗"
                     lines.append(f"    {ft['f_hz']}Hz（{tag}）  有效={ft['eff_peak_us']}us（含干扰{ft['intf']['total']}）  "
                                  f"{ft['eff_pct']:.1f}%  {verdict}")
                 else:
-                    verdict = "排得下 ✓" if ft["feasible"] else "超载 ✗"
                     lines.append(f"    {ft['f_hz']}Hz（{tag}）  峰值={ft['peak_us']}us  "
                                  f"{ft['pct']:.1f}%  {verdict}")
             lines.append("  注: 以上理论值按 wcet×ref/f 线性外推(estimated)，需上板实测验证")

@@ -269,7 +269,8 @@ class InterferenceRenderTextTest(unittest.TestCase):
         d = make_a()
         with tempfile.TemporaryDirectory() as tmp:
             p = os.path.join(tmp, d["sched_name"]+".json")
-            open(p,"w",encoding="utf-8").write(json.dumps(d))
+            with open(p,"w",encoding="utf-8") as f:
+                f.write(json.dumps(d))
             r = subprocess.run([sys.executable, TOOL, p], capture_output=True, text=True, encoding="utf-8")
         self.assertNotIn("干扰", r.stdout)
         self.assertIn("账外中断", r.stdout)  # 旧注脚保留
@@ -280,7 +281,8 @@ class InterferenceRenderTextTest(unittest.TestCase):
         d["interference_sources"] = [{"name":"hw","period_us":d["minor_us"],"wcet_us":5,"tier":"hardware"}]
         with tempfile.TemporaryDirectory() as tmp:
             p = os.path.join(tmp, d["sched_name"]+".json")
-            open(p,"w",encoding="utf-8").write(json.dumps(d))
+            with open(p,"w",encoding="utf-8") as f:
+                f.write(json.dumps(d))
             r = subprocess.run([sys.executable, TOOL, p], capture_output=True, text=True, encoding="utf-8")
         self.assertIn("干扰", r.stdout)
         self.assertIn("有效", r.stdout)
