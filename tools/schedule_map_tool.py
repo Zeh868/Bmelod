@@ -124,10 +124,10 @@ def _svg_frame_strip(t):
     minor = t["minor_us"] or 1
     n = max(len(frames), 1)
     cell_w, cell_h, gap = 60, 60, 4
-    width = n * (cell_w + gap) + gap
+    width = max(n * (cell_w + gap) + gap, 120)
     height = cell_h + gap * 2 + 4
     peak_t = max(frames, key=lambda f: f["isr_load_us"])["t"] if frames else None
-    parts = [f'<svg viewBox="0 0 {width} {height}" '
+    parts = [f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
              f'role="img" aria-label="时间格视图">']
     for i, f in enumerate(frames):
         pct = 100.0 * f["isr_load_us"] / minor
@@ -152,12 +152,12 @@ def _svg_wcet_bars(t):
     minor = t["minor_us"] or 1
     n = max(len(frames), 1)
     bar_w, gap, plot_h, margin = 40, 8, 160, 24
-    width = n * (bar_w + gap) + gap
+    width = max(n * (bar_w + gap) + gap, 260)
     height = plot_h + margin * 2
     max_val = max([minor] + [f["isr_load_us"] for f in frames]) or 1
     scale = plot_h / max_val
     ref_y = margin + plot_h - minor * scale
-    parts = [f'<svg viewBox="0 0 {width} {height}" '
+    parts = [f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
              f'role="img" aria-label="每拍 WCET 图">']
     for i, f in enumerate(frames):
         x = gap + i * (bar_w + gap)
@@ -182,12 +182,12 @@ def _svg_load_stack(t):
     minor = t["minor_us"] or 1
     n = max(len(frames), 1)
     bar_w, gap, plot_h, margin = 40, 8, 160, 24
-    width = n * (bar_w + gap) + gap
+    width = max(n * (bar_w + gap) + gap, 260)
     height = plot_h + margin * 2
     max_val = max([minor] + [f["isr_load_us"] + f["mainloop_pending_us"] for f in frames]) or 1
     scale = plot_h / max_val
     ref_y = margin + plot_h - minor * scale
-    parts = [f'<svg viewBox="0 0 {width} {height}" '
+    parts = [f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
              f'role="img" aria-label="负载图">']
     for i, f in enumerate(frames):
         x = gap + i * (bar_w + gap)
