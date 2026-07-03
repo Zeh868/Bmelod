@@ -15,7 +15,7 @@
  * @core_affinity 本核（per-CPU）
  * 调度表实例、rt 状态均为静态分配，跨核使用需各核独立实例。
  * @author zeh (china_qzh@163.com)
- * @version 1.2
+ * @version 1.3
  * @date 2026-07-03
  *
  * @par 修改日志:
@@ -27,6 +27,9 @@
  *                                                 `BM_LET_DEFINE_EX`），domain 由宏名显式区分
  * 2026-07-03       1.2            zeh            Task 2: add `bm_tt_schedule_report_json` machine-
  *                                                 readable JSON export (schema v1) + meta struct
+ * 2026-07-03       1.3            zeh            Task 7: add compile-time `_Static_assert` gate in
+ *                                                 `BM_LET_DEFINE_EX` (every >= 1 / at < every) so an
+ *                                                 illegal phase assembly fails the build, not runtime
  *
  */
 #ifndef BM_TT_SCHEDULE_H
@@ -275,8 +278,13 @@ int bm_tt_schedule_rt_slot_at(const bm_tt_schedule_t *sched, uint32_t idx,
  *
  * @note 实现细节：连续输出双缓冲按最大元素上界 BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE
  *       × 输出数分配（略有余量、换零动态分配与实现简单）。
+ * @note Compile-time gate: `every_` and `at_` must be constant expressions
+ *       satisfying `every >= 1` and `at < every`; violations fail the build
+ *       via `_Static_assert` instead of being caught (or missed) at runtime.
  */
 #define BM_LET_DEFINE_EX(id, domain_, every_, at_, wcet_, step_, state_, inputs_, outputs_)     \
+    _Static_assert((every_) >= 1u, "BM_LET_DEFINE: every must be >= 1");                         \
+    _Static_assert((at_) < (every_), "BM_LET_DEFINE: at must be < every");                       \
     static uint8_t  id##_snap[BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE *                                \
                               (sizeof(inputs_) / sizeof((inputs_)[0]))];                        \
     static uint8_t  id##_out2[2u * BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE *                           \

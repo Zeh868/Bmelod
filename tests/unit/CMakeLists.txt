@@ -244,6 +244,13 @@ if(BM_ENABLE_TT_SCHEDULE)
     else()
         message(STATUS "Python3 未找到：schedule_map_tool_test 未注册")
     endif()
+
+    # Task 7：BM_LET_DEFINE_EX 编译期 _Static_assert 硬门（every>=1 / at<every）
+    # 的 configure 期负例检查——试编译一个 at>=every 的非法装配，断言必须编译
+    # 失败且失败原因确为该 static assert（而非 include 配错导致的缺头误判）。
+    set(BM_LET_NEG_INCLUDE_DIRS
+        "${CMAKE_SOURCE_DIR}/include;${CMAKE_SOURCE_DIR}/include/bm/hybrid;${CMAKE_SOURCE_DIR}/include/bm/core;${CMAKE_SOURCE_DIR}/include/bm/common")
+    include(${CMAKE_SOURCE_DIR}/tests/unit/support/check_let_static_assert.cmake)
 endif()
 
 if(BM_ENABLE_WCET_MON)
