@@ -50,9 +50,33 @@ static void test_freq_set_roundtrip(void) {
     TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_hal_cpu_freq_set(0xFFFFFFFEu)); /* 不在支持集 */
 }
 
+/* 对账纯逻辑：一致→BM_OK；主频不符/点越集/ref不在点集→BM_ERR_INVALID */
+static void test_freq_check_logic(void) {
+    const uint32_t pts[] = { 80000000u, 160000000u, 240000000u };
+    /* 一致：cfg 主频=240M 在点集内，cfg 点集 ⊆ port 点集 */
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_hal_cpu_freq_check(240000000u, pts, 3u, 240000000u, pts, 3u));
+    /* 主频不符 */
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID,
+        bm_hal_cpu_freq_check(240000000u, pts, 3u, 160000000u, pts, 3u));
+    /* cfg 有个点(500M)不在 port 支持集 */
+    {
+        const uint32_t bad[] = { 240000000u, 500000000u };
+        TEST_ASSERT_EQUAL(BM_ERR_INVALID,
+            bm_hal_cpu_freq_check(240000000u, bad, 2u, 240000000u, pts, 3u));
+    }
+    /* ref(200M) 不在点集内 */
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID,
+        bm_hal_cpu_freq_check(200000000u, pts, 3u, 200000000u, pts, 3u));
+    /* cfg_freq==0（未声明）→ 跳过、BM_OK */
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_hal_cpu_freq_check(0u, NULL, 0u, 240000000u, pts, 3u));
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_freq_points_contract);
     RUN_TEST(test_freq_set_roundtrip);
+    RUN_TEST(test_freq_check_logic);
     return UNITY_END();
 }

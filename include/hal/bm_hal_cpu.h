@@ -5,7 +5,7 @@
  *
  * 提供 CPU ID 查询、Bootstrap/Secondary 判定、从核启动及内存屏障原语。
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-03
  *
  * @par 修改日志:
@@ -13,6 +13,7 @@
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
  * 2026-07-03       1.1            zeh            新增 CPU 主频接口 freq_hz/freq_points/freq_set
+ * 2026-07-03       1.2            zeh            新增开机对账 freq_check/freq_check_config
  *
  */
 #ifndef BM_HAL_CPU_H
@@ -69,5 +70,24 @@ int bm_hal_cpu_freq_points(const uint32_t **points, uint32_t *count);
  * @note sim/qemu 仅记录（无真实时钟）；真机 esp32 返回 NOT_SUPPORTED，待 PM 接真实切频。
  */
 int bm_hal_cpu_freq_set(uint32_t hz);
+
+/**
+ * @brief 校验 config 声明的主频/频率点与 port 运行期真值一致（纯逻辑，便于单测）。
+ * @param cfg_freq   BM_CONFIG_CPU_FREQ_HZ；0=未声明，直接返回 BM_OK
+ * @param cfg_points config DVFS 点数组（可 NULL）
+ * @param cfg_n      config 点数
+ * @param port_freq  bm_hal_cpu_freq_hz()
+ * @param port_points bm_hal_cpu_freq_points() 的表
+ * @param port_n     port 点数
+ * @return BM_OK 一致；BM_ERR_INVALID 主频不符/某 cfg 点不在 port 支持集/ref 不在 port 支持集
+ */
+int bm_hal_cpu_freq_check(uint32_t cfg_freq, const uint32_t *cfg_points, uint32_t cfg_n,
+                          uint32_t port_freq, const uint32_t *port_points, uint32_t port_n);
+
+/**
+ * @brief 开机对账门面：把 config 宏与 port 查询喂给 bm_hal_cpu_freq_check。
+ * @return 见 bm_hal_cpu_freq_check。应用/未来 PM 可在启动时可选调用（不强制）。
+ */
+int bm_hal_cpu_freq_check_config(void);
 
 #endif /* BM_HAL_CPU_H */
