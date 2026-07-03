@@ -199,5 +199,61 @@ class InterferenceMathTest(unittest.TestCase):
             self.assertNotIn("干扰", w)
 
 
+class InterferenceFreqTest(unittest.TestCase):
+    """多频率分支每档计入 I(f)：period 不缩放、wcet 经 ref/f 缩放。计算层用
+    smt.analyze() 直断言字段与数值；subprocess 只验证整表跑通不崩（文案渲染
+    归 Task 3）。"""
+
+    def test_freq_tables_carry_interference_fields(self):
+        d = make_a()  # ref_clk_hz=240000000, operating_points_hz=[240000000, 80000000]
+        d["interference_sources"] = [
+            {"name": "ctrl", "period_us": d["minor_us"], "wcet_us": 300, "tier": "scheduled"}]
+        per_table, warns, _ = smt.analyze([d], [], 80)
+        a = per_table[0]
+        self.assertEqual(a["mode"], "multi")
+        by_freq = {ft["f_hz"]: ft for ft in a["freq_tables"]}
+        for ft in a["freq_tables"]:
+            self.assertIn("intf", ft)
+            self.assertIn("eff_peak_us", ft)
+            self.assertIn("eff_pct", ft)
+
+        # 基准档 240MHz：wcet 不缩放，period=minor=1000 -> ceil(1000/1000)*300=300
+        ref_ft = by_freq[240000000]
+        self.assertEqual(ref_ft["peak_us"], 100)
+        self.assertEqual(ref_ft["intf"]["total"], 300)
+        self.assertEqual(ref_ft["eff_peak_us"], 400)
+        self.assertTrue(ref_ft["feasible"])  # 400 <= 1000
+
+        # 低频档 80MHz：peak_us 按 ref/f 缩放 ceil(100*240/80)=300；
+        # wcet 同样缩放 ceil(300*240/80)=900 -> intf total=900
+        low_ft = by_freq[80000000]
+        self.assertEqual(low_ft["peak_us"], 300)
+        self.assertEqual(low_ft["intf"]["total"], 900)
+        self.assertEqual(low_ft["eff_peak_us"], 1200)
+        self.assertFalse(low_ft["feasible"])  # 1200 > 1000：可行被干扰压成超载
+
+        with tempfile.TemporaryDirectory() as tmp:
+            p = os.path.join(tmp, d["sched_name"] + ".json")
+            with open(p, "w", encoding="utf-8") as f:
+                json.dump(d, f)
+            r = subprocess.run([sys.executable, TOOL, p], capture_output=True, text=True, encoding="utf-8")
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_freq_tables_empty_interference_noop(self):
+        """opt-in 回归：多频率分支不声明 interference_sources 时，intf 全 0、
+        eff_peak_us==peak_us、eff_pct==pct，feasible 与改动前逐字一致。"""
+        d = make_a()  # fixture 默认无 interference_sources
+        per_table, warns, _ = smt.analyze([d], [], 80)
+        a = per_table[0]
+        self.assertEqual(a["mode"], "multi")
+        for ft in a["freq_tables"]:
+            self.assertEqual(ft["intf"], {"hardware": 0, "scheduled": 0, "total": 0, "bad": []})
+            self.assertEqual(ft["eff_peak_us"], ft["peak_us"])
+            self.assertEqual(ft["eff_pct"], ft["pct"])
+            self.assertEqual(ft["feasible"], ft["peak_us"] <= d["minor_us"])
+        for w in warns:
+            self.assertNotIn("含干扰", w)
+
+
 if __name__ == "__main__":
     unittest.main()

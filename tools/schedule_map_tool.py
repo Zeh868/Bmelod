@@ -103,7 +103,10 @@ def analyze(tables, op_hz_extra, warn_pct):
     返回 (per_table, warns, global_hyper)，per_table 是列表，每项：
         {"peak": frame, "pct": float, "mode": "single"|"multi",
          "freq_tables": [{"f_hz", "is_ref", "tasks", "peak_t", "peak_us",
-                           "pct", "feasible"}, ...]}
+                           "pct", "feasible", "intf", "eff_peak_us",
+                           "eff_pct"}, ...]}
+    每个频率档的 feasible 按 eff_peak_us(=peak_us+intf.total) 判定，intf 由
+    _interference 按该档 ref/f_hz 缩放 wcet 算出（period 不缩放）。
     mode=="single" 时 freq_tables 为空列表，沿用原单表输出。
     """
     per_table, warns = [], []
@@ -150,7 +153,11 @@ def analyze(tables, op_hz_extra, warn_pct):
                     ]
                     peak_fr = max(scaled_frames, key=lambda fr: fr["isr_load_us"])
                     pct = 100.0 * peak_fr["isr_load_us"] / minor
-                    feasible = peak_fr["isr_load_us"] <= minor
+                    # 该频率档的干扰上界：period 不缩放，wcet 经 ref/f_hz 缩放
+                    # （_interference 内部处理），计入后才是有效峰值/可行性判定。
+                    intf_f = _interference(t.get("interference_sources", []), minor, ref, f_hz)
+                    eff = peak_fr["isr_load_us"] + intf_f["total"]
+                    feasible = eff <= minor
                     tasks_scaled = [
                         dict(task, wcet_us=_scale_ceil(task["wcet_us"], ref, f_hz))
                         for task in t["tasks"]
@@ -159,11 +166,19 @@ def analyze(tables, op_hz_extra, warn_pct):
                         "f_hz": f_hz, "is_ref": f_hz == ref, "tasks": tasks_scaled,
                         "peak_t": peak_fr["t"], "peak_us": peak_fr["isr_load_us"],
                         "pct": pct, "feasible": feasible,
+                        "intf": intf_f, "eff_peak_us": eff, "eff_pct": 100.0 * eff / minor,
                     })
                     if f_hz != ref and not feasible:
-                        warns.append(
-                            f"WARN: [cpu{t['cpu']}] {t['sched_name']} @{f_hz}Hz "
-                            f"est 峰值 {peak_fr['isr_load_us']}us > minor {minor}us (estimated)")
+                        # opt-in：未声明干扰源时沿用原文案逐字不变；声明了才
+                        # 换成计入干扰的文案，避免空干扰场景下的输出漂移。
+                        if t.get("interference_sources"):
+                            warns.append(
+                                f"WARN: [cpu{t['cpu']}] {t['sched_name']} @{f_hz}Hz "
+                                f"有效峰值 {eff}us > minor {minor}us (含干扰, estimated)")
+                        else:
+                            warns.append(
+                                f"WARN: [cpu{t['cpu']}] {t['sched_name']} @{f_hz}Hz "
+                                f"est 峰值 {peak_fr['isr_load_us']}us > minor {minor}us (estimated)")
         if raw_pct > warn_pct:
             warns.append(f"WARN: [cpu{t['cpu']}] {t['sched_name']} 峰值负载 {raw_pct:.1f}% 超阈值 {warn_pct}%")
         per_table.append(entry)
