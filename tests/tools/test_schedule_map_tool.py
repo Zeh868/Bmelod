@@ -111,6 +111,19 @@ class T(unittest.TestCase):
             # ref_clk_hz 那一档必须保留
             self.assertIn("240000000Hz（基准", r.stdout)
 
+    def test_dvfs_points_without_anchor_warns_clearly(self):
+        """ref_clk_hz==0 但表里声明了 operating_points_hz（DVFS 点）→ 告警文案
+        须明确指出「缺锚点、无法频率缩放」，而非泛泛的「未声明」。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            d = make_a()
+            d.update(ref_clk_hz=0, operating_points_hz=[160000000, 240000000])
+            p = os.path.join(tmp, d["sched_name"] + ".json")
+            with open(p, "w", encoding="utf-8") as f:
+                json.dump(d, f)
+            r = subprocess.run([sys.executable, TOOL, p], capture_output=True, text=True, encoding="utf-8")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("锚点", r.stdout)  # 明确提示缺锚点，无法缩放
+
     def test_schema_error_exit2(self):
         with tempfile.TemporaryDirectory() as tmp:
             p = os.path.join(tmp, "bad.json")
