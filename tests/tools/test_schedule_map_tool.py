@@ -232,6 +232,13 @@ class InterferenceFreqTest(unittest.TestCase):
         self.assertEqual(low_ft["eff_peak_us"], 1200)
         self.assertFalse(low_ft["feasible"])  # 1200 > 1000：可行被干扰压成超载
 
+        # 低频档超载须触发计入干扰的新告警（文案含「含干扰」+ 正确数值），
+        # 抓 f-string 变量/格式笔误
+        self.assertTrue(
+            any("含干扰" in w and "@80000000Hz" in w
+                and "1200us" in w and "1000us" in w for w in warns),
+            warns)
+
         with tempfile.TemporaryDirectory() as tmp:
             p = os.path.join(tmp, d["sched_name"] + ".json")
             with open(p, "w", encoding="utf-8") as f:
