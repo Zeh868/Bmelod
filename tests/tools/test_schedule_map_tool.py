@@ -186,6 +186,18 @@ class InterferenceMathTest(unittest.TestCase):
         # ceil(1000/500)=2 × ceil(10×240/120)=20 -> 40
         self.assertEqual(r["total"], 40)
 
+    def test_analyze_empty_interference_noop(self):
+        """opt-in 回归：不声明 interference_sources 时，analyze 的新键必须是
+        no-op（intf 全 0、eff==raw、feasible=True），且不产生干扰相关告警。"""
+        d = make_a()  # fixture 无 interference_sources
+        per_table, warns, _ = smt.analyze([d], [], 80)
+        a = per_table[0]
+        self.assertEqual(a["intf"], {"hardware": 0, "scheduled": 0, "total": 0, "bad": []})
+        self.assertEqual(a["eff_peak_us"], a["peak"]["isr_load_us"])
+        self.assertIs(a["feasible"], True)
+        for w in warns:
+            self.assertNotIn("干扰", w)
+
 
 if __name__ == "__main__":
     unittest.main()
