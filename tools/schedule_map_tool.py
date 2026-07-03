@@ -249,10 +249,10 @@ def _svg_wcet_bars(t):
         parts.append(f'<rect x="{x}" y="{y}" width="{bar_w}" height="{h}" '
                      f'fill="{fill}" stroke="{_COLOR_STROKE}" stroke-width="1"/>')
         parts.append(f'<text x="{x + bar_w / 2}" y="{margin + plot_h + 14}" '
-                     f'text-anchor="middle" font-size="10" fill="#111">{f["t"]}</text>')
+                     f'text-anchor="middle" font-size="10" fill="currentColor" opacity="0.85">{f["t"]}</text>')
     parts.append(f'<line x1="0" y1="{ref_y}" x2="{width}" y2="{ref_y}" '
-                 f'stroke="{_COLOR_STROKE_PEAK}" stroke-width="1.5" stroke-dasharray="6,3"/>')
-    parts.append(f'<text x="4" y="{ref_y - 4}" font-size="10" fill="#111">minor={minor}us</text>')
+                 f'stroke="currentColor" stroke-width="1.5" stroke-dasharray="6,3" opacity="0.75"/>')
+    parts.append(f'<text x="4" y="{ref_y - 4}" font-size="10" fill="currentColor" opacity="0.85">minor={minor}us</text>')
     parts.append("</svg>")
     return "".join(parts)
 
@@ -281,10 +281,10 @@ def _svg_load_stack(t):
         parts.append(f'<rect x="{x}" y="{y_main}" width="{bar_w}" height="{h_main}" '
                      f'fill="#4a7fd6" stroke="{_COLOR_STROKE}" stroke-width="1"/>')
         parts.append(f'<text x="{x + bar_w / 2}" y="{margin + plot_h + 14}" '
-                     f'text-anchor="middle" font-size="10" fill="#111">{f["t"]}</text>')
+                     f'text-anchor="middle" font-size="10" fill="currentColor" opacity="0.85">{f["t"]}</text>')
     parts.append(f'<line x1="0" y1="{ref_y}" x2="{width}" y2="{ref_y}" '
-                 f'stroke="{_COLOR_STROKE_PEAK}" stroke-width="1.5" stroke-dasharray="6,3"/>')
-    parts.append(f'<text x="4" y="{ref_y - 4}" font-size="10" fill="#111">minor={minor}us</text>')
+                 f'stroke="currentColor" stroke-width="1.5" stroke-dasharray="6,3" opacity="0.75"/>')
+    parts.append(f'<text x="4" y="{ref_y - 4}" font-size="10" fill="currentColor" opacity="0.85">minor={minor}us</text>')
     parts.append("</svg>")
     return "".join(parts)
 
