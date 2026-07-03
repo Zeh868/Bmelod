@@ -262,5 +262,30 @@ class InterferenceFreqTest(unittest.TestCase):
             self.assertNotIn("含干扰", w)
 
 
+class InterferenceRenderTextTest(unittest.TestCase):
+    def test_empty_interference_identical(self):
+        # 无干扰源时，输出不得含"干扰"字样（与现状一致）
+        import tempfile, os, json, subprocess, sys
+        d = make_a()
+        with tempfile.TemporaryDirectory() as tmp:
+            p = os.path.join(tmp, d["sched_name"]+".json")
+            open(p,"w",encoding="utf-8").write(json.dumps(d))
+            r = subprocess.run([sys.executable, TOOL, p], capture_output=True, text=True, encoding="utf-8")
+        self.assertNotIn("干扰", r.stdout)
+        self.assertIn("账外中断", r.stdout)  # 旧注脚保留
+
+    def test_interference_breakdown_shown(self):
+        import tempfile, os, json, subprocess, sys
+        d = make_a()
+        d["interference_sources"] = [{"name":"hw","period_us":d["minor_us"],"wcet_us":5,"tier":"hardware"}]
+        with tempfile.TemporaryDirectory() as tmp:
+            p = os.path.join(tmp, d["sched_name"]+".json")
+            open(p,"w",encoding="utf-8").write(json.dumps(d))
+            r = subprocess.run([sys.executable, TOOL, p], capture_output=True, text=True, encoding="utf-8")
+        self.assertIn("干扰", r.stdout)
+        self.assertIn("有效", r.stdout)
+        self.assertIn("已计入声明干扰源", r.stdout)  # 注脚切换
+
+
 if __name__ == "__main__":
     unittest.main()

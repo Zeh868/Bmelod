@@ -197,6 +197,11 @@ def render(tables, per_table, warns, global_hyper):
         if a["mode"] == "single":
             peak, pct = a["peak"], a["pct"]
             lines.append(f"  峰值格 t={peak['t']} ({peak['isr_load_us']}us, {pct:.1f}% of minor)")
+            if t.get("interference_sources"):
+                intf = a["intf"]
+                verdict = "排得下 ✓" if a["feasible"] else "超载 ✗"
+                lines.append(f"  干扰(硬{intf['hardware']}/调{intf['scheduled']})={intf['total']}us  "
+                             f"有效峰值={a['eff_peak_us']}us ({a['eff_pct']:.1f}% of minor) {verdict}")
             for task in t["tasks"]:
                 lines.append(f"  {task['domain'].upper():8s} {task['name']}  every={task['every']} "
                              f"at={task['at']} wcet={task['wcet_us']}us period={task['period_us']}us")
@@ -209,14 +214,28 @@ def render(tables, per_table, warns, global_hyper):
                     lines.append(f"    {task['domain'].upper():8s} {task['name']}  every={task['every']} "
                                  f"at={task['at']} wcet={task['wcet_us']}us period={task['period_us']}us")
                 lines.append(f"    峰值格 t={ft['peak_t']} ({ft['peak_us']}us, {ft['pct']:.1f}% of minor) {verdict}")
+                if t.get("interference_sources"):
+                    it = ft["intf"]
+                    v2 = "排得下 ✓" if ft["feasible"] else "超载 ✗"
+                    lines.append(f"    干扰(硬{it['hardware']}/调{it['scheduled']})={it['total']}us  "
+                                 f"有效={ft['eff_peak_us']}us ({ft['eff_pct']:.1f}%) {v2}")
             lines.append("  频率对比总表:")
             for ft in a["freq_tables"]:
                 tag = "基准/声明" if ft["is_ref"] else "理论/estimated"
-                verdict = "排得下 ✓" if ft["feasible"] else "超载 ✗"
-                lines.append(f"    {ft['f_hz']}Hz（{tag}）  峰值={ft['peak_us']}us  "
-                             f"{ft['pct']:.1f}%  {verdict}")
+                if t.get("interference_sources"):
+                    verdict = "排得下 ✓" if ft["feasible"] else "超载 ✗"
+                    lines.append(f"    {ft['f_hz']}Hz（{tag}）  有效={ft['eff_peak_us']}us（含干扰{ft['intf']['total']}）  "
+                                 f"{ft['eff_pct']:.1f}%  {verdict}")
+                else:
+                    verdict = "排得下 ✓" if ft["feasible"] else "超载 ✗"
+                    lines.append(f"    {ft['f_hz']}Hz（{tag}）  峰值={ft['peak_us']}us  "
+                                 f"{ft['pct']:.1f}%  {verdict}")
             lines.append("  注: 以上理论值按 wcet×ref/f 线性外推(estimated)，需上板实测验证")
-        lines.append("  注: 本表仅含 TT 门面负载，账外中断/slot 不在内")
+        if t.get("interference_sources"):
+            n = len(t["interference_sources"])
+            lines.append(f"  注: 已计入声明干扰源（{n} 个 HRT 抢占，ceiling 上界；未声明的仍在账外）")
+        else:
+            lines.append("  注: 本表仅含 TT 门面负载，账外中断/slot 不在内")
     parts = ", ".join(str(t["hyperperiod_us"]) for t in tables)
     lines.append(f"全局超周期: {global_hyper}us = LCM({parts})")
     lines.extend(warns)
