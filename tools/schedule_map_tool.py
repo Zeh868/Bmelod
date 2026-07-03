@@ -94,7 +94,11 @@ def analyze(tables, op_hz_extra, warn_pct):
         entry = {"peak": raw_peak, "pct": raw_pct, "mode": "single", "freq_tables": []}
 
         if ref == 0:
-            warns.append(f"WARN: ref_clk_hz 未声明 ({t['sched_name']}) —— 频率缩放分析跳过")
+            if t.get("operating_points_hz"):
+                warns.append(f"WARN: {t['sched_name']} 声明了 DVFS 点但缺 "
+                             f"BM_CONFIG_CPU_FREQ_HZ 锚点，无法频率缩放（退为单表）")
+            else:
+                warns.append(f"WARN: ref_clk_hz 未声明 ({t['sched_name']}) —— 频率缩放分析跳过")
         else:
             freqs = _table_freqs(t, op_hz_extra)
             if len(freqs) > 1:

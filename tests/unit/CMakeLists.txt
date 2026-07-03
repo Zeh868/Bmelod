@@ -329,6 +329,14 @@ bm_add_test(test_hal_dma_stream test_hal_dma_stream.c bm_core)
 target_include_directories(test_hal_dma_stream PRIVATE
     ${CMAKE_SOURCE_DIR}/portable/sim/native)
 
+# CPU 主频 HAL 接口机制单测（freq_hz/freq_points/freq_set）
+# 该测试验证的是单核桩（bm_hal_cpu_stub.c）的主频机制，三个符号仅由桩提供；
+# SMP/多核后端此时尚未实现 freq 接口（留给后续 port 任务），
+# 故仅在 BM_HAL_USE_CPU_STUB（桩链入 bm_hal）时注册，避免 SMP 构建链接失败。
+if(BM_HAL_USE_CPU_STUB)
+    bm_add_test(test_hal_cpu_freq test_hal_cpu_freq.c bm_hal)
+endif()
+
 if(BM_ENABLE_ALGORITHM)
     # test_algorithm.c 按域拆分（架构改进计划任务 1.5b 项 6）：原单一 3300+ 行
     # 文件替换为 6 个按主题分组的独立 Unity 可执行文件，纯移动不改测试内容。

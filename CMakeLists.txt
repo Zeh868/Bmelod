@@ -168,6 +168,7 @@ add_library(bm_hal STATIC
     Source/hal/bm_hal_dma_stream.c
     Source/hal/bm_hal_uptime.c
     Source/hal/bm_persist.c          # #10 持久化 KV 层
+    Source/hal/bm_hal_cpu_freq.c     # CPU 主频开机对账
 )
 option(BM_HAL_USE_CPU_STUB "Link bm_hal_cpu_stub.c into bm_hal" ON)
 if(BM_HAL_USE_CPU_STUB)
