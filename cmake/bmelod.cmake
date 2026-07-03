@@ -13,6 +13,7 @@
 include_guard(GLOBAL)
 
 include(${CMAKE_CURRENT_LIST_DIR}/bmelod_profiles.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/bm_schedule_map.cmake)
 
 set(_BMELOD_BACKEND_ALIAS_native_sim bm_hal_native)
 set(_BMELOD_BACKEND_ALIAS_sdk_stm32g4 bm_hal_stm32g4)

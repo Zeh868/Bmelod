@@ -192,54 +192,41 @@ if(BM_ENABLE_TT_SCHEDULE)
         endif()
     endif()
 
-    # Task 7：host dump 工具，装配示例调度表并导出 bm_tt_schedule_report
-    # 到 build/schedule_map.txt，供开发者人工核对调度概览（非单元测试，
-    # 随 ALL 目标构建）。
-    add_executable(tt_schedule_map_dump ${CMAKE_SOURCE_DIR}/tests/tools/tt_schedule_map_dump.c)
+    # schedule-map v2：一行接入函数生成注册单元 + host dump 可执行 +
+    # POST_BUILD 自动出表（级 2 复合报告落 build/schedule_map/schedule_map_all.txt），
+    # 替换原先手搭的 demo dump 目标与 Task 3 手搭的 bm_schedule_map_dump。
+    # 另建 bm_schedule_map_dump_bad 作门禁负例（init 故意失败，非零退出）。
+    include(${CMAKE_SOURCE_DIR}/cmake/bm_schedule_map.cmake)
+    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/schedule_map_out ${CMAKE_BINARY_DIR}/schedule_map_out_bad)
+    bm_add_schedule_map(bm_schedule_map_dump
+        SOURCES ${CMAKE_SOURCE_DIR}/tests/tools/schedule_map_fixture.c
+        SETUP   schedule_map_fixture_setup
+        TABLES  sched_fixture_a:0 sched_fixture_b:1
+        INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/tests/tools
+        REF_CLK_HZ 240000000
+        OPERATING_POINTS 240000000 80000000)
+    bm_target_internal_includes(bm_schedule_map_dump)
+    add_custom_target(schedule-map ALL DEPENDS bm_schedule_map_dump)
+
+    add_executable(bm_schedule_map_dump_bad
+        ${CMAKE_SOURCE_DIR}/tools/schedule_map/bm_schedule_map_main.c
+        ${CMAKE_SOURCE_DIR}/tests/tools/schedule_map_fixture_bad.c)
+    target_include_directories(bm_schedule_map_dump_bad PRIVATE
+        ${CMAKE_SOURCE_DIR}/tools/schedule_map ${CMAKE_SOURCE_DIR}/tests/tools)
+    bm_target_internal_includes(bm_schedule_map_dump_bad)
     # 同 bm_add_test 注释：BM_ENABLE_WCET_MON 打开时需把 bm_wcet_mon 纳入同一 GNU
     # 静态库解析组，否则其 PUBLIC 链 bm_core/bm_hal 在组外重复出现时脱离
     # bm_hal_native 覆盖范围，bm_hal_uptime_ns_raw 未解析。
     if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
-        target_link_libraries(tt_schedule_map_dump PRIVATE
+        target_link_libraries(bm_schedule_map_dump_bad PRIVATE
             "-Wl,--start-group"
             bm_tt_schedule bm_core bm_hal bm_hal_native
             $<$<BOOL:${BM_ENABLE_WCET_MON}>:bm_wcet_mon>
             "-Wl,--end-group")
     else()
-        target_link_libraries(tt_schedule_map_dump PRIVATE bm_tt_schedule bm_core bm_hal bm_hal_native)
+        target_link_libraries(bm_schedule_map_dump_bad PRIVATE bm_tt_schedule bm_core bm_hal bm_hal_native)
     endif()
-    bm_target_internal_includes(tt_schedule_map_dump)
-    add_custom_target(schedule-map ALL
-        COMMAND tt_schedule_map_dump ${CMAKE_BINARY_DIR}/schedule_map.txt
-        DEPENDS tt_schedule_map_dump
-        COMMENT "Generating build/schedule_map.txt")
 
-    # schedule-map v2: generic dump main + fixture register units (2 good
-    # tables + 1 gate negative table). See Task 3 of
-    # docs/superpowers/plans/2026-07-03-schedule-map-export.md.
-    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/schedule_map_out ${CMAKE_BINARY_DIR}/schedule_map_out_bad)
-    add_executable(bm_schedule_map_dump
-        ${CMAKE_SOURCE_DIR}/tools/schedule_map/bm_schedule_map_main.c
-        ${CMAKE_SOURCE_DIR}/tests/tools/schedule_map_fixture.c
-        ${CMAKE_SOURCE_DIR}/tests/tools/schedule_map_fixture_reg.c)
-    add_executable(bm_schedule_map_dump_bad
-        ${CMAKE_SOURCE_DIR}/tools/schedule_map/bm_schedule_map_main.c
-        ${CMAKE_SOURCE_DIR}/tests/tools/schedule_map_fixture_bad.c)
-    foreach(_smd bm_schedule_map_dump bm_schedule_map_dump_bad)
-        target_include_directories(${_smd} PRIVATE
-            ${CMAKE_SOURCE_DIR}/tools/schedule_map ${CMAKE_SOURCE_DIR}/tests/tools)
-        bm_target_internal_includes(${_smd})
-        # Same GNU/non-GNU link-group pattern as tt_schedule_map_dump above.
-        if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
-            target_link_libraries(${_smd} PRIVATE
-                "-Wl,--start-group"
-                bm_tt_schedule bm_core bm_hal bm_hal_native
-                $<$<BOOL:${BM_ENABLE_WCET_MON}>:bm_wcet_mon>
-                "-Wl,--end-group")
-        else()
-            target_link_libraries(${_smd} PRIVATE bm_tt_schedule bm_core bm_hal bm_hal_native)
-        endif()
-    endforeach()
     add_test(NAME schedule_map_dump_ok
         COMMAND bm_schedule_map_dump ${CMAKE_BINARY_DIR}/schedule_map_out)
     add_test(NAME schedule_map_dump_gate
