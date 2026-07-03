@@ -5,6 +5,10 @@ import json, os, subprocess, sys, tempfile, unittest
 
 TOOL = os.path.join(os.path.dirname(__file__), "..", "..", "tools", "schedule_map_tool.py")
 
+import importlib.util as _ilu
+_spec = _ilu.spec_from_file_location("smt", TOOL)
+smt = _ilu.module_from_spec(_spec); _spec.loader.exec_module(smt)
+
 def make_a():
     return {
         "schema_version": 1, "sched_name": "sched_fixture_a", "cpu": 0,
@@ -152,6 +156,36 @@ class T(unittest.TestCase):
             self.assertIn("240000000Hz", html)
             self.assertIn("80000000Hz", html)
             self.assertIn("estimated", html)
+
+class InterferenceMathTest(unittest.TestCase):
+    def test_ceiling_single_source(self):
+        # minor=1000, period=300 -> ceil(1000/300)=4; wcet=10 -> 40
+        r = smt._interference([{"name":"a","period_us":300,"wcet_us":10,"tier":"scheduled"}], 1000)
+        self.assertEqual(r["total"], 40)
+        self.assertEqual(r["scheduled"], 40)
+        self.assertEqual(r["hardware"], 0)
+        self.assertEqual(r["bad"], [])
+
+    def test_multi_source_tier_split(self):
+        srcs = [{"name":"hw","period_us":500,"wcet_us":6,"tier":"hardware"},   # ceil(1000/500)=2 ->12
+                {"name":"sc","period_us":1000,"wcet_us":20,"tier":"scheduled"}] # ceil(1)=1 ->20
+        r = smt._interference(srcs, 1000)
+        self.assertEqual(r["hardware"], 12)
+        self.assertEqual(r["scheduled"], 20)
+        self.assertEqual(r["total"], 32)
+
+    def test_bad_period_skipped(self):
+        r = smt._interference([{"name":"z","period_us":0,"wcet_us":9,"tier":"scheduled"}], 1000)
+        self.assertEqual(r["total"], 0)
+        self.assertEqual(r["bad"], ["z"])
+
+    def test_freq_scaled_wcet(self):
+        # ref=240M, f=120M -> wcet ×2; period 不变
+        r = smt._interference([{"name":"a","period_us":500,"wcet_us":10,"tier":"scheduled"}],
+                              1000, ref=240000000, f_hz=120000000)
+        # ceil(1000/500)=2 × ceil(10×240/120)=20 -> 40
+        self.assertEqual(r["total"], 40)
+
 
 if __name__ == "__main__":
     unittest.main()

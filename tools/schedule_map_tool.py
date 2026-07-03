@@ -51,6 +51,27 @@ def _scale_ceil(value, ref, f_hz):
     return -(-value * ref // f_hz)
 
 
+def _interference(sources, minor_us, ref=None, f_hz=None):
+    """算一组干扰源对某 minor 窗口的 ceiling 上界抢占：
+    total = Σ ceil(minor_us / period_us) × wcet_us（wcet 可选按 ref/f 缩放）。
+    period_us<=0 视为声明错误，计入 bad 并跳过（不除零）。按 tier 分别累计。"""
+    acc = {"hardware": 0, "scheduled": 0, "total": 0, "bad": []}
+    for s in sources:
+        period = int(s.get("period_us", 0))
+        if period <= 0:
+            acc["bad"].append(s.get("name", "?"))
+            continue
+        wcet = int(s.get("wcet_us", 0))
+        if ref and f_hz and f_hz != ref:
+            wcet = _scale_ceil(wcet, ref, f_hz)
+        contrib = -(-minor_us // period) * wcet  # ceil(minor/period) × wcet
+        tier = s.get("tier", "scheduled")
+        key = "hardware" if tier == "hardware" else "scheduled"
+        acc[key] += contrib
+        acc["total"] += contrib
+    return acc
+
+
 def _table_freqs(t, op_hz_extra):
     """算某张表参与频率分析的全部工作点：ref_clk_hz ∪ 表自带 operating_points_hz ∪
     命令行 --op-hz，剔除 0，排序去重。"""
@@ -92,6 +113,20 @@ def analyze(tables, op_hz_extra, warn_pct):
         raw_peak = max(t["frames"], key=lambda f: f["isr_load_us"])
         raw_pct = 100.0 * raw_peak["isr_load_us"] / minor
         entry = {"peak": raw_peak, "pct": raw_pct, "mode": "single", "freq_tables": []}
+
+        intf = _interference(t.get("interference_sources", []), minor)
+        eff_peak = raw_peak["isr_load_us"] + intf["total"]
+        entry["intf"] = intf
+        entry["eff_peak_us"] = eff_peak
+        entry["eff_pct"] = 100.0 * eff_peak / minor
+        entry["feasible"] = eff_peak <= minor
+        for bad in intf["bad"]:
+            warns.append(f"WARN: [cpu{t['cpu']}] {t['sched_name']} 干扰源 {bad} period_us<=0，已跳过")
+        if t.get("interference_sources"):
+            if intf["total"] >= minor:
+                warns.append(f"WARN: [cpu{t['cpu']}] {t['sched_name']} 干扰单独 {intf['total']}us ≥ minor {minor}us（TT 无预算）")
+            elif not entry["feasible"]:
+                warns.append(f"WARN: [cpu{t['cpu']}] {t['sched_name']} 计入干扰后有效峰值 {eff_peak}us > minor {minor}us")
 
         if ref == 0:
             if t.get("operating_points_hz"):
