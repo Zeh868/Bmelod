@@ -246,6 +246,17 @@ if(BM_ENABLE_TT_SCHEDULE)
         COMMAND bm_schedule_map_dump_bad ${CMAKE_BINARY_DIR}/schedule_map_out_bad)
     set_tests_properties(schedule_map_dump_gate PROPERTIES WILL_FAIL TRUE)
     set_tests_properties(schedule_map_dump_ok schedule_map_dump_gate PROPERTIES LABELS "determinism")
+
+    # Task 4：级 2 复合分析工具（tools/schedule_map_tool.py）的 stdlib unittest
+    # 自测，纯 Python 进程内构造 JSON fixture，不依赖上面的 dump 产物。
+    find_package(Python3 COMPONENTS Interpreter)
+    if(Python3_FOUND)
+        add_test(NAME schedule_map_tool_test
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/tools/test_schedule_map_tool.py)
+        set_tests_properties(schedule_map_tool_test PROPERTIES LABELS "determinism")
+    else()
+        message(STATUS "Python3 未找到：schedule_map_tool_test 未注册")
+    endif()
 endif()
 
 if(BM_ENABLE_WCET_MON)
