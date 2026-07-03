@@ -9,21 +9,24 @@
  * n_frames=LCM(1,5,10,10)=10），装配风格与
  * `tests/tools/tt_schedule_map_dump.c`、`tests/unit/test_tt_schedule.c`
  * 场景 11 一致（同用 BM_BUS_DEFINE/BM_LET_DEFINE_ISR/
- * BM_LET_DEFINE_MAINLOOP/BM_SCHEDULE_DEFINE）。四个用例：
+ * BM_LET_DEFINE_MAINLOOP/BM_SCHEDULE_DEFINE）。五个用例：
  *   1. 显式传入 meta（cpu/ref_clk_hz/operating_points_hz）时的关键事实——
  *      断言 schema_version/n_frames/hyperperiod_us/ref_clk_hz/
  *      operating_points_hz，以及第 0 帧、第 9 帧的准确负载行
  *      （isr_load_us/mainloop_pending_us），加上预留的空 edges 数组。
- *   2. meta == NULL 时退化为全零默认值（cpu=0/ref_clk_hz=0/无工作点）。
- *   3. 回归：operating_point_count 足够多（40 个）时 operating_points_hz
+ *   2. meta == NULL 时退化为全零默认值（cpu=0/ref_clk_hz=0/无工作点/
+ *      interference_sources 为空数组）。
+ *   3. Task 5：meta 带 2 个干扰源时 interference_sources 一源一行导出，
+ *      tier 字段导出为 "hardware"/"scheduled" 字符串。
+ *   4. 回归：operating_point_count 足够多（40 个）时 operating_points_hz
  *      单行拼装不越界——逐行 strlen 必须 < 200（TT_REPORT_LINE_MAX）。
  *      本机 mingw 的 snprintf 是 msvcrt 语义，截断时返回 -1 且不补 NUL，
  *      旧实现假设截断后仍 NUL 结尾，40 个工作点填满行缓冲时该假设不成立。
- *   4. 确定性：同一调度表输出两次，结果逐字节相同。
+ *   5. 确定性：同一调度表输出两次，结果逐字节相同。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-07-03
+ * @version 1.2
+ * @date 2026-07-04
  *
  * @par 修改日志:
  *
@@ -32,6 +35,10 @@
  * 2026-07-03       1.1            zeh            新增 40 工作点越界回归用例，
  *                                                 回归 operating_points_hz 单行拼装
  *                                                 越界读缺陷
+ * 2026-07-04       1.2            zeh            Task 5：新增 interference_sources
+ *                                                 用例（1~2 干扰源一源一行 + 空数组
+ *                                                 默认回退），覆盖 meta 新增
+ *                                                 interference/interference_count 字段
  *
  */
 #include "unity.h"
@@ -177,6 +184,53 @@ void test_report_json_null_meta_defaults_to_zero(void) {
     TEST_ASSERT_NOT_NULL(strstr(g_json_buf, "\"cpu\": 0"));
     TEST_ASSERT_NOT_NULL(strstr(g_json_buf, "\"ref_clk_hz\": 0"));
     TEST_ASSERT_NOT_NULL(strstr(g_json_buf, "\"operating_points_hz\": []"));
+    TEST_ASSERT_NOT_NULL(strstr(g_json_buf, "\"interference_sources\": []"));
+
+    bm_bus_close(&g_json_in_bus);
+    bm_bus_close(&g_json_fast_out_bus);
+    bm_bus_close(&g_json_mid_out_bus);
+    bm_bus_close(&g_json_slow_out_bus);
+    bm_bus_close(&g_json_tele_out_bus);
+}
+
+/** @brief 用例 5 专用：2 个干扰源（1 硬件 tier + 1 已调度 tier），
+ *  覆盖 bm_tt_schedule_report_json 新增的 interference_sources 一源一行发射 */
+static const bm_tt_sched_intf_src_t k_json_intf_srcs[] = {
+    { "spi_isr", 1000u, 20u, 0u },
+    { "wifi_task", 5000u, 300u, 1u },
+};
+
+/**
+ * @brief 用例 5：meta 带 2 个干扰源 -> JSON 含 interference_sources 数组，
+ * 逐源一行、tier 导出为 "hardware"/"scheduled" 字符串
+ */
+void test_report_json_interference_sources_with_meta(void) {
+    bm_bus_cfg_t cfg = { .owner_cpu = 0u };
+    bm_tt_schedule_json_meta_t meta = {
+        .cpu = 0u,
+        .ref_clk_hz = 240000000u,
+        .operating_points_hz = k_json_ops,
+        .operating_point_count = 2u,
+        .interference = k_json_intf_srcs,
+        .interference_count = 2u,
+    };
+
+    g_json_buf[0] = '\0';
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_json_in_bus, &json_in_bus_storage, &cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_json_fast_out_bus, &json_fast_out_bus_storage, &cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_json_mid_out_bus, &json_mid_out_bus_storage, &cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_json_slow_out_bus, &json_slow_out_bus_storage, &cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_json_tele_out_bus, &json_tele_out_bus_storage, &cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_tt_schedule_init(&sched_json));
+
+    bm_tt_schedule_report_json(&sched_json, &meta, json_emit, NULL);
+
+    TEST_ASSERT_NOT_NULL(strstr(g_json_buf, "\"interference_sources\": ["));
+    TEST_ASSERT_NOT_NULL(strstr(g_json_buf,
+        "{\"name\": \"spi_isr\", \"period_us\": 1000, \"wcet_us\": 20, \"tier\": \"hardware\"},"));
+    TEST_ASSERT_NOT_NULL(strstr(g_json_buf,
+        "{\"name\": \"wifi_task\", \"period_us\": 5000, \"wcet_us\": 300, \"tier\": \"scheduled\"}"));
 
     bm_bus_close(&g_json_in_bus);
     bm_bus_close(&g_json_fast_out_bus);
@@ -297,6 +351,7 @@ int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_report_json_key_facts_with_explicit_meta);
     RUN_TEST(test_report_json_null_meta_defaults_to_zero);
+    RUN_TEST(test_report_json_interference_sources_with_meta);
     RUN_TEST(test_report_json_many_operating_points_no_line_overflow);
     RUN_TEST(test_report_json_deterministic_across_two_runs);
     return UNITY_END();

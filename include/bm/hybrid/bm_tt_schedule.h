@@ -15,8 +15,8 @@
  * @core_affinity 本核（per-CPU）
  * 调度表实例、rt 状态均为静态分配，跨核使用需各核独立实例。
  * @author zeh (china_qzh@163.com)
- * @version 1.3
- * @date 2026-07-03
+ * @version 1.4
+ * @date 2026-07-04
  *
  * @par 修改日志:
  *
@@ -30,6 +30,10 @@
  * 2026-07-03       1.3            zeh            Task 7：在 `BM_LET_DEFINE_EX` 中新增编译期
  *                                                 `_Static_assert` 硬门（every >= 1 / at < every），
  *                                                 使非法相位组装在构建期而非运行期失败
+ * 2026-07-04       1.4            zeh            Task 5：新增 `bm_tt_sched_intf_src_t` 干扰源类型，
+ *                                                 `bm_tt_schedule_json_meta_t` 追加
+ *                                                 interference/interference_count，供
+ *                                                 report_json 导出 interference_sources
  *
  */
 #ifndef BM_TT_SCHEDULE_H
@@ -198,6 +202,23 @@ void bm_tt_schedule_report(const bm_tt_schedule_t *sched,
                            void (*emit)(const char *line, void *u), void *u);
 
 /**
+ * @brief 干扰源描述（HRT 抢占干扰来源，供 schedule-map 消费方合并分析）
+ *
+ * @details 一个干扰源代表调度表之外、会抢占/挤占本表时间格的一路周期性
+ * 活动：`tier` 区分其来源层级——0（hardware）为硬件中断（不受本调度表
+ * 节拍约束，可能任意相位抢占）、1（scheduled）为已被纳入某调度表节拍的
+ * 活动（相位/周期已知，可做更精确的 RTA 合并）。本类型仅描述、不参与
+ * 框架运行期调度，由 app/注册单元在装配 `bm_tt_schedule_json_meta_t` 时
+ * 提供，`bm_tt_schedule_report_json` 只读遍历并导出。
+ */
+typedef struct {
+    const char *name;      /**< 干扰源标识（建议合法 C 标识符，导出时不转义） */
+    uint32_t    period_us; /**< 周期（微秒） */
+    uint32_t    wcet_us;   /**< 最坏执行时间/占用时长（微秒） */
+    uint8_t     tier;      /**< 来源层级：0=hardware（硬件中断），1=scheduled（已调度） */
+} bm_tt_sched_intf_src_t;
+
+/**
  * @brief JSON 导出元数据（由 app/注册单元提供；NULL 视为全零默认值）
  */
 typedef struct {
@@ -205,6 +226,8 @@ typedef struct {
     uint32_t        ref_clk_hz;             /**< 声明 wcet 所基于的参考时钟；0=未声明 */
     const uint32_t *operating_points_hz;    /**< 工作点频率数组，可为 NULL */
     uint8_t         operating_point_count;  /**< 工作点个数 */
+    const bm_tt_sched_intf_src_t *interference;      /**< 干扰源数组，可为 NULL */
+    uint8_t                       interference_count; /**< 干扰源个数 */
 } bm_tt_schedule_json_meta_t;
 
 /**
@@ -218,8 +241,11 @@ typedef struct {
  * 恒为合法 C 标识符，因此无需 JSON 转义）、一个 `frames` 数组（每个 minor
  * frame 一条，t 升序排列，`isr_load_us` 含 `BM_CONFIG_TT_SCHED_OVERHEAD_US`，
  * `mainloop_pending_us` 为该拍命中的 MAINLOOP 域 activity 的 wcet_us 之和），
- * 以及一个预留的空 `edges` 数组（由后续任务填充）。输出是确定性的：相同的
- * 调度表状态恒产出逐字节相同的输出。
+ * 一个 `interference_sources` 数组（由 meta 的 `interference`/
+ * `interference_count` 提供，逐源一行，`tier` 导出为 "hardware"/
+ * "scheduled" 字符串；`interference_count` 为 0 或 meta 为 NULL 时导出空
+ * 数组 `[]`），以及一个预留的空 `edges` 数组（由后续任务填充）。输出是
+ * 确定性的：相同的调度表状态恒产出逐字节相同的输出。
  *
  * @param sched 调度表实例（只读）
  * @param meta 导出元数据；NULL 时退化为全零默认值
