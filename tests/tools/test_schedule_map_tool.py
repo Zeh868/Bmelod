@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""schedule_map_tool 自测：构造 JSON → 总表/全局 LCM/告警/退出码/HTML。"""
+"""schedule_map_tool 自测：构造 JSON → 总表/全局 LCM/告警/退出码/HTML/
+按频率分表（多频率各出一张理论分析表 + 频率对比总表，上限 8 档截断）。"""
 import json, os, subprocess, sys, tempfile, unittest
 
 TOOL = os.path.join(os.path.dirname(__file__), "..", "..", "tools", "schedule_map_tool.py")
@@ -52,11 +53,63 @@ class T(unittest.TestCase):
             self.assertIn("WARN", r.stdout)
             self.assertIn("estimated", r.stdout)
 
+    def test_multi_freq_table_scaling(self):
+        """make_a 声明两个工作点（240M 基准 + 80M）→ 多频率模式：每个频率各出
+        一张完整分析表 + 一张频率对比总表，理论值按 wcet×ref/f 线性外推。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            r = run_tool(tmp)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            out = r.stdout
+            # 基准档 240000000Hz：声明值本身，不缩放
+            self.assertIn("240000000Hz", out)
+            self.assertIn("基准", out)
+            self.assertIn("(100us, 10.0% of minor) 排得下", out)
+            # 理论档 80000000Hz：ceil(100 * 240 / 80) = 300us
+            self.assertIn("80000000Hz", out)
+            self.assertIn("理论/estimated", out)
+            self.assertIn("(300us, 30.0% of minor) 排得下", out)
+            # 频率对比总表两行都要出现
+            self.assertIn("频率对比总表", out)
+            self.assertIn("峰值=100us", out)
+            self.assertIn("峰值=300us", out)
+            self.assertIn("实测验证", out)
+
+    def test_single_freq_table_unaffected(self):
+        """make_b ref_clk_hz==0 → 单表模式，不出各频率分表/频率对比总表。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            r = run_tool(tmp)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            b_section = r.stdout.split("[cpu1]", 1)[1]
+            self.assertNotIn("频率档 @", b_section)
+            self.assertNotIn("频率对比总表", b_section)
+
     def test_op_scaling_overload_warn(self):
         with tempfile.TemporaryDirectory() as tmp:
             r = run_tool(tmp, "--op-hz", "20000000")
             self.assertEqual(r.returncode, 0)
+            # 新增 20000000Hz 档：ceil(100*240/20)=1200us > minor 1000us → 超载
             self.assertIn("WARN: [cpu0] sched_fixture_a @20000000Hz est 峰值 1200us > minor 1000us", r.stdout)
+            self.assertIn("(1200us, 120.0% of minor) 超载", r.stdout)
+            self.assertIn("超载", r.stdout)
+            # 对比总表该行也要标超载
+            self.assertIn("20000000Hz（理论/estimated）  峰值=1200us  120.0%  超载", r.stdout)
+
+    def test_op_points_cap_at_8(self):
+        """频率点数超过 MAX_OP_POINTS(8) 时 stderr 警告 + 截断到 8 档（保留
+        ref_clk），退出码仍是 0。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            args = []
+            for v in (10000000, 20000000, 30000000, 40000000, 50000000, 60000000, 70000000, 90000000):
+                args += ["--op-hz", str(v)]
+            r = run_tool(tmp, *args)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("最多 8", r.stderr)
+            self.assertIn("sched_fixture_a", r.stderr)
+            # cpu0 (sched_fixture_a) 的频率档数应被截到 8
+            a_section = r.stdout.split("[cpu1]", 1)[0]
+            self.assertEqual(a_section.count("频率档 @"), 8)
+            # ref_clk_hz 那一档必须保留
+            self.assertIn("240000000Hz（基准", r.stdout)
 
     def test_schema_error_exit2(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -71,7 +124,8 @@ class T(unittest.TestCase):
             out = os.path.join(tmp, "map.html")
             r = run_tool(tmp, "--html", out)
             self.assertEqual(r.returncode, 0, r.stderr)
-            html = open(out, encoding="utf-8").read()
+            with open(out, encoding="utf-8") as f:
+                html = f.read()
             self.assertIn("<!doctype html>", html.lower())
             self.assertIn("<svg", html)
             self.assertNotIn("http://", html)
@@ -80,6 +134,11 @@ class T(unittest.TestCase):
             self.assertIn("sched_fixture_b", html)
             self.assertIn("20000", html)
             self.assertGreaterEqual(html.count("<rect"), 10)
+            # 多频率表：HTML 里应含频率对比表，基准/理论两档都要出现
+            self.assertIn("频率对比表", html)
+            self.assertIn("240000000Hz", html)
+            self.assertIn("80000000Hz", html)
+            self.assertIn("estimated", html)
 
 if __name__ == "__main__":
     unittest.main()

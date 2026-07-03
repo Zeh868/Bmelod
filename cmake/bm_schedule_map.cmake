@@ -8,6 +8,13 @@ function(bm_add_schedule_map NAME)
     if(NOT SM_SOURCES OR NOT SM_SETUP OR NOT SM_TABLES)
         message(FATAL_ERROR "bm_add_schedule_map(${NAME}): SOURCES/SETUP/TABLES 必填")
     endif()
+    # 调用方是否显式传了 REF_CLK_HZ：须在下面的默认值兜底之前判定，否则
+    # "未传" 与 "传了 0" 无法区分，会误吞掉"读 config"这条回退路径。
+    if(DEFINED SM_REF_CLK_HZ)
+        set(_sm_has_ref_clk_hz TRUE)
+    else()
+        set(_sm_has_ref_clk_hz FALSE)
+    endif()
     if(NOT SM_REF_CLK_HZ)
         set(SM_REF_CLK_HZ 0)
     endif()
@@ -33,12 +40,43 @@ function(bm_add_schedule_map NAME)
         string(APPEND _externs "extern bm_tt_schedule_t ${_sched};\n")
         string(APPEND _entries "    { &${_sched}, ${_cpu}u },\n")
     endforeach()
+    # 频率数据源优先级：CMake 参数 > config 宏 > 空。REF_CLK_HZ 没显式传，就在
+    # 生成的 C 里直接读 BM_CONFIG_CPU_FREQ_HZ（reg.c include bm_schedule_map_reg.h
+    # → bm_tt_schedule.h → bm/common/bm_types.h 链到 bm_config.h，宏可解析，
+    # 不必再显式 include）；OPERATING_POINTS 同理回退读 BM_CONFIG_CPU_DVFS_POINTS_HZ
+    # （应用可选定义的花括号初始化列表，框架不给缺省值）。两条路径生成互斥的定义，
+    # 不会同时写出去导致重复定义。
+    if(_sm_has_ref_clk_hz)
+        set(_ref_clk_line "const uint32_t g_bm_schedule_map_ref_clk_hz = ${SM_REF_CLK_HZ}u;")
+    else()
+        set(_ref_clk_line "const uint32_t g_bm_schedule_map_ref_clk_hz = BM_CONFIG_CPU_FREQ_HZ;")
+    endif()
     set(_ops "0u")
     set(_opn 0)
     if(SM_OPERATING_POINTS)
+        list(LENGTH SM_OPERATING_POINTS _opn)
+        # 与 tools/schedule_map_tool.py 的 MAX_OP_POINTS 上限一致：超过会撑爆
+        # 生成的 JSON 行缓冲（bm_schedule_map_main.c 定长栈缓冲区），构建期防呆。
+        if(_opn GREATER 8)
+            message(FATAL_ERROR "bm_add_schedule_map(${NAME}): OPERATING_POINTS 最多 8 个（当前 ${_opn}），超出会撑爆 JSON 行缓冲")
+        endif()
         list(JOIN SM_OPERATING_POINTS "u, " _ops)
         string(APPEND _ops "u")
-        list(LENGTH SM_OPERATING_POINTS _opn)
+        set(_op_points_block "const uint32_t g_bm_schedule_map_op_points_hz[] = { ${_ops} };
+const uint32_t g_bm_schedule_map_op_point_count = ${_opn}u;
+")
+    else()
+        set(_op_points_block "#ifdef BM_CONFIG_CPU_DVFS_POINTS_HZ
+const uint32_t g_bm_schedule_map_op_points_hz[] = BM_CONFIG_CPU_DVFS_POINTS_HZ;
+const uint32_t g_bm_schedule_map_op_point_count =
+    (uint32_t)(sizeof(g_bm_schedule_map_op_points_hz) / sizeof(g_bm_schedule_map_op_points_hz[0]));
+_Static_assert(sizeof(g_bm_schedule_map_op_points_hz)/sizeof(uint32_t) <= 8,
+    \"BM_CONFIG_CPU_DVFS_POINTS_HZ 最多 8 个频率点\");
+#else
+const uint32_t g_bm_schedule_map_op_points_hz[] = { 0u };
+const uint32_t g_bm_schedule_map_op_point_count = 0u;
+#endif
+")
     endif()
     list(LENGTH SM_TABLES _tn)
     set(_reg ${CMAKE_CURRENT_BINARY_DIR}/${NAME}_reg.c)
@@ -48,10 +86,8 @@ ${_externs}extern int ${SM_SETUP}(void);
 const bm_schedule_map_entry_t g_bm_schedule_map_entries[] = {
 ${_entries}};
 const uint32_t g_bm_schedule_map_entry_count = ${_tn}u;
-const uint32_t g_bm_schedule_map_ref_clk_hz = ${SM_REF_CLK_HZ}u;
-const uint32_t g_bm_schedule_map_op_points_hz[] = { ${_ops} };
-const uint32_t g_bm_schedule_map_op_point_count = ${_opn}u;
-int bm_schedule_map_setup(void) { return ${SM_SETUP}(); }
+${_ref_clk_line}
+${_op_points_block}int bm_schedule_map_setup(void) { return ${SM_SETUP}(); }
 ")
 
     # ---- 交叉编译：借宿主默认工具链的独立子构建出表（不产生真实 ${NAME} 编译目标，

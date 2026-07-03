@@ -3,6 +3,11 @@
 全局超周期（跨表 LCM）+ 告警 + 可选 HTML 可视化。只汇总呈现，不重算单表事实
 （防漂移铁律，唯一计算是跨表 LCM 与工作点线性缩放参考）。
 
+每张表若只有 0/1 个频率点（或 ref_clk_hz==0）出一张表（单表模式）；若有多个
+频率点（ref_clk_hz ∪ 表自带 operating_points_hz ∪ --op-hz 的并集），按
+ref_clk_hz 锚点线性外推，每个频率各出一张完整分析表 + 一张频率对比总表
+（多表模式），频率点数上限 MAX_OP_POINTS=8，超出截断并 stderr 告警。
+
 用法: schedule_map_tool.py (--dir D | files...) [--out F] [--html F] [--op-hz N]... [--load-warn-pct 80]
 退出码: 0=成功(允许 WARN)  2=schema/IO 错误
 """
@@ -17,6 +22,9 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8")
 
 SCHEMA = 1
+# 单表参与频率分析的工作点上限：超过会撑爆报告篇幅，且 cmake/bm_schedule_map.cmake
+# 里 OPERATING_POINTS 本身也钉了同一上限（构建期防呆），两处数值必须一致。
+MAX_OP_POINTS = 8
 
 
 def load(path):
@@ -35,56 +43,125 @@ def lcm(a, b):
     return a * b // math.gcd(a, b)
 
 
+def _scale_ceil(value, ref, f_hz):
+    """按锚点频率线性外推：ceil(value × ref / f_hz)。f_hz 等于 ref 时原样返回
+    （那一档是声明值本身，不缩放）。唯一新增计算，其余事实一律照抄单表 JSON。"""
+    if f_hz == ref:
+        return value
+    return -(-value * ref // f_hz)
+
+
+def _table_freqs(t, op_hz_extra):
+    """算某张表参与频率分析的全部工作点：ref_clk_hz ∪ 表自带 operating_points_hz ∪
+    命令行 --op-hz，剔除 0，排序去重。"""
+    ref = t.get("ref_clk_hz", 0)
+    freqs = set(t.get("operating_points_hz", [])) | set(op_hz_extra)
+    if ref:
+        freqs.add(ref)
+    freqs.discard(0)
+    return sorted(freqs)
+
+
+def _cap_freqs(freqs, ref):
+    """频率点数超过 MAX_OP_POINTS 时截断到前 MAX_OP_POINTS 个，务必保留 ref_clk_hz
+    那一档（缺了它就没法当缩放锚点）。返回 (freqs_capped, was_capped)。"""
+    if len(freqs) <= MAX_OP_POINTS:
+        return freqs, False
+    capped = list(freqs[:MAX_OP_POINTS])
+    if ref and ref not in capped:
+        capped[-1] = ref
+        capped = sorted(capped)
+    return capped, True
+
+
 def analyze(tables, op_hz_extra, warn_pct):
-    """单一事实分析：为每张表算峰值格/占比/工作点缩放估计，收集告警文本，
-    算跨表全局超周期。文本报告与 HTML 报告都调用这里，杜绝两套告警漂移。
+    """单一事实分析：为每张表算峰值格/占比，单频率表保持现状，多频率表按
+    ref_clk_hz 锚点线性外推出每个频率档的完整分析 + 收集告警文本，算跨表全局
+    超周期。文本报告与 HTML 报告都调用这里，杜绝两套告警漂移。
 
     返回 (per_table, warns, global_hyper)，per_table 是列表，每项：
-        {"peak": frame, "pct": float, "ops": [(f_hz, est, verdict), ...]}
+        {"peak": frame, "pct": float, "mode": "single"|"multi",
+         "freq_tables": [{"f_hz", "is_ref", "tasks", "peak_t", "peak_us",
+                           "pct", "feasible"}, ...]}
+    mode=="single" 时 freq_tables 为空列表，沿用原单表输出。
     """
     per_table, warns = [], []
     for t in tables:
-        peak = max(t["frames"], key=lambda f: f["isr_load_us"])
-        pct = 100.0 * peak["isr_load_us"] / t["minor_us"]
-        ops = []
-        ref = t["ref_clk_hz"]
+        ref = t.get("ref_clk_hz", 0)
+        minor = t["minor_us"]
+        raw_peak = max(t["frames"], key=lambda f: f["isr_load_us"])
+        raw_pct = 100.0 * raw_peak["isr_load_us"] / minor
+        entry = {"peak": raw_peak, "pct": raw_pct, "mode": "single", "freq_tables": []}
+
         if ref == 0:
             warns.append(f"WARN: ref_clk_hz 未声明 ({t['sched_name']}) —— 频率缩放分析跳过")
         else:
-            op_hz_list = sorted(set(t.get("operating_points_hz", [])) | set(op_hz_extra))
-            for f_hz in op_hz_list:
-                if f_hz in (0, ref):
-                    continue
-                est = -(-peak["isr_load_us"] * ref // f_hz)  # ceil
-                verdict = "OK" if est <= t["minor_us"] else "超载"
-                ops.append((f_hz, est, verdict))
-                if est > t["minor_us"]:
-                    warns.append(f"WARN: [cpu{t['cpu']}] {t['sched_name']} @{f_hz}Hz "
-                                 f"est 峰值 {est}us > minor {t['minor_us']}us (estimated)")
-        if pct > warn_pct:
-            warns.append(f"WARN: [cpu{t['cpu']}] {t['sched_name']} 峰值负载 {pct:.1f}% 超阈值 {warn_pct}%")
-        per_table.append({"peak": peak, "pct": pct, "ops": ops})
+            freqs = _table_freqs(t, op_hz_extra)
+            if len(freqs) > 1:
+                freqs, capped = _cap_freqs(freqs, ref)
+                if capped:
+                    sys.stderr.write(
+                        f"schedule-map-tool: [cpu{t['cpu']}] {t['sched_name']} "
+                        f"工作点频率数超过上限，最多 8 个，已截断（保留基准频率）\n")
+                entry["mode"] = "multi"
+                for f_hz in freqs:
+                    scaled_frames = [
+                        {"t": fr["t"], "isr_load_us": _scale_ceil(fr["isr_load_us"], ref, f_hz)}
+                        for fr in t["frames"]
+                    ]
+                    peak_fr = max(scaled_frames, key=lambda fr: fr["isr_load_us"])
+                    pct = 100.0 * peak_fr["isr_load_us"] / minor
+                    feasible = peak_fr["isr_load_us"] <= minor
+                    tasks_scaled = [
+                        dict(task, wcet_us=_scale_ceil(task["wcet_us"], ref, f_hz))
+                        for task in t["tasks"]
+                    ]
+                    entry["freq_tables"].append({
+                        "f_hz": f_hz, "is_ref": f_hz == ref, "tasks": tasks_scaled,
+                        "peak_t": peak_fr["t"], "peak_us": peak_fr["isr_load_us"],
+                        "pct": pct, "feasible": feasible,
+                    })
+                    if f_hz != ref and not feasible:
+                        warns.append(
+                            f"WARN: [cpu{t['cpu']}] {t['sched_name']} @{f_hz}Hz "
+                            f"est 峰值 {peak_fr['isr_load_us']}us > minor {minor}us (estimated)")
+        if raw_pct > warn_pct:
+            warns.append(f"WARN: [cpu{t['cpu']}] {t['sched_name']} 峰值负载 {raw_pct:.1f}% 超阈值 {warn_pct}%")
+        per_table.append(entry)
     global_hyper = reduce(lcm, (t["hyperperiod_us"] for t in tables))
     return per_table, warns, global_hyper
 
 
-def render(tables, op_hz_extra, warn_pct):
-    per_table, warns, global_hyper = analyze(tables, op_hz_extra, warn_pct)
+def render(tables, per_table, warns, global_hyper):
     lines = []
     lines.append("=== schedule-map 复合报告 (schema v1) ===")
     for t, a in zip(tables, per_table):
-        peak, pct = a["peak"], a["pct"]
         cal = "已标定" if t["overhead_calibrated"] else "未标定占位"
         lines.append(f"[cpu{t['cpu']}] {t['sched_name']}: minor={t['minor_us']}us "
                      f"frames={t['n_frames']} hyper={t['hyperperiod_us']}us "
-                     f"开销={t['overhead_us']}us[{cal}] "
-                     f"峰值格 t={peak['t']} ({peak['isr_load_us']}us, {pct:.1f}% of minor)")
-        for task in t["tasks"]:
-            lines.append(f"  {task['domain'].upper():8s} {task['name']}  every={task['every']} "
-                         f"at={task['at']} wcet={task['wcet_us']}us period={task['period_us']}us")
-        for f_hz, est, verdict in a["ops"]:
-            lines.append(f"  OP @{f_hz}Hz: est 峰值 {est}us / minor {t['minor_us']}us "
-                         f"{verdict} (estimated)")
+                     f"开销={t['overhead_us']}us[{cal}]")
+        if a["mode"] == "single":
+            peak, pct = a["peak"], a["pct"]
+            lines.append(f"  峰值格 t={peak['t']} ({peak['isr_load_us']}us, {pct:.1f}% of minor)")
+            for task in t["tasks"]:
+                lines.append(f"  {task['domain'].upper():8s} {task['name']}  every={task['every']} "
+                             f"at={task['at']} wcet={task['wcet_us']}us period={task['period_us']}us")
+        else:
+            for ft in a["freq_tables"]:
+                tag = "基准/声明" if ft["is_ref"] else "理论/estimated"
+                verdict = "排得下 ✓" if ft["feasible"] else "超载 ✗"
+                lines.append(f"  --- 频率档 @{ft['f_hz']}Hz（{tag}） ---")
+                for task in ft["tasks"]:
+                    lines.append(f"    {task['domain'].upper():8s} {task['name']}  every={task['every']} "
+                                 f"at={task['at']} wcet={task['wcet_us']}us period={task['period_us']}us")
+                lines.append(f"    峰值格 t={ft['peak_t']} ({ft['peak_us']}us, {ft['pct']:.1f}% of minor) {verdict}")
+            lines.append("  频率对比总表:")
+            for ft in a["freq_tables"]:
+                tag = "基准/声明" if ft["is_ref"] else "理论/estimated"
+                verdict = "排得下 ✓" if ft["feasible"] else "超载 ✗"
+                lines.append(f"    {ft['f_hz']}Hz（{tag}）  峰值={ft['peak_us']}us  "
+                             f"{ft['pct']:.1f}%  {verdict}")
+            lines.append("  注: 以上理论值按 wcet×ref/f 线性外推(estimated)，需上板实测验证")
         lines.append("  注: 本表仅含 TT 门面负载，账外中断/slot 不在内")
     parts = ", ".join(str(t["hyperperiod_us"]) for t in tables)
     lines.append(f"全局超周期: {global_hyper}us = LCM({parts})")
@@ -232,8 +309,7 @@ td, th { padding: 3px 10px; text-align: left; border-bottom: 1px solid #eee; }
 """
 
 
-def render_html(tables, op_hz_extra, warn_pct):
-    per_table, warns, global_hyper = analyze(tables, op_hz_extra, warn_pct)
+def render_html(tables, per_table, warns, global_hyper):
     parts = ['<!doctype html>', '<html lang="zh-CN"><head><meta charset="utf-8">',
              f'<title>schedule-map 复合报告</title><style>{_STYLE}</style></head><body>']
     parts.append('<h1>schedule-map 复合报告 (schema v1)</h1>')
@@ -266,9 +342,19 @@ def render_html(tables, op_hz_extra, warn_pct):
                          f'<td>{task["every"]}</td><td>{task["at"]}</td>'
                          f'<td>{task["wcet_us"]}</td><td>{task["period_us"]}</td></tr>')
         parts.append('</table>')
-        for f_hz, est, verdict in a["ops"]:
-            parts.append(f'<div class="meta">OP @{f_hz}Hz: est 峰值 {est}us / minor '
-                         f'{t["minor_us"]}us {verdict} (estimated)</div>')
+        if a["mode"] == "multi":
+            parts.append('<h3>频率对比表</h3>')
+            parts.append('<table><tr><th>频率</th><th>峰值</th><th>峰值占比</th><th>可行性</th></tr>')
+            for ft in a["freq_tables"]:
+                tag = "基准/声明" if ft["is_ref"] else "理论/estimated"
+                verdict = "排得下 ✓" if ft["feasible"] else "超载 ✗"
+                parts.append(f'<tr><td>{ft["f_hz"]}Hz（{_esc(tag)}）</td>'
+                             f'<td>{ft["peak_us"]}us</td><td>{ft["pct"]:.1f}%</td>'
+                             f'<td>{_esc(verdict)}</td></tr>')
+            parts.append('</table>')
+            parts.append('<div class="meta">理论值按 wcet×ref/f 线性外推(estimated)，'
+                         '需上板实测验证；下方三图按基准频率绘制（负载随频率线性缩放，结构不变，'
+                         '基准图足够代表，不逐档重画）</div>')
 
         parts.append('<h3>时间格视图</h3>')
         parts.append(f'<div class="svg-wrap">{_svg_frame_strip(t)}</div>')
@@ -298,14 +384,15 @@ def main():
         sys.stderr.write("schedule-map-tool: 没有输入 JSON\n")
         sys.exit(2)
     tables = sorted((load(f) for f in files), key=lambda t: (t["cpu"], t["sched_name"]))
-    text = render(tables, args.op_hz, args.load_warn_pct)
+    per_table, warns, global_hyper = analyze(tables, args.op_hz, args.load_warn_pct)
+    text = render(tables, per_table, warns, global_hyper)
     sys.stdout.write(text)
     if args.out:
         Path(args.out).write_text(text, encoding="utf-8")
     if args.html:
         try:
             Path(args.html).write_text(
-                render_html(tables, args.op_hz, args.load_warn_pct), encoding="utf-8")
+                render_html(tables, per_table, warns, global_hyper), encoding="utf-8")
         except OSError as e:
             sys.stderr.write(f"schedule-map-tool: 写 HTML {args.html} 失败: {e}\n")
             sys.exit(2)

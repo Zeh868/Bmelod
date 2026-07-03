@@ -275,6 +275,20 @@
 #ifndef BM_CONFIG_CPU_COUNT
 #define BM_CONFIG_CPU_COUNT                  1u
 #endif
+/**
+ * @brief CPU 标称/锚点主频（Hz），schedule-map wcet 声明所基于的频率
+ *
+ * @details 0=未声明。应用在 bm_config_app.h 覆盖为真实主频；未覆盖时
+ * bm_add_schedule_map() 未显式传 REF_CLK_HZ 会读到 0，schedule-map 工具
+ * 判定"参考时钟未声明"并跳过频率缩放分析。
+ * 若应用还存在 DVFS 多档主频，额外覆盖定义 BM_CONFIG_CPU_DVFS_POINTS_HZ
+ * 为形如 `{ 80000000u, 160000000u, 240000000u }` 的花括号初始化列表（框架
+ * 不提供缺省值——不定义即视为没有 DVFS，只按 BM_CONFIG_CPU_FREQ_HZ 单频率
+ * 分析），schedule-map 工具会为每个频率各出一张理论换算表 + 一张对比总表。
+ */
+#ifndef BM_CONFIG_CPU_FREQ_HZ
+#define BM_CONFIG_CPU_FREQ_HZ                 0u
+#endif
 #ifndef BM_CONFIG_CACHE_LINE
 #define BM_CONFIG_CACHE_LINE                 64
 #endif
