@@ -1,52 +1,46 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file balance_schedule.c
- * @brief Balance-car bm_tt_schedule assembly: ISR torque loop + MAINLOOP
- *        telemetry aggregation
+ * @brief 平衡车 bm_tt_schedule 装配：ISR 力矩环 + MAINLOOP 遥测聚合
  *
- * @details Assembly-file convention sample: zero hardware includes. This
- * file only pulls in `bm_tt_schedule.h`/`bm_bus.h` and assembles buses,
- * step functions, LET task declarations and the schedule table — nothing
- * here depends on HRT/ticker/exec or any hardware driver, so the same
- * pattern applies verbatim on a real MCU target (main.c is the only place
- * that differs between native_sim and a real board: manual tick loop vs.
- * bm_hrt_slot_t + ISR-driven bm_tt_schedule_tick()).
+ * @details 装配文件惯例样例：零硬件 include。本文件只引入
+ * `bm_tt_schedule.h`/`bm_bus.h`，装配总线、step 函数、LET 任务声明与
+ * 调度表——这里的一切都不依赖 HRT/ticker/exec 或任何硬件驱动，因此同一套
+ * 模式可原样搬到真实 MCU 目标上（main.c 是 native_sim 与真实板子之间唯一
+ * 不同之处：手工 tick 循环 vs. bm_hrt_slot_t + ISR 驱动的
+ * bm_tt_schedule_tick()）。
  *
- * Two tasks on one schedule table `ctrl` (minor_us=1000):
- *   - `balance` (ISR domain): every tick reads IMU pitch, computes
- *     `cmd = -kp * pitch` and writes it to the motor bus; falls back to
- *     `cmd = 0` (no torque) when the IMU input is STALE (never published
- *     or expired).
- *   - `telemetry` (MAINLOOP domain): every 10 ticks runs an exponential
- *     moving average over the motor command, demonstrating how to route a
- *     heavier/non-hard-real-time task to the main loop instead of the ISR
- *     time slice.
+ * 一张调度表 `ctrl`（minor_us=1000）上的两个任务：
+ *   - `balance`（ISR 域）：每拍读取 IMU 俯仰角，算出
+ *     `cmd = -kp * pitch` 并写入电机总线；当 IMU 输入 STALE（从未发布或
+ *     已过期）时兜底为 `cmd = 0`（不出力）。
+ *   - `telemetry`（MAINLOOP 域）：每 10 拍对电机指令做一次指数滑动平均，
+ *     演示如何把较重/非硬实时的任务路由到主循环而非 ISR 时间片。
  *
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-07-03
  *
- * @par Change Log:
+ * @par 修改日志:
  *
  *    Date         Version        Author          Description
- * 2026-07-03       1.0            zeh            Split out of main.c as the
- *                                                 assembly-file convention
- *                                                 sample
+ * 2026-07-03       1.0            zeh            从 main.c 拆出，作为装配
+ *                                                 文件惯例样例
  *
  */
 #include "balance_schedule.h"
 #include "bm_bus.h"
 
-/** Proportional gain: cmd = -kp * pitch */
+/** 比例增益：cmd = -kp * pitch */
 #define BALANCE_KP          0.5f
-/** Schedule minor tick granularity (us): 1ms; balance runs every tick, telemetry every 10 ticks */
+/** 调度 minor 拍粒度（us）：1ms；balance 每拍跑，telemetry 每 10 拍跑一次 */
 #define CTRL_MINOR_US       1000u
-/** Telemetry moving-average window weight (exponential moving average: simple, zero dynamic allocation) */
+/** 遥测滑动平均窗口权重（指数滑动平均：简单、零动态分配） */
 #define TELEMETRY_EMA_ALPHA 0.2f
 
 /* =========================================================================
- * Buses: imu_bus (input, pitch angle) / motor_bus (output, torque cmd) /
- *        telemetry_bus (output, aggregated telemetry value)
+ * 总线：imu_bus（输入，俯仰角）/ motor_bus（输出，力矩指令）/
+ *      telemetry_bus（输出，聚合遥测值）
  * ========================================================================= */
 
 BM_BUS_DEFINE(imu_bus, float, 4u, 1u, BM_BUS_LATEST);
@@ -57,11 +51,11 @@ bm_bus_t g_imu_bus;
 bm_bus_t g_motor_bus;
 bm_bus_t g_telemetry_bus;
 
-static const float k_imu_safe = 0.0f;       /**< IMU STALE fallback: treated as level */
-static const float k_motor_safe = 0.0f;     /**< Motor STALE fallback: zero torque, no output */
-static const float k_telemetry_safe = 0.0f; /**< Telemetry initial safe value */
+static const float k_imu_safe = 0.0f;       /**< IMU STALE 兜底值：视为水平 */
+static const float k_motor_safe = 0.0f;     /**< 电机 STALE 兜底值：零力矩，不出力 */
+static const float k_telemetry_safe = 0.0f; /**< 遥测初始安全值 */
 
-/** @brief Persistent state of the telemetry task: exponential moving average accumulator */
+/** @brief telemetry 任务的自持状态：指数滑动平均累加器 */
 typedef struct {
     float ema;
     int   initialized;
@@ -70,8 +64,7 @@ typedef struct {
 static telemetry_state_t g_telemetry_state;
 
 /* =========================================================================
- * balance (ISR domain): short proportional-control step, reads IMU, writes
- * motor command
+ * balance（ISR 域）：简短的比例控制 step，读 IMU，写电机指令
  * ========================================================================= */
 
 static const bm_let_input_t k_balance_inputs[] = {
@@ -83,7 +76,7 @@ static const bm_let_output_t k_balance_outputs[] = {
       .safe_default = &k_motor_safe },
 };
 
-/** @brief ISR-domain step: cmd = -kp * pitch; falls back to 0 (no torque) when pitch is STALE */
+/** @brief ISR 域 step：cmd = -kp * pitch；pitch 为 STALE 时兜底为 0（不出力） */
 static void balance_step(bm_let_ctx_t *ctx, void *state) {
     int stale;
     uint32_t age_us;
@@ -95,7 +88,7 @@ static void balance_step(bm_let_ctx_t *ctx, void *state) {
     cmd = (float *)bm_let_out(ctx, 0u);
 
     if (stale) {
-        *cmd = 0.0f; /* fail-safe: IMU data expired/never published, no torque output */
+        *cmd = 0.0f; /* fail-safe：IMU 数据已过期/从未发布，不出力 */
     } else {
         *cmd = -BALANCE_KP * (*pitch);
     }
@@ -105,8 +98,7 @@ BM_LET_DEFINE_ISR(balance, 1u, 0u, 40u, balance_step, NULL,
                    k_balance_inputs, k_balance_outputs);
 
 /* =========================================================================
- * telemetry (MAINLOOP domain): exponential moving average over the motor
- * command every 10 ticks
+ * telemetry（MAINLOOP 域）：每 10 拍对电机指令做一次指数滑动平均
  * ========================================================================= */
 
 static const bm_let_input_t k_telemetry_inputs[] = {
@@ -118,7 +110,7 @@ static const bm_let_output_t k_telemetry_outputs[] = {
       .safe_default = &k_telemetry_safe },
 };
 
-/** @brief MAINLOOP-domain step: heavier-task sample -- exponential moving average, routed to the main loop instead of the ISR time slice */
+/** @brief MAINLOOP 域 step：较重任务样例——指数滑动平均，路由到主循环而非 ISR 时间片 */
 static void telemetry_step(bm_let_ctx_t *ctx, void *state) {
     int stale;
     uint32_t age_us;
@@ -143,7 +135,7 @@ BM_LET_DEFINE_MAINLOOP(telemetry, 10u, 0u, 200u, telemetry_step,
                         k_telemetry_outputs);
 
 /* =========================================================================
- * Schedule table
+ * 调度表
  * ========================================================================= */
 
 BM_SCHEDULE_DEFINE(ctrl, CTRL_MINOR_US, &balance, &telemetry);

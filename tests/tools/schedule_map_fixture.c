@@ -1,35 +1,34 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file schedule_map_fixture.c
- * @brief Two-table harmonic fixture assembly (schedule-map v2 host-dump tests)
+ * @brief 双表谐波装配件（schedule-map v2 宿主出表测试）
  *
- * @details Assembly follows the same self-contained pattern as the earlier
- * tests/tools/tt_schedule_map_dump.c: BM_BUS_DEFINE + static bm_bus_t +
- * input/output binding tables + empty step functions. This fixture only
- * cares about bm_tt_schedule_report()/bm_tt_schedule_report_json() text
- * output, not real dataflow, so every step is a no-op.
+ * @details 装配方式沿用早前 tests/tools/tt_schedule_map_dump.c 同一套
+ * 自包含范式：BM_BUS_DEFINE + static bm_bus_t + 输入/输出绑定表 + 空 step
+ * 函数。本装配件只关心 bm_tt_schedule_report()/bm_tt_schedule_report_json()
+ * 的文本输出，不关心真实数据流，因此每个 step 都是空操作。
  *
- * Table A "sched_fixture_a" (minor_us=1000): harmonic three-task ISR set
- * (fast every=1 at=0 wcet=50 / mid every=5 at=0 wcet=50 / slow every=10
- * at=9 wcet=50) plus one MAINLOOP task (tele every=10 at=0 wcet=200).
+ * 表 A "sched_fixture_a"（minor_us=1000）：谐波三任务 ISR 组合
+ * （fast every=1 at=0 wcet=50 / mid every=5 at=0 wcet=50 / slow every=10
+ * at=9 wcet=50），外加一个 MAINLOOP 任务（tele every=10 at=0 wcet=200）。
  *
- * Table B "sched_fixture_b" (minor_us=2000): a single ISR task
- * (solo every=2 at=1 wcet=80).
+ * 表 B "sched_fixture_b"（minor_us=2000）：单个 ISR 任务
+ * （solo every=2 at=1 wcet=80）。
  *
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-07-03
  *
- * @par Change log:
+ * @par 修改日志:
  *
  *    Date         Version        Author          Description
- * 2026-07-03       1.0            zeh            Task 3: two-table fixture
+ * 2026-07-03       1.0            zeh            Task 3：双表装配件初版
  *
  */
 #include "schedule_map_fixture.h"
 #include "bm_bus.h"
 
-/* ---- Table A buses ---- */
+/* ---- 表 A 总线 ---- */
 BM_BUS_DEFINE(fxa_in_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
 BM_BUS_DEFINE(fxa_fast_out_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
 BM_BUS_DEFINE(fxa_mid_out_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
@@ -42,7 +41,7 @@ static bm_bus_t g_fxa_mid_out_bus;
 static bm_bus_t g_fxa_slow_out_bus;
 static bm_bus_t g_fxa_tele_out_bus;
 
-/* ---- Table B buses ---- */
+/* ---- 表 B 总线 ---- */
 BM_BUS_DEFINE(fxb_in_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
 BM_BUS_DEFINE(fxb_out_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
 
@@ -52,7 +51,7 @@ static bm_bus_t g_fxb_out_bus;
 static const uint32_t k_fx_in_safe = 0u;
 static const uint32_t k_fx_out_safe = 0u;
 
-/** @brief No-op step: this fixture only cares about report() text output, not dataflow */
+/** @brief 空操作 step：本装配件只关心 report() 文本输出，不关心数据流 */
 static void fx_noop_step(bm_let_ctx_t *ctx, void *state) {
     (void)ctx;
     (void)state;

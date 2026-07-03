@@ -25,11 +25,11 @@
  * 2026-07-01       1.1            zeh            `BM_LET_DEFINE` 拆分为 `BM_LET_DEFINE_ISR`/
  *                                                 `BM_LET_DEFINE_MAINLOOP`（内部通用形式
  *                                                 `BM_LET_DEFINE_EX`），domain 由宏名显式区分
- * 2026-07-03       1.2            zeh            Task 2: add `bm_tt_schedule_report_json` machine-
- *                                                 readable JSON export (schema v1) + meta struct
- * 2026-07-03       1.3            zeh            Task 7: add compile-time `_Static_assert` gate in
- *                                                 `BM_LET_DEFINE_EX` (every >= 1 / at < every) so an
- *                                                 illegal phase assembly fails the build, not runtime
+ * 2026-07-03       1.2            zeh            Task 2：新增 `bm_tt_schedule_report_json` 机器可读
+ *                                                 JSON 导出（schema v1）+ meta 结构体
+ * 2026-07-03       1.3            zeh            Task 7：在 `BM_LET_DEFINE_EX` 中新增编译期
+ *                                                 `_Static_assert` 硬门（every >= 1 / at < every），
+ *                                                 使非法相位组装在构建期而非运行期失败
  *
  */
 #ifndef BM_TT_SCHEDULE_H
@@ -198,35 +198,33 @@ void bm_tt_schedule_report(const bm_tt_schedule_t *sched,
                            void (*emit)(const char *line, void *u), void *u);
 
 /**
- * @brief JSON export metadata (supplied by app/registration unit; NULL == all-zero).
+ * @brief JSON 导出元数据（由 app/注册单元提供；NULL 视为全零默认值）
  */
 typedef struct {
-    uint8_t         cpu;                    /**< CPU this table belongs to; 0 for single-core. */
-    uint32_t        ref_clk_hz;             /**< Reference clock for declared wcet; 0 = undeclared. */
-    const uint32_t *operating_points_hz;    /**< Operating-point frequency array, may be NULL. */
-    uint8_t         operating_point_count;  /**< Number of operating points. */
+    uint8_t         cpu;                    /**< 该表所属 CPU；单核填 0 */
+    uint32_t        ref_clk_hz;             /**< 声明 wcet 所基于的参考时钟；0=未声明 */
+    const uint32_t *operating_points_hz;    /**< 工作点频率数组，可为 NULL */
+    uint8_t         operating_point_count;  /**< 工作点个数 */
 } bm_tt_schedule_json_meta_t;
 
 /**
- * @brief Emit a machine-readable JSON report of the schedule table (schema v1).
+ * @brief 输出调度表的机器可读 JSON 报告（schema v1）
  *
- * @details Emits one JSON object, one text line at a time via @p emit, covering
- * schedule identity (name/minor_us/n_frames/hyperperiod_us), framework overhead
- * (`BM_CONFIG_TT_SCHED_OVERHEAD_US` / `BM_CONFIG_TT_SCHED_OVERHEAD_CALIBRATED`),
- * caller-supplied meta (cpu/ref_clk_hz/operating_points_hz), a `tasks` array
- * (one entry per activity, in `entries` order; `name` is taken from the
- * declaration macro's `#id` stringification, which is always a valid C
- * identifier and therefore never needs JSON escaping), a `frames` array
- * (one entry per minor frame, t ascending, with `isr_load_us` including
- * `BM_CONFIG_TT_SCHED_OVERHEAD_US` and `mainloop_pending_us` summing the
- * wcet_us of MAINLOOP-domain activities hitting that frame), and a reserved
- * empty `edges` array (populated by a future task). Output is deterministic:
- * identical schedule state always yields byte-identical output.
+ * @details 经 @p emit 逐行输出一个 JSON 对象，涵盖：调度表身份信息
+ * （name/minor_us/n_frames/hyperperiod_us）、框架开销
+ * （`BM_CONFIG_TT_SCHED_OVERHEAD_US` / `BM_CONFIG_TT_SCHED_OVERHEAD_CALIBRATED`）、
+ * 调用方传入的 meta（cpu/ref_clk_hz/operating_points_hz）、一个 `tasks` 数组
+ * （每个 activity 一条，按 `entries` 顺序；`name` 取自声明宏的 `#id` 字符串化，
+ * 恒为合法 C 标识符，因此无需 JSON 转义）、一个 `frames` 数组（每个 minor
+ * frame 一条，t 升序排列，`isr_load_us` 含 `BM_CONFIG_TT_SCHED_OVERHEAD_US`，
+ * `mainloop_pending_us` 为该拍命中的 MAINLOOP 域 activity 的 wcet_us 之和），
+ * 以及一个预留的空 `edges` 数组（由后续任务填充）。输出是确定性的：相同的
+ * 调度表状态恒产出逐字节相同的输出。
  *
- * @param sched schedule table instance (read-only)
- * @param meta export metadata; NULL falls back to an all-zero default
- * @param emit per-line output callback
- * @param u opaque context forwarded to @p emit
+ * @param sched 调度表实例（只读）
+ * @param meta 导出元数据；NULL 时退化为全零默认值
+ * @param emit 逐行输出回调
+ * @param u emit 回调透传上下文
  */
 void bm_tt_schedule_report_json(const bm_tt_schedule_t *sched,
                                 const bm_tt_schedule_json_meta_t *meta,
@@ -278,9 +276,9 @@ int bm_tt_schedule_rt_slot_at(const bm_tt_schedule_t *sched, uint32_t idx,
  *
  * @note 实现细节：连续输出双缓冲按最大元素上界 BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE
  *       × 输出数分配（略有余量、换零动态分配与实现简单）。
- * @note Compile-time gate: `every_` and `at_` must be constant expressions
- *       satisfying `every >= 1` and `at < every`; violations fail the build
- *       via `_Static_assert` instead of being caught (or missed) at runtime.
+ * @note 编译期硬门：`every_`、`at_` 须为满足 `every >= 1` 且 `at < every` 的
+ *       常量表达式；违反者经 `_Static_assert` 在构建期直接失败，而非留到
+ *       运行期才被（或未被）捕获。
  */
 #define BM_LET_DEFINE_EX(id, domain_, every_, at_, wcet_, step_, state_, inputs_, outputs_)     \
     _Static_assert((every_) >= 1u, "BM_LET_DEFINE: every must be >= 1");                         \

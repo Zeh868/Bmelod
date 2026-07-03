@@ -1,29 +1,30 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file test_tt_schedule_json.c
- * @brief Unit tests for bm_tt_schedule_report_json (schedule-map v2 Task 2, schema v1)
+ * @brief bm_tt_schedule_report_json 单元测试（schedule-map v2 Task 2，schema v1）
  *
- * @details Assembles one harmonic-period schedule table (fast every=1 at=0 wcet=50 / mid
- * every=5 at=0 wcet=50 / slow every=10 at=9 wcet=50, all ISR-domain; tele every=10 at=0
- * wcet=200, MAINLOOP-domain; minor_us=1000, n_frames=LCM(1,5,10,10)=10), following the same
- * BM_BUS_DEFINE/BM_LET_DEFINE_ISR/BM_LET_DEFINE_MAINLOOP/BM_SCHEDULE_DEFINE assembly style as
- * `tests/tools/tt_schedule_map_dump.c` and `tests/unit/test_tt_schedule.c` scenario 11. Three
- * cases:
- *   1. Key facts with an explicit meta (cpu/ref_clk_hz/operating_points_hz) — asserts
- *      schema_version/n_frames/hyperperiod_us/ref_clk_hz/operating_points_hz and the exact
- *      frame-0 and frame-9 load lines (isr_load_us/mainloop_pending_us), plus the reserved
- *      empty edges array.
- *   2. meta == NULL falls back to an all-zero default (cpu=0/ref_clk_hz=0/no operating points).
- *   3. Determinism: the same schedule table emitted twice yields byte-identical output.
+ * @details 搭建一张谐波周期调度表（fast every=1 at=0 wcet=50 / mid
+ * every=5 at=0 wcet=50 / slow every=10 at=9 wcet=50，均为 ISR 域；tele
+ * every=10 at=0 wcet=200，MAINLOOP 域；minor_us=1000，
+ * n_frames=LCM(1,5,10,10)=10），装配风格与
+ * `tests/tools/tt_schedule_map_dump.c`、`tests/unit/test_tt_schedule.c`
+ * 场景 11 一致（同用 BM_BUS_DEFINE/BM_LET_DEFINE_ISR/
+ * BM_LET_DEFINE_MAINLOOP/BM_SCHEDULE_DEFINE）。三个用例：
+ *   1. 显式传入 meta（cpu/ref_clk_hz/operating_points_hz）时的关键事实——
+ *      断言 schema_version/n_frames/hyperperiod_us/ref_clk_hz/
+ *      operating_points_hz，以及第 0 帧、第 9 帧的准确负载行
+ *      （isr_load_us/mainloop_pending_us），加上预留的空 edges 数组。
+ *   2. meta == NULL 时退化为全零默认值（cpu=0/ref_clk_hz=0/无工作点）。
+ *   3. 确定性：同一调度表输出两次，结果逐字节相同。
  *
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-07-03
  *
- * @par Change Log:
+ * @par 修改日志:
  *
  *    Date         Version        Author          Description
- * 2026-07-03       1.0            zeh            Task 2: initial JSON export tests
+ * 2026-07-03       1.0            zeh            Task 2：JSON 导出初版测试
  *
  */
 #include "unity.h"
@@ -33,7 +34,7 @@
 #include <string.h>
 
 /* =========================================================================
- * Fixture: harmonic-period schedule table (fast/mid/slow ISR + tele MAINLOOP)
+ * 装配件：谐波周期调度表（fast/mid/slow ISR + tele MAINLOOP）
  * ========================================================================= */
 
 BM_BUS_DEFINE(json_in_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
@@ -51,7 +52,7 @@ static bm_bus_t g_json_tele_out_bus;
 static const uint32_t k_json_in_safe = 0u;
 static const uint32_t k_json_out_safe = 0u;
 
-/** @brief no-op step: this test suite only exercises bm_tt_schedule_report_json's text output */
+/** @brief 空操作 step：本测试组只考察 bm_tt_schedule_report_json 的文本输出 */
 static void json_noop_step(bm_let_ctx_t *ctx, void *state) {
     (void)ctx;
     (void)state;
@@ -89,32 +90,32 @@ BM_LET_DEFINE_MAINLOOP(task_json_tele, 10u, 0u, 200u, json_noop_step, NULL,
 BM_SCHEDULE_DEFINE(sched_json, 1000u, &task_json_fast, &task_json_mid,
                     &task_json_slow, &task_json_tele);
 
-/** @brief Operating-point frequency array used by test case 1's meta */
+/** @brief 测试用例 1 的 meta 所用工作点频率数组 */
 static const uint32_t k_json_ops[] = { 240000000u, 80000000u };
 
 /* =========================================================================
- * Line capture helper
+ * 逐行捕获辅助函数
  * ========================================================================= */
 
 static char g_json_buf[8192];
 
-/** @brief emit callback: append each line + '\n' into the static capture buffer g_json_buf */
+/** @brief emit 回调：把每行 + '\n' 追加进静态捕获缓冲 g_json_buf */
 static void json_emit(const char *line, void *u) {
     (void)u;
     (void)strncat(g_json_buf, line, sizeof(g_json_buf) - strlen(g_json_buf) - 2u);
     (void)strncat(g_json_buf, "\n", sizeof(g_json_buf) - strlen(g_json_buf) - 1u);
 }
 
-/** @brief Unity per-test hook (unused: each test manages its own bus open/close) */
+/** @brief Unity 每用例钩子（本文件未用：各测试自行管理 bus 的 open/close） */
 void setUp(void) {
 }
 
-/** @brief Unity per-test hook (unused: each test manages its own bus open/close) */
+/** @brief Unity 每用例钩子（本文件未用：各测试自行管理 bus 的 open/close） */
 void tearDown(void) {
 }
 
 /**
- * @brief Case 1: explicit meta -> assert key schema fields, per-task facts and per-frame loads
+ * @brief 用例 1：显式传入 meta -> 断言关键 schema 字段、逐任务事实与逐帧负载
  */
 void test_report_json_key_facts_with_explicit_meta(void) {
     bm_bus_cfg_t cfg = { .owner_cpu = 0u };
@@ -150,7 +151,7 @@ void test_report_json_key_facts_with_explicit_meta(void) {
 }
 
 /**
- * @brief Case 2: meta == NULL falls back to an all-zero default
+ * @brief 用例 2：meta == NULL 退化为全零默认值
  */
 void test_report_json_null_meta_defaults_to_zero(void) {
     bm_bus_cfg_t cfg = { .owner_cpu = 0u };
@@ -178,7 +179,7 @@ void test_report_json_null_meta_defaults_to_zero(void) {
 }
 
 /**
- * @brief Case 3: determinism -- the same schedule table emitted twice yields identical output
+ * @brief 用例 3：确定性 -- 同一调度表输出两次结果相同
  */
 void test_report_json_deterministic_across_two_runs(void) {
     bm_bus_cfg_t cfg = { .owner_cpu = 0u };
@@ -196,8 +197,8 @@ void test_report_json_deterministic_across_two_runs(void) {
     TEST_ASSERT_EQUAL(BM_OK, bm_bus_open(&g_json_tele_out_bus, &json_tele_out_bus_storage, &cfg));
     TEST_ASSERT_EQUAL(BM_OK, bm_tt_schedule_init(&sched_json));
 
-    /* json_emit always appends to the shared g_json_buf regardless of u; reset it around each
-     * run and snapshot the result into a per-run buffer before comparing the two runs. */
+    /* json_emit 无论 u 为何总是追加到共享的 g_json_buf；每次运行前后各重置一次，
+     * 并在比较两次运行前把结果快照进各自的缓冲区。 */
     g_json_buf[0] = '\0';
     bm_tt_schedule_report_json(&sched_json, &meta, json_emit, NULL);
     (void)strncpy(buf_a, g_json_buf, sizeof(buf_a) - 1u);

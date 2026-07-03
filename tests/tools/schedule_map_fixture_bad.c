@@ -1,24 +1,22 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file schedule_map_fixture_bad.c
- * @brief Self-contained overload table + register unit: the negative-gate
- * fixture for bm_schedule_map_dump_bad
+ * @brief 自包含超载表 + 注册单元：bm_schedule_map_dump_bad 的负例门禁装配件
  *
- * @details Declares a single ISR task whose wcet_us (5000) exceeds its
- * table's minor_us (1000), so bm_tt_schedule_init() must reject it with
- * BM_ERR_INVALID. bm_schedule_map_main.c treats any non-BM_OK init() as a
- * hard build-gate failure (stderr + return 1); this file is what proves
- * that gate actually fires end-to-end via ctest's WILL_FAIL property on
- * the schedule_map_dump_gate test.
+ * @details 声明单个 ISR 任务，其 wcet_us（5000）超过所属表的 minor_us
+ * （1000），因此 bm_tt_schedule_init() 必须以 BM_ERR_INVALID 拒绝它。
+ * bm_schedule_map_main.c 把任何非 BM_OK 的 init() 视为硬构建门禁失败
+ * （stderr + return 1）；本文件正是用来证明该门禁经 ctest 在
+ * schedule_map_dump_gate 测试上的 WILL_FAIL 属性端到端确实触发。
  *
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-07-03
  *
- * @par Change log:
+ * @par 修改日志:
  *
  *    Date         Version        Author          Description
- * 2026-07-03       1.0            zeh            Task 3: gate negative fixture
+ * 2026-07-03       1.0            zeh            Task 3：门禁负例装配件初版
  *
  */
 #include "bm_schedule_map_reg.h"
@@ -33,7 +31,7 @@ static bm_bus_t g_bad_out_bus;
 static const uint32_t k_bad_in_safe = 0u;
 static const uint32_t k_bad_out_safe = 0u;
 
-/** @brief No-op step: init() is expected to reject this table before any step ever runs */
+/** @brief 空操作 step：预期 init() 会在任何 step 跑起来之前就拒绝这张表 */
 static void bad_noop_step(bm_let_ctx_t *ctx, void *state) {
     (void)ctx;
     (void)state;
@@ -47,7 +45,7 @@ static const bm_let_output_t k_bad_outputs[] = {
     { .bus = &g_bad_out_bus, .elem_size = sizeof(uint32_t), .safe_default = &k_bad_out_safe },
 };
 
-/* wcet_us=5000 > minor_us=1000: bm_tt_schedule_init() must reject this. */
+/* wcet_us=5000 > minor_us=1000：bm_tt_schedule_init() 必须拒绝这张表 */
 BM_LET_DEFINE_ISR(task_bad_overload, 1u, 0u, 5000u, bad_noop_step, NULL,
                    k_bad_inputs, k_bad_outputs);
 BM_SCHEDULE_DEFINE(sched_fixture_bad, 1000u, &task_bad_overload);

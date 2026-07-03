@@ -1,21 +1,19 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /**
  * @file schedule_map_fixture_reg.c
- * @brief Hand-written register unit sample for IDE tier-2/3, equivalent to
- * bm_add_schedule_map() generated output
+ * @brief IDE 二/三档手写注册单元样例，等价于 bm_add_schedule_map() 生成的产物
  *
- * @details Points at the two-table fixture in schedule_map_fixture.c and
- * demonstrates the exact contract a CMake-generated register unit
- * (Task 5, bm_add_schedule_map()) must also satisfy.
+ * @details 指向 schedule_map_fixture.c 中的双表装配件，演示 CMake 生成的
+ * 注册单元（Task 5，bm_add_schedule_map()）同样必须满足的契约细节。
  *
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-07-03
  *
- * @par Change log:
+ * @par 修改日志:
  *
  *    Date         Version        Author          Description
- * 2026-07-03       1.0            zeh            Task 3: hand-written register unit sample
+ * 2026-07-03       1.0            zeh            Task 3：手写注册单元样例初版
  *
  */
 #include "bm_schedule_map_reg.h"

@@ -24,7 +24,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-07-01       1.0            zeh            首个 bm_tt_schedule 平衡车场景 demo
- * 2026-07-03       1.1            zeh            Split schedule assembly into balance_schedule.c/.h
+ * 2026-07-03       1.1            zeh            拆分调度装配至 balance_schedule.c/.h
  *
  */
 #include "balance_schedule.h"
