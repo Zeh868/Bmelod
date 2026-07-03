@@ -5,14 +5,15 @@
  *
  * 无平台后端时 `bm_hal_cpu_id()` 恒为 0，与 `BM_CONFIG_CPU_COUNT==1` 等价。
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-07-03
+ * @version 1.2
+ * @date 2026-07-04
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
  * 2026-07-03       1.1            zeh            新增 CPU 主频接口 freq_hz/freq_points/freq_set 桩实现
+ * 2026-07-04       1.2            zeh            freq 三函数加 BM_HAL_CPU_HAS_PORT_FREQ 去重 guard，供 esp32 等真机 port 让出符号
  *
  */
 #include "hal/bm_hal_cpu.h"
@@ -41,6 +42,13 @@ int bm_hal_cpu_join_secondary(void) {
 void bm_hal_cpu_yield(void) {
 }
 
+/*
+ * freq 三函数（freq_hz/freq_points/freq_set）默认由本桩提供（native/qemu 等
+ * 未定义 BM_HAL_CPU_HAS_PORT_FREQ 的后端）。当某真机 port（如 esp32_idf）
+ * 已提供真实实现并定义 BM_HAL_CPU_HAS_PORT_FREQ 时，本桩让出这三个符号，
+ * 避免与 port 专属文件重复定义。默认未定义该宏，行为与去重前完全一致。
+ */
+#ifndef BM_HAL_CPU_HAS_PORT_FREQ
 #ifdef BM_CONFIG_CPU_DVFS_POINTS_HZ
 /** @brief DVFS 频率点表（config 声明多档主频时启用） */
 static const uint32_t s_cpu_freq_points[] = BM_CONFIG_CPU_DVFS_POINTS_HZ;
@@ -74,3 +82,4 @@ int bm_hal_cpu_freq_set(uint32_t hz) {
     }
     return BM_ERR_INVALID;
 }
+#endif /* !BM_HAL_CPU_HAS_PORT_FREQ */

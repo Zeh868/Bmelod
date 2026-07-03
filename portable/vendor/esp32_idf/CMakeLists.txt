@@ -18,6 +18,7 @@ add_library(bm_vendor_esp32_idf STATIC
     bm_vendor_i2c_esp32_idf.c
     bm_vendor_encoder_esp32_idf.c
     bm_vendor_bmi160_esp32_idf.c
+    bm_hal_cpu_freq_esp32.c
 )
 
 # 公开 include 目录（框架根通过 BM_FRAMEWORK_ROOT / bm_config 传入）
@@ -43,7 +44,16 @@ if(DEFINED ESP_PLATFORM AND DEFINED ENV{IDF_PATH})
     target_link_libraries(bm_vendor_esp32_idf PUBLIC
         "$ENV{IDF_PATH}/components/xtensa/${IDF_TARGET}/libxt_hal.a")
 endif()
+
+# BM_HAL_CPU_HAS_PORT_FREQ：声明本 vendor 已提供 CPU 主频三接口
+# （bm_hal_cpu_freq_esp32.c 中的 freq_hz/freq_points/freq_set），令桩
+# `Source/hal/bm_hal_cpu_stub.c` 让出同名符号、避免重复定义。
+# 【未决风险，上板须核对】桩文件属 `bm_hal` 目标，不属本 vendor 目标；
+# 该 PUBLIC 定义能否传递到消费方 IDF 工程编译桩 TU 时的编译命令行，
+# 取决于消费方如何组织组件依赖与编译定义传播，本仓无法验证。若未生效，
+# 链接期会出现桩与本 vendor 的 freq 三函数重复定义。
 target_compile_definitions(bm_vendor_esp32_idf PUBLIC
     BM_DRV_HAS_BACKEND
     BM_ESP32_BAREMETAL=1
+    BM_HAL_CPU_HAS_PORT_FREQ
     BM_PORT_ARCH_ID=\"xtensa\")
