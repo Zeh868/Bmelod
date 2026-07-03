@@ -15,8 +15,8 @@
  * @core_affinity 本核（per-CPU）
  * 调度表实例、rt 状态均为静态分配，跨核使用需各核独立实例。
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-07-01
+ * @version 1.3
+ * @date 2026-07-03
  *
  * @par 修改日志:
  *
@@ -25,6 +25,11 @@
  * 2026-07-01       1.1            zeh            `BM_LET_DEFINE` 拆分为 `BM_LET_DEFINE_ISR`/
  *                                                 `BM_LET_DEFINE_MAINLOOP`（内部通用形式
  *                                                 `BM_LET_DEFINE_EX`），domain 由宏名显式区分
+ * 2026-07-03       1.2            zeh            Task 2：新增 `bm_tt_schedule_report_json` 机器可读
+ *                                                 JSON 导出（schema v1）+ meta 结构体
+ * 2026-07-03       1.3            zeh            Task 7：在 `BM_LET_DEFINE_EX` 中新增编译期
+ *                                                 `_Static_assert` 硬门（every >= 1 / at < every），
+ *                                                 使非法相位组装在构建期而非运行期失败
  *
  */
 #ifndef BM_TT_SCHEDULE_H
@@ -193,6 +198,39 @@ void bm_tt_schedule_report(const bm_tt_schedule_t *sched,
                            void (*emit)(const char *line, void *u), void *u);
 
 /**
+ * @brief JSON 导出元数据（由 app/注册单元提供；NULL 视为全零默认值）
+ */
+typedef struct {
+    uint8_t         cpu;                    /**< 该表所属 CPU；单核填 0 */
+    uint32_t        ref_clk_hz;             /**< 声明 wcet 所基于的参考时钟；0=未声明 */
+    const uint32_t *operating_points_hz;    /**< 工作点频率数组，可为 NULL */
+    uint8_t         operating_point_count;  /**< 工作点个数 */
+} bm_tt_schedule_json_meta_t;
+
+/**
+ * @brief 输出调度表的机器可读 JSON 报告（schema v1）
+ *
+ * @details 经 @p emit 逐行输出一个 JSON 对象，涵盖：调度表身份信息
+ * （name/minor_us/n_frames/hyperperiod_us）、框架开销
+ * （`BM_CONFIG_TT_SCHED_OVERHEAD_US` / `BM_CONFIG_TT_SCHED_OVERHEAD_CALIBRATED`）、
+ * 调用方传入的 meta（cpu/ref_clk_hz/operating_points_hz）、一个 `tasks` 数组
+ * （每个 activity 一条，按 `entries` 顺序；`name` 取自声明宏的 `#id` 字符串化，
+ * 恒为合法 C 标识符，因此无需 JSON 转义）、一个 `frames` 数组（每个 minor
+ * frame 一条，t 升序排列，`isr_load_us` 含 `BM_CONFIG_TT_SCHED_OVERHEAD_US`，
+ * `mainloop_pending_us` 为该拍命中的 MAINLOOP 域 activity 的 wcet_us 之和），
+ * 以及一个预留的空 `edges` 数组（由后续任务填充）。输出是确定性的：相同的
+ * 调度表状态恒产出逐字节相同的输出。
+ *
+ * @param sched 调度表实例（只读）
+ * @param meta 导出元数据；NULL 时退化为全零默认值
+ * @param emit 逐行输出回调
+ * @param u emit 回调透传上下文
+ */
+void bm_tt_schedule_report_json(const bm_tt_schedule_t *sched,
+                                const bm_tt_schedule_json_meta_t *meta,
+                                void (*emit)(const char *line, void *u), void *u);
+
+/**
  * @brief 查询调度表可导出的 RTA slot 数量
  *
  * @param sched 调度表实例（只读）
@@ -238,8 +276,13 @@ int bm_tt_schedule_rt_slot_at(const bm_tt_schedule_t *sched, uint32_t idx,
  *
  * @note 实现细节：连续输出双缓冲按最大元素上界 BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE
  *       × 输出数分配（略有余量、换零动态分配与实现简单）。
+ * @note 编译期硬门：`every_`、`at_` 须为满足 `every >= 1` 且 `at < every` 的
+ *       常量表达式；违反者经 `_Static_assert` 在构建期直接失败，而非留到
+ *       运行期才被（或未被）捕获。
  */
 #define BM_LET_DEFINE_EX(id, domain_, every_, at_, wcet_, step_, state_, inputs_, outputs_)     \
+    _Static_assert((every_) >= 1u, "BM_LET_DEFINE: every must be >= 1");                         \
+    _Static_assert((at_) < (every_), "BM_LET_DEFINE: at must be < every");                       \
     static uint8_t  id##_snap[BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE *                                \
                               (sizeof(inputs_) / sizeof((inputs_)[0]))];                        \
     static uint8_t  id##_out2[2u * BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE *                           \

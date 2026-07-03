@@ -27,6 +27,7 @@
 #define BM_CONFIG_ENABLE_PIPELINE            0   /* Pipeline 组件 */
 #define BM_CONFIG_ENABLE_ALGORITHM           0   /* 算法库（Source/algorithm） */
 #define BM_CONFIG_ENABLE_TT_SCHED            0   /* 时间触发调度门面（bm_tt_schedule） */
+#define BM_CONFIG_ENABLE_WCET_MON            0   /* 运行时 deadline/WCET 监控（SAFE-2，bm_wcet_mon） */
 
 /* ---- 流式域（Block/Frame RT） ---- */
 #define BM_CONFIG_STREAM_MAX_BLOCKS          4u  /* 流缓冲块数上限，取值须在 [2,32] */
@@ -82,6 +83,11 @@
 #define BM_CONFIG_TT_SCHED_MAX_FRAMES        256u /* LCM 帧数护栏，防止周期组合爆炸 */
 #define BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE     64u /* 单条目数据元素字节数上限 */
 #define BM_CONFIG_TT_SCHED_MAX_INPUTS        8u  /* 单任务输入数上界（init 期校验） */
+#define BM_CONFIG_TT_SCHED_OVERHEAD_US       0u  /* 每 minor 格框架派发开销(µs)，真机标定后回填 */
+#define BM_CONFIG_TT_SCHED_OVERHEAD_CALIBRATED 0 /* 0=未标定占位 1=已实测标定 */
+
+/* ---- bm_wcet_mon（SAFE-2 运行时 deadline/WCET 监控） ---- */
+#define BM_CONFIG_WCET_MON_MAX_SPANS         16u /* 监控 span 上限 */
 
 #define BM_CONFIG_TICKER_MAX_SLOTS           8   /* 软实时节拍器槽位上限 */
 #define BM_CONFIG_TICKER_MAX_CATCHUP         4   /* 节拍器单次追赶上限 */

@@ -1037,6 +1037,10 @@ void test_report_contains_header_and_peak_frame_markers(void) {
     TEST_ASSERT_NOT_NULL(strstr(g_report_buf, "minor"));
     TEST_ASSERT_NOT_NULL(strstr(g_report_buf, "task_report_isr"));
     TEST_ASSERT_NOT_NULL(strstr(g_report_buf, "task_report_ml"));
+    /* 框架开销行：默认 0us、未标定占位（BM_CONFIG_TT_SCHED_OVERHEAD_US 默认值） */
+    TEST_ASSERT_NOT_NULL(strstr(g_report_buf, "开销: 0us [未标定占位]"));
+    /* 账外免责行：报告尾部标注本表口径边界 */
+    TEST_ASSERT_NOT_NULL(strstr(g_report_buf, "注: 本表仅含 TT 门面负载,账外中断/slot 不在内"));
 
     bm_bus_close(&g_report_isr_in_bus);
     bm_bus_close(&g_report_isr_out_bus);

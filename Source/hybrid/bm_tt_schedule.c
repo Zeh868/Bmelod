@@ -27,8 +27,8 @@
  * 域·预算账（无硬时间格语义，逐行列 wcet_us + 建议 run_pending budget）。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.6
- * @date 2026-07-02
+ * @version 1.9
+ * @date 2026-07-03
  *
  * @par 修改日志:
  *
@@ -43,6 +43,13 @@
  * 2026-07-01       1.5            zeh            Task 7：RTA rt_slot 导出 + 调度概览 report
  *                                                 （ISR 时间格视图 + MAINLOOP 预算账）真实现
  * 2026-07-02       1.6            zeh            SAFE-2 wcet_mon 门控接入
+ * 2026-07-03       1.7            zeh            report 框架开销占位升级为 BM_CONFIG_TT_SCHED_OVERHEAD_US
+ *                                                 可配置项 + 开销标注行 + 账外免责行
+ * 2026-07-03       1.8            zeh            Task 2：新增 bm_tt_schedule_report_json 机器可读
+ *                                                 JSON 导出（schema v1）
+ * 2026-07-03       1.9            zeh            修复 report_json 的 operating_points_hz 单行拼装
+ *                                                 越界读：改为兼容 msvcrt snprintf 截断不补 NUL
+ *                                                 语义的判定 + 强制界内 NUL 兜底
  *
  */
 #include "bm_tt_schedule.h"
@@ -623,11 +630,6 @@ uint32_t bm_tt_schedule_run_pending(bm_tt_schedule_t *sched, uint32_t budget) {
     return ran;
 }
 
-/** report 框架开销占位（Task 7）：本格 Σ step wcet 之外，ISR 派发/上下文
- *  切换等框架自身开销尚无实测数据，先占位为 0，待后续 Task 用真机实测
- *  校准后替换为非零常量或可配置项。 */
-#define TT_REPORT_OVERHEAD_US_PLACEHOLDER 0u
-
 /** report 逐行栈缓冲上界（字节）。上界估算见 bm_tt_schedule_report 注释：
  *  activity 名 63B + 中文表头 ~100B + 数个 uint32_t 十进制字段 + 分隔符，留余量。 */
 #define TT_REPORT_LINE_MAX 200
@@ -637,7 +639,7 @@ uint32_t bm_tt_schedule_run_pending(bm_tt_schedule_t *sched, uint32_t budget) {
  *
  * @param s 调度表实例（只读 entries）
  * @param t 目标 minor 格（0..n_frames-1）
- * @return Σ 命中该格的 ISR 域 activity wcet_us（不含框架开销占位）
+ * @return Σ 命中该格的 ISR 域 activity wcet_us（不含框架开销，由调用方叠加）
  */
 static uint32_t tt_report_frame_sum_us(const bm_tt_schedule_t *s, uint32_t t) {
     uint32_t sum = 0u;
@@ -667,15 +669,18 @@ static uint32_t tt_report_frame_sum_us(const bm_tt_schedule_t *s, uint32_t t) {
  *
  * 块①：ISR 域·时间格视图。表头固定含子串
  * "[时间来源: 声明 wcet_us · 计划视图]"（标注这是基于任务声明 wcet_us
- * 的静态计划推演，非真机实测）；每个 ISR 域 activity 一行列
+ * 的静态计划推演，非真机实测）；表头行后紧跟一行框架开销标注
+ * "开销: %uus [%s]"（取值来自 bm_config 的 `BM_CONFIG_TT_SCHED_OVERHEAD_US`，
+ * 可 per-target 覆盖，标定态由 `BM_CONFIG_TT_SCHED_OVERHEAD_CALIBRATED`
+ * 决定显示"已标定"/"未标定占位"）；每个 ISR 域 activity 一行列
  * name/every/at/wcet_us；随后经 `tt_report_frame_sum_us` 扫描
- * `sched->n_frames` 个 minor 格（叠加框架开销占位
- * `TT_REPORT_OVERHEAD_US_PLACEHOLDER`，当前为 0，待后续 Task 实测校准）
+ * `sched->n_frames` 个 minor 格（叠加框架开销 `BM_CONFIG_TT_SCHED_OVERHEAD_US`）
  * 找出峰值格，输出该格是否 `≤ minor_us`。
  *
  * 块②：MAINLOOP 域·预算账。MAINLOOP 域无硬时间格语义，不做展开——逐行
  * 列每个 MAINLOOP 域 activity 的 `wcet_us` 与建议 `run_pending` budget
- * （固定给 1，供开发者对照真机主循环率手工核对，非精确算法）。
+ * （固定给 1，供开发者对照真机主循环率手工核对，非精确算法）。报告末尾
+ * 追加一行账外免责提示：本表只计 TT 门面自身负载，账外中断/slot 不在内。
  *
  * @param sched 调度表实例（只读）
  * @param emit 逐行输出回调
@@ -696,6 +701,11 @@ void bm_tt_schedule_report(const bm_tt_schedule_t *sched,
                    sched->name);
     emit(line, u);
 
+    (void)snprintf(line, sizeof line, "  开销: %uus [%s]",
+                   (unsigned)BM_CONFIG_TT_SCHED_OVERHEAD_US,
+                   (BM_CONFIG_TT_SCHED_OVERHEAD_CALIBRATED) ? "已标定" : "未标定占位");
+    emit(line, u);
+
     for (uint8_t k = 0u; k < sched->entry_count; ++k) {
         const bm_tt_activity_t *a = sched->entries[k];
 
@@ -709,7 +719,7 @@ void bm_tt_schedule_report(const bm_tt_schedule_t *sched,
     }
 
     for (uint32_t t = 0u; t < sched->n_frames; ++t) {
-        uint32_t cur = tt_report_frame_sum_us(sched, t) + TT_REPORT_OVERHEAD_US_PLACEHOLDER;
+        uint32_t cur = tt_report_frame_sum_us(sched, t) + BM_CONFIG_TT_SCHED_OVERHEAD_US;
 
         if (cur > peak_us) {
             peak_us = cur;
@@ -736,6 +746,173 @@ void bm_tt_schedule_report(const bm_tt_schedule_t *sched,
                        a->name, a->wcet_us);
         emit(line, u);
     }
+
+    emit("注: 本表仅含 TT 门面负载,账外中断/slot 不在内", u);
+}
+
+/**
+ * @brief report_json 辅助函数：统计某个 minor 格内所有命中 MAINLOOP 域 activity 的 wcet_us 之和
+ *
+ * @details 与 `tt_report_frame_sum_us` 镜像，只是把过滤条件从 ISR 换成
+ * `domain == BM_TT_DOMAIN_MAINLOOP`。用于填充逐帧的 `mainloop_pending_us`
+ * 字段：由于 MAINLOOP 域的 step 执行被延后到 `bm_tt_schedule_run_pending`，
+ * 这里得到的是静态（声明 wcet_us）计划视图之和，而非运行期实测值。
+ *
+ * @param s 调度表实例（只读 entries）
+ * @param t 目标 minor 格（0..n_frames-1）
+ * @return Σ 命中该格的 MAINLOOP 域 activity wcet_us
+ */
+static uint32_t tt_report_frame_mainloop_us(const bm_tt_schedule_t *s, uint32_t t) {
+    uint32_t sum = 0u;
+
+    for (uint8_t k = 0u; k < s->entry_count; ++k) {
+        const bm_tt_activity_t *a = s->entries[k];
+
+        if (a->domain != BM_TT_DOMAIN_MAINLOOP || a->every == 0u) {
+            continue;
+        }
+        if ((t % a->every) == a->at) {
+            sum += a->wcet_us;
+        }
+    }
+    return sum;
+}
+
+/**
+ * @brief 输出调度表的机器可读 JSON 报告（schema v1）
+ *
+ * @details 与 `bm_tt_schedule_report` 用同一套栈上定长行缓冲 /
+ * 有界 `snprintf` 策略（零动态分配）。字段语义：
+ * - `hyperperiod_us = (uint64_t)minor_us * n_frames`，经显式转型后用
+ *   `%llu` 打印，避免大表下 `uint32_t` 溢出。
+ * - 帧 `t` 的 `isr_load_us` 为 `tt_report_frame_sum_us(sched, t)` 叠加
+ *   `BM_CONFIG_TT_SCHED_OVERHEAD_US`（声明 wcet 的计划视图，含框架派发
+ *   开销）。
+ * - 帧 `t` 的 `mainloop_pending_us` 为 `tt_report_frame_mainloop_us(sched, t)`
+ *   （命中该帧的 MAINLOOP 域 activity 的 wcet_us 之和；不含开销，因为
+ *   开销是 ISR 域的派发成本）。
+ * - 每任务的 `period_us`/`deadline_us` 均为 `minor_us * every`（LET 语义：
+ *   deadline 恒等于周期，与 `bm_tt_schedule_rt_slot_at` 一致）。
+ * - 任务 `name` 取自声明宏的 `#id` 字符串化，恒为合法 C 标识符，因此
+ *   永远不需要 JSON 字符串转义。
+ * - `edges` 输出为空数组，预留给后续任务填充。
+ *
+ * @p meta 为 NULL 时退化为全零默认值（cpu=0，ref_clk_hz=0，无工作点）。
+ *
+ * @param sched 调度表实例（只读）
+ * @param meta 导出元数据；NULL 时退化为全零默认值
+ * @param emit 逐行输出回调
+ * @param u emit 回调透传上下文
+ */
+void bm_tt_schedule_report_json(const bm_tt_schedule_t *sched,
+                                const bm_tt_schedule_json_meta_t *meta,
+                                void (*emit)(const char *line, void *u), void *u) {
+    char line[TT_REPORT_LINE_MAX];
+    bm_tt_schedule_json_meta_t m0 = { 0u, 0u, NULL, 0u };
+
+    if (sched == NULL || emit == NULL) {
+        return;
+    }
+    if (meta == NULL) {
+        meta = &m0;
+    }
+
+    emit("{", u);
+    emit("  \"schema_version\": 1,", u);
+    (void)snprintf(line, sizeof line, "  \"sched_name\": \"%s\",", sched->name);
+    emit(line, u);
+    (void)snprintf(line, sizeof line, "  \"cpu\": %u,", (unsigned)meta->cpu);
+    emit(line, u);
+    (void)snprintf(line, sizeof line, "  \"minor_us\": %u,", sched->minor_us);
+    emit(line, u);
+    (void)snprintf(line, sizeof line, "  \"n_frames\": %u,", sched->n_frames);
+    emit(line, u);
+    (void)snprintf(line, sizeof line, "  \"hyperperiod_us\": %llu,",
+                   (unsigned long long)sched->minor_us * sched->n_frames);
+    emit(line, u);
+    (void)snprintf(line, sizeof line, "  \"overhead_us\": %u,",
+                   (unsigned)BM_CONFIG_TT_SCHED_OVERHEAD_US);
+    emit(line, u);
+    (void)snprintf(line, sizeof line, "  \"overhead_calibrated\": %s,",
+                   (BM_CONFIG_TT_SCHED_OVERHEAD_CALIBRATED) ? "true" : "false");
+    emit(line, u);
+    (void)snprintf(line, sizeof line, "  \"ref_clk_hz\": %u,", meta->ref_clk_hz);
+    emit(line, u);
+    {
+        /* operating_points_hz 是本函数唯一的变长累加拼装（工作点个数不定，
+         * 其余字段都是短定长格式）。这里不能沿用"用 snprintf 返回值累加
+         * off、假设截断后仍 NUL 结尾"的写法：本机 mingw 链接的 snprintf 是
+         * msvcrt 语义——截断时返回 -1 且**不补 NUL 终止符**（已实测：
+         * `snprintf(buf,5,"%u",123456789)` 返回 -1 且 buf 无 NUL），与 C99
+         * "截断时返回本应写入的长度、且仍以 NUL 结尾" 不同。若 operating
+         * point 数量足够多把行填满（约 ≥16 个），旧写法会让 `line` 在其
+         * 200 字节数组内找不到 NUL，emit/strlen 经此读越界。
+         * 修法：每次 snprintf 后用 `n<0 || (size_t)n>=剩余空间` 统一判定
+         * 截断（该判据同时覆盖 msvcrt 与 C99 两种语义），一旦判定截断立即
+         * 停止后续追加；无论走到哪个分支，收尾前都强制
+         * `line[sizeof line - 1] = '\0'` 兜底，不依赖 snprintf 是否替我们
+         * 补了 NUL——这样 `line` 传给 emit 前恒是数组界内的合法 C 字符串。
+         * 代价：工作点过多时收尾的 "]," 可能被截断丢失，JSON 末尾数组语法
+         * 不完整；但内存安全优先于这种边界情形下的 JSON 严格合法性，且
+         * 该丢失只发生在极端工作点数量下，属已知取舍。 */
+        size_t off;
+        int n = snprintf(line, sizeof line, "  \"operating_points_hz\": [");
+
+        if (n < 0 || (size_t)n >= sizeof line) {
+            off = sizeof line - 1u; /* 前缀本身都放不下：视为已写满，直接进入收尾兜底 */
+        } else {
+            off = (size_t)n;
+        }
+        for (uint8_t i = 0u; i < meta->operating_point_count && off < sizeof line - 1u; ++i) {
+            size_t remain = sizeof line - off;
+
+            n = snprintf(line + off, remain, "%s%u",
+                        (i > 0u) ? ", " : "", meta->operating_points_hz[i]);
+            if (n < 0 || (size_t)n >= remain) {
+                off = sizeof line - 1u; /* 本次截断：停止追加，交给下面的强制 NUL 兜底 */
+                break;
+            }
+            off += (size_t)n;
+        }
+        if (off < sizeof line - 1u) {
+            size_t remain = sizeof line - off;
+
+            n = snprintf(line + off, remain, "],");
+            off = (n < 0 || (size_t)n >= remain) ? (sizeof line - 1u) : (off + (size_t)n);
+        }
+        line[sizeof line - 1u] = '\0'; /* 兜底：不管上面截断与否，强制界内 NUL 终止 */
+        emit(line, u);
+    }
+    emit("  \"tasks\": [", u);
+    for (uint8_t k = 0u; k < sched->entry_count; ++k) {
+        const bm_tt_activity_t *a = sched->entries[k];
+        unsigned long long period = (unsigned long long)sched->minor_us * a->every;
+
+        (void)snprintf(line, sizeof line,
+                       "    {\"name\": \"%s\", \"every\": %u, \"at\": %u, \"wcet_us\": %u, "
+                       "\"domain\": \"%s\", \"kind\": \"compute\", \"period_us\": %llu, "
+                       "\"deadline_us\": %llu, \"inputs\": %u, \"outputs\": %u}%s",
+                       a->name, (unsigned)a->every, (unsigned)a->at, a->wcet_us,
+                       (a->domain == BM_TT_DOMAIN_ISR) ? "isr" : "mainloop",
+                       period, period,
+                       (unsigned)a->input_count, (unsigned)a->output_count,
+                       (k + 1u < sched->entry_count) ? "," : "");
+        emit(line, u);
+    }
+    emit("  ],", u);
+    emit("  \"frames\": [", u);
+    for (uint32_t t = 0u; t < sched->n_frames; ++t) {
+        (void)snprintf(line, sizeof line,
+                       "    {\"t\": %u, \"isr_load_us\": %u, \"mainloop_pending_us\": %u}%s",
+                       t,
+                       tt_report_frame_sum_us(sched, t) + BM_CONFIG_TT_SCHED_OVERHEAD_US,
+                       tt_report_frame_mainloop_us(sched, t),
+                       (t + 1u < sched->n_frames) ? "," : "");
+        emit(line, u);
+    }
+    emit("  ],", u);
+    emit("  \"edges\": []", u);
+    emit("}", u);
 }
 
 /**

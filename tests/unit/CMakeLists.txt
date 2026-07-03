@@ -145,6 +145,10 @@ if(BM_ENABLE_TT_SCHEDULE)
     # 该内部访问器原型受 BM_BUS_ALLOW_INTERNAL 门控，需 PRIVATE 定义（照 test_bus）。
     bm_add_test(test_tt_schedule test_tt_schedule.c bm_tt_schedule)
     target_compile_definitions(test_tt_schedule PRIVATE BM_BUS_ALLOW_INTERNAL=1)
+
+    # Task 2 (schedule-map v2): bm_tt_schedule_report_json machine-readable export (schema v1).
+    bm_add_test(test_tt_schedule_json test_tt_schedule_json.c bm_tt_schedule)
+    set_tests_properties(test_tt_schedule_json PROPERTIES LABELS "determinism")
     # A5：本门面全静态分配（无 malloc/calloc/realloc/free 符号）+ 循环上界
     # 均受 init 期校验（entry_count/input_count/n_frames ≤ 编译期上界），
     # 纳入既有 determinism 回归面（见 test_tt_schedule.c 场景19注释）。
@@ -188,27 +192,69 @@ if(BM_ENABLE_TT_SCHEDULE)
         endif()
     endif()
 
-    # Task 7：host dump 工具，装配示例调度表并导出 bm_tt_schedule_report
-    # 到 build/schedule_map.txt，供开发者人工核对调度概览（非单元测试，
-    # 随 ALL 目标构建）。
-    add_executable(tt_schedule_map_dump ${CMAKE_SOURCE_DIR}/tests/tools/tt_schedule_map_dump.c)
+    # schedule-map v2：一行接入函数生成注册单元 + host dump 可执行 +
+    # POST_BUILD 自动出表（级 2 复合报告落 build/schedule_map/schedule_map_all.txt），
+    # 替换原先手搭的 demo dump 目标与 Task 3 手搭的 bm_schedule_map_dump。
+    # 另建 bm_schedule_map_dump_bad 作门禁负例（init 故意失败，非零退出）。
+    include(${CMAKE_SOURCE_DIR}/cmake/bm_schedule_map.cmake)
+    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/schedule_map_out ${CMAKE_BINARY_DIR}/schedule_map_out_bad)
+    bm_add_schedule_map(bm_schedule_map_dump
+        SOURCES ${CMAKE_SOURCE_DIR}/tests/tools/schedule_map_fixture.c
+        SETUP   schedule_map_fixture_setup
+        TABLES  sched_fixture_a:0 sched_fixture_b:1
+        INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/tests/tools
+        REF_CLK_HZ 240000000
+        OPERATING_POINTS 240000000 80000000)
+    # 交叉编译分支下 bm_add_schedule_map 建的是 add_custom_target（非可执行目标），
+    # 对其调 target_include_directories 会在 configure 期报错；仅 native 分支需要此调用。
+    if(NOT CMAKE_CROSSCOMPILING)
+        bm_target_internal_includes(bm_schedule_map_dump)
+    endif()
+    add_custom_target(schedule-map ALL DEPENDS bm_schedule_map_dump)
+
+    add_executable(bm_schedule_map_dump_bad
+        ${CMAKE_SOURCE_DIR}/tools/schedule_map/bm_schedule_map_main.c
+        ${CMAKE_SOURCE_DIR}/tests/tools/schedule_map_fixture_bad.c)
+    target_include_directories(bm_schedule_map_dump_bad PRIVATE
+        ${CMAKE_SOURCE_DIR}/tools/schedule_map ${CMAKE_SOURCE_DIR}/tests/tools)
+    bm_target_internal_includes(bm_schedule_map_dump_bad)
     # 同 bm_add_test 注释：BM_ENABLE_WCET_MON 打开时需把 bm_wcet_mon 纳入同一 GNU
     # 静态库解析组，否则其 PUBLIC 链 bm_core/bm_hal 在组外重复出现时脱离
     # bm_hal_native 覆盖范围，bm_hal_uptime_ns_raw 未解析。
     if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
-        target_link_libraries(tt_schedule_map_dump PRIVATE
+        target_link_libraries(bm_schedule_map_dump_bad PRIVATE
             "-Wl,--start-group"
             bm_tt_schedule bm_core bm_hal bm_hal_native
             $<$<BOOL:${BM_ENABLE_WCET_MON}>:bm_wcet_mon>
             "-Wl,--end-group")
     else()
-        target_link_libraries(tt_schedule_map_dump PRIVATE bm_tt_schedule bm_core bm_hal bm_hal_native)
+        target_link_libraries(bm_schedule_map_dump_bad PRIVATE bm_tt_schedule bm_core bm_hal bm_hal_native)
     endif()
-    bm_target_internal_includes(tt_schedule_map_dump)
-    add_custom_target(schedule-map ALL
-        COMMAND tt_schedule_map_dump ${CMAKE_BINARY_DIR}/schedule_map.txt
-        DEPENDS tt_schedule_map_dump
-        COMMENT "Generating build/schedule_map.txt")
+
+    add_test(NAME schedule_map_dump_ok
+        COMMAND bm_schedule_map_dump ${CMAKE_BINARY_DIR}/schedule_map_out)
+    add_test(NAME schedule_map_dump_gate
+        COMMAND bm_schedule_map_dump_bad ${CMAKE_BINARY_DIR}/schedule_map_out_bad)
+    set_tests_properties(schedule_map_dump_gate PROPERTIES WILL_FAIL TRUE)
+    set_tests_properties(schedule_map_dump_ok schedule_map_dump_gate PROPERTIES LABELS "determinism")
+
+    # Task 4：级 2 复合分析工具（tools/schedule_map_tool.py）的 stdlib unittest
+    # 自测，纯 Python 进程内构造 JSON fixture，不依赖上面的 dump 产物。
+    find_package(Python3 COMPONENTS Interpreter)
+    if(Python3_FOUND)
+        add_test(NAME schedule_map_tool_test
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/tools/test_schedule_map_tool.py)
+        set_tests_properties(schedule_map_tool_test PROPERTIES LABELS "determinism")
+    else()
+        message(STATUS "Python3 未找到：schedule_map_tool_test 未注册")
+    endif()
+
+    # Task 7：BM_LET_DEFINE_EX 编译期 _Static_assert 硬门（every>=1 / at<every）
+    # 的 configure 期负例检查——试编译一个 at>=every 的非法装配，断言必须编译
+    # 失败且失败原因确为该 static assert（而非 include 配错导致的缺头误判）。
+    set(BM_LET_NEG_INCLUDE_DIRS
+        "${CMAKE_SOURCE_DIR}/include;${CMAKE_SOURCE_DIR}/include/bm/hybrid;${CMAKE_SOURCE_DIR}/include/bm/core;${CMAKE_SOURCE_DIR}/include/bm/common")
+    include(${CMAKE_SOURCE_DIR}/tests/unit/support/check_let_static_assert.cmake)
 endif()
 
 if(BM_ENABLE_WCET_MON)
