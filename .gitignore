@@ -63,8 +63,8 @@ copywriting/
 src/proprietary/
 .claude/
 *.err
-build*
-*build*
+# 只挡根级构建输出目录，避免误伤 tools/board/build_*.ps1 等脚本（build_*.log 另由 *.log 兜底）
+/build*/
 _compilecheck*
 /superpowers/
 review/
