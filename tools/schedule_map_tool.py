@@ -257,6 +257,14 @@ _COLOR_OVER = "#d9534f"
 _COLOR_STROKE = "#666666"
 _COLOR_STROKE_PEAK = "#111111"
 
+# 干扰带 tier 双色（scheduled/hardware），与上面三档状态色（绿/橙/红）区分开的
+# 紫色系。已过 dataviz validate_palette.js 校验：light 模式 ALL PASS，dark 模式
+# ALL PASS（唯一 WARN 是 contrast，属合法的次级编码豁免——本工具有 meta 行数值
+# 与表格作为直接标注）。brief 占位的 Hardware=#c77dff 在 dark 模式下 OKLCH
+# L=0.72 超出 dark 波段上限 0.67，改用 #9d6fd6（L=0.632）后两模式均通过。
+_COLOR_INTF_SCHED = "#6a4c93"
+_COLOR_INTF_HW = "#9d6fd6"
+
 
 def _load_color(pct):
     if pct >= 100.0:
@@ -325,15 +333,19 @@ def _svg_wcet_bars(t):
     return "".join(parts)
 
 
-def _svg_load_stack(t):
-    """负载图：isr_load_us 与 mainloop_pending_us 堆叠柱 + minor_us 参考线。"""
+def _svg_load_stack(t, intf=None):
+    """负载图：isr_load_us 与 mainloop_pending_us 堆叠柱 + minor_us 参考线；
+    intf（该表 a["intf"]，无源传 None）非 None 时，在每根柱顶再叠两段干扰带
+    （scheduled 在下、hardware 在上，tier 双色），逐帧同高（干扰是表级 ceiling
+    上界，与具体帧无关）。intf 为 None 时不画，几何与改动前逐字一致（opt-in）。"""
     frames = sorted(t["frames"], key=lambda f: f["t"])
     minor = t["minor_us"] or 1
     n = max(len(frames), 1)
     bar_w, gap, plot_h, margin = 40, 8, 160, 24
     width = max(n * (bar_w + gap) + gap, 260)
     height = plot_h + margin * 2
-    max_val = max([minor] + [f["isr_load_us"] + f["mainloop_pending_us"] for f in frames]) or 1
+    intf_total = (intf["scheduled"] + intf["hardware"]) if intf else 0
+    max_val = max([minor] + [f["isr_load_us"] + f["mainloop_pending_us"] + intf_total for f in frames]) or 1
     scale = plot_h / max_val
     ref_y = margin + plot_h - minor * scale
     parts = [f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
@@ -348,6 +360,15 @@ def _svg_load_stack(t):
                      f'fill="{_COLOR_OK}" stroke="{_COLOR_STROKE}" stroke-width="1"/>')
         parts.append(f'<rect x="{x}" y="{y_main}" width="{bar_w}" height="{h_main}" '
                      f'fill="#4a7fd6" stroke="{_COLOR_STROKE}" stroke-width="1"/>')
+        if intf:
+            h_sched = intf["scheduled"] * scale
+            h_hw = intf["hardware"] * scale
+            y_sched = y_main - h_sched
+            y_hw = y_sched - h_hw
+            parts.append(f'<rect x="{x}" y="{y_sched}" width="{bar_w}" height="{h_sched}" '
+                         f'fill="{_COLOR_INTF_SCHED}" stroke="{_COLOR_STROKE}" stroke-width="1"/>')
+            parts.append(f'<rect x="{x}" y="{y_hw}" width="{bar_w}" height="{h_hw}" '
+                         f'fill="{_COLOR_INTF_HW}" stroke="{_COLOR_STROKE}" stroke-width="1"/>')
         parts.append(f'<text x="{x + bar_w / 2}" y="{margin + plot_h + 14}" '
                      f'text-anchor="middle" font-size="10" fill="currentColor" opacity="0.85">{f["t"]}</text>')
     parts.append(f'<line x1="0" y1="{ref_y}" x2="{width}" y2="{ref_y}" '
@@ -402,11 +423,18 @@ def render_html(tables, per_table, warns, global_hyper):
 
     for t, a in zip(tables, per_table):
         cal = "已标定" if t["overhead_calibrated"] else "未标定占位"
+        has_intf = bool(t.get("interference_sources"))
         parts.append('<section>')
         parts.append(f'<h2>[cpu{t["cpu"]}] {_esc(t["sched_name"])}</h2>')
         parts.append(f'<div class="meta">minor={t["minor_us"]}us frames={t["n_frames"]} '
                      f'hyper={t["hyperperiod_us"]}us 开销={t["overhead_us"]}us[{cal}] '
                      f'峰值格 t={a["peak"]["t"]} ({a["peak"]["isr_load_us"]}us, {a["pct"]:.1f}% of minor)</div>')
+        if has_intf and a["mode"] == "single":
+            intf = a["intf"]
+            verdict = "排得下 ✓" if a["feasible"] else "超载 ✗"
+            parts.append(f'<div class="meta">干扰(硬{intf["hardware"]}/调{intf["scheduled"]})={intf["total"]}us，'
+                         f'有效峰值={a["eff_peak_us"]}us ({a["eff_pct"]:.1f}% of minor，含干扰，'
+                         f'ceiling 上界估，需上板实测) {verdict}</div>')
         parts.append('<table><tr><th>domain</th><th>name</th><th>every</th><th>at</th>'
                      '<th>wcet_us</th><th>period_us</th></tr>')
         for task in t["tasks"]:
@@ -416,24 +444,37 @@ def render_html(tables, per_table, warns, global_hyper):
         parts.append('</table>')
         if a["mode"] == "multi":
             parts.append('<h3>频率对比表</h3>')
-            parts.append('<table><tr><th>频率</th><th>峰值</th><th>峰值占比</th><th>可行性</th></tr>')
+            if has_intf:
+                parts.append('<table><tr><th>频率</th><th>峰值</th><th>峰值占比</th>'
+                             '<th>有效(含干扰)</th><th>可行性</th></tr>')
+            else:
+                parts.append('<table><tr><th>频率</th><th>峰值</th><th>峰值占比</th><th>可行性</th></tr>')
             for ft in a["freq_tables"]:
                 tag = "基准/声明" if ft["is_ref"] else "理论/estimated"
                 verdict = "排得下 ✓" if ft["feasible"] else "超载 ✗"
-                parts.append(f'<tr><td>{ft["f_hz"]}Hz（{_esc(tag)}）</td>'
-                             f'<td>{ft["peak_us"]}us</td><td>{ft["pct"]:.1f}%</td>'
-                             f'<td>{_esc(verdict)}</td></tr>')
+                if has_intf:
+                    parts.append(f'<tr><td>{ft["f_hz"]}Hz（{_esc(tag)}）</td>'
+                                 f'<td>{ft["peak_us"]}us</td><td>{ft["pct"]:.1f}%</td>'
+                                 f'<td>{ft["eff_peak_us"]}us ({ft["eff_pct"]:.1f}%)</td>'
+                                 f'<td>{_esc(verdict)}</td></tr>')
+                else:
+                    parts.append(f'<tr><td>{ft["f_hz"]}Hz（{_esc(tag)}）</td>'
+                                 f'<td>{ft["peak_us"]}us</td><td>{ft["pct"]:.1f}%</td>'
+                                 f'<td>{_esc(verdict)}</td></tr>')
             parts.append('</table>')
-            parts.append('<div class="meta">理论值按 wcet×ref/f 线性外推(estimated)，'
-                         '需上板实测验证；下方三图按基准频率绘制（负载随频率线性缩放，结构不变，'
-                         '基准图足够代表，不逐档重画）</div>')
+            note = ('理论值按 wcet×ref/f 线性外推(estimated)，'
+                    '需上板实测验证；下方三图按基准频率绘制（负载随频率线性缩放，结构不变，'
+                    '基准图足够代表，不逐档重画）')
+            if has_intf:
+                note += '；干扰按 ceiling 上界估，已计入有效列，需上板实测'
+            parts.append(f'<div class="meta">{note}</div>')
 
         parts.append('<h3>时间格视图</h3>')
         parts.append(f'<div class="svg-wrap">{_svg_frame_strip(t)}</div>')
         parts.append('<h3>每拍 WCET 图</h3>')
         parts.append(f'<div class="svg-wrap">{_svg_wcet_bars(t)}</div>')
         parts.append('<h3>负载图（isr_load_us + mainloop_pending_us 堆叠, minor_us 参考线）</h3>')
-        parts.append(f'<div class="svg-wrap">{_svg_load_stack(t)}</div>')
+        parts.append(f'<div class="svg-wrap">{_svg_load_stack(t, a["intf"] if has_intf else None)}</div>')
         parts.append('</section>')
 
     parts.append('</body></html>')

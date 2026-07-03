@@ -289,5 +289,32 @@ class InterferenceRenderTextTest(unittest.TestCase):
         self.assertIn("已计入声明干扰源", r.stdout)  # 注脚切换
 
 
+class InterferenceHtmlTest(unittest.TestCase):
+    def _html(self, d):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = os.path.join(tmp, d["sched_name"]+".json")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(json.dumps(d))
+            out = os.path.join(tmp, "r.html")
+            r = subprocess.run([sys.executable, TOOL, p, "--html", out],
+                               capture_output=True, text=True, encoding="utf-8")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            with open(out, encoding="utf-8") as f:
+                return f.read()
+
+    def test_html_has_interference_when_declared(self):
+        d = make_a()
+        d["interference_sources"] = [{"name":"hw","period_us":d["minor_us"],"wcet_us":5,"tier":"hardware"}]
+        html = self._html(d)
+        self.assertIn("干扰", html)
+        self.assertTrue(html.strip().startswith("<!doctype html>"))
+        self.assertNotIn("http://", html)  # 仍零外链
+
+    def test_html_identical_when_no_interference(self):
+        d = make_a()
+        html = self._html(d)
+        self.assertNotIn("干扰", html)
+
+
 if __name__ == "__main__":
     unittest.main()
