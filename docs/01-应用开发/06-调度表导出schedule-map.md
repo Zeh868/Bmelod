@@ -167,6 +167,22 @@ CPU 声明的干扰源超过 16 条（`BM_SM_MAX_INTF`）时，出表程序向 s
 
 未声明干扰源时该字段是空数组 `[]`。
 
+**迁移说明（影响所有注册单元，含手写）**：`g_bm_schedule_map_interference[]`
+/ `g_bm_schedule_map_interference_count` 是这次干扰源声明特性给
+[注册单元契约](../05-API参考/bm_tt_schedule.md#94-注册单元契约bm_schedule_map_regh)
+新增的两个符号——**所有**注册单元现在都必须定义它们，这是链接期硬
+需求，缺了会链接失败。`bm_add_schedule_map` 生成的 `.c` 已自动兼容
+（不传 `INTERFERENCE_SRC` 时也会生成空数组 + count 0）；§5.1 二档或
+IDE 三档手写的注册单元**必须手动补齐**这两个符号，未声明干扰源时按
+下面这样定义即可满足契约：
+
+```c
+const bm_schedule_map_interference_t g_bm_schedule_map_interference[] = {
+    { { "", 0u, 0u, 0u }, 0u },
+};
+const uint32_t g_bm_schedule_map_interference_count = 0u;
+```
+
 ---
 
 ## 3. 表怎么读
