@@ -19,13 +19,19 @@
  * 输出目录须已存在；本程序从不创建目录。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-07-03
+ * @version 1.1
+ * @date 2026-07-04
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-03       1.0            zeh            Task 3：通用出表 main 初版
+ * 2026-07-04       1.1            zeh            Task 6：按当前表 cpu 从
+ *                                                 `g_bm_schedule_map_interference[]`
+ *                                                 过滤出干扰源子集装配进
+ *                                                 meta.interference，供
+ *                                                 report_json 导出
+ *                                                 interference_sources
  *
  */
 #include "bm_schedule_map_reg.h"
@@ -34,6 +40,9 @@
 
 /** @brief "<dir>/<name><ext>" 的长度上界（目录 + '/' + name + ".json" + NUL） */
 #define SM_PATH_MAX 512
+
+/** @brief 单表可挂载的干扰源上限（栈上过滤缓冲容量，见下方装配循环） */
+#define BM_SM_MAX_INTF 16u
 
 /** @brief emit 回调：把一行写入 FILE*（u 即该 FILE*） */
 static void sm_emit(const char *line, void *u) {
@@ -86,10 +95,20 @@ int main(int argc, char **argv) {
         bm_tt_schedule_report(s, sm_emit, fp);
         (void)fclose(fp);
 
+        bm_tt_sched_intf_src_t intf_buf[BM_SM_MAX_INTF];
+        uint8_t intf_n = 0u;
+        for (uint32_t k = 0u; k < g_bm_schedule_map_interference_count && intf_n < BM_SM_MAX_INTF; ++k) {
+            if (g_bm_schedule_map_interference[k].cpu == g_bm_schedule_map_entries[i].cpu) {
+                intf_buf[intf_n++] = g_bm_schedule_map_interference[k].src;
+            }
+        }
+
         meta.cpu = g_bm_schedule_map_entries[i].cpu;
         meta.ref_clk_hz = g_bm_schedule_map_ref_clk_hz;
         meta.operating_points_hz = g_bm_schedule_map_op_points_hz;
         meta.operating_point_count = (uint8_t)g_bm_schedule_map_op_point_count;
+        meta.interference = intf_buf;
+        meta.interference_count = intf_n;
         fp = sm_open(argv[1], s->name, ".json");
         if (fp == NULL) { return 1; }
         bm_tt_schedule_report_json(s, &meta, sm_emit, fp);

@@ -4,7 +4,7 @@
 function(bm_add_schedule_map NAME)
     cmake_parse_arguments(SM ""
         "SETUP;REF_CLK_HZ;OUTPUT_DIR"
-        "SOURCES;TABLES;INCLUDE_DIRS;OPERATING_POINTS;LINK_LIBS" ${ARGN})
+        "SOURCES;TABLES;INCLUDE_DIRS;OPERATING_POINTS;LINK_LIBS;INTERFERENCE_SRC" ${ARGN})
     if(NOT SM_SOURCES OR NOT SM_SETUP OR NOT SM_TABLES)
         message(FATAL_ERROR "bm_add_schedule_map(${NAME}): SOURCES/SETUP/TABLES 必填")
     endif()
@@ -78,6 +78,38 @@ const uint32_t g_bm_schedule_map_op_point_count = 0u;
 #endif
 ")
     endif()
+    # ---- 干扰源声明数组：INTERFERENCE_SRC 每条 "name:period_us:wcet_us:tier:cpu"
+    # （tier∈hardware/scheduled，映射 0/1）；未提供该参数则生成空数组占位元素 +
+    # count 0（与现状兼容，opt-in）。非法条目直接 FATAL_ERROR 报出原始字符串，
+    # 不静默吞掉——错配的干扰源比没有更危险（会让 schedule_map_tool.py 算出
+    # 错误的 ceiling 上界却看着像"已声明、已核实"）。
+    set(_intf_entries "")
+    set(_intf_n 0)
+    foreach(_i IN LISTS SM_INTERFERENCE_SRC)
+        if(_i MATCHES "^([A-Za-z_][A-Za-z0-9_]*):([0-9]+):([0-9]+):(hardware|scheduled):([0-9]+)$")
+            set(_iname   ${CMAKE_MATCH_1})
+            set(_iperiod ${CMAKE_MATCH_2})
+            set(_iwcet   ${CMAKE_MATCH_3})
+            set(_itier_s ${CMAKE_MATCH_4})
+            set(_icpu    ${CMAKE_MATCH_5})
+            if(_itier_s STREQUAL "hardware")
+                set(_itier 0)
+            else()
+                set(_itier 1)
+            endif()
+            string(APPEND _intf_entries
+                "    { { \"${_iname}\", ${_iperiod}u, ${_iwcet}u, ${_itier}u }, ${_icpu}u },\n")
+            math(EXPR _intf_n "${_intf_n}+1")
+        else()
+            message(FATAL_ERROR "bm_add_schedule_map(${NAME}): INTERFERENCE_SRC 条目格式非法（要 name:period_us:wcet_us:tier:cpu，tier∈hardware/scheduled，均为非负整数）: \"${_i}\"")
+        endif()
+    endforeach()
+    if(_intf_n EQUAL 0)
+        # 与 g_bm_schedule_map_op_points_hz 的零元素占位同一惯例：空初始化列表
+        # `{}` 在严格 C 下是非法的，占位元素规避该问题，count 仍如实填 0。
+        set(_intf_entries "    { { \"\", 0u, 0u, 0u }, 0u },\n")
+    endif()
+
     list(LENGTH SM_TABLES _tn)
     set(_reg ${CMAKE_CURRENT_BINARY_DIR}/${NAME}_reg.c)
     file(WRITE ${_reg} "/* 自动生成：bm_add_schedule_map(${NAME})，勿手改 */
@@ -87,7 +119,10 @@ const bm_schedule_map_entry_t g_bm_schedule_map_entries[] = {
 ${_entries}};
 const uint32_t g_bm_schedule_map_entry_count = ${_tn}u;
 ${_ref_clk_line}
-${_op_points_block}int bm_schedule_map_setup(void) { return ${SM_SETUP}(); }
+${_op_points_block}const bm_schedule_map_interference_t g_bm_schedule_map_interference[] = {
+${_intf_entries}};
+const uint32_t g_bm_schedule_map_interference_count = ${_intf_n}u;
+int bm_schedule_map_setup(void) { return ${SM_SETUP}(); }
 ")
 
     # ---- 交叉编译：借宿主默认工具链的独立子构建出表（不产生真实 ${NAME} 编译目标，
