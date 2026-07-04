@@ -323,7 +323,7 @@ void debug_dump_schedule_json(void) {
 
 `tools/schedule_map/bm_schedule_map_reg.h` 定义的是"注册单元"（register
 unit）——一个只列清单、不含业务逻辑的小翻译单元，通用 dump 程序
-`bm_schedule_map_main.c` 只认这五个符号，不认识任何具体调度表名字：
+`bm_schedule_map_main.c` 只认这七个符号，不认识任何具体调度表名字：
 
 ```c
 typedef struct {
@@ -336,6 +336,11 @@ extern const uint32_t g_bm_schedule_map_entry_count;
 extern const uint32_t g_bm_schedule_map_ref_clk_hz;
 extern const uint32_t g_bm_schedule_map_op_points_hz[];
 extern const uint32_t g_bm_schedule_map_op_point_count;
+
+/* 分析专用干扰源声明（HRT 抢占上界，供 schedule-map-tool 算有效峰值），
+ * 可为空——未声明干扰源时数组填单个占位元素、count 填 0 即可，见下方样例 */
+extern const bm_schedule_map_interference_t g_bm_schedule_map_interference[];
+extern const uint32_t g_bm_schedule_map_interference_count;
 
 int bm_schedule_map_setup(void); /* init 前的准备工作（如 bm_bus_open） */
 ```
@@ -356,9 +361,16 @@ const uint32_t g_bm_schedule_map_entry_count = 2u;
 const uint32_t g_bm_schedule_map_ref_clk_hz  = 240000000u;
 const uint32_t g_bm_schedule_map_op_points_hz[] = { 240000000u, 80000000u };
 const uint32_t g_bm_schedule_map_op_point_count = 2u;
+/* 未声明干扰源：占位数组 + count 0 即可满足链接期契约 */
+const bm_schedule_map_interference_t g_bm_schedule_map_interference[] = { { { "", 0u, 0u, 0u }, 0u } };
+const uint32_t g_bm_schedule_map_interference_count = 0u;
 
 int bm_schedule_map_setup(void) { return schedule_map_fixture_setup(); }
 ```
+
+干扰源声明特性的完整迁移说明（含 JSON 字段、`bm_add_schedule_map`
+自动兼容细节）见
+[06-调度表导出schedule-map §2.x 迁移说明](../01-应用开发/06-调度表导出schedule-map.md)。
 
 ## 10. 错误码
 

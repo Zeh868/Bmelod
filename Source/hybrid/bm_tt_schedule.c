@@ -27,8 +27,8 @@
  * 域·预算账（无硬时间格语义，逐行列 wcet_us + 建议 run_pending budget）。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.9
- * @date 2026-07-03
+ * @version 1.10
+ * @date 2026-07-04
  *
  * @par 修改日志:
  *
@@ -50,6 +50,9 @@
  * 2026-07-03       1.9            zeh            修复 report_json 的 operating_points_hz 单行拼装
  *                                                 越界读：改为兼容 msvcrt snprintf 截断不补 NUL
  *                                                 语义的判定 + 强制界内 NUL 兜底
+ * 2026-07-04       1.10           zeh            Task 5：report_json 新增 interference_sources
+ *                                                 一源一行导出（tier 0/1 -> "hardware"/"scheduled"
+ *                                                 字符串），m0 默认值补 interference/count 零初始化
  *
  */
 #include "bm_tt_schedule.h"
@@ -795,9 +798,15 @@ static uint32_t tt_report_frame_mainloop_us(const bm_tt_schedule_t *s, uint32_t 
  *   deadline 恒等于周期，与 `bm_tt_schedule_rt_slot_at` 一致）。
  * - 任务 `name` 取自声明宏的 `#id` 字符串化，恒为合法 C 标识符，因此
  *   永远不需要 JSON 字符串转义。
+ * - `interference_sources` 由 `meta->interference`/`interference_count`
+ *   提供，一源一行导出（定长 snprintf + 强制界内 NUL 兜底，避开 msvcrt
+ *   截断不补 NUL 的坑），`tier` 导出为 "hardware"（0）/"scheduled"（1）
+ *   字符串；`interference_count` 为 0（含 meta 为 NULL 退化）时导出空数组
+ *   `[]`。
  * - `edges` 输出为空数组，预留给后续任务填充。
  *
- * @p meta 为 NULL 时退化为全零默认值（cpu=0，ref_clk_hz=0，无工作点）。
+ * @p meta 为 NULL 时退化为全零默认值（cpu=0，ref_clk_hz=0，无工作点，
+ * 无干扰源）。
  *
  * @param sched 调度表实例（只读）
  * @param meta 导出元数据；NULL 时退化为全零默认值
@@ -808,7 +817,7 @@ void bm_tt_schedule_report_json(const bm_tt_schedule_t *sched,
                                 const bm_tt_schedule_json_meta_t *meta,
                                 void (*emit)(const char *line, void *u), void *u) {
     char line[TT_REPORT_LINE_MAX];
-    bm_tt_schedule_json_meta_t m0 = { 0u, 0u, NULL, 0u };
+    bm_tt_schedule_json_meta_t m0 = { 0u, 0u, NULL, 0u, NULL, 0u };
 
     if (sched == NULL || emit == NULL) {
         return;
@@ -882,6 +891,28 @@ void bm_tt_schedule_report_json(const bm_tt_schedule_t *sched,
         }
         line[sizeof line - 1u] = '\0'; /* 兜底：不管上面截断与否，强制界内 NUL 终止 */
         emit(line, u);
+    }
+    if (meta->interference_count == 0u) {
+        emit("  \"interference_sources\": [],", u);
+    } else {
+        /* 一源一行、每源定长 snprintf——不同于 operating_points_hz 的单行变长
+         * 累加拼装，这里每次迭代都是新的一行、独立的 line 缓冲，天然避开
+         * msvcrt snprintf 截断不补 NUL 的坑；仍按既有约定强制界内 NUL 兜底，
+         * 双重保险。 */
+        emit("  \"interference_sources\": [", u);
+        for (uint8_t i = 0u; i < meta->interference_count; ++i) {
+            const bm_tt_sched_intf_src_t *s = &meta->interference[i];
+            const char *tier = (s->tier == 0u) ? "hardware" : "scheduled";
+
+            (void)snprintf(line, sizeof line,
+                "    {\"name\": \"%s\", \"period_us\": %u, \"wcet_us\": %u, \"tier\": \"%s\"}%s",
+                (s->name != NULL) ? s->name : "?",
+                (unsigned)s->period_us, (unsigned)s->wcet_us, tier,
+                (i + 1u < meta->interference_count) ? "," : "");
+            line[sizeof line - 1] = '\0';   /* msvcrt 兜底 */
+            emit(line, u);
+        }
+        emit("  ],", u);
     }
     emit("  \"tasks\": [", u);
     for (uint8_t k = 0u; k < sched->entry_count; ++k) {

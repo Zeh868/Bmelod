@@ -197,14 +197,20 @@ if(BM_ENABLE_TT_SCHEDULE)
     # 替换原先手搭的 demo dump 目标与 Task 3 手搭的 bm_schedule_map_dump。
     # 另建 bm_schedule_map_dump_bad 作门禁负例（init 故意失败，非零退出）。
     include(${CMAKE_SOURCE_DIR}/cmake/bm_schedule_map.cmake)
-    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/schedule_map_out ${CMAKE_BINARY_DIR}/schedule_map_out_bad)
+    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/schedule_map_out ${CMAKE_BINARY_DIR}/schedule_map_out_bad
+                         ${CMAKE_BINARY_DIR}/schedule_map_out_fixture_reg)
+    # Task 6：INTERFERENCE_SRC 声明 2 个干扰源（均 cpu0，与
+    # tests/tools/schedule_map_fixture_reg.c 手写的干扰源逐字一致），验证
+    # CMake 生成路径——sched_fixture_a（cpu0）出表 JSON 应含二者，
+    # sched_fixture_b（cpu1）不含（main 按 cpu 过滤）。
     bm_add_schedule_map(bm_schedule_map_dump
         SOURCES ${CMAKE_SOURCE_DIR}/tests/tools/schedule_map_fixture.c
         SETUP   schedule_map_fixture_setup
         TABLES  sched_fixture_a:0 sched_fixture_b:1
         INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/tests/tools
         REF_CLK_HZ 240000000
-        OPERATING_POINTS 240000000 80000000)
+        OPERATING_POINTS 240000000 80000000
+        INTERFERENCE_SRC spi_isr:1000:20:hardware:0 wifi_task:5000:300:scheduled:0)
     # 交叉编译分支下 bm_add_schedule_map 建的是 add_custom_target（非可执行目标），
     # 对其调 target_include_directories 会在 configure 期报错；仅 native 分支需要此调用。
     if(NOT CMAKE_CROSSCOMPILING)
@@ -231,12 +237,79 @@ if(BM_ENABLE_TT_SCHEDULE)
         target_link_libraries(bm_schedule_map_dump_bad PRIVATE bm_tt_schedule bm_core bm_hal bm_hal_native)
     endif()
 
+    # Task 6：手写 reg 契约路径的正例——直接链
+    # tests/tools/schedule_map_fixture_reg.c（不经 bm_add_schedule_map() 生成），
+    # 与上面 bm_schedule_map_dump 用同一套双表装配件，验证"CMake 生成/手写"
+    # 两条 reg 契约实现路径都满足新增的干扰源数组契约。
+    add_executable(bm_schedule_map_dump_fixture_reg
+        ${CMAKE_SOURCE_DIR}/tools/schedule_map/bm_schedule_map_main.c
+        ${CMAKE_SOURCE_DIR}/tests/tools/schedule_map_fixture_reg.c
+        ${CMAKE_SOURCE_DIR}/tests/tools/schedule_map_fixture.c)
+    target_include_directories(bm_schedule_map_dump_fixture_reg PRIVATE
+        ${CMAKE_SOURCE_DIR}/tools/schedule_map ${CMAKE_SOURCE_DIR}/tests/tools)
+    bm_target_internal_includes(bm_schedule_map_dump_fixture_reg)
+    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        target_link_libraries(bm_schedule_map_dump_fixture_reg PRIVATE
+            "-Wl,--start-group"
+            bm_tt_schedule bm_core bm_hal bm_hal_native
+            $<$<BOOL:${BM_ENABLE_WCET_MON}>:bm_wcet_mon>
+            "-Wl,--end-group")
+    else()
+        target_link_libraries(bm_schedule_map_dump_fixture_reg PRIVATE bm_tt_schedule bm_core bm_hal bm_hal_native)
+    endif()
+
     add_test(NAME schedule_map_dump_ok
         COMMAND bm_schedule_map_dump ${CMAKE_BINARY_DIR}/schedule_map_out)
     add_test(NAME schedule_map_dump_gate
         COMMAND bm_schedule_map_dump_bad ${CMAKE_BINARY_DIR}/schedule_map_out_bad)
+    add_test(NAME schedule_map_dump_fixture_reg_ok
+        COMMAND bm_schedule_map_dump_fixture_reg ${CMAKE_BINARY_DIR}/schedule_map_out_fixture_reg)
     set_tests_properties(schedule_map_dump_gate PROPERTIES WILL_FAIL TRUE)
-    set_tests_properties(schedule_map_dump_ok schedule_map_dump_gate PROPERTIES LABELS "determinism")
+    set_tests_properties(schedule_map_dump_ok schedule_map_dump_gate schedule_map_dump_fixture_reg_ok
+        PROPERTIES LABELS "determinism")
+
+    # Task 6 评审修复：干扰源截断告警负例——INTERFERENCE_SRC 生成 17 个 cpu0
+    # 干扰源（超过 bm_schedule_map_main.c 的 BM_SM_MAX_INTF=16 上限），断言
+    # dump 向 stderr 打出明确的截断告警（截断丢源=低估干扰，不允许静默）。
+    # 注意 PASS_REGULAR_EXPRESSION 使 ctest 只按输出匹配判 pass（不再看退出
+    # 码），对本负例足够：告警文案出现即证明截断路径被触发且未静默；正则只钉
+    # ASCII 片段，规避跨平台控制台编码差异。
+    set(_sm_ovf_intf "")
+    foreach(_k RANGE 1 17)
+        list(APPEND _sm_ovf_intf "ovf_src_${_k}:1000:10:hardware:0")
+    endforeach()
+    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/schedule_map_out_overflow
+                         ${CMAKE_BINARY_DIR}/schedule_map_overflow_postbuild)
+    bm_add_schedule_map(bm_schedule_map_dump_overflow
+        SOURCES ${CMAKE_SOURCE_DIR}/tests/tools/schedule_map_fixture.c
+        SETUP   schedule_map_fixture_setup
+        TABLES  sched_fixture_a:0 sched_fixture_b:1
+        INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/tests/tools
+        REF_CLK_HZ 240000000
+        OUTPUT_DIR ${CMAKE_BINARY_DIR}/schedule_map_overflow_postbuild
+        INTERFERENCE_SRC ${_sm_ovf_intf})
+    if(NOT CMAKE_CROSSCOMPILING)
+        bm_target_internal_includes(bm_schedule_map_dump_overflow)
+    endif()
+    add_test(NAME schedule_map_dump_intf_overflow_warns
+        COMMAND bm_schedule_map_dump_overflow ${CMAKE_BINARY_DIR}/schedule_map_out_overflow)
+    set_tests_properties(schedule_map_dump_intf_overflow_warns PROPERTIES
+        PASS_REGULAR_EXPRESSION "BM_SM_MAX_INTF=16" LABELS "determinism")
+
+    # Task 6：干扰源装配内容级检查——分别校验 CMake 生成路径
+    # （bm_schedule_map_dump，INTERFERENCE_SRC）与手写 reg 路径
+    # （bm_schedule_map_dump_fixture_reg）的出表 JSON，DEPENDS 确保先跑完对应
+    # 的 dump 测试再读产物（不依赖 ctest 默认串行顺序）。
+    add_test(NAME schedule_map_interference_cmake_gen_ok
+        COMMAND ${CMAKE_COMMAND} -DDIR=${CMAKE_BINARY_DIR}/schedule_map_out
+                -P ${CMAKE_SOURCE_DIR}/tests/unit/support/check_schedule_map_interference.cmake)
+    add_test(NAME schedule_map_interference_handwritten_reg_ok
+        COMMAND ${CMAKE_COMMAND} -DDIR=${CMAKE_BINARY_DIR}/schedule_map_out_fixture_reg
+                -P ${CMAKE_SOURCE_DIR}/tests/unit/support/check_schedule_map_interference.cmake)
+    set_tests_properties(schedule_map_interference_cmake_gen_ok PROPERTIES
+        DEPENDS schedule_map_dump_ok LABELS "determinism")
+    set_tests_properties(schedule_map_interference_handwritten_reg_ok PROPERTIES
+        DEPENDS schedule_map_dump_fixture_reg_ok LABELS "determinism")
 
     # Task 4：级 2 复合分析工具（tools/schedule_map_tool.py）的 stdlib unittest
     # 自测，纯 Python 进程内构造 JSON fixture，不依赖上面的 dump 产物。

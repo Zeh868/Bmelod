@@ -10,13 +10,17 @@
  * schedule_map_dump_gate 测试上的 WILL_FAIL 属性端到端确实触发。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-07-03
+ * @version 1.1
+ * @date 2026-07-04
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-03       1.0            zeh            Task 3：门禁负例装配件初版
+ * 2026-07-04       1.1            zeh            Task 6：补 reg 契约新增的
+ *                                                 干扰源声明数组两个 extern
+ *                                                 （空数组占位 + count 0），
+ *                                                 门禁负例本身不关心干扰源
  *
  */
 #include "bm_schedule_map_reg.h"
@@ -57,6 +61,10 @@ const uint32_t g_bm_schedule_map_entry_count = 1u;
 const uint32_t g_bm_schedule_map_ref_clk_hz  = 0u;
 const uint32_t g_bm_schedule_map_op_points_hz[] = { 0u };
 const uint32_t g_bm_schedule_map_op_point_count = 0u;
+const bm_schedule_map_interference_t g_bm_schedule_map_interference[] = {
+    { { "", 0u, 0u, 0u }, 0u },
+};
+const uint32_t g_bm_schedule_map_interference_count = 0u;
 
 int bm_schedule_map_setup(void) {
     bm_bus_cfg_t cfg = { .owner_cpu = 0u };
