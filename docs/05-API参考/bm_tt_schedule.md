@@ -377,8 +377,10 @@ const uint32_t g_bm_schedule_map_interference_count = 0u;
 int bm_schedule_map_setup(void) { return schedule_map_fixture_setup(); }
 ```
 
-干扰两符号的定义处与 `tests/tools/schedule_map_fixture_reg.c` 逐字同款
-——手写注册单元也遵循"config 单源"约定：IDE 档用户也只动
+干扰两符号定义处的 `#ifdef` 分支与
+`tests/tools/schedule_map_fixture_reg.c` 逐字同款；`#else` 为未声明时的
+空占位教学写法（fixture 的 `#else` 保留 2 源测试基准值，属测试专用）。
+手写注册单元也遵循"config 单源"约定：IDE 档用户也只动
 `bm_config_app.h`（定义/不定义 `BM_CONFIG_SM_INTERFERENCE_SRC`），不需要
 改这份 `.c` 本身。
 
