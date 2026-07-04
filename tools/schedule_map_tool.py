@@ -117,7 +117,9 @@ def analyze(tables, op_hz_extra, warn_pct):
         raw_pct = 100.0 * raw_peak["isr_load_us"] / minor
         entry = {"peak": raw_peak, "pct": raw_pct, "mode": "single", "freq_tables": []}
 
-        intf = _interference(t.get("interference_sources", []), minor)
+        # 用 `or []` 而非 .get 默认值：显式 "interference_sources": null 时
+        # .get 默认值不生效仍返回 None，下面 for 循环会 TypeError
+        intf = _interference(t.get("interference_sources") or [], minor)
         eff_peak = raw_peak["isr_load_us"] + intf["total"]
         entry["intf"] = intf
         entry["eff_peak_us"] = eff_peak
@@ -155,7 +157,8 @@ def analyze(tables, op_hz_extra, warn_pct):
                     pct = 100.0 * peak_fr["isr_load_us"] / minor
                     # 该频率档的干扰上界：period 不缩放，wcet 经 ref/f_hz 缩放
                     # （_interference 内部处理），计入后才是有效峰值/可行性判定。
-                    intf_f = _interference(t.get("interference_sources", []), minor, ref, f_hz)
+                    # 同上：显式 null 需用 `or []` 兜底，见单表分支注释
+                    intf_f = _interference(t.get("interference_sources") or [], minor, ref, f_hz)
                     eff = peak_fr["isr_load_us"] + intf_f["total"]
                     feasible = eff <= minor
                     tasks_scaled = [

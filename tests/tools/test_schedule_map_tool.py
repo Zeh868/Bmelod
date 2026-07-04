@@ -198,6 +198,17 @@ class InterferenceMathTest(unittest.TestCase):
         for w in warns:
             self.assertNotIn("干扰", w)
 
+    def test_analyze_explicit_null_interference_noop(self):
+        """显式 "interference_sources": null（而非缺省该键）时，.get 默认值
+        不生效仍返回 None；`or []` 兜底后应与不声明干扰源完全等价，不崩、
+        intf 全 0、feasible 不变。"""
+        d = make_a()
+        d["interference_sources"] = None
+        per_table, warns, _ = smt.analyze([d], [], 80)
+        a = per_table[0]
+        self.assertEqual(a["intf"]["total"], 0)
+        self.assertIs(a["feasible"], True)
+
 
 class InterferenceFreqTest(unittest.TestCase):
     """多频率分支每档计入 I(f)：period 不缩放、wcet 经 ref/f 缩放。计算层用
