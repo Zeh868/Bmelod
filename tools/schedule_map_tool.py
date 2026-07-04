@@ -268,6 +268,8 @@ _COLOR_STROKE_PEAK = "#111111"
 _COLOR_INTF_SCHED = "#6a4c93"
 _COLOR_INTF_HW = "#9d6fd6"
 
+_COLOR_SEG_TEXT = "#ffffff"   # 色块段内标注文字色（可读性用，非分类/语义色）
+
 
 def _load_color(pct):
     if pct >= 100.0:
@@ -325,7 +327,7 @@ def _svg_freq_overview(t, a):
                              f'fill="{color}" stroke="{stroke}" stroke-width="{sw}"/>')
                 if w >= 34:   # 放得下才段内标数值
                     parts.append(f'<text x="{x + w / 2:.1f}" y="{y + bar_h - 4}" '
-                                 f'text-anchor="middle" font-size="9" fill="#fff">{val}us</text>')
+                                 f'text-anchor="middle" font-size="9" fill="{_COLOR_SEG_TEXT}">{val}us</text>')
             x += w
         verdict = "排得下 ✓" if r["feasible"] else "超载 ✗"
         vcolor = _COLOR_OK if r["feasible"] else _COLOR_OVER

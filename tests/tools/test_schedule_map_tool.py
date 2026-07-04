@@ -349,6 +349,8 @@ class FreqOverviewTest(unittest.TestCase):
         self.assertIn('aria-label="频率可行性总览"', html)
         self.assertIn("★", html)          # 基准档徽标
         self.assertIn("超载 ✗", html)      # 低频档叠干扰后超载
+        # 有干扰源分支的对比表 verdict 也带内联色（超载→_COLOR_OVER）
+        self.assertIn(f'style="color:{smt._COLOR_OVER}">超载', html)
 
     def test_overview_present_single_mode(self):
         d = make_a()
@@ -367,6 +369,9 @@ class FreqOverviewTest(unittest.TestCase):
         html = self._html(d)
         self.assertNotIn("干扰", html)      # 铁律断言仍须成立
         self.assertIn('aria-label="频率可行性总览"', html)  # 无干扰也有总览(纯绿条)
+        # 无干扰=纯绿条：总览（乃至整份 HTML）不得出现干扰段双色
+        self.assertNotIn(smt._COLOR_INTF_SCHED, html)
+        self.assertNotIn(smt._COLOR_INTF_HW, html)
 
 
 if __name__ == "__main__":
