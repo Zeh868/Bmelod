@@ -94,6 +94,7 @@ bm_add_schedule_map(tt_schedule_balance_map
   "overhead_calibrated": false,
   "ref_clk_hz": 0,
   "operating_points_hz": [],
+  "interference_sources": [],
   "tasks": [
     {"name": "balance", "every": 1, "at": 0, "wcet_us": 40, "domain": "isr", "kind": "compute", "period_us": 1000, "deadline_us": 1000, "inputs": 1, "outputs": 1},
     {"name": "telemetry", "every": 10, "at": 0, "wcet_us": 200, "domain": "mainloop", "kind": "compute", "period_us": 10000, "deadline_us": 10000, "inputs": 1, "outputs": 1}
@@ -220,7 +221,10 @@ const uint32_t g_bm_schedule_map_interference_count = 0u;
   `有效=Wus（含干扰Z）`（文本），同样按该频率档 `ref/f_hz` 缩放后的
   wcet 重算干扰。账外免责行也相应切换：有声明时读作"已计入声明干扰源
   （N 个 HRT 抢占，ceiling 上界；未声明的仍在账外）"，无声明时仍是上面
-  这句原文，两种文案不会同时出现在同一张表下。
+  这句原文，两种文案不会同时出现在同一张表下。两种边界告警：
+  `period_us<=0` 的干扰源视为声明错误，WARN 并跳过不计入；干扰合计
+  单独就 `≥ minor` 时给出"（TT 无预算）"的严重告警——TT 门面自己一
+  微秒都排不进去。
 - **已知局限**：ceiling 上界按 `Σ ceil(minor_us/period_us) × wcet_us`
   静态估算，不考虑相位/抖动，偏悲观（安全方向，不会低估）；是保守的
   **全抢占假设**——所有声明的干扰源都当作会实际抢占计算，`tier` 只用于
