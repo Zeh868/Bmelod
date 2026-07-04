@@ -394,5 +394,39 @@ class LegendTest(unittest.TestCase):
         self.assertNotIn("干扰", html)             # 铁律
 
 
+def make_single_frame():
+    """单帧表（平衡车 hover_control_sched 形状）：frames=1, minor=1000, hyper=1000。
+    字段形状照 make_a() 实际结构对齐（键名为 schema_version 而非 schema）。"""
+    return {
+        "schema_version": 1, "sched_name": "single_fr", "cpu": 0, "minor_us": 1000,
+        "n_frames": 1, "hyperperiod_us": 1000, "overhead_us": 0,
+        "overhead_calibrated": False, "ref_clk_hz": 240000000,
+        "operating_points_hz": [], "interference_sources": [],
+        "tasks": [{"domain": "isr", "name": "only", "every": 1, "at": 0,
+                   "wcet_us": 300, "period_us": 1000}],
+        "frames": [{"t": 0, "isr_load_us": 300, "mainloop_pending_us": 0}],
+        "edges": [],
+    }
+
+
+class UnrollTest(unittest.TestCase):
+    _html = FreqOverviewTest._html
+
+    def test_single_frame_unrolled(self):
+        html = self._html(make_single_frame())
+        strip = html.split('aria-label="时间格视图"', 1)[1].split("</svg>", 1)[0]
+        self.assertGreaterEqual(strip.count("<rect"), 4)   # 展开到 ≥4 格
+        self.assertIn('opacity="0.45"', strip)             # 重复周期淡显
+        self.assertIn("↻", html)                           # 循环标注
+        self.assertIn("超周期 1000us 后循环", html)          # 图题说明
+
+    def test_many_frames_not_unrolled(self):
+        d = make_a()   # sched_fixture 同款多帧表（≥4 帧）
+        html = self._html(d)
+        strip = html.split('aria-label="时间格视图"', 1)[1].split("</svg>", 1)[0]
+        self.assertEqual(strip.count("<rect"), d["n_frames"])
+        self.assertNotIn("↻", html)
+
+
 if __name__ == "__main__":
     unittest.main()

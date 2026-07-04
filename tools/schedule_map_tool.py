@@ -273,6 +273,17 @@ _COLOR_MAINLOOP = "#4a7fd6"   # mainloop 积压蓝（原散落在 _svg_load_stac
 _COLOR_SEG_TEXT = "#ffffff"   # 色块段内标注文字色（可读性用，非分类/语义色）
 
 
+def _unroll_frames(frames, target_min=4, cap=8):
+    """少帧表循环展开：返回 [(frame, cycle_idx)]。帧数 >= target_min 原样单周期
+    （cycle 恒 0）；否则整周期重复至格数 >= target_min 且不超过 cap。
+    展开是视觉重复（同一拍的复制），非逐周期模拟——图题须注明「循环」。"""
+    n = len(frames)
+    if n == 0 or n >= target_min:
+        return [(f, 0) for f in frames]
+    reps = min(-(-target_min // n), cap // n)
+    return [(f, c) for c in range(reps) for f in frames]
+
+
 def _load_color(pct):
     if pct >= 100.0:
         return _COLOR_OVER
@@ -353,38 +364,53 @@ def _legend_html(items):
 
 def _svg_frame_strip(t):
     """时间格视图：一排 n_frames 个矩形，按 isr_load_us/minor_us 占比着色，
-    格内标 t 与 isr_load_us，峰值格描边高亮。"""
+    格内标 t 与 isr_load_us，峰值格描边高亮。少帧表（<4 帧）循环展开到 >=4
+    格（上限 8），重复周期整格淡显 + 首个重复格上方标 ↻，格下方补真实时间
+    （us）标签（cyc*hyper + t*minor），非展开时仍是 n_frames 个格、时间轴同样
+    换成真实 us。"""
     frames = sorted(t["frames"], key=lambda f: f["t"])
+    cells = _unroll_frames(frames)
     minor = t["minor_us"] or 1
-    n = max(len(frames), 1)
+    hyper = t["hyperperiod_us"]
+    n = max(len(cells), 1)
     cell_w, cell_h, gap = 60, 60, 4
     width = max(n * (cell_w + gap) + gap, 120)
-    height = cell_h + gap * 2 + 4
+    y = gap + 12   # 顶部让位给 ↻ 循环标注行
+    height = cell_h + gap * 2 + 4 + 12 + 14   # +12 循环标注行 +14 时间标签行
     peak_t = max(frames, key=lambda f: f["isr_load_us"])["t"] if frames else None
     parts = [f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
              f'role="img" aria-label="时间格视图">']
-    for i, f in enumerate(frames):
+    for i, (f, cyc) in enumerate(cells):
         pct = 100.0 * f["isr_load_us"] / minor
         x = gap + i * (cell_w + gap)
-        y = gap
         fill = _load_color(pct)
         stroke = _COLOR_STROKE_PEAK if f["t"] == peak_t else _COLOR_STROKE
         sw = 2.5 if f["t"] == peak_t else 1
+        op = ' opacity="0.45"' if cyc > 0 else ''
         parts.append(f'<rect x="{x}" y="{y}" width="{cell_w}" height="{cell_h}" '
-                     f'fill="{fill}" stroke="{stroke}" stroke-width="{sw}" rx="3"/>')
+                     f'fill="{fill}" stroke="{stroke}" stroke-width="{sw}" rx="3"{op}/>')
         parts.append(f'<text x="{x + cell_w / 2}" y="{y + cell_h / 2 - 6}" '
-                     f'text-anchor="middle" font-size="11" fill="#111">t={f["t"]}</text>')
+                     f'text-anchor="middle" font-size="11" fill="#111"{op}>t={f["t"]}</text>')
         parts.append(f'<text x="{x + cell_w / 2}" y="{y + cell_h / 2 + 12}" '
-                     f'text-anchor="middle" font-size="11" fill="#111">{f["isr_load_us"]}us</text>')
+                     f'text-anchor="middle" font-size="11" fill="#111"{op}>{f["isr_load_us"]}us</text>')
+        time_us = cyc * hyper + f["t"] * t["minor_us"]
+        parts.append(f'<text x="{x + cell_w / 2}" y="{y + cell_h + 12}" text-anchor="middle" '
+                     f'font-size="9" fill="currentColor" opacity="0.85">{time_us}us</text>')
+        if cyc > 0 and i == len(frames):
+            parts.append(f'<text x="{x}" y="{y - 2}" font-size="10" '
+                         f'fill="currentColor" opacity="0.85">↻ 循环</text>')
     parts.append("</svg>")
     return "".join(parts)
 
 
 def _svg_wcet_bars(t):
-    """每拍 WCET 图：isr_load_us 柱状图 + minor_us 参考线，超线柱变红。"""
+    """每拍 WCET 图：isr_load_us 柱状图 + minor_us 参考线，超线柱变红。少帧表
+    循环展开同 _svg_frame_strip，重复周期柱淡显，x 轴标签换真实时间（us）。"""
     frames = sorted(t["frames"], key=lambda f: f["t"])
+    cells = _unroll_frames(frames)
     minor = t["minor_us"] or 1
-    n = max(len(frames), 1)
+    hyper = t["hyperperiod_us"]
+    n = max(len(cells), 1)
     bar_w, gap, plot_h, margin = 40, 8, 160, 24
     width = max(n * (bar_w + gap) + gap, 260)
     height = plot_h + margin * 2
@@ -393,16 +419,18 @@ def _svg_wcet_bars(t):
     ref_y = margin + plot_h - minor * scale
     parts = [f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
              f'role="img" aria-label="每拍 WCET 图">']
-    for i, f in enumerate(frames):
+    for i, (f, cyc) in enumerate(cells):
         x = gap + i * (bar_w + gap)
         h = f["isr_load_us"] * scale
         y = margin + plot_h - h
         over = f["isr_load_us"] > minor
         fill = _COLOR_OVER if over else _COLOR_OK
+        op = ' opacity="0.45"' if cyc > 0 else ''
         parts.append(f'<rect x="{x}" y="{y}" width="{bar_w}" height="{h}" '
-                     f'fill="{fill}" stroke="{_COLOR_STROKE}" stroke-width="1"/>')
+                     f'fill="{fill}" stroke="{_COLOR_STROKE}" stroke-width="1"{op}/>')
+        time_us = cyc * hyper + f["t"] * t["minor_us"]
         parts.append(f'<text x="{x + bar_w / 2}" y="{margin + plot_h + 14}" '
-                     f'text-anchor="middle" font-size="10" fill="currentColor" opacity="0.85">{f["t"]}</text>')
+                     f'text-anchor="middle" font-size="10" fill="currentColor" opacity="0.85">{time_us}us</text>')
     parts.append(f'<line x1="0" y1="{ref_y}" x2="{width}" y2="{ref_y}" '
                  f'stroke="currentColor" stroke-width="1.5" stroke-dasharray="6,3" opacity="0.75"/>')
     parts.append(f'<text x="4" y="{ref_y - 4}" font-size="10" fill="currentColor" opacity="0.85">minor={minor}us</text>')
@@ -581,6 +609,9 @@ def render_html(tables, per_table, warns, global_hyper):
                 note += '；干扰按 ceiling 上界估，已计入有效列，需上板实测'
             parts.append(f'<div class="meta">{note}</div>')
 
+        if t["n_frames"] < 4:
+            parts.append(f'<div class="meta">每拍 minor={t["minor_us"]}us，'
+                         f'超周期 {t["hyperperiod_us"]}us 后循环（重复周期淡显 ↻）</div>')
         parts.append('<h3>时间格视图</h3>')
         parts.append(f'<div class="svg-wrap">{_svg_frame_strip(t)}</div>')
         parts.append('<h3>每拍 WCET 图</h3>')
