@@ -270,11 +270,16 @@ if(BM_ENABLE_TT_SCHEDULE)
 
     # Task 4：config 单源路径——不传 REF_CLK_HZ/OPERATING_POINTS/INTERFERENCE_SRC，
     # 全部经强制预包含的 schedule_map_cfg_only.h 注入，验证 #ifdef 展开链。
+    # OUTPUT_DIR 必须显式指定专属目录（同 overflow 目标做法）：缺省会落
+    # ${CMAKE_BINARY_DIR}/schedule_map，与 bm_schedule_map_dump 的 POST_BUILD
+    # 出表同目录竞写（两目标均在 ALL 且无依赖序，sched_fixture_a.json 与
+    # 复合报告会被后跑者覆盖，构建产物不确定）。
     file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/schedule_map_out_cfg)
     bm_add_schedule_map(bm_schedule_map_dump_cfg
         SOURCES ${CMAKE_SOURCE_DIR}/tests/tools/schedule_map_fixture.c
         SETUP   schedule_map_fixture_setup
         TABLES  sched_fixture_a:0
+        OUTPUT_DIR ${CMAKE_BINARY_DIR}/schedule_map_out_cfg
         INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/tests/tools)
     if(NOT CMAKE_CROSSCOMPILING)
         bm_target_internal_includes(bm_schedule_map_dump_cfg)
