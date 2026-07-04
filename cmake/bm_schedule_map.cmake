@@ -1,5 +1,9 @@
 # bm_schedule_map.cmake —— 构建期调度表导出（spec: 2026-07-03-schedule-map-export-design）
 # 生成注册单元 + host dump 可执行 + POST_BUILD 出表；见 docs/02-构建与工具链/01。
+#
+# 参数 REF_CLK_HZ / OPERATING_POINTS / INTERFERENCE_SRC：测试夹具专用；应用工程请在
+# bm_config_app.h 声明（分别对应 BM_CONFIG_CPU_FREQ_HZ / BM_CONFIG_CPU_DVFS_POINTS_HZ /
+# BM_CONFIG_SM_INTERFERENCE_SRC），显式参数会覆盖 config。
 
 function(bm_add_schedule_map NAME)
     cmake_parse_arguments(SM ""
