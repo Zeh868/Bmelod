@@ -6,13 +6,15 @@
  * 各子模块容量、可选组件开关及混合域参数均在此集中定义。
  * 应用可通过项目级 bm_config.h 覆盖默认值。
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-10
+ * @version 1.1
+ * @date 2026-07-04
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
+ * 2026-07-04       1.1            zeh            Task 4：补 BM_CONFIG_SM_INTERFERENCE_SRC
+ *                                                 注释性示例（与 DVFS 同惯例，只注释不 #define）
  *
  */
 #ifndef BM_CONFIG_H
@@ -301,6 +303,14 @@
 #ifndef BM_CONFIG_CPU_FREQ_HZ
 #define BM_CONFIG_CPU_FREQ_HZ                 0u
 #endif
+/* 调度分析干扰源声明（可选，分析专用与运行时解耦）：
+ * 定义 BM_CONFIG_SM_INTERFERENCE_SRC 为 bm_schedule_map_interference_t 初始化列表，
+ * schedule-map 出表即计入 HRT 抢占干扰。元素 {{name,period_us,wcet_us,tier},cpu}，
+ * tier: 0=hardware(PWM/ADC/比较器IRQ)、1=scheduled(bm_hrt)。例：
+ *   #define BM_CONFIG_SM_INTERFERENCE_SRC \
+ *       { { { "curr_10kHz", 100u, 10u, 1u }, 0u } }
+ * period 由外设定时器决定不随频率变；wcet 在 BM_CONFIG_CPU_FREQ_HZ 锚点下声明、
+ * 须上板实测回填。未定义即不计入（与既有行为一致）。 */
 #ifndef BM_CONFIG_CACHE_LINE
 #define BM_CONFIG_CACHE_LINE                 64
 #endif

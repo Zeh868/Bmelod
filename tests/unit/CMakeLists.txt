@@ -268,6 +268,29 @@ if(BM_ENABLE_TT_SCHEDULE)
     set_tests_properties(schedule_map_dump_ok schedule_map_dump_gate schedule_map_dump_fixture_reg_ok
         PROPERTIES LABELS "determinism")
 
+    # Task 4：config 单源路径——不传 REF_CLK_HZ/OPERATING_POINTS/INTERFERENCE_SRC，
+    # 全部经强制预包含的 schedule_map_cfg_only.h 注入，验证 #ifdef 展开链。
+    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/schedule_map_out_cfg)
+    bm_add_schedule_map(bm_schedule_map_dump_cfg
+        SOURCES ${CMAKE_SOURCE_DIR}/tests/tools/schedule_map_fixture.c
+        SETUP   schedule_map_fixture_setup
+        TABLES  sched_fixture_a:0
+        INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/tests/tools)
+    if(NOT CMAKE_CROSSCOMPILING)
+        bm_target_internal_includes(bm_schedule_map_dump_cfg)
+        target_compile_options(bm_schedule_map_dump_cfg PRIVATE
+            $<$<C_COMPILER_ID:MSVC>:/FI${CMAKE_SOURCE_DIR}/tests/tools/schedule_map_cfg_only.h>
+            $<$<NOT:$<C_COMPILER_ID:MSVC>>:-include${CMAKE_SOURCE_DIR}/tests/tools/schedule_map_cfg_only.h>)
+    endif()
+    add_test(NAME schedule_map_dump_cfg_ok
+        COMMAND ${CMAKE_COMMAND}
+            -DDUMP_EXE=$<TARGET_FILE:bm_schedule_map_dump_cfg>
+            -DOUT_DIR=${CMAKE_BINARY_DIR}/schedule_map_out_cfg
+            -DEXPECT_NAME=cfg_hw -DEXPECT_TIER=hardware
+            -DEXPECT_PERIOD=500 -DEXPECT_WCET=5 -DEXPECT_OP_HZ=120000000
+            -P ${CMAKE_SOURCE_DIR}/tests/unit/support/check_schedule_map_interference.cmake)
+    set_tests_properties(schedule_map_dump_cfg_ok PROPERTIES LABELS "determinism")
+
     # Task 6 评审修复：干扰源截断告警负例——INTERFERENCE_SRC 生成 17 个 cpu0
     # 干扰源（超过 bm_schedule_map_main.c 的 BM_SM_MAX_INTF=16 上限），断言
     # dump 向 stderr 打出明确的截断告警（截断丢源=低估干扰，不允许静默）。
