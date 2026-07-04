@@ -268,6 +268,21 @@ _COLOR_STROKE_PEAK = "#111111"
 _COLOR_INTF_SCHED = "#6a4c93"
 _COLOR_INTF_HW = "#9d6fd6"
 
+_COLOR_MAINLOOP = "#4a7fd6"   # mainloop 积压蓝（原散落在 _svg_load_stack 里，收口为常量）
+
+_COLOR_SEG_TEXT = "#ffffff"   # 色块段内标注文字色（可读性用，非分类/语义色）
+
+
+def _unroll_frames(frames, target_min=4, cap=8):
+    """少帧表循环展开：返回 [(frame, cycle_idx)]。帧数 >= target_min 原样单周期
+    （cycle 恒 0）；否则整周期重复至格数 >= target_min 且不超过 cap。
+    展开是视觉重复（同一拍的复制），非逐周期模拟——图题须注明「循环」。"""
+    n = len(frames)
+    if n == 0 or n >= target_min:
+        return [(f, 0) for f in frames]
+    reps = min(-(-target_min // n), cap // n)
+    return [(f, c) for c in range(reps) for f in frames]
+
 
 def _load_color(pct):
     if pct >= 100.0:
@@ -277,40 +292,125 @@ def _load_color(pct):
     return _COLOR_OK
 
 
+def _fmt_mhz(f_hz):
+    """频率人读格式：240000000 -> '240MHz'。"""
+    return f"{f_hz / 1000000:g}MHz"
+
+
+def _svg_freq_overview(t, a):
+    """频率可行性总览：每个频率档一根水平堆叠条（TT 绿 + 调度紫 + 硬件浅紫，
+    段序固定），全图一根 minor 垂直参考虚线，超载条红描边，右端标
+    有效值/占比/✓✗；多频率基准档行首标 ★。单频率表画一根条。
+    TT 段固定 _COLOR_OK（超载信号只由红描边与 ✗ 承担，避免与图例冲突）。"""
+    minor = t["minor_us"] or 1
+    rows = []
+    if a["mode"] == "multi":
+        for ft in a["freq_tables"]:
+            rows.append({"label": _fmt_mhz(ft["f_hz"]), "is_ref": ft["is_ref"],
+                         "tt": ft["peak_us"], "sched": ft["intf"]["scheduled"],
+                         "hw": ft["intf"]["hardware"], "eff": ft["eff_peak_us"],
+                         "pct": ft["eff_pct"], "feasible": ft["feasible"]})
+    else:
+        ref = t.get("ref_clk_hz", 0)
+        rows.append({"label": _fmt_mhz(ref) if ref else "当前配置", "is_ref": False,
+                     "tt": a["peak"]["isr_load_us"], "sched": a["intf"]["scheduled"],
+                     "hw": a["intf"]["hardware"], "eff": a["eff_peak_us"],
+                     "pct": a["eff_pct"], "feasible": a["feasible"]})
+    label_w, bar_max_w, val_w, row_h, bar_h = 90, 360, 210, 30, 16
+    width = label_w + bar_max_w + val_w
+    height = row_h * len(rows) + 34
+    x_max = max([minor] + [r["eff"] for r in rows]) * 1.1   # 超载条完整可见
+    sx = bar_max_w / x_max
+    ref_x = label_w + minor * sx
+    parts = [f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
+             f'role="img" aria-label="频率可行性总览">']
+    for i, r in enumerate(rows):
+        y = 8 + i * row_h
+        stroke = _COLOR_STROKE if r["feasible"] else _COLOR_OVER
+        sw = 1 if r["feasible"] else 2
+        mark = "★" if r["is_ref"] else ""
+        parts.append(f'<text x="{label_w - 6}" y="{y + bar_h - 3}" text-anchor="end" '
+                     f'font-size="11" fill="currentColor">{_esc(r["label"])}{mark}</text>')
+        x = label_w
+        for val, color in ((r["tt"], _COLOR_OK), (r["sched"], _COLOR_INTF_SCHED),
+                           (r["hw"], _COLOR_INTF_HW)):
+            w = val * sx
+            if w > 0:
+                parts.append(f'<rect x="{x:.1f}" y="{y}" width="{w:.1f}" height="{bar_h}" '
+                             f'fill="{color}" stroke="{stroke}" stroke-width="{sw}"/>')
+                if w >= 34:   # 放得下才段内标数值
+                    parts.append(f'<text x="{x + w / 2:.1f}" y="{y + bar_h - 4}" '
+                                 f'text-anchor="middle" font-size="9" fill="{_COLOR_SEG_TEXT}">{val}us</text>')
+            x += w
+        verdict = "排得下 ✓" if r["feasible"] else "超载 ✗"
+        vcolor = _COLOR_OK if r["feasible"] else _COLOR_OVER
+        parts.append(f'<text x="{x + 8:.1f}" y="{y + bar_h - 3}" font-size="11" '
+                     f'fill="{vcolor}">{r["eff"]}us ({r["pct"]:.1f}%) {verdict}</text>')
+    parts.append(f'<line x1="{ref_x:.1f}" y1="4" x2="{ref_x:.1f}" y2="{height - 26}" '
+                 f'stroke="currentColor" stroke-width="1.5" stroke-dasharray="6,3" opacity="0.75"/>')
+    parts.append(f'<text x="{ref_x + 4:.1f}" y="{height - 12}" font-size="10" '
+                 f'fill="currentColor" opacity="0.85">minor={minor}us</text>')
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def _legend_html(items):
+    """图例行：色块 + 中文名。items=[(名称, 色值), ...]，只传实际出现的分类。"""
+    spans = "".join(
+        f'<span class="lg"><span class="sw" style="background:{c}"></span>{_esc(n)}</span>'
+        for n, c in items)
+    return f'<div class="legend">{spans}</div>'
+
+
 def _svg_frame_strip(t):
     """时间格视图：一排 n_frames 个矩形，按 isr_load_us/minor_us 占比着色，
-    格内标 t 与 isr_load_us，峰值格描边高亮。"""
+    格内标 t 与 isr_load_us，峰值格描边高亮。少帧表（<4 帧）循环展开到 >=4
+    格（上限 8），重复周期整格淡显 + 首个重复格上方标 ↻，格下方补真实时间
+    （us）标签（cyc*hyper + t*minor），非展开时仍是 n_frames 个格、时间轴同样
+    换成真实 us。"""
     frames = sorted(t["frames"], key=lambda f: f["t"])
+    cells = _unroll_frames(frames)
     minor = t["minor_us"] or 1
-    n = max(len(frames), 1)
+    hyper = t["hyperperiod_us"]
+    n = max(len(cells), 1)
     cell_w, cell_h, gap = 60, 60, 4
     width = max(n * (cell_w + gap) + gap, 120)
-    height = cell_h + gap * 2 + 4
+    y = gap + 12   # 顶部让位给 ↻ 循环标注行
+    height = cell_h + gap * 2 + 4 + 12 + 14   # +12 循环标注行 +14 时间标签行
     peak_t = max(frames, key=lambda f: f["isr_load_us"])["t"] if frames else None
     parts = [f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
              f'role="img" aria-label="时间格视图">']
-    for i, f in enumerate(frames):
+    for i, (f, cyc) in enumerate(cells):
         pct = 100.0 * f["isr_load_us"] / minor
         x = gap + i * (cell_w + gap)
-        y = gap
         fill = _load_color(pct)
         stroke = _COLOR_STROKE_PEAK if f["t"] == peak_t else _COLOR_STROKE
         sw = 2.5 if f["t"] == peak_t else 1
+        op = ' opacity="0.45"' if cyc > 0 else ''
         parts.append(f'<rect x="{x}" y="{y}" width="{cell_w}" height="{cell_h}" '
-                     f'fill="{fill}" stroke="{stroke}" stroke-width="{sw}" rx="3"/>')
+                     f'fill="{fill}" stroke="{stroke}" stroke-width="{sw}" rx="3"{op}/>')
         parts.append(f'<text x="{x + cell_w / 2}" y="{y + cell_h / 2 - 6}" '
-                     f'text-anchor="middle" font-size="11" fill="#111">t={f["t"]}</text>')
+                     f'text-anchor="middle" font-size="11" fill="#111"{op}>t={f["t"]}</text>')
         parts.append(f'<text x="{x + cell_w / 2}" y="{y + cell_h / 2 + 12}" '
-                     f'text-anchor="middle" font-size="11" fill="#111">{f["isr_load_us"]}us</text>')
+                     f'text-anchor="middle" font-size="11" fill="#111"{op}>{f["isr_load_us"]}us</text>')
+        time_us = cyc * hyper + f["t"] * t["minor_us"]
+        parts.append(f'<text x="{x + cell_w / 2}" y="{y + cell_h + 12}" text-anchor="middle" '
+                     f'font-size="9" fill="currentColor" opacity="0.85">{time_us}us</text>')
+        if cyc > 0 and i == len(frames):
+            parts.append(f'<text x="{x}" y="{y - 2}" font-size="10" '
+                         f'fill="currentColor" opacity="0.85">↻ 循环</text>')
     parts.append("</svg>")
     return "".join(parts)
 
 
 def _svg_wcet_bars(t):
-    """每拍 WCET 图：isr_load_us 柱状图 + minor_us 参考线，超线柱变红。"""
+    """每拍 WCET 图：isr_load_us 柱状图 + minor_us 参考线，超线柱变红。少帧表
+    循环展开同 _svg_frame_strip，重复周期柱淡显，x 轴标签换真实时间（us）。"""
     frames = sorted(t["frames"], key=lambda f: f["t"])
+    cells = _unroll_frames(frames)
     minor = t["minor_us"] or 1
-    n = max(len(frames), 1)
+    hyper = t["hyperperiod_us"]
+    n = max(len(cells), 1)
     bar_w, gap, plot_h, margin = 40, 8, 160, 24
     width = max(n * (bar_w + gap) + gap, 260)
     height = plot_h + margin * 2
@@ -319,19 +419,23 @@ def _svg_wcet_bars(t):
     ref_y = margin + plot_h - minor * scale
     parts = [f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
              f'role="img" aria-label="每拍 WCET 图">']
-    for i, f in enumerate(frames):
+    for i, (f, cyc) in enumerate(cells):
         x = gap + i * (bar_w + gap)
         h = f["isr_load_us"] * scale
         y = margin + plot_h - h
         over = f["isr_load_us"] > minor
         fill = _COLOR_OVER if over else _COLOR_OK
+        op = ' opacity="0.45"' if cyc > 0 else ''
         parts.append(f'<rect x="{x}" y="{y}" width="{bar_w}" height="{h}" '
-                     f'fill="{fill}" stroke="{_COLOR_STROKE}" stroke-width="1"/>')
+                     f'fill="{fill}" stroke="{_COLOR_STROKE}" stroke-width="1"{op}/>')
+        time_us = cyc * hyper + f["t"] * t["minor_us"]
         parts.append(f'<text x="{x + bar_w / 2}" y="{margin + plot_h + 14}" '
-                     f'text-anchor="middle" font-size="10" fill="currentColor" opacity="0.85">{f["t"]}</text>')
+                     f'text-anchor="middle" font-size="10" fill="currentColor" opacity="0.85">{time_us}us</text>')
     parts.append(f'<line x1="0" y1="{ref_y}" x2="{width}" y2="{ref_y}" '
                  f'stroke="currentColor" stroke-width="1.5" stroke-dasharray="6,3" opacity="0.75"/>')
     parts.append(f'<text x="4" y="{ref_y - 4}" font-size="10" fill="currentColor" opacity="0.85">minor={minor}us</text>')
+    parts.append(f'<text x="4" y="{margin + plot_h - 2}" font-size="10" '
+                 f'fill="currentColor" opacity="0.85">0</text>')
     parts.append("</svg>")
     return "".join(parts)
 
@@ -361,8 +465,14 @@ def _svg_load_stack(t, intf=None):
         y_main = y_isr - h_main
         parts.append(f'<rect x="{x}" y="{y_isr}" width="{bar_w}" height="{h_isr}" '
                      f'fill="{_COLOR_OK}" stroke="{_COLOR_STROKE}" stroke-width="1"/>')
+        if h_isr >= 14:
+            parts.append(f'<text x="{x + bar_w / 2}" y="{y_isr + h_isr / 2 + 3:.1f}" '
+                         f'text-anchor="middle" font-size="9" fill="{_COLOR_SEG_TEXT}">{f["isr_load_us"]}</text>')
         parts.append(f'<rect x="{x}" y="{y_main}" width="{bar_w}" height="{h_main}" '
-                     f'fill="#4a7fd6" stroke="{_COLOR_STROKE}" stroke-width="1"/>')
+                     f'fill="{_COLOR_MAINLOOP}" stroke="{_COLOR_STROKE}" stroke-width="1"/>')
+        if h_main >= 14:
+            parts.append(f'<text x="{x + bar_w / 2}" y="{y_main + h_main / 2 + 3:.1f}" '
+                         f'text-anchor="middle" font-size="9" fill="{_COLOR_SEG_TEXT}">{f["mainloop_pending_us"]}</text>')
         if intf:
             h_sched = intf["scheduled"] * scale
             h_hw = intf["hardware"] * scale
@@ -370,8 +480,14 @@ def _svg_load_stack(t, intf=None):
             y_hw = y_sched - h_hw
             parts.append(f'<rect x="{x}" y="{y_sched}" width="{bar_w}" height="{h_sched}" '
                          f'fill="{_COLOR_INTF_SCHED}" stroke="{_COLOR_STROKE}" stroke-width="1"/>')
+            if h_sched >= 14:
+                parts.append(f'<text x="{x + bar_w / 2}" y="{y_sched + h_sched / 2 + 3:.1f}" '
+                             f'text-anchor="middle" font-size="9" fill="{_COLOR_SEG_TEXT}">{intf["scheduled"]}</text>')
             parts.append(f'<rect x="{x}" y="{y_hw}" width="{bar_w}" height="{h_hw}" '
                          f'fill="{_COLOR_INTF_HW}" stroke="{_COLOR_STROKE}" stroke-width="1"/>')
+            if h_hw >= 14:
+                parts.append(f'<text x="{x + bar_w / 2}" y="{y_hw + h_hw / 2 + 3:.1f}" '
+                             f'text-anchor="middle" font-size="9" fill="{_COLOR_SEG_TEXT}">{intf["hardware"]}</text>')
         parts.append(f'<text x="{x + bar_w / 2}" y="{margin + plot_h + 14}" '
                      f'text-anchor="middle" font-size="10" fill="currentColor" opacity="0.85">{f["t"]}</text>')
     parts.append(f'<line x1="0" y1="{ref_y}" x2="{width}" y2="{ref_y}" '
@@ -402,6 +518,10 @@ td, th { padding: 3px 10px; text-align: left; border-bottom: 1px solid #eee; }
 .svg-wrap { overflow-x: auto; margin: 8px 0; }
 .svg-wrap svg { height: auto; max-width: 100%; }
 .meta { font-size: 13px; color: #555; }
+.legend { font-size: 12px; margin: 2px 0 10px; }
+.legend .lg { margin-right: 14px; white-space: nowrap; }
+.legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+              margin-right: 4px; }
 """
 
 
@@ -427,6 +547,15 @@ def render_html(tables, per_table, warns, global_hyper):
     for t, a in zip(tables, per_table):
         cal = "已标定" if t["overhead_calibrated"] else "未标定占位"
         has_intf = bool(t.get("interference_sources"))
+        intf_a = a["intf"]
+        legend_items = [("TT 负载", _COLOR_OK)]
+        if any(f["mainloop_pending_us"] > 0 for f in t["frames"]):
+            legend_items.append(("MAINLOOP 积压", _COLOR_MAINLOOP))
+        if has_intf and intf_a["scheduled"] > 0:
+            legend_items.append(("干扰-调度 HRT", _COLOR_INTF_SCHED))
+        if has_intf and intf_a["hardware"] > 0:
+            legend_items.append(("干扰-硬件 HRT", _COLOR_INTF_HW))
+        overview_legend_items = [i for i in legend_items if i[0] != "MAINLOOP 积压"]
         parts.append('<section>')
         parts.append(f'<h2>[cpu{t["cpu"]}] {_esc(t["sched_name"])}</h2>')
         parts.append(f'<div class="meta">minor={t["minor_us"]}us frames={t["n_frames"]} '
@@ -438,6 +567,10 @@ def render_html(tables, per_table, warns, global_hyper):
             parts.append(f'<div class="meta">干扰(硬{intf["hardware"]}/调{intf["scheduled"]})={intf["total"]}us，'
                          f'有效峰值={a["eff_peak_us"]}us ({a["eff_pct"]:.1f}% of minor，含干扰，'
                          f'ceiling 上界估，需上板实测) {verdict}</div>')
+        if a["mode"] == "single":
+            parts.append('<h3>频率可行性总览</h3>')
+            parts.append(f'<div class="svg-wrap">{_svg_freq_overview(t, a)}</div>')
+            parts.append(_legend_html(overview_legend_items))
         parts.append('<table><tr><th>domain</th><th>name</th><th>every</th><th>at</th>'
                      '<th>wcet_us</th><th>period_us</th></tr>')
         for task in t["tasks"]:
@@ -446,6 +579,9 @@ def render_html(tables, per_table, warns, global_hyper):
                          f'<td>{task["wcet_us"]}</td><td>{task["period_us"]}</td></tr>')
         parts.append('</table>')
         if a["mode"] == "multi":
+            parts.append('<h3>频率可行性总览（★=基准档）</h3>')
+            parts.append(f'<div class="svg-wrap">{_svg_freq_overview(t, a)}</div>')
+            parts.append(_legend_html(overview_legend_items))
             parts.append('<h3>频率对比表</h3>')
             if has_intf:
                 parts.append('<table><tr><th>频率</th><th>峰值</th><th>峰值占比</th>'
@@ -455,15 +591,16 @@ def render_html(tables, per_table, warns, global_hyper):
             for ft in a["freq_tables"]:
                 tag = "基准/声明" if ft["is_ref"] else "理论/estimated"
                 verdict = "排得下 ✓" if ft["feasible"] else "超载 ✗"
+                vcolor = _COLOR_OK if ft["feasible"] else _COLOR_OVER
                 if has_intf:
                     parts.append(f'<tr><td>{ft["f_hz"]}Hz（{_esc(tag)}）</td>'
                                  f'<td>{ft["peak_us"]}us</td><td>{ft["pct"]:.1f}%</td>'
                                  f'<td>{ft["eff_peak_us"]}us ({ft["eff_pct"]:.1f}%)</td>'
-                                 f'<td>{_esc(verdict)}</td></tr>')
+                                 f'<td style="color:{vcolor}">{_esc(verdict)}</td></tr>')
                 else:
                     parts.append(f'<tr><td>{ft["f_hz"]}Hz（{_esc(tag)}）</td>'
                                  f'<td>{ft["peak_us"]}us</td><td>{ft["pct"]:.1f}%</td>'
-                                 f'<td>{_esc(verdict)}</td></tr>')
+                                 f'<td style="color:{vcolor}">{_esc(verdict)}</td></tr>')
             parts.append('</table>')
             note = ('理论值按 wcet×ref/f 线性外推(estimated)，'
                     '需上板实测验证；下方三图按基准频率绘制（负载随频率线性缩放，结构不变，'
@@ -472,12 +609,16 @@ def render_html(tables, per_table, warns, global_hyper):
                 note += '；干扰按 ceiling 上界估，已计入有效列，需上板实测'
             parts.append(f'<div class="meta">{note}</div>')
 
+        if t["n_frames"] < 4:
+            parts.append(f'<div class="meta">每拍 minor={t["minor_us"]}us，'
+                         f'超周期 {t["hyperperiod_us"]}us 后循环（重复周期淡显 ↻）</div>')
         parts.append('<h3>时间格视图</h3>')
         parts.append(f'<div class="svg-wrap">{_svg_frame_strip(t)}</div>')
         parts.append('<h3>每拍 WCET 图</h3>')
         parts.append(f'<div class="svg-wrap">{_svg_wcet_bars(t)}</div>')
         parts.append('<h3>负载图（isr_load_us + mainloop_pending_us 堆叠, minor_us 参考线）</h3>')
         parts.append(f'<div class="svg-wrap">{_svg_load_stack(t, a["intf"] if has_intf else None)}</div>')
+        parts.append(_legend_html(legend_items))
         parts.append('</section>')
 
     parts.append('</body></html>')

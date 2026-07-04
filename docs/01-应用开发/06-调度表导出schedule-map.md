@@ -132,30 +132,40 @@ fixture 表：`sched_fixture_a`@cpu0、`sched_fixture_b`@cpu1），
 `POST_BUILD` 步骤失败即构建失败——出表不通过就是硬 gate，不会带着一张
 排不下的表继续往下构建。
 
-**干扰源声明：`INTERFERENCE_SRC`（opt-in，计入 Hardware/Scheduled HRT
-抢占）**：`bm_add_schedule_map` 的 `INTERFERENCE_SRC` 参数（可重复传多
-条）声明"这张表所在 CPU 上，还有哪些不在这张调度表里、但会抢占它时间
-格"的周期性活动——典型是另一路 Hardware HRT（PWM/ADC IRQ）或另一张表的
-Scheduled HRT 任务：
+**干扰源声明：`BM_CONFIG_SM_INTERFERENCE_SRC`（opt-in，计入
+Hardware/Scheduled HRT 抢占）**：在应用 `bm_config_app.h` 里定义该宏，
+声明"这张表所在 CPU 上，还有哪些不在这张调度表里、但会抢占它时间格"的
+周期性活动——典型是另一路 Hardware HRT（PWM/ADC IRQ）或另一张表的
+Scheduled HRT 任务。它与主频声明共用同一份 config 文件，**三宏一处
+维护**：
 
-```cmake
-bm_add_schedule_map(tt_schedule_balance_map
-    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/balance_schedule.c
-    SETUP   balance_schedule_setup
-    TABLES  ctrl:0
-    INTERFERENCE_SRC
-        "adc_irq:1000:20:hardware:0"
-        "axis_speed:5000:50:scheduled:0"
-    INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR})
+```c
+/* bm_config_app.h */
+#define BM_CONFIG_CPU_FREQ_HZ             240000000u                    /* 锚点：wcet 声明所在频率 */
+#define BM_CONFIG_CPU_DVFS_POINTS_HZ      { 80000000u, 160000000u, 240000000u } /* 多档主频，须含锚点，≤8 个 */
+#define BM_CONFIG_SM_INTERFERENCE_SRC \
+    { { { "adc_irq",    1000u, 20u, 0u }, 0u }, \
+      { { "axis_speed", 5000u, 50u, 1u }, 0u } }
 ```
 
-每条格式 `name:period_us:wcet_us:tier:cpu`：`name` 限 C 标识符字符集，
-`tier` 只能是 `hardware` 或 `scheduled`，`cpu` 决定这条干扰源关联到哪些
-表——同一 CPU 上的所有表共用该 CPU 的干扰源集合。格式非法的条目在配置
-期直接 `FATAL_ERROR`，不静默吞掉（错配的干扰源比没声明更危险）。不传
-`INTERFERENCE_SRC` 时生成空数组，与声明前的行为逐字一致（opt-in）。单
-CPU 声明的干扰源超过 16 条（`BM_SM_MAX_INTF`）时，出表程序向 stderr
-打告警并截断多出的条目——分析会低估干扰，需要精简声明或拆分 CPU。
+元素形状 `{{name, period_us, wcet_us, tier}, cpu}`：`name` 限 C 标识符
+字符集，仅用于报告归因展示；`tier` 是数值不是字符串——`0=hardware`
+（不受任何调度节拍约束的硬件中断，PWM/ADC/比较器 IRQ）、`1=scheduled`
+（已被纳入某张调度表节拍的活动，如 `bm_hrt` 任务）；`cpu` 决定这条干扰
+源关联到哪些表——同一 CPU 上的所有表共用该 CPU 的干扰源集合。
+`period_us` 由外设定时器决定，不随频率变；`wcet_us` 是在
+`BM_CONFIG_CPU_FREQ_HZ` 锚点频率下的声明值，⚠️ **须上板实测后回填**——
+构建期声明的只是估计值，未经实测回填的数字比没声明更危险（分析会显得
+"已核实"实则空中楼阁）。未定义该宏时不计入任何干扰源，与声明前的行为
+逐字一致（opt-in）。单 CPU 声明的干扰源超过 16 条（`BM_SM_MAX_INTF`）
+时，出表程序向 stderr 打告警并截断多出的条目——分析会低估干扰，需要
+精简声明或拆分 CPU。
+
+**迁移提示**：曾经用 `bm_add_schedule_map(... INTERFERENCE_SRC ...)`
+CMake 参数声明干扰源（连同 `REF_CLK_HZ`/`OPERATING_POINTS`）的工程，
+建议挪到上面的 config 宏一处维护——这三个 CMake 参数仍然可用，但只为
+`tests/tools/` 测试夹具保留，本文不再教学其语法；调用方显式传参数时
+会覆盖同名 config 宏。
 
 对应 JSON 在 `operating_points_hz` 之后新增一个数组字段：
 

@@ -107,6 +107,13 @@
  * 锚点语义：本宏须为 DVFS 点集之一（wcet 就是在这个工作点测的）；
  * 声明了 DVFS 点集就必须声明本宏，否则无法频率缩放。 */
 #define BM_CONFIG_CPU_FREQ_HZ                 0u
+/* 调度分析干扰源声明（可选，分析专用与运行时解耦）：定义
+ * BM_CONFIG_SM_INTERFERENCE_SRC 为 bm_schedule_map_interference_t 初始化列表，
+ * schedule-map 出表即计入 HRT 抢占干扰，例如：
+ *   #define BM_CONFIG_SM_INTERFERENCE_SRC \
+ *       { { { "curr_10kHz", 100u, 10u, 1u }, 0u } }
+ * 元素 {{name,period_us,wcet_us,tier},cpu}，tier: 0=hardware、1=scheduled；
+ * wcet 在 BM_CONFIG_CPU_FREQ_HZ 锚点下声明、须上板实测回填。未定义即不计入。 */
 #define BM_CONFIG_CACHE_LINE                 64  /* cache-line 字节数，用于对齐 */
 #define BM_CONFIG_EVENT_PROCESS_BUDGET       16u /* 主循环单次事件处理预算 */
 #define BM_CONFIG_STREAM_DRAIN_BUDGET        4u  /* 主循环单次流式块排空预算 */

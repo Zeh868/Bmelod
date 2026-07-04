@@ -1,5 +1,9 @@
 # bm_schedule_map.cmake —— 构建期调度表导出（spec: 2026-07-03-schedule-map-export-design）
 # 生成注册单元 + host dump 可执行 + POST_BUILD 出表；见 docs/02-构建与工具链/01。
+#
+# 参数 REF_CLK_HZ / OPERATING_POINTS / INTERFERENCE_SRC：测试夹具专用；应用工程请在
+# bm_config_app.h 声明（分别对应 BM_CONFIG_CPU_FREQ_HZ / BM_CONFIG_CPU_DVFS_POINTS_HZ /
+# BM_CONFIG_SM_INTERFERENCE_SRC），显式参数会覆盖 config。
 
 function(bm_add_schedule_map NAME)
     cmake_parse_arguments(SM ""
@@ -79,10 +83,12 @@ const uint32_t g_bm_schedule_map_op_point_count = 0u;
 ")
     endif()
     # ---- 干扰源声明数组：INTERFERENCE_SRC 每条 "name:period_us:wcet_us:tier:cpu"
-    # （tier∈hardware/scheduled，映射 0/1）；未提供该参数则生成空数组占位元素 +
-    # count 0（与现状兼容，opt-in）。非法条目直接 FATAL_ERROR 报出原始字符串，
-    # 不静默吞掉——错配的干扰源比没有更危险（会让 schedule_map_tool.py 算出
-    # 错误的 ceiling 上界却看着像"已声明、已核实"）。
+    # （tier∈hardware/scheduled，映射 0/1）。数据源优先级同频率/工作点：CMake
+    # 参数 > config 宏（BM_CONFIG_SM_INTERFERENCE_SRC）> 空占位——未提供该参数时
+    # 生成 `#ifdef` 回退块读 config 宏，两者都没有则空数组占位 + count 0（与现状
+    # 兼容，opt-in）。非法条目直接 FATAL_ERROR 报出原始字符串，不静默吞掉——
+    # 错配的干扰源比没有更危险（会让 schedule_map_tool.py 算出错误的 ceiling
+    # 上界却看着像"已声明、已核实"）。
     set(_intf_entries "")
     set(_intf_n 0)
     foreach(_i IN LISTS SM_INTERFERENCE_SRC)
@@ -104,10 +110,28 @@ const uint32_t g_bm_schedule_map_op_point_count = 0u;
             message(FATAL_ERROR "bm_add_schedule_map(${NAME}): INTERFERENCE_SRC 条目格式非法（要 name:period_us:wcet_us:tier:cpu，tier∈hardware/scheduled，均为非负整数）: \"${_i}\"")
         endif()
     endforeach()
-    if(_intf_n EQUAL 0)
-        # 与 g_bm_schedule_map_op_points_hz 的零元素占位同一惯例：空初始化列表
-        # `{}` 在严格 C 下是非法的，占位元素规避该问题，count 仍如实填 0。
-        set(_intf_entries "    { { \"\", 0u, 0u, 0u }, 0u },\n")
+    if(_intf_n GREATER 0)
+        set(_intf_block "const bm_schedule_map_interference_t g_bm_schedule_map_interference[] = {
+${_intf_entries}};
+const uint32_t g_bm_schedule_map_interference_count = ${_intf_n}u;
+")
+    else()
+        # config 单源回退：应用在 bm_config_app.h 定义 BM_CONFIG_SM_INTERFERENCE_SRC
+        # （元素 {{name,period_us,wcet_us,tier},cpu}，tier 0=hardware/1=scheduled）即生效；
+        # 未定义则空占位（与 op_points 零元素占位同一惯例：空初始化列表 `{}` 在严格
+        # C 下是非法的，占位元素规避该问题，count 仍如实填 0）。
+        set(_intf_block "#ifdef BM_CONFIG_SM_INTERFERENCE_SRC
+const bm_schedule_map_interference_t g_bm_schedule_map_interference[] =
+    BM_CONFIG_SM_INTERFERENCE_SRC;
+const uint32_t g_bm_schedule_map_interference_count =
+    (uint32_t)(sizeof(g_bm_schedule_map_interference) / sizeof(g_bm_schedule_map_interference[0]));
+#else
+const bm_schedule_map_interference_t g_bm_schedule_map_interference[] = {
+    { { \"\", 0u, 0u, 0u }, 0u },
+};
+const uint32_t g_bm_schedule_map_interference_count = 0u;
+#endif
+")
     endif()
 
     list(LENGTH SM_TABLES _tn)
@@ -119,10 +143,7 @@ const bm_schedule_map_entry_t g_bm_schedule_map_entries[] = {
 ${_entries}};
 const uint32_t g_bm_schedule_map_entry_count = ${_tn}u;
 ${_ref_clk_line}
-${_op_points_block}const bm_schedule_map_interference_t g_bm_schedule_map_interference[] = {
-${_intf_entries}};
-const uint32_t g_bm_schedule_map_interference_count = ${_intf_n}u;
-int bm_schedule_map_setup(void) { return ${SM_SETUP}(); }
+${_op_points_block}${_intf_block}int bm_schedule_map_setup(void) { return ${SM_SETUP}(); }
 ")
 
     # ---- 交叉编译：借宿主默认工具链的独立子构建出表（不产生真实 ${NAME} 编译目标，

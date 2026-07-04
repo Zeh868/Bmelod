@@ -361,12 +361,28 @@ const uint32_t g_bm_schedule_map_entry_count = 2u;
 const uint32_t g_bm_schedule_map_ref_clk_hz  = 240000000u;
 const uint32_t g_bm_schedule_map_op_points_hz[] = { 240000000u, 80000000u };
 const uint32_t g_bm_schedule_map_op_point_count = 2u;
-/* 未声明干扰源：占位数组 + count 0 即可满足链接期契约 */
+
+#ifdef BM_CONFIG_SM_INTERFERENCE_SRC
+/* config 单源：应用工程推荐写法（bm_config_app.h 定义宏后此分支生效） */
+const bm_schedule_map_interference_t g_bm_schedule_map_interference[] =
+    BM_CONFIG_SM_INTERFERENCE_SRC;
+const uint32_t g_bm_schedule_map_interference_count =
+    (uint32_t)(sizeof(g_bm_schedule_map_interference) / sizeof(g_bm_schedule_map_interference[0]));
+#else
+/* 空占位：未声明干扰源时按此定义即可满足链接期契约 */
 const bm_schedule_map_interference_t g_bm_schedule_map_interference[] = { { { "", 0u, 0u, 0u }, 0u } };
 const uint32_t g_bm_schedule_map_interference_count = 0u;
+#endif
 
 int bm_schedule_map_setup(void) { return schedule_map_fixture_setup(); }
 ```
+
+干扰两符号定义处的 `#ifdef` 分支与
+`tests/tools/schedule_map_fixture_reg.c` 逐字同款；`#else` 为未声明时的
+空占位教学写法（fixture 的 `#else` 保留 2 源测试基准值，属测试专用）。
+手写注册单元也遵循"config 单源"约定：IDE 档用户也只动
+`bm_config_app.h`（定义/不定义 `BM_CONFIG_SM_INTERFERENCE_SRC`），不需要
+改这份 `.c` 本身。
 
 干扰源声明特性的完整迁移说明（含 JSON 字段、`bm_add_schedule_map`
 自动兼容细节）见

@@ -327,5 +327,106 @@ class InterferenceHtmlTest(unittest.TestCase):
         self.assertNotIn("干扰", html)
 
 
+class FreqOverviewTest(unittest.TestCase):
+    def _html(self, d):
+        import tempfile, os, json, subprocess, sys
+        with tempfile.TemporaryDirectory() as tmp:
+            p = os.path.join(tmp, d["sched_name"] + ".json")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(json.dumps(d))
+            out = os.path.join(tmp, "r.html")
+            r = subprocess.run([sys.executable, TOOL, p, "--html", out],
+                               capture_output=True, text=True, encoding="utf-8")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            with open(out, encoding="utf-8") as f:
+                return f.read()
+
+    def test_overview_present_multi_with_overload_mark(self):
+        d = make_a()
+        d["interference_sources"] = [
+            {"name": "hw", "period_us": 100, "wcet_us": 30, "tier": "hardware"}]
+        html = self._html(d)
+        self.assertIn('aria-label="频率可行性总览"', html)
+        self.assertIn("★", html)          # 基准档徽标
+        self.assertIn("超载 ✗", html)      # 低频档叠干扰后超载
+        # 有干扰源分支的对比表 verdict 也带内联色（超载→_COLOR_OVER）
+        self.assertIn(f'style="color:{smt._COLOR_OVER}">超载', html)
+
+    def test_overview_present_single_mode(self):
+        d = make_a()
+        d.pop("operating_points_hz", None)   # 退化为单频率
+        html = self._html(d)
+        self.assertIn('aria-label="频率可行性总览"', html)
+
+    def test_verdict_colored_in_compare_table(self):
+        d = make_a()
+        html = self._html(d)
+        # 对比表 verdict 单元格带内联色（排得下→_COLOR_OK 值出现在 td style 里）
+        self.assertIn(f'style="color:{smt._COLOR_OK}">排得下', html)
+
+    def test_no_interference_keeps_clean(self):
+        d = make_a()
+        html = self._html(d)
+        self.assertNotIn("干扰", html)      # 铁律断言仍须成立
+        self.assertIn('aria-label="频率可行性总览"', html)  # 无干扰也有总览(纯绿条)
+        # 无干扰=纯绿条：总览（乃至整份 HTML）不得出现干扰段双色
+        self.assertNotIn(smt._COLOR_INTF_SCHED, html)
+        self.assertNotIn(smt._COLOR_INTF_HW, html)
+
+
+class LegendTest(unittest.TestCase):
+    _html = FreqOverviewTest._html   # 复用辅助
+
+    def test_legend_present_with_interference(self):
+        d = make_a()
+        d["interference_sources"] = [
+            {"name": "hw", "period_us": 100, "wcet_us": 30, "tier": "hardware"}]
+        html = self._html(d)
+        self.assertIn('class="legend"', html)
+        self.assertIn("TT 负载", html)
+        self.assertIn("干扰-硬件 HRT", html)
+        self.assertNotIn("干扰-调度 HRT", html)   # 只显示出现的分类
+
+    def test_legend_no_interference_items_when_none(self):
+        d = make_a()
+        html = self._html(d)
+        self.assertIn("TT 负载", html)
+        self.assertNotIn("干扰", html)             # 铁律
+
+
+def make_single_frame():
+    """单帧表（平衡车 hover_control_sched 形状）：frames=1, minor=1000, hyper=1000。
+    字段形状照 make_a() 实际结构对齐（键名为 schema_version 而非 schema）。"""
+    return {
+        "schema_version": 1, "sched_name": "single_fr", "cpu": 0, "minor_us": 1000,
+        "n_frames": 1, "hyperperiod_us": 1000, "overhead_us": 0,
+        "overhead_calibrated": False, "ref_clk_hz": 240000000,
+        "operating_points_hz": [], "interference_sources": [],
+        "tasks": [{"domain": "isr", "name": "only", "every": 1, "at": 0,
+                   "wcet_us": 300, "period_us": 1000}],
+        "frames": [{"t": 0, "isr_load_us": 300, "mainloop_pending_us": 0}],
+        "edges": [],
+    }
+
+
+class UnrollTest(unittest.TestCase):
+    _html = FreqOverviewTest._html
+
+    def test_single_frame_unrolled(self):
+        html = self._html(make_single_frame())
+        strip = html.split('aria-label="时间格视图"', 1)[1].split("</svg>", 1)[0]
+        self.assertGreaterEqual(strip.count("<rect"), 4)   # 展开到 ≥4 格
+        self.assertIn('opacity="0.45"', strip)             # 重复周期淡显
+        self.assertIn("↻", html)                           # 循环标注
+        self.assertIn("超周期 1000us 后循环", html)          # 图题说明
+
+    def test_many_frames_not_unrolled(self):
+        d = make_a()   # sched_fixture 同款多帧表（≥4 帧）
+        html = self._html(d)
+        strip = html.split('aria-label="时间格视图"', 1)[1].split("</svg>", 1)[0]
+        self.assertEqual(strip.count("<rect"), d["n_frames"])
+        self.assertNotIn("↻", html)
+
+
 if __name__ == "__main__":
     unittest.main()
