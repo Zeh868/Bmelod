@@ -131,6 +131,42 @@ fixture 表：`sched_fixture_a`@cpu0、`sched_fixture_b`@cpu1），
 `POST_BUILD` 步骤失败即构建失败——出表不通过就是硬 gate，不会带着一张
 排不下的表继续往下构建。
 
+**干扰源声明：`INTERFERENCE_SRC`（opt-in，计入 Hardware/Scheduled HRT
+抢占）**：`bm_add_schedule_map` 的 `INTERFERENCE_SRC` 参数（可重复传多
+条）声明"这张表所在 CPU 上，还有哪些不在这张调度表里、但会抢占它时间
+格"的周期性活动——典型是另一路 Hardware HRT（PWM/ADC IRQ）或另一张表的
+Scheduled HRT 任务：
+
+```cmake
+bm_add_schedule_map(tt_schedule_balance_map
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/balance_schedule.c
+    SETUP   balance_schedule_setup
+    TABLES  ctrl:0
+    INTERFERENCE_SRC
+        "adc_irq:1000:20:hardware:0"
+        "axis_speed:5000:50:scheduled:0"
+    INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR})
+```
+
+每条格式 `name:period_us:wcet_us:tier:cpu`：`name` 限 C 标识符字符集，
+`tier` 只能是 `hardware` 或 `scheduled`，`cpu` 决定这条干扰源关联到哪些
+表——同一 CPU 上的所有表共用该 CPU 的干扰源集合。格式非法的条目在配置
+期直接 `FATAL_ERROR`，不静默吞掉（错配的干扰源比没声明更危险）。不传
+`INTERFERENCE_SRC` 时生成空数组，与声明前的行为逐字一致（opt-in）。单
+CPU 声明的干扰源超过 16 条（`BM_SM_MAX_INTF`）时，出表程序向 stderr
+打告警并截断多出的条目——分析会低估干扰，需要精简声明或拆分 CPU。
+
+对应 JSON 在 `operating_points_hz` 之后新增一个数组字段：
+
+```json
+"interference_sources": [
+    {"name": "adc_irq", "period_us": 1000, "wcet_us": 20, "tier": "hardware"},
+    {"name": "axis_speed", "period_us": 5000, "wcet_us": 50, "tier": "scheduled"}
+]
+```
+
+未声明干扰源时该字段是空数组 `[]`。
+
 ---
 
 ## 3. 表怎么读
@@ -159,6 +195,22 @@ fixture 表：`sched_fixture_a`@cpu0、`sched_fixture_b`@cpu1），
   中断/slot 不在内"——`bm_tt_schedule` 只知道自己名下这些 activity 的
   声明 wcet，真机上同一核还跑着的其他 ISR/HAL 中断、`bm_exec` 槽位等
   **不计入这张表**，不能把这张表的负载百分比当成整核 CPU 占用率。
+- **干扰计入（opt-in）**：声明了 `INTERFERENCE_SRC` 后，文本报告峰值格
+  下方多一行 `干扰(硬X/调Y)=Zus  有效峰值=Wus (P% of minor) 排得下✓|
+  超载✗`——`硬X`/`调Y` 是 `tier=hardware`/`tier=scheduled` 两部分干扰
+  各自的 ceiling 上界之和，`有效峰值 = TT 门面峰值格 isr_load_us + 干扰
+  合计`；判可行性用有效峰值而非裸峰值（`isr_load_us + I ≤ minor_us`）。
+  多频率对比表在有干扰声明时把"峰值"列换成"有效(含干扰)"列（HTML）/
+  `有效=Wus（含干扰Z）`（文本），同样按该频率档 `ref/f_hz` 缩放后的
+  wcet 重算干扰。账外免责行也相应切换：有声明时读作"已计入声明干扰源
+  （N 个 HRT 抢占，ceiling 上界；未声明的仍在账外）"，无声明时仍是上面
+  这句原文，两种文案不会同时出现在同一张表下。
+- **已知局限**：ceiling 上界按 `Σ ceil(minor_us/period_us) × wcet_us`
+  静态估算，不考虑相位/抖动，偏悲观（安全方向，不会低估）；是保守的
+  **全抢占假设**——所有声明的干扰源都当作会实际抢占计算，`tier` 只用于
+  归因展示、不做门控放行；这份估算的可信度取决于声明是否与真实硬件/
+  调度配置一致（声明者职责，框架不做交叉校验）；Hardware 干扰源的
+  `wcet_us` 最终需要上板实测校准，构建期声明的只是估计值。
 
 ---
 
