@@ -374,5 +374,25 @@ class FreqOverviewTest(unittest.TestCase):
         self.assertNotIn(smt._COLOR_INTF_HW, html)
 
 
+class LegendTest(unittest.TestCase):
+    _html = FreqOverviewTest._html   # 复用辅助
+
+    def test_legend_present_with_interference(self):
+        d = make_a()
+        d["interference_sources"] = [
+            {"name": "hw", "period_us": 100, "wcet_us": 30, "tier": "hardware"}]
+        html = self._html(d)
+        self.assertIn('class="legend"', html)
+        self.assertIn("TT 负载", html)
+        self.assertIn("干扰-硬件 HRT", html)
+        self.assertNotIn("干扰-调度 HRT", html)   # 只显示出现的分类
+
+    def test_legend_no_interference_items_when_none(self):
+        d = make_a()
+        html = self._html(d)
+        self.assertIn("TT 负载", html)
+        self.assertNotIn("干扰", html)             # 铁律
+
+
 if __name__ == "__main__":
     unittest.main()

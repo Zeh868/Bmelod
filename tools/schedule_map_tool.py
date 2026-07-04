@@ -268,6 +268,8 @@ _COLOR_STROKE_PEAK = "#111111"
 _COLOR_INTF_SCHED = "#6a4c93"
 _COLOR_INTF_HW = "#9d6fd6"
 
+_COLOR_MAINLOOP = "#4a7fd6"   # mainloop 积压蓝（原散落在 _svg_load_stack 里，收口为常量）
+
 _COLOR_SEG_TEXT = "#ffffff"   # 色块段内标注文字色（可读性用，非分类/语义色）
 
 
@@ -341,6 +343,14 @@ def _svg_freq_overview(t, a):
     return "".join(parts)
 
 
+def _legend_html(items):
+    """图例行：色块 + 中文名。items=[(名称, 色值), ...]，只传实际出现的分类。"""
+    spans = "".join(
+        f'<span class="lg"><span class="sw" style="background:{c}"></span>{_esc(n)}</span>'
+        for n, c in items)
+    return f'<div class="legend">{spans}</div>'
+
+
 def _svg_frame_strip(t):
     """时间格视图：一排 n_frames 个矩形，按 isr_load_us/minor_us 占比着色，
     格内标 t 与 isr_load_us，峰值格描边高亮。"""
@@ -396,6 +406,8 @@ def _svg_wcet_bars(t):
     parts.append(f'<line x1="0" y1="{ref_y}" x2="{width}" y2="{ref_y}" '
                  f'stroke="currentColor" stroke-width="1.5" stroke-dasharray="6,3" opacity="0.75"/>')
     parts.append(f'<text x="4" y="{ref_y - 4}" font-size="10" fill="currentColor" opacity="0.85">minor={minor}us</text>')
+    parts.append(f'<text x="4" y="{margin + plot_h - 2}" font-size="10" '
+                 f'fill="currentColor" opacity="0.85">0</text>')
     parts.append("</svg>")
     return "".join(parts)
 
@@ -425,8 +437,14 @@ def _svg_load_stack(t, intf=None):
         y_main = y_isr - h_main
         parts.append(f'<rect x="{x}" y="{y_isr}" width="{bar_w}" height="{h_isr}" '
                      f'fill="{_COLOR_OK}" stroke="{_COLOR_STROKE}" stroke-width="1"/>')
+        if h_isr >= 14:
+            parts.append(f'<text x="{x + bar_w / 2}" y="{y_isr + h_isr / 2 + 3:.1f}" '
+                         f'text-anchor="middle" font-size="9" fill="{_COLOR_SEG_TEXT}">{f["isr_load_us"]}</text>')
         parts.append(f'<rect x="{x}" y="{y_main}" width="{bar_w}" height="{h_main}" '
-                     f'fill="#4a7fd6" stroke="{_COLOR_STROKE}" stroke-width="1"/>')
+                     f'fill="{_COLOR_MAINLOOP}" stroke="{_COLOR_STROKE}" stroke-width="1"/>')
+        if h_main >= 14:
+            parts.append(f'<text x="{x + bar_w / 2}" y="{y_main + h_main / 2 + 3:.1f}" '
+                         f'text-anchor="middle" font-size="9" fill="{_COLOR_SEG_TEXT}">{f["mainloop_pending_us"]}</text>')
         if intf:
             h_sched = intf["scheduled"] * scale
             h_hw = intf["hardware"] * scale
@@ -434,8 +452,14 @@ def _svg_load_stack(t, intf=None):
             y_hw = y_sched - h_hw
             parts.append(f'<rect x="{x}" y="{y_sched}" width="{bar_w}" height="{h_sched}" '
                          f'fill="{_COLOR_INTF_SCHED}" stroke="{_COLOR_STROKE}" stroke-width="1"/>')
+            if h_sched >= 14:
+                parts.append(f'<text x="{x + bar_w / 2}" y="{y_sched + h_sched / 2 + 3:.1f}" '
+                             f'text-anchor="middle" font-size="9" fill="{_COLOR_SEG_TEXT}">{intf["scheduled"]}</text>')
             parts.append(f'<rect x="{x}" y="{y_hw}" width="{bar_w}" height="{h_hw}" '
                          f'fill="{_COLOR_INTF_HW}" stroke="{_COLOR_STROKE}" stroke-width="1"/>')
+            if h_hw >= 14:
+                parts.append(f'<text x="{x + bar_w / 2}" y="{y_hw + h_hw / 2 + 3:.1f}" '
+                             f'text-anchor="middle" font-size="9" fill="{_COLOR_SEG_TEXT}">{intf["hardware"]}</text>')
         parts.append(f'<text x="{x + bar_w / 2}" y="{margin + plot_h + 14}" '
                      f'text-anchor="middle" font-size="10" fill="currentColor" opacity="0.85">{f["t"]}</text>')
     parts.append(f'<line x1="0" y1="{ref_y}" x2="{width}" y2="{ref_y}" '
@@ -466,6 +490,10 @@ td, th { padding: 3px 10px; text-align: left; border-bottom: 1px solid #eee; }
 .svg-wrap { overflow-x: auto; margin: 8px 0; }
 .svg-wrap svg { height: auto; max-width: 100%; }
 .meta { font-size: 13px; color: #555; }
+.legend { font-size: 12px; margin: 2px 0 10px; }
+.legend .lg { margin-right: 14px; white-space: nowrap; }
+.legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+              margin-right: 4px; }
 """
 
 
@@ -491,6 +519,15 @@ def render_html(tables, per_table, warns, global_hyper):
     for t, a in zip(tables, per_table):
         cal = "已标定" if t["overhead_calibrated"] else "未标定占位"
         has_intf = bool(t.get("interference_sources"))
+        intf_a = a["intf"]
+        legend_items = [("TT 负载", _COLOR_OK)]
+        if any(f["mainloop_pending_us"] > 0 for f in t["frames"]):
+            legend_items.append(("MAINLOOP 积压", _COLOR_MAINLOOP))
+        if has_intf and intf_a["scheduled"] > 0:
+            legend_items.append(("干扰-调度 HRT", _COLOR_INTF_SCHED))
+        if has_intf and intf_a["hardware"] > 0:
+            legend_items.append(("干扰-硬件 HRT", _COLOR_INTF_HW))
+        overview_legend_items = [i for i in legend_items if i[0] != "MAINLOOP 积压"]
         parts.append('<section>')
         parts.append(f'<h2>[cpu{t["cpu"]}] {_esc(t["sched_name"])}</h2>')
         parts.append(f'<div class="meta">minor={t["minor_us"]}us frames={t["n_frames"]} '
@@ -505,6 +542,7 @@ def render_html(tables, per_table, warns, global_hyper):
         if a["mode"] == "single":
             parts.append('<h3>频率可行性总览</h3>')
             parts.append(f'<div class="svg-wrap">{_svg_freq_overview(t, a)}</div>')
+            parts.append(_legend_html(overview_legend_items))
         parts.append('<table><tr><th>domain</th><th>name</th><th>every</th><th>at</th>'
                      '<th>wcet_us</th><th>period_us</th></tr>')
         for task in t["tasks"]:
@@ -515,6 +553,7 @@ def render_html(tables, per_table, warns, global_hyper):
         if a["mode"] == "multi":
             parts.append('<h3>频率可行性总览（★=基准档）</h3>')
             parts.append(f'<div class="svg-wrap">{_svg_freq_overview(t, a)}</div>')
+            parts.append(_legend_html(overview_legend_items))
             parts.append('<h3>频率对比表</h3>')
             if has_intf:
                 parts.append('<table><tr><th>频率</th><th>峰值</th><th>峰值占比</th>'
@@ -548,6 +587,7 @@ def render_html(tables, per_table, warns, global_hyper):
         parts.append(f'<div class="svg-wrap">{_svg_wcet_bars(t)}</div>')
         parts.append('<h3>负载图（isr_load_us + mainloop_pending_us 堆叠, minor_us 参考线）</h3>')
         parts.append(f'<div class="svg-wrap">{_svg_load_stack(t, a["intf"] if has_intf else None)}</div>')
+        parts.append(_legend_html(legend_items))
         parts.append('</section>')
 
     parts.append('</body></html>')
