@@ -19,7 +19,7 @@
  * 输出目录须已存在；本程序从不创建目录。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-04
  *
  * @par 修改日志:
@@ -32,6 +32,12 @@
  *                                                 meta.interference，供
  *                                                 report_json 导出
  *                                                 interference_sources
+ * 2026-07-04       1.2            zeh            Task 6 评审修复：干扰源超过
+ *                                                 BM_SM_MAX_INTF 截断时向
+ *                                                 stderr 打明确告警——截断丢源
+ *                                                 =低估干扰，违反"宁可高估
+ *                                                 也不低估"的保守安全方向，
+ *                                                 不允许静默
  *
  */
 #include "bm_schedule_map_reg.h"
@@ -41,7 +47,9 @@
 /** @brief "<dir>/<name><ext>" 的长度上界（目录 + '/' + name + ".json" + NUL） */
 #define SM_PATH_MAX 512
 
-/** @brief 单表可挂载的干扰源上限（栈上过滤缓冲容量，见下方装配循环） */
+/** @brief 单表可挂载的干扰源上限（栈上过滤缓冲容量，见下方装配循环）；
+ *  某 CPU 匹配的干扰源超过此上限时多出的会被截断丢弃，此时本程序向 stderr
+ *  打明确告警——截断丢源意味着下游分析低估干扰（漏报过载才危险），不允许静默 */
 #define BM_SM_MAX_INTF 16u
 
 /** @brief emit 回调：把一行写入 FILE*（u 即该 FILE*） */
@@ -97,10 +105,21 @@ int main(int argc, char **argv) {
 
         bm_tt_sched_intf_src_t intf_buf[BM_SM_MAX_INTF];
         uint8_t intf_n = 0u;
-        for (uint32_t k = 0u; k < g_bm_schedule_map_interference_count && intf_n < BM_SM_MAX_INTF; ++k) {
+        uint32_t intf_match = 0u;
+        for (uint32_t k = 0u; k < g_bm_schedule_map_interference_count; ++k) {
             if (g_bm_schedule_map_interference[k].cpu == g_bm_schedule_map_entries[i].cpu) {
-                intf_buf[intf_n++] = g_bm_schedule_map_interference[k].src;
+                ++intf_match;
+                if (intf_n < BM_SM_MAX_INTF) {
+                    intf_buf[intf_n++] = g_bm_schedule_map_interference[k].src;
+                }
             }
+        }
+        if (intf_match > (uint32_t)intf_n) {
+            (void)fprintf(stderr,
+                "schedule-map: %s cpu%u 干扰源 %u 个超过 BM_SM_MAX_INTF=%u 上限已截断 %u 个，分析将低估干扰\n",
+                s->name, (unsigned)g_bm_schedule_map_entries[i].cpu,
+                (unsigned)intf_match, (unsigned)BM_SM_MAX_INTF,
+                (unsigned)(intf_match - (uint32_t)intf_n));
         }
 
         meta.cpu = g_bm_schedule_map_entries[i].cpu;

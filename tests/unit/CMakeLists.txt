@@ -268,6 +268,34 @@ if(BM_ENABLE_TT_SCHEDULE)
     set_tests_properties(schedule_map_dump_ok schedule_map_dump_gate schedule_map_dump_fixture_reg_ok
         PROPERTIES LABELS "determinism")
 
+    # Task 6 评审修复：干扰源截断告警负例——INTERFERENCE_SRC 生成 17 个 cpu0
+    # 干扰源（超过 bm_schedule_map_main.c 的 BM_SM_MAX_INTF=16 上限），断言
+    # dump 向 stderr 打出明确的截断告警（截断丢源=低估干扰，不允许静默）。
+    # 注意 PASS_REGULAR_EXPRESSION 使 ctest 只按输出匹配判 pass（不再看退出
+    # 码），对本负例足够：告警文案出现即证明截断路径被触发且未静默；正则只钉
+    # ASCII 片段，规避跨平台控制台编码差异。
+    set(_sm_ovf_intf "")
+    foreach(_k RANGE 1 17)
+        list(APPEND _sm_ovf_intf "ovf_src_${_k}:1000:10:hardware:0")
+    endforeach()
+    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/schedule_map_out_overflow
+                         ${CMAKE_BINARY_DIR}/schedule_map_overflow_postbuild)
+    bm_add_schedule_map(bm_schedule_map_dump_overflow
+        SOURCES ${CMAKE_SOURCE_DIR}/tests/tools/schedule_map_fixture.c
+        SETUP   schedule_map_fixture_setup
+        TABLES  sched_fixture_a:0 sched_fixture_b:1
+        INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/tests/tools
+        REF_CLK_HZ 240000000
+        OUTPUT_DIR ${CMAKE_BINARY_DIR}/schedule_map_overflow_postbuild
+        INTERFERENCE_SRC ${_sm_ovf_intf})
+    if(NOT CMAKE_CROSSCOMPILING)
+        bm_target_internal_includes(bm_schedule_map_dump_overflow)
+    endif()
+    add_test(NAME schedule_map_dump_intf_overflow_warns
+        COMMAND bm_schedule_map_dump_overflow ${CMAKE_BINARY_DIR}/schedule_map_out_overflow)
+    set_tests_properties(schedule_map_dump_intf_overflow_warns PROPERTIES
+        PASS_REGULAR_EXPRESSION "BM_SM_MAX_INTF=16" LABELS "determinism")
+
     # Task 6：干扰源装配内容级检查——分别校验 CMake 生成路径
     # （bm_schedule_map_dump，INTERFERENCE_SRC）与手写 reg 路径
     # （bm_schedule_map_dump_fixture_reg）的出表 JSON，DEPENDS 确保先跑完对应
