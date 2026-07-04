@@ -277,6 +277,68 @@ def _load_color(pct):
     return _COLOR_OK
 
 
+def _fmt_mhz(f_hz):
+    """频率人读格式：240000000 -> '240MHz'。"""
+    return f"{f_hz / 1000000:g}MHz"
+
+
+def _svg_freq_overview(t, a):
+    """频率可行性总览：每个频率档一根水平堆叠条（TT 绿 + 调度紫 + 硬件浅紫，
+    段序固定），全图一根 minor 垂直参考虚线，超载条红描边，右端标
+    有效值/占比/✓✗；多频率基准档行首标 ★。单频率表画一根条。
+    TT 段固定 _COLOR_OK（超载信号只由红描边与 ✗ 承担，避免与图例冲突）。"""
+    minor = t["minor_us"] or 1
+    rows = []
+    if a["mode"] == "multi":
+        for ft in a["freq_tables"]:
+            rows.append({"label": _fmt_mhz(ft["f_hz"]), "is_ref": ft["is_ref"],
+                         "tt": ft["peak_us"], "sched": ft["intf"]["scheduled"],
+                         "hw": ft["intf"]["hardware"], "eff": ft["eff_peak_us"],
+                         "pct": ft["eff_pct"], "feasible": ft["feasible"]})
+    else:
+        ref = t.get("ref_clk_hz", 0)
+        rows.append({"label": _fmt_mhz(ref) if ref else "当前配置", "is_ref": False,
+                     "tt": a["peak"]["isr_load_us"], "sched": a["intf"]["scheduled"],
+                     "hw": a["intf"]["hardware"], "eff": a["eff_peak_us"],
+                     "pct": a["eff_pct"], "feasible": a["feasible"]})
+    label_w, bar_max_w, val_w, row_h, bar_h = 90, 360, 210, 30, 16
+    width = label_w + bar_max_w + val_w
+    height = row_h * len(rows) + 34
+    x_max = max([minor] + [r["eff"] for r in rows]) * 1.1   # 超载条完整可见
+    sx = bar_max_w / x_max
+    ref_x = label_w + minor * sx
+    parts = [f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
+             f'role="img" aria-label="频率可行性总览">']
+    for i, r in enumerate(rows):
+        y = 8 + i * row_h
+        stroke = _COLOR_STROKE if r["feasible"] else _COLOR_OVER
+        sw = 1 if r["feasible"] else 2
+        mark = "★" if r["is_ref"] else ""
+        parts.append(f'<text x="{label_w - 6}" y="{y + bar_h - 3}" text-anchor="end" '
+                     f'font-size="11" fill="currentColor">{_esc(r["label"])}{mark}</text>')
+        x = label_w
+        for val, color in ((r["tt"], _COLOR_OK), (r["sched"], _COLOR_INTF_SCHED),
+                           (r["hw"], _COLOR_INTF_HW)):
+            w = val * sx
+            if w > 0:
+                parts.append(f'<rect x="{x:.1f}" y="{y}" width="{w:.1f}" height="{bar_h}" '
+                             f'fill="{color}" stroke="{stroke}" stroke-width="{sw}"/>')
+                if w >= 34:   # 放得下才段内标数值
+                    parts.append(f'<text x="{x + w / 2:.1f}" y="{y + bar_h - 4}" '
+                                 f'text-anchor="middle" font-size="9" fill="#fff">{val}us</text>')
+            x += w
+        verdict = "排得下 ✓" if r["feasible"] else "超载 ✗"
+        vcolor = _COLOR_OK if r["feasible"] else _COLOR_OVER
+        parts.append(f'<text x="{x + 8:.1f}" y="{y + bar_h - 3}" font-size="11" '
+                     f'fill="{vcolor}">{r["eff"]}us ({r["pct"]:.1f}%) {verdict}</text>')
+    parts.append(f'<line x1="{ref_x:.1f}" y1="4" x2="{ref_x:.1f}" y2="{height - 26}" '
+                 f'stroke="currentColor" stroke-width="1.5" stroke-dasharray="6,3" opacity="0.75"/>')
+    parts.append(f'<text x="{ref_x + 4:.1f}" y="{height - 12}" font-size="10" '
+                 f'fill="currentColor" opacity="0.85">minor={minor}us</text>')
+    parts.append("</svg>")
+    return "".join(parts)
+
+
 def _svg_frame_strip(t):
     """时间格视图：一排 n_frames 个矩形，按 isr_load_us/minor_us 占比着色，
     格内标 t 与 isr_load_us，峰值格描边高亮。"""
@@ -438,6 +500,9 @@ def render_html(tables, per_table, warns, global_hyper):
             parts.append(f'<div class="meta">干扰(硬{intf["hardware"]}/调{intf["scheduled"]})={intf["total"]}us，'
                          f'有效峰值={a["eff_peak_us"]}us ({a["eff_pct"]:.1f}% of minor，含干扰，'
                          f'ceiling 上界估，需上板实测) {verdict}</div>')
+        if a["mode"] == "single":
+            parts.append('<h3>频率可行性总览</h3>')
+            parts.append(f'<div class="svg-wrap">{_svg_freq_overview(t, a)}</div>')
         parts.append('<table><tr><th>domain</th><th>name</th><th>every</th><th>at</th>'
                      '<th>wcet_us</th><th>period_us</th></tr>')
         for task in t["tasks"]:
@@ -446,6 +511,8 @@ def render_html(tables, per_table, warns, global_hyper):
                          f'<td>{task["wcet_us"]}</td><td>{task["period_us"]}</td></tr>')
         parts.append('</table>')
         if a["mode"] == "multi":
+            parts.append('<h3>频率可行性总览（★=基准档）</h3>')
+            parts.append(f'<div class="svg-wrap">{_svg_freq_overview(t, a)}</div>')
             parts.append('<h3>频率对比表</h3>')
             if has_intf:
                 parts.append('<table><tr><th>频率</th><th>峰值</th><th>峰值占比</th>'
@@ -455,15 +522,16 @@ def render_html(tables, per_table, warns, global_hyper):
             for ft in a["freq_tables"]:
                 tag = "基准/声明" if ft["is_ref"] else "理论/estimated"
                 verdict = "排得下 ✓" if ft["feasible"] else "超载 ✗"
+                vcolor = _COLOR_OK if ft["feasible"] else _COLOR_OVER
                 if has_intf:
                     parts.append(f'<tr><td>{ft["f_hz"]}Hz（{_esc(tag)}）</td>'
                                  f'<td>{ft["peak_us"]}us</td><td>{ft["pct"]:.1f}%</td>'
                                  f'<td>{ft["eff_peak_us"]}us ({ft["eff_pct"]:.1f}%)</td>'
-                                 f'<td>{_esc(verdict)}</td></tr>')
+                                 f'<td style="color:{vcolor}">{_esc(verdict)}</td></tr>')
                 else:
                     parts.append(f'<tr><td>{ft["f_hz"]}Hz（{_esc(tag)}）</td>'
                                  f'<td>{ft["peak_us"]}us</td><td>{ft["pct"]:.1f}%</td>'
-                                 f'<td>{_esc(verdict)}</td></tr>')
+                                 f'<td style="color:{vcolor}">{_esc(verdict)}</td></tr>')
             parts.append('</table>')
             note = ('理论值按 wcet×ref/f 线性外推(estimated)，'
                     '需上板实测验证；下方三图按基准频率绘制（负载随频率线性缩放，结构不变，'

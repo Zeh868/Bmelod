@@ -327,5 +327,47 @@ class InterferenceHtmlTest(unittest.TestCase):
         self.assertNotIn("干扰", html)
 
 
+class FreqOverviewTest(unittest.TestCase):
+    def _html(self, d):
+        import tempfile, os, json, subprocess, sys
+        with tempfile.TemporaryDirectory() as tmp:
+            p = os.path.join(tmp, d["sched_name"] + ".json")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(json.dumps(d))
+            out = os.path.join(tmp, "r.html")
+            r = subprocess.run([sys.executable, TOOL, p, "--html", out],
+                               capture_output=True, text=True, encoding="utf-8")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            with open(out, encoding="utf-8") as f:
+                return f.read()
+
+    def test_overview_present_multi_with_overload_mark(self):
+        d = make_a()
+        d["interference_sources"] = [
+            {"name": "hw", "period_us": 100, "wcet_us": 30, "tier": "hardware"}]
+        html = self._html(d)
+        self.assertIn('aria-label="频率可行性总览"', html)
+        self.assertIn("★", html)          # 基准档徽标
+        self.assertIn("超载 ✗", html)      # 低频档叠干扰后超载
+
+    def test_overview_present_single_mode(self):
+        d = make_a()
+        d.pop("operating_points_hz", None)   # 退化为单频率
+        html = self._html(d)
+        self.assertIn('aria-label="频率可行性总览"', html)
+
+    def test_verdict_colored_in_compare_table(self):
+        d = make_a()
+        html = self._html(d)
+        # 对比表 verdict 单元格带内联色（排得下→_COLOR_OK 值出现在 td style 里）
+        self.assertIn(f'style="color:{smt._COLOR_OK}">排得下', html)
+
+    def test_no_interference_keeps_clean(self):
+        d = make_a()
+        html = self._html(d)
+        self.assertNotIn("干扰", html)      # 铁律断言仍须成立
+        self.assertIn('aria-label="频率可行性总览"', html)  # 无干扰也有总览(纯绿条)
+
+
 if __name__ == "__main__":
     unittest.main()
