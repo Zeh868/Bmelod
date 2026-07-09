@@ -2,8 +2,8 @@
  * @file motor_current_sense.c
  * @brief 2/3 分流电流重构组件实现
  * @author zeh (china_qzh@163.com)
- * @version 0.3
- * @date 2026-06-23
+ * @version 0.4
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
@@ -11,6 +11,11 @@
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-17       0.2            zeh            PWM 扇区采样窗口判定
  * 2026-06-23       0.3            zeh            validate_config 字段校验；公共 API Doxygen；SPDX
+ * 2026-07-09       0.4            zeh            缺口 16：3-shunt 分支此前只看
+ *                                                resources.adc 是否非空决定要不要读真实
+ *                                                ADC 的 ic，未考虑 ia/ib 已走仿真注入路径，
+ *                                                导致真实 ic 与仿真 ia/ib 混用破坏 KCL；
+ *                                                改为用 use_sim 统一判定
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -133,38 +138,47 @@ int bm_motor_current_sense_step(bm_motor_current_sense_axis_t *axis) {
     res = &axis->resources;
     abc = &axis->state.abc;
 
-    if (res->sim_fb.ia_a != NULL && res->sim_fb.ib_a != NULL) {
-        ia = *res->sim_fb.ia_a;
-        ib = *res->sim_fb.ib_a;
-        if (res->sim_fb.ic_a != NULL) {
-            ic = *res->sim_fb.ic_a;
-        } else {
-            ic = -(ia + ib);
-        }
-    } else if (read_adc_pair(axis, &ia, &ib) != 0) {
-        axis->state.valid = 0;
-        return BM_ERR_INVALID;
-    }
+    /* 缺口 16：use_sim 记录本拍 ia/ib 是否来自仿真注入。此前 3-shunt 分支
+     * 只看 res->adc 是否非空来决定要不要读真实 ADC 的 ic，与 ia/ib 是否走
+     * 仿真路径无关——当 sim_fb.ia_a/ib_a 已注入但 resources.adc 仍挂着真实
+     * 硬件（如 HIL）时，会把真实 ADC 采到的 ic 和仿真 ia/ib 混在一起，
+     * 破坏 ia+ib+ic=0 的物理约束。 */
+    {
+        int use_sim = (res->sim_fb.ia_a != NULL && res->sim_fb.ib_a != NULL);
 
-    if (axis->config.topology == BM_MOTOR_CS_2SHUNT) {
-        bm_algo_current_from_2shunt(ia, ib, abc);
-        bm_algo_clarke_2shunt(ia, ib, &axis->state.alphabeta);
-    } else {
-        if (res->adc != NULL && res->sim_fb.ic_a == NULL) {
-            uint16_t raw_ic = 0u;
-            if (bm_hal_adc_read_injected(res->adc, res->rank_ic,
-                                         &raw_ic) != BM_OK) {
-                ic = -(ia + ib);
+        if (use_sim) {
+            ia = *res->sim_fb.ia_a;
+            ib = *res->sim_fb.ib_a;
+            if (res->sim_fb.ic_a != NULL) {
+                ic = *res->sim_fb.ic_a;
             } else {
-                ic = adc_to_current(res->adc_scale, raw_ic, axis->config.offset_a);
+                ic = -(ia + ib);
             }
-        } else if (res->sim_fb.ic_a == NULL) {
-            ic = -(ia + ib);
+        } else if (read_adc_pair(axis, &ia, &ib) != 0) {
+            axis->state.valid = 0;
+            return BM_ERR_INVALID;
         }
-        abc->ia = ia;
-        abc->ib = ib;
-        abc->ic = ic;
-        bm_algo_clarke(abc, &axis->state.alphabeta);
+
+        if (axis->config.topology == BM_MOTOR_CS_2SHUNT) {
+            bm_algo_current_from_2shunt(ia, ib, abc);
+            bm_algo_clarke_2shunt(ia, ib, &axis->state.alphabeta);
+        } else {
+            if (!use_sim && res->adc != NULL && res->sim_fb.ic_a == NULL) {
+                uint16_t raw_ic = 0u;
+                if (bm_hal_adc_read_injected(res->adc, res->rank_ic,
+                                             &raw_ic) != BM_OK) {
+                    ic = -(ia + ib);
+                } else {
+                    ic = adc_to_current(res->adc_scale, raw_ic, axis->config.offset_a);
+                }
+            } else if (!use_sim && res->sim_fb.ic_a == NULL) {
+                ic = -(ia + ib);
+            }
+            abc->ia = ia;
+            abc->ib = ib;
+            abc->ic = ic;
+            bm_algo_clarke(abc, &axis->state.alphabeta);
+        }
     }
 
     axis->state.valid = 1;

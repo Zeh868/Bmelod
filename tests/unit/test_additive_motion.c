@@ -183,6 +183,40 @@ void test_additive_exec_ops_lifecycle(void) {
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, axis.state.last_cmd_mm);
 }
 
+/*
+ * 疑似-16.1：safe_stop 应清空环形缓冲（buffer[]/buffer_head），否则残留的
+ * 旧 delta 会在下次 shape_cmd 时被 delayed 分支读出，造成陈旧指令重放。
+ */
+void test_additive_exec_safe_stop_clears_ring_buffer(void) {
+    static bm_additive_motion_axis_t axis;
+    bm_exec_t inst;
+    uint32_t i;
+
+    memset(&axis, 0, sizeof(axis));
+    axis.config.natural_freq_hz = 10.0f;
+    axis.config.damping_ratio = 0.05f;
+    axis.config.dt_s = 0.001f;
+    axis.config.max_velocity_mm_s = 100.0f;
+
+    memset(&inst, 0, sizeof(inst));
+    inst.state = &axis;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_additive_motion_exec_init(&inst));
+
+    /* 施加一串变化指令，令环形缓冲写入非零 delta */
+    for (i = 0u; i < 10u; ++i) {
+        bm_additive_motion_shape_cmd(&axis, (float)(i + 1u) * 3.0f);
+    }
+
+    bm_additive_motion_exec_safe_stop(&inst);
+
+    /* safe_stop 后缓冲区应被清空，buffer_head 归零 */
+    TEST_ASSERT_EQUAL_UINT32(0u, axis.state.buffer_head);
+    for (i = 0u; i < BM_ADDITIVE_ZV_BUFFER_MAX; ++i) {
+        TEST_ASSERT_EQUAL_FLOAT(0.0f, axis.state.buffer[i]);
+    }
+}
+
 /* exec_ops：NULL 实例不崩溃 */
 void test_additive_exec_ops_null_safe(void) {
     TEST_ASSERT_EQUAL(BM_ERR_INVALID,
@@ -203,6 +237,7 @@ int main(void) {
     RUN_TEST(test_additive_velocity_nonzero_after_shape);
     RUN_TEST(test_additive_overdamped_coeffs_finite);
     RUN_TEST(test_additive_exec_ops_lifecycle);
+    RUN_TEST(test_additive_exec_safe_stop_clears_ring_buffer);
     RUN_TEST(test_additive_exec_ops_null_safe);
     return UNITY_END();
 }

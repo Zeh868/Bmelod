@@ -3,8 +3,8 @@
  * @brief 音频数学核实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.4
- * @date 2026-06-13
+ * @version 1.5
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
@@ -15,6 +15,10 @@
  * 2026-06-17       1.3            zeh            delay-and-sum 波束成形
  * 2026-06-17       1.4            zeh            对角加载 MVDR
  * 2026-06-23       1.4            zeh            补齐 Doxygen 注释
+ * 2026-07-09       1.5            zeh            Medium-1：PDM CIC 积分器
+ *                                                改用饱和加法，避免长时间
+ *                                                偏置输入下 int32_t 有符号
+ *                                                溢出 UB
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -548,6 +552,30 @@ int32_t bm_algo_gcc_phat_delay(const float *ref,
     return best_lag;
 }
 
+/**
+ * @brief int32 饱和加法：a + b 用 int64 中间值计算后钳位到 int32 范围
+ *
+ * PDM 二阶 CIC 积分器（integrator1/integrator2）在整个数据流生命周期内
+ * 持续累加、从不清零；若输入长时间存在直流偏置（如 PDM 全 1 或全 -1
+ * 比特流），int32_t 的 `+=` 会在有限样本数内发生有符号溢出 UB（Medium-1）。
+ * 用本函数替换直接相加，将溢出转为饱和钳位，消除 UB。
+ *
+ * @param a 被加数
+ * @param b 加数
+ * @return 饱和后的 int32_t 和
+ */
+static int32_t bm_algo_audio_sat_add_i32(int32_t a, int32_t b) {
+    int64_t sum = (int64_t)a + (int64_t)b;
+
+    if (sum > (int64_t)INT32_MAX) {
+        return INT32_MAX;
+    }
+    if (sum < (int64_t)INT32_MIN) {
+        return INT32_MIN;
+    }
+    return (int32_t)sum;
+}
+
 void bm_algo_pdm_decimate_reset(bm_algo_pdm_decimate_state_t *state) {
     if (state != NULL) {
         state->integrator1 = 0;
@@ -583,8 +611,10 @@ uint32_t bm_algo_pdm_decimate_block(bm_algo_pdm_decimate_state_t *state,
         int32_t diff2;
         int32_t diff1;
 
-        state->integrator1 += bit;
-        state->integrator2 += state->integrator1;
+        /* Medium-1：饱和加法替换直接 += 避免长时间偏置输入下的有符号溢出 UB */
+        state->integrator1 = bm_algo_audio_sat_add_i32(state->integrator1, bit);
+        state->integrator2 = bm_algo_audio_sat_add_i32(state->integrator2,
+                                                        state->integrator1);
 
         state->phase++;
         if (state->phase < R) {

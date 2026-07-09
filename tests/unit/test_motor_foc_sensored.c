@@ -324,6 +324,21 @@ static void test_validate_config_rejects_mtpa_without_inductance(void) {
 }
 
 /**
+ * @brief 缺口 9 回归：validate_config 拒绝 iq_max_a<=0（sensored 版此前漏了该校验，
+ * 与 sensorless 版对齐补齐）。
+ */
+static void test_validate_config_rejects_zero_iq_max(void) {
+    bm_motor_foc_sensored_config_t cfg;
+    bm_motor_foc_sensored_axis_t axis = make_axis();
+
+    cfg = axis.config;
+    cfg.iq_max_a = 0.0f;    /* 非法：iq_max_a 须 > 0 */
+
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID,
+                      bm_motor_foc_sensored_validate_config(&cfg));
+}
+
+/**
  * @brief validate_config 正常路径：enable_mtpa=1 且参数合法时返回 BM_OK。
  */
 static void test_validate_config_accepts_valid_mtpa_params(void) {
@@ -467,6 +482,30 @@ static void test_last_vd_vq_updated_after_current_step(void) {
     TEST_ASSERT_NOT_EQUAL(0.0f, axis.state.current.last_vq_pu);
 }
 
+/**
+ * @brief 缺口 14 回归：禁用分支须刷新遥测 status，不能沿用上一拍陈旧的 VALID 位。
+ *
+ * 先使能运行一拍使 tel.status 带上 VALID，再清 ENABLED 位跑 current_step；
+ * 修复前 disabled 分支完全不碰 tel->status，VALID 位会原样保留（陈旧）。
+ */
+static void test_disabled_branch_clears_stale_valid_status(void) {
+    bm_motor_foc_sensored_axis_t axis = make_axis();
+
+    axis.resources.sim_fb.id_a = &s_id_feedback;
+    axis.resources.sim_fb.iq_a = &s_iq_feedback;
+    axis.state.cmd.status = BM_MOTOR_FOC_CMD_ENABLED;
+
+    bm_motor_foc_sensored_current_step(&axis);
+    TEST_ASSERT_BITS(BM_MOTOR_FOC_TEL_VALID,
+                     BM_MOTOR_FOC_TEL_VALID,
+                     axis.state.telemetry.status);
+
+    axis.state.cmd.status = 0u; /* 清 ENABLED，进入禁用分支 */
+    bm_motor_foc_sensored_current_step(&axis);
+
+    TEST_ASSERT_BITS(BM_MOTOR_FOC_TEL_VALID, 0u, axis.state.telemetry.status);
+}
+
 int main(void) {
     UNITY_BEGIN();
     /* 默认路径回归（改动前行为不变）。 */
@@ -484,10 +523,13 @@ int main(void) {
     RUN_TEST(test_fw_further_decreases_id_ref_when_voltage_saturated);
     RUN_TEST(test_mtpa_and_fw_combined_no_fault);
     RUN_TEST(test_validate_config_rejects_mtpa_without_inductance);
+    RUN_TEST(test_validate_config_rejects_zero_iq_max);
     RUN_TEST(test_validate_config_accepts_valid_mtpa_params);
     RUN_TEST(test_last_vd_vq_updated_after_current_step);
     /* speed_feedback_sign 回归。 */
     RUN_TEST(test_speed_feedback_sign_default_no_flip);
     RUN_TEST(test_speed_feedback_sign_negative_flips);
+    /* 缺口 9/14 回归。 */
+    RUN_TEST(test_disabled_branch_clears_stale_valid_status);
     return UNITY_END();
 }

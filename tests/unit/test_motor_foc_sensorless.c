@@ -3,8 +3,15 @@
  * @brief motor_foc_sensorless 组件单元测试
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-13
+ * @version 1.1
+ * @date 2026-07-09
+ *
+ * @par 修改日志:
+ *
+ *    Date         Version        Author          Description
+ * 2026-06-13       1.0            zeh            正式发布
+ * 2026-07-09       1.1            zeh            补缺口 14/15 回归：禁用分支遥测
+ *                                                陈旧、OBSERVER 相仿真 omega 陈旧
  */
 #include "unity.h"
 #include "bm/component/motor_foc_sensorless.h"
@@ -157,6 +164,58 @@ void test_motor_foc_sensorless_rejects_invalid_observer(void) {
     axis.config.observer.ls_h = 0.0f;
     TEST_ASSERT_EQUAL(BM_ERR_INVALID,
                       bm_motor_foc_sensorless_validate_config(&axis.config));
+}
+
+/**
+ * @brief 缺口 14 回归：禁用分支须刷新遥测 status/phase，不能沿用上一拍陈旧的 VALID 位。
+ *
+ * 直接置 OBSERVER 相跑一拍使 tel.status 带 VALID，再清 ENABLED 位跑 current_step；
+ * 修复前 disabled 分支完全不碰 tel->status/phase，VALID 位与旧 phase 会原样保留。
+ */
+void test_motor_foc_sensorless_disabled_branch_clears_stale_status(void) {
+    bm_motor_foc_sensorless_axis_t axis;
+
+    init_axis(&axis);
+    bm_motor_foc_sensorless_reset(&axis);
+    axis.state.cmd.status = BM_MOTOR_SL_CMD_ENABLED;
+    axis.state.cmd.iq_ref_a = 1.0f;
+    axis.state.phase = BM_MOTOR_SL_PHASE_OBSERVER;
+
+    bm_motor_foc_sensorless_current_step(&axis);
+    TEST_ASSERT_TRUE((axis.state.telemetry.status & BM_MOTOR_SL_TEL_VALID) != 0u);
+    TEST_ASSERT_EQUAL(BM_MOTOR_SL_PHASE_OBSERVER, axis.state.telemetry.phase);
+
+    axis.state.cmd.status = 0u; /* 清 ENABLED，进入禁用分支 */
+    bm_motor_foc_sensorless_current_step(&axis);
+
+    TEST_ASSERT_EQUAL(0u, axis.state.telemetry.status & BM_MOTOR_SL_TEL_VALID);
+    TEST_ASSERT_EQUAL(BM_MOTOR_SL_PHASE_IDLE, axis.state.telemetry.phase);
+}
+
+/**
+ * @brief 缺口 15 回归：OBSERVER 相仿真路径下 omega_rad_s 须反映当前仿真电角度的
+ * 变化，而不是停留在（未经 OPEN_LOOP、复位后恒为 0 的）open_loop_omega 陈旧值。
+ *
+ * 直接置 OBSERVER 相（跳过 ALIGN/OPEN_LOOP），连续两拍把 sim theta 从 0 推到
+ * 0.5 rad；current_dt_s=0.0001s，理论 omega≈5000 rad/s。修复前 omega_rad_s
+ * 恒为 0（open_loop_omega 从未在 OBSERVER 相被更新）。
+ */
+void test_motor_foc_sensorless_sim_observer_omega_reflects_current_theta(void) {
+    bm_motor_foc_sensorless_axis_t axis;
+
+    init_axis(&axis);
+    bm_motor_foc_sensorless_reset(&axis);
+    axis.state.cmd.status = BM_MOTOR_SL_CMD_ENABLED;
+    axis.state.cmd.iq_ref_a = 1.0f;
+    axis.state.phase = BM_MOTOR_SL_PHASE_OBSERVER;
+
+    g_sim_theta = 0.0f;
+    bm_motor_foc_sensorless_current_step(&axis);
+
+    g_sim_theta = 0.5f;
+    bm_motor_foc_sensorless_current_step(&axis);
+
+    TEST_ASSERT_TRUE(fabsf(axis.state.telemetry.omega_rad_s) > 100.0f);
 }
 
 /*
@@ -334,5 +393,7 @@ int main(void) {
     RUN_TEST(test_motor_foc_sensorless_rejects_invalid_observer);
     RUN_TEST(test_foc_sl_align_reads_real_adc);
     RUN_TEST(test_foc_sl_align_adc_fail_latches_fault);
+    RUN_TEST(test_motor_foc_sensorless_disabled_branch_clears_stale_status);
+    RUN_TEST(test_motor_foc_sensorless_sim_observer_omega_reflects_current_theta);
     return UNITY_END();
 }

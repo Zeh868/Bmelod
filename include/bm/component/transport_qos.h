@@ -7,8 +7,8 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.3
- * @date 2026-06-17
+ * @version 0.4
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
@@ -16,6 +16,8 @@
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-17       0.2            zeh            token bucket 有界整形
  * 2026-06-23       0.3            zeh            补 SPDX 与函数级 Doxygen
+ * 2026-07-09       0.4            zeh            补 have_pending_tx，不再复用
+ *                                                 prev_tx_ms==0 作挂起哨兵（疑似-13）
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -70,6 +72,10 @@ typedef struct {
     uint32_t last_token_ms;   /**< 上次令牌补充时刻（ms），配合 have_token_time */
     int      have_token_time; /**< 非零：last_token_ms 已初始化 */
     int      have_prev;
+    int      have_pending_tx; /**< 非零：prev_tx_ms 记录了尚未收到 on_rx 的
+                                *   挂起发送时刻（疑似-13：不可复用
+                                *   prev_tx_ms==0 作哨兵，会与 now_ms()
+                                *   恰好为 0 的合法时间戳冲突） */
     uint32_t step_count;
     bm_transport_qos_telemetry_t telemetry;
 } bm_transport_qos_state_t;

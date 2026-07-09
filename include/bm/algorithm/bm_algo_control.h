@@ -6,14 +6,18 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.2
- * @date 2026-06-23
+ * @version 1.3
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-23       1.2            zeh            bm_algo_pr_init 补 Doxygen 设计契约，说明调用方须自行获取并传递 PR 系数
+ * 2026-07-09       1.3            zeh            疑似-2/8：bm_algo_lead_lag_init
+ *                                                返回值补 k+p==0 语义说明；
+ *                                                新增 bm_algo_pid2_validate_config，
+ *                                                与 pi/pid 家族的校验函数对齐
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -209,6 +213,16 @@ typedef struct {
     float output;
 } bm_algo_pid2_state_t;
 
+/**
+ * @brief 校验 2DOF PID 配置参数（疑似-8：与 bm_algo_pi_validate_config/
+ *        bm_algo_pid_validate_config 对齐，此前 pid2 家族缺该校验函数，
+ *        out_min>out_max 或 integrator_min>integrator_max 时上层无法
+ *        提前拒绝，只能在 bm_algo_clamp_f 内静默产出意义不明的钳位结果）
+ *
+ * @param config 待校验配置指针
+ * @return 0 合法；BM_ALGO_ERR_INVALID 参数无效
+ */
+int bm_algo_pid2_validate_config(const bm_algo_pid2_config_t *config);
 void bm_algo_pid2_reset(bm_algo_pid2_state_t *state, float output);
 float bm_algo_pid2_step(bm_algo_pid2_state_t *state,
                         const bm_algo_pid2_config_t *config,

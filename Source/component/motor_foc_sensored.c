@@ -2,8 +2,8 @@
  * @file motor_foc_sensored.c
  * @brief 有感 FOC 伺服轴领域组件实现
  * @author zeh (china_qzh@163.com)
- * @version 0.5
- * @date 2026-06-24
+ * @version 0.6
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
@@ -18,6 +18,9 @@
  *                                                （默认 0=旧行为），speed_step 超时才 latch
  * 2026-06-24       0.5            zeh            speed_step 加 opt-in speed_feedback_sign
  *                                                （<0 翻 speed_meas，修镜像轴正反馈跑飞）
+ * 2026-07-09       0.6            zeh            validate_config 补 iq_max_a>0 校验（与
+ *                                                sensorless 对齐）；current_step 禁用分支
+ *                                                补发遥测（清 VALID/SAT/FAULT 位），修陈旧 status
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -187,6 +190,10 @@ int bm_motor_foc_sensored_validate_config(
     if (config->encoder.counts_per_rev == 0u) {
         return BM_ERR_INVALID;
     }
+    /* 缺口 9：sensored 版此前漏了 iq_max_a>0 校验，与 sensorless 版对齐补齐。 */
+    if (config->iq_max_a <= 0.0f) {
+        return BM_ERR_INVALID;
+    }
     /* MTPA 启用时，电机电感/磁链参数须有效（与 sensorless 校验逻辑对齐）。 */
     if (config->enable_mtpa &&
         (config->ld_h <= 0.0f || config->lq_h <= 0.0f)) {
@@ -262,6 +269,12 @@ void bm_motor_foc_sensored_current_step(bm_motor_foc_sensored_axis_t *axis) {
             (void)bm_hal_pwm_set_duty(res->pwm, 1u, 0u);
             (void)bm_hal_pwm_set_duty(res->pwm, 2u, 0u);
         }
+        /* 缺口 14：禁用分支此前不更新遥测，导致发布出去的 status 仍是上一拍
+         * （可能是 VALID）的陈旧值。此处清空 VALID/SAT/FAULT 位并刷新
+         * sequence/iq_ref_a，使遥测如实反映当前禁用/安全态。 */
+        tel->sequence = st->current.loop_count;
+        tel->status = 0u;
+        tel->iq_ref_a = 0.0f;
         st->current.loop_count++;
         return;
     }

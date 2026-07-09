@@ -2,8 +2,8 @@
  * @file motor_foc_sensorless.c
  * @brief 无感 FOC 领域组件实现
  * @author zeh (china_qzh@163.com)
- * @version 0.3
- * @date 2026-06-17
+ * @version 0.4
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
@@ -11,6 +11,10 @@
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-17       0.2            zeh            启动状态机
  * 2026-06-23       0.3            zeh            补 SPDX 与函数级 Doxygen
+ * 2026-07-09       0.4            zeh            current_step 禁用分支补发遥测（清
+ *                                                VALID/SAT/FAULT 位），修陈旧 status；
+ *                                                OBSERVER 相仿真路径 omega_rad_s 改为
+ *                                                逐拍差分估算，修开环末速度陈旧值
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -363,6 +367,13 @@ void bm_motor_foc_sensorless_current_step(bm_motor_foc_sensorless_axis_t *axis) 
             bm_algo_pi_reset(&st->pi_q, 0.0f);
         }
         pwm_zero(res);
+        /* 缺口 14：禁用分支此前不更新遥测，导致发布出去的 status/phase 仍是
+         * 上一拍（可能是 VALID）的陈旧值。清空 VALID/SAT/FAULT 位并刷新
+         * sequence/phase/iq_ref_a，使遥测如实反映当前禁用/安全态。 */
+        tel->sequence = st->loop_count;
+        tel->status = 0u;
+        tel->phase = st->phase;
+        tel->iq_ref_a = 0.0f;
         st->loop_count++;
         return;
     }
@@ -451,7 +462,17 @@ void bm_motor_foc_sensorless_current_step(bm_motor_foc_sensorless_axis_t *axis) 
                 return;
             }
         } else {
+            /* 缺口 15：仿真路径 OBSERVER 相无观测器可用，omega_rad_s 此前
+             * 沿用开环阶段结束时的末速度（open_loop_omega 不再被更新），
+             * 导致遥测里的角速度永远陈旧。这里复用 open_loop_theta/
+             * open_loop_omega 两个字段，改为对逐拍注入的仿真电角度做差分
+             * 估算，使其如实反映 OBSERVER 阶段的当前状态。 */
+            float prev_theta = st->open_loop_theta;
+
             theta_elec = bm_algo_angle_wrap_rad(*res->sim_fb.theta_elec_rad);
+            st->open_loop_omega = bm_algo_angle_wrap_rad(theta_elec - prev_theta) /
+                                  cfg->current_dt_s;
+            st->open_loop_theta = theta_elec;
         }
 
         iq_ref = bm_algo_clamp_f(st->cmd.iq_ref_a, -cfg->iq_max_a, cfg->iq_max_a);

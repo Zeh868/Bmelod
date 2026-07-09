@@ -5,13 +5,15 @@
  * 覆盖电流跟踪 happy-path、故障锁存路径与 validate_config 边界。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-23
+ * @version 1.1
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-23       1.0            zeh            正式发布
+ * 2026-07-09       1.1            zeh            补缺口 16 回归：禁用分支须发遥测
+ *                                                且 write_duty 失败须锁存故障
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -299,6 +301,65 @@ void test_power_converter_clear_fault_noop_when_not_latched(void) {
 }
 
 /**
+ * @brief 缺口 16 回归：禁用分支须照旧发布遥测（反映当前安全占空比状态），
+ *        不能因为跳过整套控制环就完全不发遥测，让上层继续读到停用前的陈旧快照。
+ */
+void test_power_converter_disabled_still_publishes_telemetry(void) {
+    bm_power_converter_axis_t axis;
+    bm_pwr_conv_cmd_t cmd;
+    uint32_t tel_before;
+
+    make_axis(&axis);
+    bm_power_converter_reset(&axis);
+
+    cmd.sequence = 1u;
+    cmd.status   = BM_PWR_CONV_CMD_ENABLED;
+    cmd.i_set_a  = 2.0f;
+    bm_power_converter_apply_command(&axis, &cmd);
+    bm_power_converter_current_step(&axis);
+
+    cmd.status  = 0u;
+    cmd.i_set_a = 0.0f;
+    bm_power_converter_apply_command(&axis, &cmd);
+
+    tel_before = g_tel_count;
+    bm_power_converter_current_step(&axis);
+
+    TEST_ASSERT_TRUE(g_tel_count > tel_before);
+    TEST_ASSERT_EQUAL(0u, g_last_tel_status & BM_PWR_CONV_TEL_FAULT);
+    TEST_ASSERT_TRUE((g_last_tel_status & BM_PWR_CONV_TEL_VALID) != 0u);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, axis.config.duty_min, axis.state.telemetry.duty);
+}
+
+/**
+ * @brief 缺口 16 回归：禁用分支的 write_duty 失败此前被静默丢弃，须与启用
+ *        分支一样锁存故障并发布 FAULT 遥测。
+ */
+void test_power_converter_disabled_write_duty_failure_latches_fault(void) {
+    bm_power_converter_axis_t axis;
+    bm_pwr_conv_cmd_t cmd;
+
+    make_axis(&axis);
+    bm_power_converter_reset(&axis);
+
+    cmd.sequence = 1u;
+    cmd.status   = BM_PWR_CONV_CMD_ENABLED;
+    cmd.i_set_a  = 1.0f;
+    bm_power_converter_apply_command(&axis, &cmd);
+    bm_power_converter_current_step(&axis);
+
+    cmd.status  = 0u;
+    cmd.i_set_a = 0.0f;
+    bm_power_converter_apply_command(&axis, &cmd);
+    g_write_duty_fail = 1;
+
+    bm_power_converter_current_step(&axis);
+
+    TEST_ASSERT_EQUAL(1, axis.state.fault_latched);
+    TEST_ASSERT_NOT_EQUAL(0u, g_last_tel_status & BM_PWR_CONV_TEL_FAULT);
+}
+
+/**
  * @brief exec_ops init/start/safe_stop NULL 实例不崩溃
  */
 void test_power_converter_exec_ops_null_safe(void) {
@@ -332,6 +393,8 @@ int main(void) {
     RUN_TEST(test_power_converter_read_current_failure_latches_fault);
     RUN_TEST(test_power_converter_clear_fault_resumes_operation);
     RUN_TEST(test_power_converter_clear_fault_noop_when_not_latched);
+    RUN_TEST(test_power_converter_disabled_still_publishes_telemetry);
+    RUN_TEST(test_power_converter_disabled_write_duty_failure_latches_fault);
     RUN_TEST(test_power_converter_exec_ops_null_safe);
     RUN_TEST(test_power_converter_api_null_safe);
     return UNITY_END();

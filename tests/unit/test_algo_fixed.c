@@ -40,6 +40,7 @@
 #include <math.h>
 #include <string.h>
 #include <limits.h>
+#include <stdlib.h>
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -1008,6 +1009,151 @@ static void test_ref_pid2_q15_golden(void) {
                                 REF_PID2_Q15_MEASUREMENT, REF_PID2_Q15_DT);
     TEST_ASSERT_TRUE(q15_abs_diff_local(out, REF_PID2_Q15_EXPECTED) <=
                      REF_PID2_Q15_TOLERANCE);
+}
+
+/**
+ * @brief Medium-3 回归：pid2_q15_step 微分项在 measurement 相对 prev
+ *        发生满量程跳变（div_q15 内部溢出饱和为 INT16_MIN）时，取负后须
+ *        正确饱和为 INT16_MAX（物理上 measurement 骤降，-d/dt 应为正），
+ *        而不是因窄化取负越界导致符号不翻转、仍停留在负值。
+ */
+static void test_medium3_pid2_q15_differentiator_int16_min_negation(void) {
+    bm_algo_pid2_q15_config_t cfg = {
+        .kp_q15 = 0,
+        .ki_q15 = 0,
+        .kd_q15 = BM_ALGO_Q15_ONE,
+        .b_q15 = 0,
+        .out_min = (bm_algo_q15_t)-32768,
+        .out_max = BM_ALGO_Q15_ONE,
+        .integrator_min = (bm_algo_q15_t)-32768,
+        .integrator_max = BM_ALGO_Q15_ONE,
+        .d_filter_coeff_q15 = BM_ALGO_Q15_ONE
+    };
+    bm_algo_pid2_q15_state_t st;
+
+    bm_algo_pid2_q15_reset(&st, 0); /* prev_measurement = 0 */
+    /* measurement - prev = INT16_MIN，dt=1 使 div_q15 内部饱和到 INT16_MIN */
+    (void)bm_algo_pid2_q15_step(&st, &cfg, 0, (bm_algo_q15_t)INT16_MIN, 1);
+
+    TEST_ASSERT_TRUE(st.d_filtered > 0);
+}
+
+/**
+ * @brief Medium-3 回归：pid2_q31_step 微分项同上，但为 Q31 满量程场景，
+ *        验证取负后正确饱和为 INT32_MAX。
+ */
+static void test_medium3_pid2_q31_differentiator_int32_min_negation(void) {
+    bm_algo_pid2_q31_config_t cfg = {
+        .kp_q31 = 0,
+        .ki_q31 = 0,
+        .kd_q31 = BM_ALGO_Q31_ONE,
+        .b_q31 = 0,
+        .out_min = (bm_algo_q31_t)INT32_MIN,
+        .out_max = BM_ALGO_Q31_ONE,
+        .integrator_min = (bm_algo_q31_t)INT32_MIN,
+        .integrator_max = BM_ALGO_Q31_ONE,
+        .d_filter_alpha_q31 = BM_ALGO_Q31_ONE
+    };
+    bm_algo_pid2_q31_state_t st;
+
+    bm_algo_pid2_q31_reset(&st, 0); /* prev_measurement = 0 */
+    (void)bm_algo_pid2_q31_step(&st, &cfg, 0, (bm_algo_q31_t)INT32_MIN, 1);
+
+    TEST_ASSERT_TRUE(st.d_filtered > 0);
+}
+
+/**
+ * @brief Medium-5 回归：bm_algo_image_resize_u8 在极端宽高比下，若循环内
+ *        用 uint32_t 计算 y*src_height 中间乘积会溢出，导致部分行映射到
+ *        错误的源行。用等宽（1px）足够高的图像使乘积在 uint32_t 内溢出，
+ *        验证缩放后仍是逐行恒等映射（src_height == dst_height）。
+ */
+static void test_medium5_image_resize_avoids_u32_product_overflow(void) {
+    /* H = 70000：y*H 在 y 接近 H 时突破 UINT32_MAX（约 4.29e9），
+     * 触发旧代码 uint32_t 中间乘积溢出。宽度固定为 1px 控制内存占用。 */
+    const uint32_t h = 70000u;
+    uint8_t *src = (uint8_t *)malloc(h);
+    uint8_t *dst = (uint8_t *)malloc(h);
+    uint32_t y;
+
+    TEST_ASSERT_NOT_NULL(src);
+    TEST_ASSERT_NOT_NULL(dst);
+
+    for (y = 0u; y < h; ++y) {
+        src[y] = (uint8_t)(y & 0xFFu);
+    }
+    memset(dst, 0xA5, h);
+
+    TEST_ASSERT_EQUAL(0, bm_algo_image_resize_u8(src, 1u, h, dst, 1u, h));
+    /* 恒等尺寸缩放，逐行应严格等于源图（含溢出临界行 y=69999） */
+    TEST_ASSERT_EQUAL_UINT8(src[69999], dst[69999]);
+    TEST_ASSERT_EQUAL_UINT8(src[42950], dst[42950]);
+    TEST_ASSERT_EQUAL_UINT8(0, memcmp(src, dst, h));
+
+    free(src);
+    free(dst);
+}
+
+/**
+ * @brief Medium-5 回归：目的尺寸超出 INT32_MAX 时须直接拒绝（新增校验），
+ *        不得进入循环产生下标溢出。
+ */
+static void test_medium5_image_resize_rejects_oversized_dst(void) {
+    const uint8_t src = 0u;
+    uint8_t dst_dummy = 0u;
+
+    TEST_ASSERT_EQUAL(BM_ALGO_ERR_INVALID,
+                      bm_algo_image_resize_u8(&src, 1u, 1u, &dst_dummy,
+                                              0x80000000u, 2u));
+}
+
+/**
+ * @brief 疑似-8 回归：bm_algo_moving_avg_q15_step 在运行期 window_size 缩小
+ *        后，state->count 若不随之钳位，会一直把新窗口之外、不再被写入的
+ *        陈旧样本纳入求和，导致均值被永久污染，永不收敛到新窗口内容。
+ */
+static void test_suspect8_moving_avg_q15_window_shrink_no_stale_pollution(void) {
+    bm_algo_moving_avg_q15_config_t cfg = { .window_size = 10u };
+    bm_algo_moving_avg_q15_state_t st;
+    bm_algo_q15_t out = 0;
+    int i;
+
+    bm_algo_moving_avg_q15_reset(&st);
+    for (i = 0; i < 10; ++i) {
+        out = bm_algo_moving_avg_q15_step(&st, &cfg, BM_ALGO_Q15_ONE);
+    }
+    TEST_ASSERT_FLOAT_WITHIN(0.02f, 1.0f, bm_algo_q15_to_float(out));
+
+    /* window_size 运行期缩小为 3，喂入足够多 0 使新窗口内 3 个样本全部
+     * 变为 0；均值应收敛到 0，而不是被 count=10 时残留的旧 1.0 样本污染。 */
+    cfg.window_size = 3u;
+    for (i = 0; i < 5; ++i) {
+        out = bm_algo_moving_avg_q15_step(&st, &cfg, 0);
+    }
+    TEST_ASSERT_FLOAT_WITHIN(0.02f, 0.0f, bm_algo_q15_to_float(out));
+}
+
+/**
+ * @brief 疑似-8 回归：bm_algo_rms_q31_step 同上，验证 window_size 缩小后
+ *        RMS 也能正确收敛到新窗口内容，而不被旧窗口陈旧样本永久污染。
+ */
+static void test_suspect8_rms_q31_window_shrink_no_stale_pollution(void) {
+    bm_algo_rms_q31_config_t cfg = { .window_size = 8u };
+    bm_algo_rms_q31_state_t st;
+    bm_algo_q31_t out = 0;
+    int i;
+
+    bm_algo_rms_q31_reset(&st);
+    for (i = 0; i < 8; ++i) {
+        out = bm_algo_rms_q31_step(&st, &cfg, bm_algo_float_to_q31(1.0f));
+    }
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 1.0f, bm_algo_q31_to_float(out));
+
+    cfg.window_size = 2u;
+    for (i = 0; i < 4; ++i) {
+        out = bm_algo_rms_q31_step(&st, &cfg, 0);
+    }
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 0.0f, bm_algo_q31_to_float(out));
 }
 
 static void test_ref_mppt_po_q31_golden(void) {
@@ -2294,6 +2440,12 @@ void test_algo_fixed(void) {
     RUN_TEST(test_algo_fixed_h5_h7_full_scale_opposite_sign_regressions);
     RUN_TEST(test_algo_fixed_h8_hpf1_full_scale_step_high_alpha_no_overflow);
     RUN_TEST(test_algo_motion_h6_encoder_diag_int32_boundary_delta);
+    RUN_TEST(test_medium3_pid2_q15_differentiator_int16_min_negation);
+    RUN_TEST(test_medium3_pid2_q31_differentiator_int32_min_negation);
+    RUN_TEST(test_medium5_image_resize_avoids_u32_product_overflow);
+    RUN_TEST(test_medium5_image_resize_rejects_oversized_dst);
+    RUN_TEST(test_suspect8_moving_avg_q15_window_shrink_no_stale_pollution);
+    RUN_TEST(test_suspect8_rms_q31_window_shrink_no_stale_pollution);
 }
 
 int main(void) {

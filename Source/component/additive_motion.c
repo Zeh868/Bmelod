@@ -6,8 +6,8 @@
  * bm_exec 周期调度框架接入。
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.3
- * @date 2026-06-23
+ * @version 0.4
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
@@ -15,6 +15,7 @@
  * 2026-06-17       0.1            zeh            ZV 两脉冲骨架
  * 2026-06-17       0.2            zeh            pressure advance 线性模型
  * 2026-06-23       0.3            zeh            exec_ops 表；zv_compute_coeffs Doxygen；SPDX
+ * 2026-07-09       0.4            zeh            safe_stop 补清空环形缓冲（疑似-16.1）
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -219,6 +220,12 @@ void bm_additive_motion_exec_safe_stop(const bm_exec_t *instance) {
         return;
     }
     axis = (bm_additive_motion_axis_t *)instance->state;
+    /* 疑似-16.1：此前只清零 shaped_mm/prev_shaped_mm/last_cmd_mm，未清空
+     * 环形缓冲 buffer[]/buffer_head；若恢复运行后不重新 init/reset，
+     * shape_cmd 会在 delayed 分支读出 safe_stop 前残留的旧 delta，造成
+     * 陈旧指令重放/运动突变。与 bm_additive_motion_reset 保持一致清空。 */
+    memset(axis->state.buffer, 0, sizeof(axis->state.buffer));
+    axis->state.buffer_head = 0u;
     axis->state.shaped_mm = 0.0f;
     axis->state.prev_shaped_mm = 0.0f;
     axis->state.last_cmd_mm = 0.0f;

@@ -3,8 +3,8 @@
  * @brief 控制算法：积分器、微分器、PI/PID、PR 与补偿器实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.2
- * @date 2026-06-23
+ * @version 1.3
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
@@ -12,6 +12,10 @@
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-13       1.1            zeh            增加 Smith 预估器
  * 2026-06-23       1.2            zeh            bm_algo_pr_init 补 Doxygen 设计契约注释，清理 (void) 死代码，变量改名使意图清晰
+ * 2026-07-09       1.3            zeh            Medium-2：bm_algo_lead_lag_init
+ *                                                补 k+p==0 保护，避免双线性
+ *                                                变换分母为 0 产生 Inf/NaN
+ *                                                却返回成功
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -330,6 +334,12 @@ int bm_algo_lead_lag_init(bm_algo_lead_lag_state_t *state,
     z = config->zero_rad_s;
     p = config->pole_rad_s;
 
+    /* Medium-2：k+p==0（pole_rad_s == -2/T）会使双线性变换分母为 0，
+     * 产生 Inf/NaN 却仍返回成功；拦截并返回错误码，拒绝写入非法系数。 */
+    if (k + p == 0.0f) {
+        return BM_ALGO_ERR_INVALID;
+    }
+
     state->b0 = config->gain * (k + z) / (k + p);
     state->b1 = config->gain * (z - k) / (k + p);
     state->a1 = (p - k) / (k + p);
@@ -359,6 +369,30 @@ float bm_algo_lead_lag_step(bm_algo_lead_lag_state_t *state, float input) {
 
 float bm_algo_feedforward_step(float reference, float gain, float bias) {
     return reference * gain + bias;
+}
+
+/**
+ * @brief 校验 2DOF PID 配置参数
+ *
+ * 疑似-8：pid2 家族此前缺该校验函数，与已有 bm_algo_pi_validate_config/
+ * bm_algo_pid_validate_config 不对齐；out_min>out_max 或
+ * integrator_min>integrator_max 时 bm_algo_clamp_f 内部区间为空，
+ * 会静默返回意义不明的钳位结果而不报错。
+ *
+ * @param config 待校验配置指针
+ * @return 0 合法；BM_ALGO_ERR_INVALID 参数无效
+ */
+int bm_algo_pid2_validate_config(const bm_algo_pid2_config_t *config) {
+    if (config == NULL) {
+        return BM_ALGO_ERR_INVALID;
+    }
+    if (config->out_min > config->out_max) {
+        return BM_ALGO_ERR_INVALID;
+    }
+    if (config->integrator_min > config->integrator_max) {
+        return BM_ALGO_ERR_INVALID;
+    }
+    return 0;
 }
 
 void bm_algo_pid2_reset(bm_algo_pid2_state_t *state, float output) {

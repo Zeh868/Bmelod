@@ -3,8 +3,8 @@
  * @brief 执行器非线性补偿实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.3
- * @date 2026-06-23
+ * @version 1.4
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
@@ -12,10 +12,15 @@
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       1.2            zeh            修正背隙补偿只增不减缺陷：换向时重置 backlash_offset 为 0 后重新渐进，保持渐进语义
  * 2026-06-23       1.3            zeh            背隙补偿升级为双向独立偏移：正向/反向各维护 offset_fwd/offset_rev，换向时切换至对应偏移继续渐进
+ * 2026-07-09       1.4            zeh            Medium-7：bm_algo_dob_step
+ *                                                补 u/y 有限性护栏，避免一次
+ *                                                NaN/Inf 污染 y_hat/disturbance
+ *                                                持久状态
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_compensation.h"
+#include "bm/algorithm/bm_algo_common.h"
 #include <stddef.h>
 
 #include <math.h>
@@ -70,6 +75,16 @@ float bm_algo_dob_step(bm_algo_dob_state_t *state,
             *disturbance_out = 0.0f;
         }
         return 0.0f;
+    }
+
+    /* Medium-7：u/y 为 NaN/Inf 时会直接污染 y_hat/disturbance 持久状态
+     * （config->plant_gain * u 或 y - y_hat 产生 NaN 后再被低通滤波
+     * 永久扩散）；入口拒绝非有限输入，保持旧扰动估计不变（H9 同款护栏）。 */
+    if (!bm_algo_is_finite_f(u) || !bm_algo_is_finite_f(y)) {
+        if (disturbance_out != NULL) {
+            *disturbance_out = state->disturbance;
+        }
+        return state->disturbance;
     }
 
     state->y_hat = config->plant_gain * u;

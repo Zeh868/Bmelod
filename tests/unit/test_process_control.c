@@ -177,6 +177,33 @@ void test_process_read_fail_marks_stale(void) {
 }
 
 /* ================================================================
+ * 疑似-16.2：read_io 失败（STALE）时 Smith 延迟线应仍然推进（head 前移），
+ * 否则延迟线与实际经过的 dt_s 拍数失配，读数恢复后预测基于错位历史。
+ * ================================================================ */
+void test_process_stale_step_advances_smith_delay_line(void) {
+    bm_process_control_axis_t axis;
+    uint32_t head_before;
+    uint32_t head_after;
+
+    build_default_axis(&axis);
+    TEST_ASSERT_EQUAL(BM_OK, bm_process_control_init(&axis));
+
+    /* 先跑一拍正常读，让延迟线进入非初始状态 */
+    bm_process_control_step(&axis);
+    head_before = axis.state.smith.head;
+
+    /* 触发 STALE：read_io 失败 */
+    g_read_fail = 1;
+    bm_process_control_step(&axis);
+    head_after = axis.state.smith.head;
+
+    TEST_ASSERT_NOT_EQUAL(0u, axis.state.telemetry.status & BM_PROCESS_CTRL_TEL_STALE);
+    /* head 应按 delay_steps 模前移一步，而不是停滞不前 */
+    TEST_ASSERT_EQUAL_UINT32((head_before + 1u) % axis.config.smith.delay_steps,
+                             head_after);
+}
+
+/* ================================================================
  * 测试 5：validate_config 拒绝 model_gain <= 0
  * ================================================================ */
 void test_process_validate_rejects_zero_model_gain(void) {
@@ -296,6 +323,7 @@ int main(void) {
     RUN_TEST(test_process_cascade_pid_produces_nonzero_output);
     RUN_TEST(test_process_smith_delay_compensation);
     RUN_TEST(test_process_read_fail_marks_stale);
+    RUN_TEST(test_process_stale_step_advances_smith_delay_line);
     RUN_TEST(test_process_validate_rejects_zero_model_gain);
     RUN_TEST(test_process_validate_rejects_delay_overflow);
     RUN_TEST(test_process_validate_rejects_zero_dt);

@@ -3,7 +3,7 @@
  * @brief Q31/Q15 定点算法实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 2.5
+ * @version 2.6
  * @date 2026-07-09
  *
  * @par 修改日志:
@@ -29,6 +29,14 @@
  *                                                异号溢出漏报；abs_q15_val 补
  *                                                INT16_MIN 饱和；H7：abs_q31 补
  *                                                INT32_MIN 饱和（envelope_q31_step）
+ * 2026-07-09       2.6            zeh            Medium-3：pid2_q15/q31 微分项
+ *                                                div_q15/q31 满量程溢出返回
+ *                                                INT16_MIN/INT32_MIN 时直接
+ *                                                窄化取负越界，改用饱和取负；
+ *                                                Medium-4：deadband_q31 对
+ *                                                INT32_MIN 窄化取绝对值回绕
+ *                                                为负数误判死区内，改 int64
+ *                                                内比较
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -555,14 +563,17 @@ bm_algo_q31_t bm_algo_rate_limit_q31_step(bm_algo_rate_limit_q31_state_t *state,
 }
 
 bm_algo_q31_t bm_algo_deadband_q31(bm_algo_q31_t value, bm_algo_q31_t width_q31) {
-    bm_algo_q31_t abs_v;
+    int64_t abs_v;
 
     if (width_q31 <= 0) {
         return value;
     }
 
-    abs_v = (value < 0) ? (bm_algo_q31_t)(-(int64_t)value) : value;
-    if (abs_v <= width_q31) {
+    /* Medium-4：value == INT32_MIN 时 -(int64_t)value 结果 2^31 无法窄化回
+     * int32，旧代码窄化后 abs_v 变回 INT32_MIN（负数），误判为落在死区内
+     * 而直接返回 0；改在 int64 内比较，避免窄化。 */
+    abs_v = (value < 0) ? -(int64_t)value : (int64_t)value;
+    if (abs_v <= (int64_t)width_q31) {
         return 0;
     }
     if (value > 0) {
@@ -722,6 +733,15 @@ bm_algo_q15_t bm_algo_moving_avg_q15_step(bm_algo_moving_avg_q15_state_t *state,
     win = config->window_size;
     if (win > BM_ALGO_MOVING_AVG_Q15_MAX) {
         win = BM_ALGO_MOVING_AVG_Q15_MAX;
+    }
+
+    /* 疑似-8：window_size 运行期缩小时自愈——钳位游标/计数到新窗口范围，
+     * 避免新窗口之外的陈旧样本被永久纳入求和（count 此前只增不减）。 */
+    if (state->index >= win) {
+        state->index = 0u;
+    }
+    if (state->count > win) {
+        state->count = win;
     }
 
     state->samples[state->index] = input;
@@ -1128,6 +1148,15 @@ bm_algo_q15_t bm_algo_rms_q15_step(bm_algo_rms_q15_state_t *state,
         win = BM_ALGO_RMS_Q15_MAX;
     }
 
+    /* 疑似-8：window_size 运行期缩小时自愈——钳位游标/计数到新窗口范围，
+     * 避免新窗口之外的陈旧样本被永久纳入求和（count 此前只增不减）。 */
+    if (state->index >= win) {
+        state->index = 0u;
+    }
+    if (state->count > win) {
+        state->count = win;
+    }
+
     if (state->count < win) {
         state->samples[state->count] = input;
         state->count++;
@@ -1253,6 +1282,15 @@ bm_algo_q31_t bm_algo_moving_avg_q31_step(bm_algo_moving_avg_q31_state_t *state,
     win = config->window_size;
     if (win > BM_ALGO_MOVING_AVG_Q31_MAX) {
         win = BM_ALGO_MOVING_AVG_Q31_MAX;
+    }
+
+    /* 疑似-8：window_size 运行期缩小时自愈——钳位游标/计数到新窗口范围，
+     * 避免新窗口之外的陈旧样本被永久纳入求和（count 此前只增不减）。 */
+    if (state->index >= win) {
+        state->index = 0u;
+    }
+    if (state->count > win) {
+        state->count = win;
     }
 
     state->samples[state->index] = input;
@@ -1539,6 +1577,15 @@ bm_algo_q31_t bm_algo_rms_q31_step(bm_algo_rms_q31_state_t *state,
     win = config->window_size;
     if (win > BM_ALGO_RMS_Q31_MAX) {
         win = BM_ALGO_RMS_Q31_MAX;
+    }
+
+    /* 疑似-8：window_size 运行期缩小时自愈——钳位游标/计数到新窗口范围，
+     * 避免新窗口之外的陈旧样本被永久纳入求和（count 此前只增不减）。 */
+    if (state->index >= win) {
+        state->index = 0u;
+    }
+    if (state->count > win) {
+        state->count = win;
     }
 
     if (state->count < win) {
@@ -3492,6 +3539,15 @@ bm_algo_q15_t bm_algo_median_q15_step(bm_algo_median_q15_state_t *state,
         return input_q15;
     }
 
+    /* 疑似-8：window_size 运行期缩小时自愈——钳位游标/计数到新窗口范围，
+     * 避免新窗口之外的陈旧样本被永久纳入排序（count 此前只增不减）。 */
+    if (state->index >= len) {
+        state->index = 0u;
+    }
+    if (state->count > len) {
+        state->count = len;
+    }
+
     state->samples[state->index] = input_q15;
     state->index = (uint16_t)((state->index + 1u) % len);
     if (state->count < len) {
@@ -3526,6 +3582,15 @@ bm_algo_q31_t bm_algo_median_q31_step(bm_algo_median_q31_state_t *state,
     len = config->window_size;
     if (len < 3u || len > BM_ALGO_MEDIAN_Q31_MAX || (len & 1u) != 0u) {
         return input_q31;
+    }
+
+    /* 疑似-8：window_size 运行期缩小时自愈——钳位游标/计数到新窗口范围，
+     * 避免新窗口之外的陈旧样本被永久纳入排序（count 此前只增不减）。 */
+    if (state->index >= len) {
+        state->index = 0u;
+    }
+    if (state->count > len) {
+        state->count = len;
     }
 
     state->samples[state->index] = input_q31;
@@ -3660,7 +3725,9 @@ bm_algo_q15_t bm_algo_pid2_q15_step(bm_algo_pid2_q15_state_t *state,
 
     d_raw = div_q15((int32_t)measurement_q15 - (int32_t)state->prev_measurement,
                     dt_q15);
-    d_raw = (bm_algo_q15_t)(-(int32_t)d_raw);
+    /* Medium-3：div_q15 满量程溢出时可能返回 INT16_MIN，直接窄化取负
+     * -(-32768) 越出 int16 范围（UB/截断后符号不翻转）；改用饱和取负。 */
+    d_raw = saturate_q15_i32(-(int32_t)d_raw);
     state->prev_measurement = measurement_q15;
     alpha = bm_algo_clamp_q15(config->d_filter_coeff_q15, 0, BM_ALGO_Q15_ONE);
     state->d_filtered = saturate_q15_i32(
@@ -3728,7 +3795,9 @@ bm_algo_q31_t bm_algo_pid2_q31_step(bm_algo_pid2_q31_state_t *state,
 
     d_raw = div_q31((int64_t)measurement_q31 - (int64_t)state->prev_measurement,
                     dt_q31);
-    d_raw = (bm_algo_q31_t)(-(int64_t)d_raw);
+    /* Medium-3：div_q31 满量程溢出时可能返回 INT32_MIN，直接窄化取负
+     * -(-2^31) 越出 int32 范围（UB/截断后符号不翻转）；改用饱和取负。 */
+    d_raw = saturate_q31_i64(-(int64_t)d_raw);
     state->prev_measurement = measurement_q31;
     alpha = bm_algo_clamp_q31(config->d_filter_alpha_q31, 0, BM_ALGO_Q31_ONE);
     state->d_filtered = saturate_q31_i64(

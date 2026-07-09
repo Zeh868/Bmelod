@@ -135,6 +135,28 @@ void test_mp_attach_rejects_missing_boot_epoch(void) {
 #endif
 }
 
+/*
+ * boot_epoch 回绕哨兵：手动把共享矩阵 boot_epoch 顶到类型上限，触发下一次
+ * bootstrap 自增回绕。0 在 bm_mp_boot_cpu_attach_and_init() 中被当作
+ * "未初始化/CRC 不一致"哨兵值（见 test_mp_attach_rejects_missing_boot_epoch），
+ * 故回绕结果必须落到 1 而非 0，否则合法 epoch 会被误判为未初始化。
+ * 参照 bm_mp_profile.c 中 s_profile_epoch 的回绕范式（回绕到 0 则重置为 1）。
+ */
+void test_mp_boot_epoch_wraps_to_one_not_zero(void) {
+    bm_mp_ipc_matrix_t *matrix;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_mp_init(BM_CONFIG_CPU_COUNT));
+    matrix = bm_mp_ipc_matrix();
+    TEST_ASSERT_NOT_NULL(matrix);
+    bm_atomic_ipc_store_u32(&matrix->boot_epoch, UINT32_MAX);
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_mp_boot_bootstrap_sequence());
+
+    TEST_ASSERT_EQUAL_UINT32(
+        1u, bm_atomic_ipc_load_u32(&matrix->boot_epoch));
+    TEST_ASSERT_EQUAL_UINT32(1u, bm_mp_boot_epoch());
+}
+
 void test_mp_irq_release_is_local_until_barrier(void) {
     bm_mp_ipc_matrix_t *matrix;
 
@@ -719,6 +741,7 @@ int main(void) {
 #if BM_CONFIG_CPU_COUNT > 1u
     RUN_TEST(test_mp_ipc_cmd_snapshot_matrix);
     RUN_TEST(test_mp_attach_rejects_missing_boot_epoch);
+    RUN_TEST(test_mp_boot_epoch_wraps_to_one_not_zero);
     RUN_TEST(test_mp_irq_release_is_local_until_barrier);
     RUN_TEST(test_mp_barrier_timeout_publishes_failure);
     RUN_TEST(test_module_runtime_state_is_per_cpu);

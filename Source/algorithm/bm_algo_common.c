@@ -3,13 +3,18 @@
  * @brief 算法公共工具实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-13
+ * @version 1.1
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
+ * 2026-07-09       1.1            zeh            Medium-6：bm_algo_rate_limit_step
+ *                                                补 target 有限性护栏；
+ *                                                bm_algo_clamp_f 对 NaN 不
+ *                                                钳位，一次非有限输入即可
+ *                                                永久污染 state->output
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -144,8 +149,14 @@ float bm_algo_rate_limit_step(bm_algo_rate_limit_state_t *state,
     float max_up;
     float max_down;
 
+    /* Medium-6：bm_algo_clamp_f 对 NaN 比较恒为 false，不会钳位；target
+     * 为 NaN/Inf 时会直接污染 state->output 持久状态。入口拒绝非有限
+     * target，返回旧输出、保持状态不变（H9 同款护栏范式）。 */
     if (state == NULL || config == NULL || dt_s <= 0.0f) {
         return target;
+    }
+    if (!bm_algo_is_finite_f(target)) {
+        return state->output;
     }
 
     delta = target - state->output;

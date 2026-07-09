@@ -6,14 +6,15 @@
  * 输出峰值 bin 与峰值距离遥测。
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.2
- * @date 2026-06-17
+ * @version 0.3
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-17       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 SPDX 与函数级 Doxygen
+ * 2026-07-09       0.3            zeh            杂波抑制/峰值搜索补 Nyquist bin（疑似-16.5）
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -145,13 +146,20 @@ int bm_radar_frontend_feed_chirp(bm_radar_frontend_axis_t *axis,
 
     bins = fft_n / 2u;
     alpha = cfg->clutter_alpha;
-    for (i = 0u; i < bins; ++i) {
+    /* 疑似-16.5：RFFT 实际写到索引 bins（Nyquist bin，见 bm_algo_rfft_f32_execute
+     * 的 i<=fft->size/2 循环），但此前峰值搜索只扫 i<bins，遗漏该 bin——若目标
+     * 峰值恰好落在 Nyquist 频率会漏检。clutter_mean 契约长度为 bins（无
+     * Nyquist 槽位），故 i==bins 时不做杂波抑制，直接以原始（非负）幅值
+     * 参与峰值搜索。 */
+    for (i = 0u; i <= bins; ++i) {
         float mag = st->profile[i];
 
-        st->clutter_mean[i] += alpha * (mag - st->clutter_mean[i]);
-        st->profile[i] = mag - st->clutter_mean[i];
-        if (st->profile[i] < 0.0f) {
-            st->profile[i] = 0.0f;
+        if (i < bins) {
+            st->clutter_mean[i] += alpha * (mag - st->clutter_mean[i]);
+            st->profile[i] = mag - st->clutter_mean[i];
+            if (st->profile[i] < 0.0f) {
+                st->profile[i] = 0.0f;
+            }
         }
         if (st->profile[i] > peak_mag) {
             peak_mag = st->profile[i];

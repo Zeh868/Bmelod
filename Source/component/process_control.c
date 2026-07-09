@@ -6,8 +6,8 @@
  * 并提供 bm_exec_ops_t 调度封装。
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.3
- * @date 2026-06-13
+ * @version 0.4
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
@@ -15,6 +15,8 @@
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 validate_config Smith 参数校验；补 exec_ops 封装
  * 2026-06-23       0.3            zeh            修复 Smith 预估器 u_controller 误传 outer_out（应为 inner_out）
+ * 2026-07-09       0.4            zeh            STALE 分支补推进 Smith 延迟线，
+ *                                                 避免延迟线停滞不前（疑似-16.2）
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -89,6 +91,15 @@ void bm_process_control_step(bm_process_control_axis_t *axis) {
     if (axis->resources.read_io != NULL &&
         axis->resources.read_io(axis->resources.read_io_user,
                                 &setpoint, &measurement) != 0) {
+        /* 疑似-16.2：read_io 失败时整拍跳过 smith_predictor_step 会让延迟线
+         * 的 head 停滞不前——延迟线的每一格代表一个 dt_s 拍，STALE 期间
+         * 物理对象并未暂停，若延迟线也跟着暂停，读数恢复后预测将基于
+         * 错位的历史。用最后已知的 outer_out/测量值/inner_out 推进一拍
+         * 保持延迟线前进；本拍仍不重算 PID、不写 write_output。 */
+        (void)bm_algo_smith_predictor_step(&st->smith, &cfg->smith,
+                                           st->outer_out,
+                                           st->telemetry.measurement,
+                                           st->inner_out);
         st->step_count++;
         st->telemetry.sequence = st->step_count;
         st->telemetry.status = BM_PROCESS_CTRL_TEL_STALE;

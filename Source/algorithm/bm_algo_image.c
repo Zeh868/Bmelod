@@ -3,8 +3,8 @@
  * @brief 低分辨率图像算子实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-13
+ * @version 1.3
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
@@ -13,6 +13,11 @@
  * 2026-06-17       1.1            zeh            RGB565 转灰度与裁剪
  * 2026-06-17       1.2            zeh            最近邻缩放
  * 2026-06-23       1.2            zeh            补齐 Doxygen 注释
+ * 2026-07-09       1.3            zeh            Medium-5：bm_algo_image_resize_u8
+ *                                                补目的尺寸校验，中间乘积/
+ *                                                下标改用 uint64_t 计算，
+ *                                                避免极端宽高比下 uint32_t
+ *                                                溢出产生错值或越界读
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -321,19 +326,29 @@ int bm_algo_image_resize_u8(const uint8_t *src,
     uint32_t y;
     uint32_t x;
     size_t src_n;
+    size_t dst_n;
 
+    /* Medium-5：目的尺寸此前未经 image_pixel_count 校验，dst_width/height
+     * 可任意大；且循环内 y*src_height、x*src_width、y*dst_width+x 均用
+     * uint32_t 计算，极端宽高比下会中间乘积溢出产生错误下标，进而越界读
+     * src 或写坏 dst。先校验 dst 尺寸合法，再用 uint64_t 做中间乘积/索引
+     * 运算，从数学上保证结果落在合法范围内。 */
     if (src == NULL || dst == NULL ||
         src_width == 0u || src_height == 0u ||
         dst_width == 0u || dst_height == 0u ||
-        image_pixel_count(src_width, src_height, &src_n) != 0) {
+        image_pixel_count(src_width, src_height, &src_n) != 0 ||
+        image_pixel_count(dst_width, dst_height, &dst_n) != 0) {
         return BM_ALGO_ERR_INVALID;
     }
 
     for (y = 0u; y < dst_height; ++y) {
-        uint32_t src_y = y * src_height / dst_height;
+        uint32_t src_y = (uint32_t)(((uint64_t)y * src_height) / dst_height);
+        size_t dst_row = (size_t)y * dst_width;
+        size_t src_row = (size_t)src_y * src_width;
+
         for (x = 0u; x < dst_width; ++x) {
-            uint32_t src_x = x * src_width / dst_width;
-            dst[y * dst_width + x] = src[src_y * src_width + src_x];
+            uint32_t src_x = (uint32_t)(((uint64_t)x * src_width) / dst_width);
+            dst[dst_row + x] = src[src_row + src_x];
         }
     }
     return 0;

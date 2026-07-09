@@ -2,7 +2,7 @@
  * @file power_control.c
  * @brief Buck 双环电源控制组件实现
  * @author zeh (china_qzh@163.com)
- * @version 0.3
+ * @version 0.4
  * @date 2026-07-09
  *
  * @par 修改日志:
@@ -14,6 +14,10 @@
  *                                                read_feedback 失败改为
  *                                                锁存故障，不再以 i_out=0
  *                                                喂 PI 施加错误大修正
+ * 2026-07-09       0.4            zeh            缺口 12：current_step 的
+ *                                                write_duty 失败改为锁存
+ *                                                故障后仍发布遥测（带
+ *                                                FAULT 位），不再当拍丢发
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -209,7 +213,14 @@ void bm_power_control_current_step(bm_power_control_axis_t *axis) {
     if (axis->resources.write_duty != NULL) {
         if (axis->resources.write_duty(axis->resources.write_duty_user,
                                        st->duty) != 0) {
+            /* 缺口 12：write_duty 失败此前直接 return，当拍遥测被跳过，
+             * FAULT 状态要等下一拍才对上层可见。锁存故障后仍照旧发布遥测，
+             * 用 BM_POWER_CTRL_TEL_FAULT 标出让故障立即可观测。 */
             latch_fault(axis);
+            st->telemetry.sequence = st->current_loops;
+            st->telemetry.status = BM_POWER_CTRL_TEL_FAULT;
+            st->telemetry.duty = st->duty;
+            BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
             return;
         }
     }

@@ -5,8 +5,8 @@
  * bump pointer 分配，tensor 元数据委托 bm_algo_features 量化。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-17
+ * @version 1.2
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
@@ -22,6 +22,9 @@
  * 2026-06-17       0.9            zeh            CONV2D 1x1 NCHW 算子
  * 2026-06-23       1.0            zeh            通用 CONV2D（任意核/步长/explicit padding）
  * 2026-06-23       1.1            zeh            补 SPDX 与函数级 Doxygen
+ * 2026-07-09       1.2            zeh            修复非原地 RELU/SOFTMAX 缺容量校验、
+ *                                                 arena_alloc size 溢出环绕、QUANTIZE
+ *                                                 校验错张量（疑似-10/11/16.3/16.4）
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -102,6 +105,12 @@ void *bm_tinyml_arena_alloc(bm_tinyml_arena_t *arena,
     }
 
     start = align_up(arena->offset, align);
+    /* start+size 的 u32 加法溢出防护（疑似-16.3）：size 接近 UINT32_MAX 时
+     * 会环绕成一个小值，让下面的容量校验被误判通过，从而返回一个远超
+     * arena 实际容量的“成功”指针。乘前判 size > UINT32_MAX - start 拦截。 */
+    if (size > UINT32_MAX - start) {
+        return NULL;
+    }
     end = start + size;
     if (end > BM_TINYML_ARENA_MAX_BYTES) {
         return NULL;
@@ -820,8 +829,12 @@ int bm_tinyml_graph_run(bm_tinyml_graph_t *graph,
 
         switch (node->op) {
         case BM_TINYML_OP_QUANTIZE:
+            /* 疑似-16.4：真正被读取的量是 out_tensor->byte_count（写入量化
+             * 结果的目的张量），而非 in_tensor->byte_count；两者可以不同，
+             * 校验错张量会在 float_input_count 不足以覆盖 out_tensor 时
+             * 仍放行，读越界 float_inputs。 */
             if (float_inputs == NULL ||
-                float_input_count < in_tensor->byte_count) {
+                float_input_count < out_tensor->byte_count) {
                 return -1;
             }
             if (bm_tinyml_tensor_quantize_f32(out_tensor, float_inputs,
@@ -849,6 +862,12 @@ int bm_tinyml_graph_run(bm_tinyml_graph_t *graph,
                 return -1;
             }
             if (out_tensor != in_tensor) {
+                /* 疑似-10：非原地 RELU 写出前须判空且校验 out_tensor 容量，
+                 * 否则 out_tensor->data 为 NULL 或容量不足时会崩溃/越界写。 */
+                if (out_tensor->data == NULL ||
+                    out_tensor->byte_count < in_tensor->byte_count) {
+                    return -1;
+                }
                 memcpy(out_tensor->data, in_tensor->data,
                        in_tensor->byte_count);
             }
@@ -857,7 +876,12 @@ int bm_tinyml_graph_run(bm_tinyml_graph_t *graph,
             if (run_softmax_node(in_tensor) != 0) {
                 return -1;
             }
-            if (out_tensor != in_tensor && out_tensor->data != NULL) {
+            if (out_tensor != in_tensor) {
+                /* 疑似-11：此前只判空未校验容量，容量不足时仍会越界写。 */
+                if (out_tensor->data == NULL ||
+                    out_tensor->byte_count < in_tensor->byte_count) {
+                    return -1;
+                }
                 memcpy(out_tensor->data, in_tensor->data,
                        in_tensor->byte_count);
             }

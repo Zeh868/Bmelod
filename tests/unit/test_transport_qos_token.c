@@ -78,9 +78,34 @@ void test_transport_qos_token_refill_over_time(void) {
     TEST_ASSERT_EQUAL(-1, bm_transport_qos_enqueue(&axis, 1u));
 }
 
+/*
+ * 疑似-13：now_ms()==0 与「无挂起 tx」哨兵冲突。on_tx 恰好发生在
+ * now_ms()==0 的时刻时，prev_tx_ms 被置为 0；若 on_rx 用 prev_tx_ms==0
+ * 判「无挂起」，会把这次真实挂起的发送误判为空，丢失本该记录的延迟采样。
+ */
+void test_transport_qos_on_rx_records_latency_when_tx_at_time_zero(void) {
+    bm_transport_qos_axis_t axis;
+
+    memset(&axis, 0, sizeof(axis));
+    axis.config.ema_alpha = 0.5f;
+    axis.config.latency_alarm_ms = 1000.0f;
+    axis.config.jitter_alarm_ms = 1000.0f;
+    axis.resources.now_ms = mock_now_ms;
+
+    g_now_ms = 0u; /* tx 恰好发生在 now_ms()==0 的时刻 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_transport_qos_init(&axis));
+    bm_transport_qos_on_tx(&axis);
+
+    g_now_ms = 20u; /* 20ms 后收到 rx */
+    bm_transport_qos_on_rx(&axis);
+
+    TEST_ASSERT_EQUAL_FLOAT(20.0f, axis.state.latency_ms);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_transport_qos_enqueue_token_bucket);
     RUN_TEST(test_transport_qos_token_refill_over_time);
+    RUN_TEST(test_transport_qos_on_rx_records_latency_when_tx_at_time_zero);
     return UNITY_END();
 }
