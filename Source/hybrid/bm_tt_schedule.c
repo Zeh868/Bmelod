@@ -94,7 +94,11 @@ struct bm_let_ctx {
 #define BM_LET_AGE_SATURATED 0xFFFFFFFFu
 
 static void tt_freeze_inputs(bm_tt_schedule_t *s, bm_tt_activity_t *a) {
-    uint32_t period_us = s->minor_us * a->every;
+    /* (uint64_t) 提升后再乘、按需回落（B3）：与 report_json 的 period 计算
+     * 保持一致的宽度纪律，消除 32 位窄乘在未来 minor_us/every 上界放宽后
+     * 的回绕隐患；当前 every<=256 下不可达溢出，回落值与原窄乘结果等价，
+     * 语义不变。 */
+    uint32_t period_us = (uint32_t)((uint64_t)s->minor_us * a->every);
     uint32_t off = 0u;
     /*
      * 饱和阈值：miss 增至该值后 age = miss×period 便达到 UINT32_MAX，此后停增
@@ -149,6 +153,11 @@ const void *bm_let_in(bm_let_ctx_t *ctx, uint32_t in_idx, int *out_stale,
     const bm_tt_activity_t *a = ctx->act;
     uint32_t off = 0u;
 
+    /* 越界防御（B1）：in_idx 超出本 activity 声明的 input_count 直接返回
+     * NULL，不越界读 inputs[]/snapshot，与文件内其它防御性返回风格一致。 */
+    if (in_idx >= a->input_count) {
+        return NULL;
+    }
     for (uint32_t i = 0u; i < in_idx; ++i) {
         off += a->inputs[i].elem_size;
     }
@@ -197,6 +206,11 @@ void *bm_let_out(bm_let_ctx_t *ctx, uint32_t out_idx) {
     uint32_t stride = 0u;
     uint32_t off = 0u;
 
+    /* 越界防御（B1）：out_idx 超出本 activity 声明的 output_count 直接
+     * 返回 NULL，不越界读 outputs[]/outbuf，与 bm_let_in 对称。 */
+    if (out_idx >= a->output_count) {
+        return NULL;
+    }
     for (uint8_t i = 0u; i < a->output_count; ++i) {
         stride += a->outputs[i].elem_size;
     }
@@ -402,6 +416,12 @@ int bm_tt_schedule_init(bm_tt_schedule_t *sched) {
         bm_tt_activity_t *a = sched->entries[k];
 
         if (a->every == 0u || a->at >= a->every) {
+            return BM_ERR_INVALID;
+        }
+        /* step 非空校验（B2）：step==NULL 会在首拍 tick/run_pending 直接
+         * 跑飞（函数指针调用崩溃），在 init 期提前拦截比运行期崩溃更早
+         * fail-stop。 */
+        if (a->step == NULL) {
             return BM_ERR_INVALID;
         }
         if (a->input_count > BM_CONFIG_TT_SCHED_MAX_INPUTS) {
@@ -999,7 +1019,8 @@ int bm_tt_schedule_rt_slot_at(const bm_tt_schedule_t *sched, uint32_t idx,
             continue;
         }
         if (c == idx) {
-            uint32_t period = sched->minor_us * a->every;
+            /* (uint64_t) 提升后再乘、按需回落（B3），理由同 tt_freeze_inputs */
+            uint32_t period = (uint32_t)((uint64_t)sched->minor_us * a->every);
 
             out->owner_cpu = 0u;
             out->kind = (uint8_t)a->kind;

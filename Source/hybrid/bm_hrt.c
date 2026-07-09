@@ -214,6 +214,11 @@ static void hrt_timer_isr(void) {
 
 /**
  * @brief 协作式轮询 HRT（用于 QEMU 慢仿真等无精确中断场景）
+ *
+ * @warning 本函数与硬件 HRT 定时器中断（hrt_timer_isr）共享同核 state，
+ * 且 hrt_dispatch 内部无临界区保护。⚠️ 本函数仅用于硬件 HRT 定时器中断
+ * 未启用的场景；禁止与硬件 HRT 中断并发驱动同一核，否则 hrt_dispatch
+ * 存在数据竞争。二者在设计上二选一，框架不做运行期互斥检查。
  */
 void bm_hrt_poll(void) {
     bm_hrt_cpu_state_t *state = bm_hrt_this();

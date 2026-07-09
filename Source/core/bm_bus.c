@@ -89,7 +89,10 @@ static inline uint32_t bus_slot(uint32_t cur, uint32_t cap) {
  * @return 指向槽首字节的指针
  */
 static inline uint8_t *bus_slot_ptr(bm_bus_storage_t *st, uint32_t cur) {
-    return st->data_buf + bus_slot(cur, st->capacity) * st->elem_size;
+    /* (size_t) 提升后再乘：与文件内其它取址点（如 latest_read 的
+     * data_buf + (size_t)p * elem_size）风格统一，消除 32 位窄乘在
+     * 64 位平台上的截断隐患（B4）。 */
+    return st->data_buf + (size_t)bus_slot(cur, st->capacity) * st->elem_size;
 }
 
 /**
@@ -398,7 +401,8 @@ int bm_bus_acquire_write(bm_bus_t *h, void **slot_out) {
         st->write_in_progress = 1u;
         /* 选中槽存入 latest_writing（scratch），commit 时拷入 latest_published */
         bus_store_cur(&st->latest_writing, wslot);
-        *slot_out = st->data_buf + wslot * st->elem_size;
+        /* (size_t) 提升后再乘：与其它取址点风格统一，消除窄乘截断隐患（B4） */
+        *slot_out = st->data_buf + (size_t)wslot * st->elem_size;
         BUS_UNLOCK(s);
         return BM_OK;
     }
@@ -1152,6 +1156,12 @@ int bm_bus_latest_read(const bm_bus_t *h, void *dst) {
         }
 #endif
 
+        /* seqlock 读侧 acquire 屏障：memcpy 与随后的 seq2 读之间无天然定序，
+         * 弱序多核（如 ARM）上编译器/CPU 可能把 memcpy 重排到 seq2 load 之后，
+         * 使"判稳"发生在数据实际落地之前，读到撕裂数据却误判一致。此处插入
+         * acquire 屏障，强制 memcpy 完成先于 seq2 读，恢复 seqlock 读侧的正确性。 */
+        bm_atomic_ipc_fence_acquire();
+
         /* seqlock 读侧第二步：复读序号，与 seq1 相等说明拷贝期间无写者发布 */
         seq2 = bus_load_cur(&st->latest_seq);
         if (seq1 == seq2) {
@@ -1191,6 +1201,9 @@ int bm_bus_latest_read_seq(const bm_bus_t *h, void *dst, uint32_t *out_seq) {
         p = bus_load_cur(&st->latest_published);
         if (p == BM_BUS_LATEST_NONE) return BM_ERR_WOULD_BLOCK;
         (void)memcpy(dst, st->data_buf + (size_t)p * st->elem_size, st->elem_size);
+        /* seqlock 读侧 acquire 屏障：与 bm_bus_latest_read 同理，防 memcpy 被
+         * 弱序多核重排到 seq2 读之后导致判稳却拷到撕裂数据。 */
+        bm_atomic_ipc_fence_acquire();
         seq2 = bus_load_cur(&st->latest_seq);
         if (seq1 == seq2) {
             *out_seq = seq1;      /* 稳定序号，与拷到的值同一次校验 */

@@ -188,12 +188,13 @@ static int _module_init_all(bool reset_event_bus) {
         return BM_ERR_OVERFLOW;
     }
 
-    if (reset_event_bus) {
-        bm_event_reset();
-    }
-
-    state->module_count = _bm_module_count;
-    for (uint32_t i = 0u; i < state->module_count; i++) {
+    /*
+     * NULL 表项校验前移到 bm_event_reset() 之前（C1）：若在 reset 之后才
+     * 发现 NULL 表项而失败返回，事件总线已被清空，注释所说"避免已发布
+     * 事件不可逆丢失"的意图就落空了。故与上面的上界校验同侧，一并在
+     * reset 前完成，reset 只在全部表项校验通过后才执行。
+     */
+    for (uint32_t i = 0u; i < _bm_module_count; i++) {
         if (_bm_module_table[i] == NULL) {
             BM_LOGE("module", "module table contains null entry idx=%u",
                     (unsigned)i);
@@ -203,6 +204,14 @@ static int _module_init_all(bool reset_event_bus) {
             BM_CRITICAL_EXIT(s);
             return BM_ERR_INVALID;
         }
+    }
+
+    if (reset_event_bus) {
+        bm_event_reset();
+    }
+
+    state->module_count = _bm_module_count;
+    for (uint32_t i = 0u; i < state->module_count; i++) {
         memcpy(&state->modules[i], _bm_module_table[i], sizeof(bm_module_t));
     }
     for (uint32_t i = 0u; i < state->module_count; i++) {
@@ -519,11 +528,11 @@ static int _module_init_all_for_domain(bm_domain_t domain, bool reset_event_bus)
         return BM_ERR_OVERFLOW;
     }
 
-    if (reset_event_bus) {
-        bm_event_reset();
-    }
-
-    state->module_count = 0;
+    /*
+     * NULL 表项校验前移到 bm_event_reset() 之前（C1，与 _module_init_all
+     * 同理）：避免 reset 之后才发现 NULL 表项失败返回，导致已发布事件
+     * 不可逆丢失。reset 只在全部表项校验通过后才执行。
+     */
     for (uint32_t i = 0u; i < _bm_module_count; i++) {
         if (_bm_module_table[i] == NULL) {
             BM_LOGE("module", "module table contains null entry idx=%u",
@@ -534,6 +543,14 @@ static int _module_init_all_for_domain(bm_domain_t domain, bool reset_event_bus)
             BM_CRITICAL_EXIT(s);
             return BM_ERR_INVALID;
         }
+    }
+
+    if (reset_event_bus) {
+        bm_event_reset();
+    }
+
+    state->module_count = 0;
+    for (uint32_t i = 0u; i < _bm_module_count; i++) {
         if (_bm_module_table[i]->domain == domain ||
             _bm_module_table[i]->domain == BM_DOMAIN_COMMON) {
             memcpy(&state->modules[state->module_count], _bm_module_table[i],
@@ -708,10 +725,21 @@ int bm_module_init_on_this_cpu(void) {
         int r = state->modules[i].init ? state->modules[i].init() : BM_OK;
 
         if (r != BM_OK) {
-            (void)_rollback_inits(state, i);
+            /*
+             * 接住回滚返回值：回滚失败（个别模块 deinit 未成功）不能静默
+             * 复位为 UNINITIALIZED——那会让调用方误以为可以从头重新
+             * init，实际上部分模块残留 INITED 状态。与非路由路径
+             * _module_init_all 对齐：回滚失败置 CLEANUP_PENDING（A2）。
+             */
+            int rollback_rc = _rollback_inits(state, i);
+
             s = BM_CRITICAL_ENTER();
-            state->module_count = 0u;
-            state->initialized = BM_MODULES_UNINITIALIZED;
+            if (rollback_rc != BM_OK) {
+                state->initialized = BM_MODULES_CLEANUP_PENDING;
+            } else {
+                state->module_count = 0u;
+                state->initialized = BM_MODULES_UNINITIALIZED;
+            }
             BM_CRITICAL_EXIT(s);
             return r;
         }
@@ -750,6 +778,18 @@ int bm_module_start_on_this_cpu(void) {
     }
 
     s = BM_CRITICAL_ENTER();
+    /*
+     * 状态码语义对齐非路由路径 bm_module_start_all（A3）：
+     * INITIALIZING/TRANSITIONING/CLEANUP_PENDING 属"忙态"（另一流程正在
+     * 变更状态），应返回 BM_ERR_BUSY 而非笼统的 BM_ERR_NOT_INIT；
+     * 仅 UNINITIALIZED（尚未 init）才是真正的"未初始化"。
+     */
+    if (state->initialized == BM_MODULES_INITIALIZING ||
+        state->initialized == BM_MODULES_TRANSITIONING ||
+        state->initialized == BM_MODULES_CLEANUP_PENDING) {
+        BM_CRITICAL_EXIT(s);
+        return BM_ERR_BUSY;
+    }
     if (state->initialized != BM_MODULES_READY) {
         BM_CRITICAL_EXIT(s);
         return BM_ERR_NOT_INIT;
@@ -763,9 +803,17 @@ int bm_module_start_on_this_cpu(void) {
             int r = state->modules[i].start ? state->modules[i].start() : BM_OK;
 
             if (r != BM_OK) {
-                (void)_rollback_starts(state, i);
+                /*
+                 * 接住回滚返回值：回滚失败不能静默复位为 READY——那会让
+                 * 调用方误以为可以立即重新 start，实际上部分模块残留
+                 * STARTED 状态。与非路由路径 bm_module_start_all 对齐：
+                 * 回滚失败置 CLEANUP_PENDING（A2）。
+                 */
+                int rollback_rc = _rollback_starts(state, i);
+
                 s = BM_CRITICAL_ENTER();
-                state->initialized = BM_MODULES_READY;
+                state->initialized = (rollback_rc != BM_OK) ?
+                    BM_MODULES_CLEANUP_PENDING : BM_MODULES_READY;
                 BM_CRITICAL_EXIT(s);
                 return r;
             }

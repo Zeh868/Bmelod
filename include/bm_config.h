@@ -151,6 +151,15 @@
 #ifndef BM_CONFIG_EVENT_INLINE_DATA_SIZE
 #define BM_CONFIG_EVENT_INLINE_DATA_SIZE     8
 #endif
+/*
+ * bm_event_t.data_len 为 uint8_t：若内联数据容量超过 255，纯 event 编译
+ * 单元（不 include bm_mp_ipc.h 的场景）不会触发该上界检查，len 会被
+ * 静默截断。此处置于最根的配置头，覆盖所有 event 编译单元（B5）；
+ * 与 bm_mp_ipc.h 内已有的同义断言措辞一致，互不冲突。
+ */
+#if BM_CONFIG_EVENT_INLINE_DATA_SIZE > 255u
+#error "BM_CONFIG_EVENT_INLINE_DATA_SIZE must fit uint8_t bm_event_t.data_len"
+#endif
 #ifndef BM_CONFIG_EVENT_PRIORITY_BURST_MAX
 #define BM_CONFIG_EVENT_PRIORITY_BURST_MAX   8
 #endif

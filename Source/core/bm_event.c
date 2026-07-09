@@ -119,6 +119,16 @@ bm_event_cpu_storage_t g_event_cpu[BM_CONFIG_CPU_COUNT];
 static bm_event_owner_resolver_t s_owner_resolver;
 static bm_event_forwarder_t s_forwarder;
 
+/**
+ * @brief 设置事件路由钩子（owner 解析器 + 跨核转发器）
+ *
+ * @note 单核契约：本函数无同步保护，须在次核 boot 前的单核 init 期调用；
+ * 首次设置后闩锁禁止改写（first-write-wins，见函数体内比较逻辑），
+ * 不支持运行期动态切换路由钩子。
+ *
+ * @param owner_resolver 事件类型→归属 CPU 解析器
+ * @param forwarder 跨核转发函数
+ */
 void bm_event_set_route_hooks(bm_event_owner_resolver_t owner_resolver,
                               bm_event_forwarder_t forwarder) {
     if ((s_owner_resolver != NULL || s_forwarder != NULL) &&
