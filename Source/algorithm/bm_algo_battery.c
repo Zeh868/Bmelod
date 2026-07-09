@@ -111,7 +111,10 @@ float bm_algo_soc_fusion_step(float soc_coulomb,
     }
 
     w = bm_algo_clamp_f(config->ocv_weight, 0.0f, 1.0f);
-    return (1.0f - w) * soc_coulomb + w * soc_ocv;
+    /* soc_coulomb/soc_ocv 若已越界（如库仑计漂移或 OCV 查表外插），加权和
+     * 仍可能落在 [0,1] 之外；这是下游 telemetry.soc 越界的根因，此处钳位
+     * 比在赋值处补救更靠近源头 */
+    return bm_algo_clamp_f((1.0f - w) * soc_coulomb + w * soc_ocv, 0.0f, 1.0f);
 }
 
 void bm_algo_soh_reset(bm_algo_soh_state_t *state,

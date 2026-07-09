@@ -78,6 +78,11 @@ int bm_power_control_validate_config(const bm_power_control_config_t *config) {
     if (config->duty_max <= config->duty_min) {
         return BM_ERR_INVALID;
     }
+    /* duty 需落在物理可实现范围 [0,1] 内，此前仅校验 max>min，
+     * 未限制越界（如 duty_min<0 或 duty_max>1）会传导到占空比输出 */
+    if (config->duty_min < 0.0f || config->duty_max > 1.0f) {
+        return BM_ERR_INVALID;
+    }
     return BM_OK;
 }
 
@@ -305,6 +310,10 @@ void bm_power_control_exec_safe_stop(const bm_exec_t *instance) {
     axis = (bm_power_control_axis_t *)instance->state;
     axis->state.i_ref_a = 0.0f;
     axis->state.duty = axis->config.duty_min;
+    /* 复位两级 PI 积分器，避免安全停机后重启时残留积分量造成冲击，
+     * 对齐 latch_fault() 的做法 */
+    bm_algo_pi_reset(&axis->state.pi_voltage, 0.0f);
+    bm_algo_pi_reset(&axis->state.pi_current, 0.0f);
     if (axis->resources.write_duty != NULL) {
         (void)axis->resources.write_duty(axis->resources.write_duty_user,
                                          axis->state.duty);

@@ -120,6 +120,10 @@ void bm_algo_mahony_step(bm_algo_mahony_state_t *state,
     if (state == NULL || config == NULL || dt_s <= 0.0f) {
         return;
     }
+    /* 配置增益 kp/ki 非有限会经积分项污染四元数持久状态，此前无护栏 */
+    if (!bm_algo_is_finite_f(config->kp) || !bm_algo_is_finite_f(config->ki)) {
+        return;
+    }
     /* H10：陀螺 gx/gy/gz 无论加速度计路径是否生效都直接参与 q_dot 计算，
      * 一旦为 NaN/Inf 会立即污染四元数持久状态；非有限则跳过本次积分，
      * 保持上一次有限的姿态估计不变。 */
@@ -215,6 +219,10 @@ void bm_algo_madgwick_step(bm_algo_madgwick_state_t *state,
     float q_dot3;
 
     if (state == NULL || config == NULL || dt_s <= 0.0f) {
+        return;
+    }
+    /* 配置增益 beta 非有限会经梯度修正项污染四元数持久状态，此前无护栏 */
+    if (!bm_algo_is_finite_f(config->beta)) {
         return;
     }
     /* H10：陀螺 gx/gy/gz 无论加速度计路径是否生效都直接参与 q_dot 计算，

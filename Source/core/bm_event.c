@@ -510,6 +510,13 @@ static int _prio_push_copy(bm_event_cpu_state_t *state, bm_event_priority_t prio
     }
 
     s = BM_CRITICAL_ENTER();
+    /* 类型注册检查与入队并入同一临界区：调用方已确保 event->type 落在
+     * BM_CONFIG_MAX_EVENT_TYPES 范围内，此处与索引/入队检查共用一次
+     * ENTER/EXIT，消除此前"检查完退出临界区、入队再重新进入"之间的窗口 */
+    if (state->event_types[event->type].name == NULL) {
+        BM_CRITICAL_EXIT(s);
+        return BM_ERR_NOT_INIT;
+    }
     if (_prio_indices_valid(state->prio_read[prio], state->prio_write[prio],
                             mask) != BM_OK) {
         BM_CRITICAL_EXIT(s);
@@ -560,7 +567,6 @@ static int event_publish_impl(bm_event_type_t type, bm_event_priority_t prio,
                               bool preserve_source) {
     bm_event_cpu_state_t *state = bm_event_this();
     bm_event_t ev;
-    bm_irq_state_t s;
     int forwarded;
     int rc;
 
@@ -606,13 +612,6 @@ static int event_publish_impl(bm_event_type_t type, bm_event_priority_t prio,
     if (forwarded || rc != BM_OK) {
         return rc;
     }
-
-    s = BM_CRITICAL_ENTER();
-    if (state->event_types[type].name == NULL) {
-        BM_CRITICAL_EXIT(s);
-        return BM_ERR_NOT_INIT;
-    }
-    BM_CRITICAL_EXIT(s);
 
     if (event_template) {
         return _prio_push_copy(state, prio, &ev,

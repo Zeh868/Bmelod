@@ -254,13 +254,23 @@ void bm_log(bm_log_level_t level, const char *tag, const char *fmt, ...) {
 
         va_end(ap);
         /*
-         * body_len < 0 为编码错误，无有效内容可输出，丢弃整条。
-         * body_len >= 剩余容量表示 vsnprintf 已就地截断（写满 cap-1 字节
-         * 并补 '\0'）：诊断路径宁可截断也不丢，故不再 return，
+         * body_len >= 剩余容量表示 C99 语义 vsnprintf 已就地截断（写满
+         * cap-1 字节并补 '\0'）：诊断路径宁可截断也不丢，故不再 return，
          * 下方 strlen(buf) 自然取到截断后的有效长度（min(ret, cap-1)）。
+         *
+         * body_len < 0 在不同运行库下含义不同：C99 语义仅表示编码错误；
+         * 而 MinGW/legacy MSVCRT 的 _vsnprintf 对"写不下"（截断）同样返回
+         * -1，且不保证补 '\0'。此前直接 return 会把这类超长日志整条静默
+         * 丢弃。前一次 snprintf（写前缀）成功时已在 buf[prefix_len] 处
+         * 补了 '\0'；若 vsnprintf 确实一个字符都没写入（真正编码错误），
+         * 该字节仍为 '\0'——据此区分两种情况：真正编码错误才丢弃，
+         * 否则视为遭遇截断，强制在缓冲区末尾补 NUL 后仍按正常路径输出。
          */
         if (body_len < 0) {
-            return;
+            if (buf[(size_t)prefix_len] == '\0') {
+                return;
+            }
+            buf[sizeof(buf) - 1u] = '\0';
         }
     }
 

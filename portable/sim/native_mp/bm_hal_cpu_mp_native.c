@@ -172,6 +172,8 @@ void bm_hal_cpu_yield(void) {
 static pthread_key_t s_tls_cpu_key;
 static pthread_once_t s_tls_once = PTHREAD_ONCE_INIT;
 static pthread_t s_secondary_thread[BM_CONFIG_CPU_COUNT - 1u];
+/** @brief 标记对应下标的 pthread_t 是否创建成功，避免对未初始化句柄 join(UB) */
+static int s_secondary_thread_valid[BM_CONFIG_CPU_COUNT - 1u];
 typedef struct {
     uintptr_t entry;
     uint32_t cpu;
@@ -230,6 +232,7 @@ int bm_hal_cpu_boot_secondary(uintptr_t entry_pc) {
     rc = pthread_create(
         &s_secondary_thread[index], NULL, secondary_thread_main,
         &s_secondary_context[index]);
+    s_secondary_thread_valid[index] = (rc == 0) ? 1 : 0;
     if (rc == 0) {
         s_next_secondary_cpu++;
     }
@@ -249,8 +252,13 @@ int bm_hal_cpu_native_set_id(uint32_t cpu) {
 int bm_hal_cpu_join_secondary(void) {
     uint32_t index;
 
+    /* 仅 join 真正创建成功的线程，未创建/创建失败的下标 pthread_t 未初始化，
+     * 无条件 join 属未定义行为 */
     for (index = 0u; index < (BM_CONFIG_CPU_COUNT - 1u); index++) {
-        (void)pthread_join(s_secondary_thread[index], NULL);
+        if (s_secondary_thread_valid[index]) {
+            (void)pthread_join(s_secondary_thread[index], NULL);
+            s_secondary_thread_valid[index] = 0;
+        }
     }
     return BM_OK;
 }

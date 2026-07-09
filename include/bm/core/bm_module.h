@@ -191,17 +191,19 @@ void bm_module_set_freeze_hook(void (*hook)(void));
 /**
  * @brief 获取当前应用静态模块表
  *
- * 返回值由 `BM_MODULE_TABLE(...)` 宏提供的只读数组承载；当应用未定义
- * 模块表时，返回 NULL。
+ * 返回值由 `BM_MODULE_TABLE(...)` 宏提供的只读数组承载。该宏定义的
+ * `_bm_module_table`/`_bm_module_count` 为普通（非 weak）外部符号，应用
+ * 必须使用 `BM_MODULE_TABLE(...)` 定义模块表，否则链接期报未定义符号错误
+ * （而非返回 NULL）。
  *
- * @return 模块表首地址，或 NULL
+ * @return 模块表首地址
  */
 const bm_module_t *const *bm_module_table(void);
 
 /**
  * @brief 获取当前应用静态模块表元素个数
  *
- * @return 模块条目数；未定义模块表时返回 0
+ * @return 模块条目数（应用未定义模块表时链接期报错，而非返回 0）
  */
 uint32_t bm_module_count(void);
 

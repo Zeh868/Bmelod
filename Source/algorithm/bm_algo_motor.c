@@ -289,6 +289,9 @@ float bm_algo_flux_observer_step(bm_algo_flux_observer_state_t *state,
             wc = 0.0f;
         }
         decay = wc * dt_s;
+        /* decay 未钳位时，wc*dt_s > 1 会使 (1-decay) 变负，衰减项变为
+         * 符号翻转的正反馈，导致 flux 状态发散；钳到 [0,1] 保证稳定 */
+        decay = bm_algo_clamp_f(decay, 0.0f, 1.0f);
         state->flux_alpha = state->flux_alpha * (1.0f - decay) + v_alpha_emf * dt_s;
         state->flux_beta  = state->flux_beta  * (1.0f - decay) + v_beta_emf  * dt_s;
     }

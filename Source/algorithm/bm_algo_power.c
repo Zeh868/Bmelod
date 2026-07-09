@@ -66,6 +66,16 @@ void bm_algo_sogi_pll_step(bm_algo_sogi_pll_state_t *state,
     if (state == NULL || config == NULL || dt_s <= 0.0f) {
         return;
     }
+    /* v_input 或配置增益/角频率非有限（NaN/Inf）会经 Tustin 递推立即污染
+     * v_alpha/v_beta/integrator/theta_rad 等持久状态；跳过本次更新，
+     * 保持上一次有限的估计不变 */
+    if (!bm_algo_is_finite_f(v_input) ||
+        !bm_algo_is_finite_f(config->k_sogi) ||
+        !bm_algo_is_finite_f(config->k_pll) ||
+        !bm_algo_is_finite_f(config->nominal_omega_rad_s) ||
+        !bm_algo_is_finite_f(config->integrator_limit_ratio)) {
+        return;
+    }
 
     k = config->k_sogi;
     omega = state->omega_rad_s;
@@ -237,6 +247,12 @@ float bm_algo_rms_step(bm_algo_rms_state_t *state,
         config->window_samples > state->buflen ||
         config->window_samples != state->window_samples ||
         state->index >= state->window_samples) {
+        return sample;
+    }
+    /* sample 非有限（NaN/Inf）会使 sum_sq 永久污染为 NaN（buffer 中该样本
+     * 平方后续无法被正常减去抵消）；跳过入队，保持滑窗状态不变，
+     * 与 bm_algo_stats_push 的既有护栏语义对齐（此处不改动 stats_push） */
+    if (!bm_algo_is_finite_f(sample)) {
         return sample;
     }
 

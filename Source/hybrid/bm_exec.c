@@ -180,6 +180,11 @@ static int exec_block_is_late(const bm_exec_slot_t *slot,
              * profile build 会 bump 全核 clock_epoch；块若在 bump 前后沿采样，
              * epoch/rate 可能与消费侧不一致，按当前时钟域重对齐后再算 elapsed。
              */
+            /* 就地写 block->timestamp 而非用局部副本：SPSC 独占下安全——
+             * acquire 时该 block 已被置为 PROCESSING 状态，生产者在消费者
+             * 释放前不会再触碰同一块；改成局部副本会让下方 deadline/late
+             * 判定读到未重对齐的 epoch/rate，改变 late 判定语义，故保持
+             * 就地写。 */
             if (block->timestamp.clock_epoch != timer.clock_epoch ||
                 block->timestamp.rate_hz != timer_freq) {
                 block->timestamp.clock_epoch = timer.clock_epoch;

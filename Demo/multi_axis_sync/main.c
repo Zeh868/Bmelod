@@ -86,10 +86,15 @@ static const bm_exec_slot_t g_axis_slot[] = {
     }
 };
 
+/* struct bm_exec 字段顺序为 id, owner_cpu, name, state, config, resources,
+ * slots, slot_count, claims, claim_count, ops（共 11 个），此前按位置初始化
+ * 漏填 owner_cpu 导致后续字段整体错位，改为指定初始化以对齐头文件定义 */
 #define DEFINE_AXIS(ID, PWM, STATE) \
     static const bm_exec_t axis_##ID = { \
-        (ID), "axis_" #ID, (STATE), (const void *)(PWM), NULL, \
-        g_axis_slot, 1u, NULL, 0u, &g_axis_ops \
+        .id = (ID), .owner_cpu = 0u, .name = "axis_" #ID, \
+        .state = (STATE), .config = (const void *)(PWM), \
+        .resources = NULL, .slots = g_axis_slot, .slot_count = 1u, \
+        .claims = NULL, .claim_count = 0u, .ops = &g_axis_ops \
     }
 
 DEFINE_AXIS(1, &BM_HAL_PWM_SIM0, &g_axis_state[0]);

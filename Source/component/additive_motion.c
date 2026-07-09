@@ -119,6 +119,11 @@ void bm_additive_motion_shape_cmd(bm_additive_motion_axis_t *axis, float cmd_mm)
     }
 
     st = &axis->state;
+    /* buffer_len 未 init（如 axis 未经 bm_additive_motion_init 就调用）时为
+     * 0，下方 % st->buffer_len 会触发模零 UB，此处提前拦截为安全 no-op */
+    if (st->buffer_len == 0u) {
+        return;
+    }
     delta = cmd_mm - st->last_cmd_mm;
     st->last_cmd_mm = cmd_mm;
 

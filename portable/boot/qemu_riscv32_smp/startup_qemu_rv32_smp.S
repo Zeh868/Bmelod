@@ -2,6 +2,9 @@
     .section .text.init
     .globl _start
     .type _start, @function
+    .extern g_cpu0_system_init_done
+    .extern g_secondary_mailbox
+    .extern qemu_rv32_smp_secondary_start
 _start:
     /* 所有 hart：关 MIE 并安装 M-mode trap 向量 */
     csrci mstatus, 8
@@ -18,11 +21,18 @@ _start:
     j 1b
 
 secondary_park:
-    /* a0 = mhartid；按 hart 索引 mailbox 自旋等待入口地址 */
+    /* a0 = mhartid；先等主核完成 BSS 初始化（对齐 RV64 SMP 实现） */
+    la t1, g_cpu0_system_init_done
+.Lcpu0_init_wait:
+    lw t2, 0(t1)
+    beqz t2, .Lcpu0_init_wait
+
+    /* 按 hart 索引 mailbox 自旋等待入口地址 */
     la t1, g_secondary_mailbox
     slli t2, a0, 2
     add t1, t1, t2
 2:
+    fence r, rw
     lw t3, 0(t1)
     beqz t3, 2b
 

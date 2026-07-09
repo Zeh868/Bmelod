@@ -198,6 +198,12 @@ uint32_t bm_algo_stepper_process(bm_algo_stepper_state_t *state,
     if (state == NULL || config == NULL || dt_s <= 0.0f) {
         return 0u;
     }
+    /* velocity_steps_s 非有限（NaN/Inf）时下方钳位/符号判断均为 false，
+     * state->phase += fabsf(velocity)*dt_s 会把 NaN 永久写入相位状态，
+     * 导致此后 while (phase>=1.0f) 恒假、脉冲永久停摆；提前拒绝本次输入 */
+    if (!bm_algo_is_finite_f(velocity_steps_s)) {
+        return 0u;
+    }
 
     max_vel = config->max_velocity_steps_s;
     if (max_vel > 0.0f) {

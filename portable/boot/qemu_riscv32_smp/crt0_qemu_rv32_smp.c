@@ -30,6 +30,9 @@ volatile uintptr_t g_secondary_mailbox[BM_CONFIG_CPU_COUNT];
 /** 从核已退出标志（join 路径自旋等待） */
 volatile uint32_t g_secondary_done[BM_CONFIG_CPU_COUNT];
 
+/** 主核 SystemInit 完成标志（从核在 BSS 有效前不得读 mailbox），对齐 RV64 SMP 实现 */
+volatile uint32_t g_cpu0_system_init_done;
+
 void SystemInit(void) {
     uintptr_t *src = (uintptr_t *)&_sidata;
     uintptr_t *dst = (uintptr_t *)&_sdata;
@@ -42,6 +45,8 @@ void SystemInit(void) {
     while (dst < (uintptr_t *)&_ebss) {
         *dst++ = 0;
     }
+    g_cpu0_system_init_done = 1u;
+    __asm volatile("fence rw, rw" ::: "memory");
 }
 
 /**

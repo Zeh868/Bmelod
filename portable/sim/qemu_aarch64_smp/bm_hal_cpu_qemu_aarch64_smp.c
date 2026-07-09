@@ -37,7 +37,11 @@ static int bm_aarch64_psci_cpu_on(uint64_t target_mpidr, uintptr_t entry) {
     register uint64_t x2 __asm("x2") = (uint64_t)entry;
     register uint64_t x3 __asm("x3") = 0;
 
-    __asm volatile("smc #0" : "+r"(x0) : "r"(x1), "r"(x2), "r"(x3) : "memory");
+    /* SMCCC 约定被调方（EL3 固件）可破坏 x4-x17，此前 clobber 列表仅有
+     * memory，遗漏这些寄存器会被误判为调用方保留，存在被覆盖后未声明的风险 */
+    __asm volatile("smc #0" : "+r"(x0) : "r"(x1), "r"(x2), "r"(x3) :
+                   "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11",
+                   "x12", "x13", "x14", "x15", "x16", "x17", "memory");
     return (x0 == 0ULL) ? BM_OK : BM_ERR_INVALID;
 }
 

@@ -15,6 +15,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_signal_quality.h"
+#include "bm/algorithm/bm_algo_common.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -106,6 +107,12 @@ uint32_t bm_algo_redundant_pair_step(float a,
     float diff;
     float tol;
     float ref;
+
+    /* a/b 任一非有限（NaN/Inf）时 diff 会是 NaN，后续 diff>tol 比较恒为
+     * false，会被误判为"一致"；此处显式判非有限并直接报不匹配 */
+    if (!bm_algo_is_finite_f(a) || !bm_algo_is_finite_f(b)) {
+        return BM_ALGO_FAULT_REDUNDANT_MISMATCH;
+    }
 
     diff = fabsf(a - b);
     if (config == NULL) {

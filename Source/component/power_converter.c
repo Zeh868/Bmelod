@@ -91,6 +91,11 @@ int bm_power_converter_validate_config(const bm_power_converter_config_t *config
     if (config->duty_max <= config->duty_min) {
         return BM_ERR_INVALID;
     }
+    /* duty 需落在物理可实现范围 [0,1] 内，此前仅校验 max>min，
+     * 未限制越界（如 duty_min<0 或 duty_max>1）会传导到占空比输出 */
+    if (config->duty_min < 0.0f || config->duty_max > 1.0f) {
+        return BM_ERR_INVALID;
+    }
     return BM_OK;
 }
 

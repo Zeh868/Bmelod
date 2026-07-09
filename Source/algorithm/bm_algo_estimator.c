@@ -181,6 +181,15 @@ void bm_algo_ekf_cv_update(bm_algo_ekf_cv_state_t *state,
     state->p11 = p11 - k1 * p01;
     state->p01 = 0.5f * (state->p01 + state->p10);
     state->p10 = state->p01;
+
+    /* 协方差对角项理论上应恒非负，但浮点舍入误差在多拍累积后可能使
+     * p00/p11 略微跌破 0，进而污染后续 k0/k1 增益符号；更新后钳到 [0,+inf) */
+    if (state->p00 < 0.0f) {
+        state->p00 = 0.0f;
+    }
+    if (state->p11 < 0.0f) {
+        state->p11 = 0.0f;
+    }
 }
 
 void bm_algo_ukf1d_reset(bm_algo_ukf1d_state_t *state, float x0, float p0) {

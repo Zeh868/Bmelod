@@ -37,6 +37,12 @@ float bm_algo_ramp_step(bm_algo_ramp_state_t *state,
     if (state == NULL || config == NULL || dt_s <= 0.0f) {
         return target;
     }
+    /* target 非有限（NaN/Inf）时 delta 比较恒为 false，会落入 else 分支
+     * 使 state->output 每拍单向漂移且 done 永不置位，属永久污染；
+     * 跳过本次更新并保持旧输出 */
+    if (!bm_algo_is_finite_f(target)) {
+        return state->output;
+    }
 
     delta = target - state->output;
     step = config->rate_per_s * dt_s;
@@ -64,7 +70,9 @@ void bm_algo_trapezoid_reset(bm_algo_trapezoid_state_t *state,
 }
 
 void bm_algo_trapezoid_set_target(bm_algo_trapezoid_state_t *state, float target) {
-    if (state != NULL) {
+    /* target 非有限（NaN/Inf）会永久污染 state->target，导致后续每次
+     * step 都算不出有限的 dist/stop_dist；忽略非法目标，保持旧状态 */
+    if (state != NULL && bm_algo_is_finite_f(target)) {
         state->target = target;
         state->done = 0;
         state->phase = 0;
@@ -153,7 +161,9 @@ void bm_algo_scurve_reset(bm_algo_scurve_state_t *state,
 }
 
 void bm_algo_scurve_set_target(bm_algo_scurve_state_t *state, float target) {
-    if (state != NULL) {
+    /* target 非有限（NaN/Inf）会永久污染 state->target，导致后续每次
+     * step 都算不出有限的 dist/stopping_distance；忽略非法目标，保持旧状态 */
+    if (state != NULL && bm_algo_is_finite_f(target)) {
         state->target = target;
         state->done = 0;
     }

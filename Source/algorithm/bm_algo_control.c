@@ -77,6 +77,10 @@ int bm_algo_pi_validate_config(const bm_algo_pi_config_t *config) {
     if (config == NULL) {
         return BM_ALGO_ERR_INVALID;
     }
+    /* 配置增益非有限（NaN/Inf）会污染 step 中的每一次乘加，此前无校验 */
+    if (!bm_algo_is_finite_f(config->kp) || !bm_algo_is_finite_f(config->ki)) {
+        return BM_ALGO_ERR_INVALID;
+    }
     if (config->out_min > config->out_max) {
         return BM_ALGO_ERR_INVALID;
     }
@@ -155,6 +159,11 @@ int bm_algo_pid_validate_config(const bm_algo_pid_config_t *config) {
     if (config == NULL) {
         return BM_ALGO_ERR_INVALID;
     }
+    /* 配置增益非有限（NaN/Inf）会污染 step 中的每一次乘加，此前无校验 */
+    if (!bm_algo_is_finite_f(config->kp) || !bm_algo_is_finite_f(config->ki) ||
+        !bm_algo_is_finite_f(config->kd)) {
+        return BM_ALGO_ERR_INVALID;
+    }
     if (config->out_min > config->out_max) {
         return BM_ALGO_ERR_INVALID;
     }
@@ -230,6 +239,13 @@ int bm_algo_pr_compute_coeffs(const bm_algo_pr_config_t *config,
     if (config == NULL || sample_period_s <= 0.0f ||
         b0 == NULL || b1 == NULL || b2 == NULL ||
         a1 == NULL || a2 == NULL) {
+        return BM_ALGO_ERR_INVALID;
+    }
+
+    /* 配置增益/频率非有限（NaN/Inf）会污染双线性变换的每一步计算，此前无校验 */
+    if (!bm_algo_is_finite_f(config->omega_rad_s) ||
+        !bm_algo_is_finite_f(config->bandwidth_rad_s) ||
+        !bm_algo_is_finite_f(config->kr)) {
         return BM_ALGO_ERR_INVALID;
     }
 
@@ -386,6 +402,11 @@ int bm_algo_pid2_validate_config(const bm_algo_pid2_config_t *config) {
     if (config == NULL) {
         return BM_ALGO_ERR_INVALID;
     }
+    /* 配置增益非有限（NaN/Inf）会污染 step 中的每一次乘加，此前无校验 */
+    if (!bm_algo_is_finite_f(config->kp) || !bm_algo_is_finite_f(config->ki) ||
+        !bm_algo_is_finite_f(config->kd)) {
+        return BM_ALGO_ERR_INVALID;
+    }
     if (config->out_min > config->out_max) {
         return BM_ALGO_ERR_INVALID;
     }
@@ -419,6 +440,12 @@ float bm_algo_pid2_step(bm_algo_pid2_state_t *state,
 
     if (state == NULL || config == NULL || dt_s <= 0.0f) {
         return 0.0f;
+    }
+
+    /* reference/measurement 非有限（NaN/Inf）时保持旧输出不变，避免污染
+     * integrator/d_filtered 状态；此前 PID2 家族缺该护栏 */
+    if (!bm_algo_is_finite_f(reference) || !bm_algo_is_finite_f(measurement)) {
+        return state->output;
     }
 
     error_i = reference - measurement;
