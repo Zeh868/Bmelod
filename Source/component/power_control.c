@@ -2,14 +2,18 @@
  * @file power_control.c
  * @brief Buck 双环电源控制组件实现
  * @author zeh (china_qzh@163.com)
- * @version 0.2
- * @date 2026-06-13
+ * @version 0.3
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 SPDX 与函数级 Doxygen
+ * 2026-07-09       0.3            zeh            H13：current_step 的
+ *                                                read_feedback 失败改为
+ *                                                锁存故障，不再以 i_out=0
+ *                                                喂 PI 施加错误大修正
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -188,9 +192,14 @@ void bm_power_control_current_step(bm_power_control_axis_t *axis) {
         return;
     }
 
-    if (axis->resources.read_feedback != NULL) {
-        (void)axis->resources.read_feedback(
-            axis->resources.read_feedback_user, &v_out, &i_out);
+    /* H13：采样失败时不得丢弃返回值继续以 i_out=0 喂 PI——那会把误差算成
+     * 近满量程仍施加大修正，且不锁故障。照 voltage_step/write_duty 失败
+     * 路径的约定，read_feedback 失败即锁存故障并放弃本次输出。 */
+    if (axis->resources.read_feedback != NULL &&
+        axis->resources.read_feedback(
+            axis->resources.read_feedback_user, &v_out, &i_out) != 0) {
+        latch_fault(axis);
+        return;
     }
 
     duty_cmd = bm_algo_pi_step(&st->pi_current, &cfg->pi_current,

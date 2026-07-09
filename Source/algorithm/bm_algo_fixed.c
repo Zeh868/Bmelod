@@ -3,8 +3,8 @@
  * @brief Q31/Q15 定点算法实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 2.4
- * @date 2026-06-23
+ * @version 2.5
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
@@ -24,6 +24,11 @@
  * 2026-06-17       2.2            zeh            定点第十四批：全族 Q31/Q15 后缀 API 收口
  * 2026-06-23       2.3            zeh            缺陷修复：abs_q15 INT16_MIN UB、Mahony Ki 积分持久化、rms_q31 溢出防护
  * 2026-06-23       2.4            zeh            磁链观测器包装启用 wc_rad_s 衰减截止频率；修正 BM_ALGO_SQRT3_Q31 为精确 Q30 值
+ * 2026-07-09       2.5            zeh            H5：redundant_pair/debounce_analog
+ *                                                q15/q31 差值改宽类型算避免满量程
+ *                                                异号溢出漏报；abs_q15_val 补
+ *                                                INT16_MIN 饱和；H7：abs_q31 补
+ *                                                INT32_MIN 饱和（envelope_q31_step）
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -1007,7 +1012,9 @@ bm_algo_q15_t bm_algo_hpf1_q15_step(bm_algo_hpf1_q15_state_t *state,
                                     bm_algo_q15_t input) {
     int32_t diff;
     int32_t sum;
-    int32_t prod;
+    int64_t prod; /* H8：prod 提宽至 int64，避免满量程阶跃+高 alpha 时
+                   * sum(可达约 ±98303，已超 Q15 量程) * alpha_q15 在
+                   * int32 内乘法溢出 */
     int32_t out;
 
     if (state == NULL || config == NULL) {
@@ -1016,8 +1023,8 @@ bm_algo_q15_t bm_algo_hpf1_q15_step(bm_algo_hpf1_q15_state_t *state,
 
     diff = (int32_t)input - (int32_t)state->prev_input;
     sum = (int32_t)state->prev_output + diff;
-    prod = sum * (int32_t)config->alpha_q15;
-    out = prod >> 15;
+    prod = (int64_t)sum * (int64_t)config->alpha_q15;
+    out = (int32_t)(prod >> 15);
     out = saturate_q15_i32(out);
     state->prev_input = input;
     state->prev_output = (bm_algo_q15_t)out;
@@ -1184,6 +1191,8 @@ bm_algo_q31_t bm_algo_hpf1_q31_step(bm_algo_hpf1_q31_state_t *state,
                                     bm_algo_q31_t input) {
     int64_t diff;
     int64_t sum;
+    int64_t alpha_mag;
+    int64_t sum_limit;
     int64_t prod;
 
     if (state == NULL || config == NULL) {
@@ -1192,6 +1201,25 @@ bm_algo_q31_t bm_algo_hpf1_q31_step(bm_algo_hpf1_q31_state_t *state,
 
     diff = (int64_t)input - (int64_t)state->prev_input;
     sum = (int64_t)state->prev_output + diff;
+
+    /* H8：sum 是超 Q31 量程的宽累加器（最大约 ±3×2^31），已无更宽的原生
+     * 整型可再提宽；sum * alpha_q31 在满量程阶跃 + 高 alpha 时仍可能超出
+     * int64 范围导致乘法溢出。按 alpha 幅值动态算出安全上界并饱和 sum，
+     * 保证乘法不溢出——该饱和只在真正逼近满量程的极端场景生效，此时
+     * 结果本就会被下面 saturate_q31_i64 钳到 Q31 边界，不影响正常工况
+     * 精度。 */
+    alpha_mag = (config->alpha_q31 < 0)
+                    ? -(int64_t)config->alpha_q31
+                    : (int64_t)config->alpha_q31;
+    if (alpha_mag > 0) {
+        sum_limit = INT64_MAX / alpha_mag;
+        if (sum > sum_limit) {
+            sum = sum_limit;
+        } else if (sum < -sum_limit) {
+            sum = -sum_limit;
+        }
+    }
+
     prod = sum * (int64_t)config->alpha_q31;
     state->prev_input = input;
     state->prev_output = saturate_q31_i64(prod >> 31);
@@ -1456,7 +1484,15 @@ void bm_algo_envelope_q31_reset(bm_algo_envelope_q31_state_t *state,
     }
 }
 
+/**
+ * @brief Q31 绝对值，对 INT32_MIN 饱和为 INT32_MAX（避免 -(-2^31) 窄化 UB，H7）
+ * @param v 输入 Q31 值
+ * @return 绝对值（饱和处理）
+ */
 static bm_algo_q31_t abs_q31(bm_algo_q31_t v) {
+    if (v == (bm_algo_q31_t)INT32_MIN) {
+        return (bm_algo_q31_t)INT32_MAX;
+    }
     return (v < 0) ? (bm_algo_q31_t)(-(int64_t)v) : v;
 }
 
@@ -2014,7 +2050,15 @@ bm_algo_q15_t bm_algo_trapezoid_q15_step(bm_algo_trapezoid_q15_state_t *state,
     return state->position;
 }
 
+/**
+ * @brief Q15 绝对值，对 INT16_MIN 饱和为 INT16_MAX（避免 -(-32768) 窄化 UB，H5）
+ * @param v 输入 Q15 值
+ * @return 绝对值（饱和处理）
+ */
 static bm_algo_q15_t abs_q15_val(bm_algo_q15_t v) {
+    if (v == (bm_algo_q15_t)INT16_MIN) {
+        return (bm_algo_q15_t)INT16_MAX;
+    }
     return (v < 0) ? (bm_algo_q15_t)(-(int32_t)v) : v;
 }
 
@@ -2029,11 +2073,14 @@ uint32_t bm_algo_redundant_pair_q15_step(
     bm_algo_q15_t a,
     bm_algo_q15_t b,
     const bm_algo_redundant_pair_q15_config_t *config) {
-    bm_algo_q15_t diff;
+    int32_t diff; /* H5：在 int32 内算差，避免 a、b 满量程异号时窄化溢出漏报 */
     bm_algo_q15_t ref;
     bm_algo_q15_t tol;
 
-    diff = abs_q15_val(a - b);
+    diff = (int32_t)a - (int32_t)b;
+    if (diff < 0) {
+        diff = -diff;
+    }
     if (config == NULL) {
         return (diff > 0) ? BM_ALGO_FAULT_REDUNDANT_MISMATCH : 0u;
     }
@@ -2044,7 +2091,7 @@ uint32_t bm_algo_redundant_pair_q15_step(
     }
     tol = saturate_q15_i32((int32_t)config->tolerance_abs +
                            (int32_t)mul_q15(config->tolerance_rel, ref));
-    if (diff > tol) {
+    if (diff > (int32_t)tol) {
         return BM_ALGO_FAULT_REDUNDANT_MISMATCH;
     }
     return 0u;
@@ -2054,11 +2101,14 @@ uint32_t bm_algo_redundant_pair_q31_step(
     bm_algo_q31_t a,
     bm_algo_q31_t b,
     const bm_algo_redundant_pair_q31_config_t *config) {
-    bm_algo_q31_t diff;
+    int64_t diff; /* H5：在 int64 内算差，避免 a、b 满量程异号时 int32 减法溢出漏报 */
     bm_algo_q31_t ref;
     bm_algo_q31_t tol;
 
-    diff = abs_q31_val(a - b);
+    diff = (int64_t)a - (int64_t)b;
+    if (diff < 0) {
+        diff = -diff;
+    }
     if (config == NULL) {
         return (diff > 0) ? BM_ALGO_FAULT_REDUNDANT_MISMATCH : 0u;
     }
@@ -2069,7 +2119,7 @@ uint32_t bm_algo_redundant_pair_q31_step(
     }
     tol = saturate_q31_i64((int64_t)config->tolerance_abs +
                            (int64_t)mul_q31(config->tolerance_rel, ref));
-    if (diff > tol) {
+    if (diff > (int64_t)tol) {
         return BM_ALGO_FAULT_REDUNDANT_MISMATCH;
     }
     return 0u;
@@ -2345,14 +2395,17 @@ int bm_algo_debounce_analog_q15_step(
     bm_algo_debounce_analog_q15_state_t *state,
     const bm_algo_debounce_analog_q15_config_t *config,
     bm_algo_q15_t sample_q15) {
-    bm_algo_q15_t diff;
+    int32_t diff; /* H5：int32 内算差，避免满量程异号窄化溢出漏报 */
 
     if (state == NULL || config == NULL) {
         return 0;
     }
 
-    diff = abs_q15_val(sample_q15 - state->candidate_q15);
-    if (diff <= config->tolerance_q15) {
+    diff = (int32_t)sample_q15 - (int32_t)state->candidate_q15;
+    if (diff < 0) {
+        diff = -diff;
+    }
+    if (diff <= (int32_t)config->tolerance_q15) {
         state->stable_count++;
     } else {
         state->candidate_q15 = sample_q15;
@@ -2658,14 +2711,17 @@ int bm_algo_debounce_analog_q31_step(
     bm_algo_debounce_analog_q31_state_t *state,
     const bm_algo_debounce_analog_q31_config_t *config,
     bm_algo_q31_t sample_q31) {
-    bm_algo_q31_t diff;
+    int64_t diff; /* H5：int64 内算差，避免满量程异号 int32 减法溢出漏报 */
 
     if (state == NULL || config == NULL) {
         return 0;
     }
 
-    diff = abs_q31_val(sample_q31 - state->candidate_q31);
-    if (diff <= config->tolerance_q31) {
+    diff = (int64_t)sample_q31 - (int64_t)state->candidate_q31;
+    if (diff < 0) {
+        diff = -diff;
+    }
+    if (diff <= (int64_t)config->tolerance_q31) {
         state->stable_count++;
     } else {
         state->candidate_q31 = sample_q31;

@@ -3,8 +3,8 @@
  * @brief 电池等效模型实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-13
+ * @version 1.2
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
@@ -12,6 +12,10 @@
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       1.0            zeh            补齐 Doxygen 注释，版本与头文件对齐
  * 2026-06-23       1.1            zeh            电压更新增加协方差对角元正定性兜底
+ * 2026-07-09       1.2            zeh            H9：soc_ekf_predict/
+ *                                                update_voltage 补 NaN/Inf
+ *                                                输入护栏，避免一次毛刺永久
+ *                                                污染 soc/bias_a/协方差状态
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -66,7 +70,11 @@ void bm_algo_soc_ekf_predict(bm_algo_soc_ekf_state_t *state,
     float p10;
     float p11;
 
+    /* H9：current_a/dt_s 非有限（NaN/Inf）会经 dsoc 直接污染 soc，
+     * 而 bm_algo_clamp_f 对 NaN 不钳位，一次毛刺即可永久损坏持久状态；
+     * 入口拒绝更新，保持旧状态不变。 */
     if (state == NULL || config == NULL || dt_s <= 0.0f ||
+        !bm_algo_is_finite_f(dt_s) || !bm_algo_is_finite_f(current_a) ||
         config->nominal_capacity_ah <= 0.0f) {
         return;
     }
@@ -120,6 +128,11 @@ void bm_algo_soc_ekf_update_voltage(bm_algo_soc_ekf_state_t *state,
     float slope;
 
     if (state == NULL || config == NULL) {
+        return;
+    }
+    /* H9：terminal_v/ocv_from_soc 非有限会经 y/k0/k1 污染 soc/bias_a
+     * 持久状态，入口拒绝更新，保持旧状态不变。 */
+    if (!bm_algo_is_finite_f(terminal_v) || !bm_algo_is_finite_f(ocv_from_soc)) {
         return;
     }
 

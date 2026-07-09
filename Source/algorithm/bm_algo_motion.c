@@ -3,8 +3,8 @@
  * @brief 运动辅助：编码器与 DDA 实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-13
+ * @version 1.2
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
@@ -12,6 +12,9 @@
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-13       1.1            zeh            增加步进脉冲生成
  * 2026-06-23       1.1            zeh            补齐 Doxygen 注释
+ * 2026-07-09       1.2            zeh            H6：encoder_diag_step 的
+ *                                                delta 计算改 int64 提宽，
+ *                                                避免计数跨 INT32 边界溢出
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -240,16 +243,18 @@ uint32_t bm_algo_encoder_diag_step(bm_algo_encoder_diag_state_t *state,
                                    int32_t raw_count,
                                    int index_pulse_seen) {
     uint32_t faults = BM_ALGO_ENCODER_FAULT_NONE;
-    int32_t delta;
+    int64_t delta; /* H6：int32 直减在 raw_count/prev_count 跨越
+                    * INT32_MAX/MIN 边界时溢出 UB，照 bm_algo_encoder_update
+                    * 的做法用 int64 提宽规避 */
 
     if (state == NULL || config == NULL) {
         return faults;
     }
 
-    delta = raw_count - state->prev_count;
+    delta = (int64_t)raw_count - (int64_t)state->prev_count;
     if (config->max_delta_per_step > 0 &&
-        (delta > config->max_delta_per_step ||
-         delta < -config->max_delta_per_step)) {
+        (delta > (int64_t)config->max_delta_per_step ||
+         delta < -(int64_t)config->max_delta_per_step)) {
         faults |= BM_ALGO_ENCODER_FAULT_MISSED;
     }
 

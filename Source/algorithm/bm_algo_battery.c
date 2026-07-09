@@ -3,8 +3,8 @@
  * @brief 电池算法实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-13
+ * @version 1.2
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
@@ -13,6 +13,9 @@
  * 2026-06-23       1.1            zeh            修复 bm_algo_soh_update 小段放电虚报问题：
  *                                                添加有效循环阈值判定，并对学习容量做指数平滑；
  *                                                在 charge_ah 赋值处补充语义注释
+ * 2026-07-09       1.2            zeh            H9：coulomb_step 补 NaN/Inf
+ *                                                输入护栏，避免一次毛刺永久
+ *                                                污染 charge_ah/soc 持久状态
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -34,7 +37,11 @@ float bm_algo_coulomb_step(bm_algo_coulomb_state_t *state,
     float delta_soc;
     float cap;
 
+    /* H9：current_a/dt_s 非有限（NaN/Inf）会先污染 charge_ah 再污染 soc，
+     * 而 bm_algo_clamp_f 对 NaN 不钳位，一次毛刺即可永久损坏持久状态；
+     * 入口拒绝更新，保持旧 soc 不变。 */
     if (state == NULL || config == NULL || dt_s <= 0.0f ||
+        !bm_algo_is_finite_f(dt_s) || !bm_algo_is_finite_f(current_a) ||
         config->nominal_capacity_ah <= 0.0f) {
         return state != NULL ? state->soc : 0.0f;
     }

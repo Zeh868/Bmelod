@@ -2,8 +2,8 @@
  * @file daq_frontend.c
  * @brief DAQ 前端组件实现
  * @author zeh (china_qzh@163.com)
- * @version 0.3
- * @date 2026-06-13
+ * @version 0.4
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
@@ -11,6 +11,11 @@
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补全 Doxygen 中文注释；添加 SPDX 头
  * 2026-06-23       0.3            zeh            修复预触发缓冲在触发后仍写入导致快照被污染
+ * 2026-07-09       0.4            zeh            H11：copy_pre_trigger 绕回
+ *                                                判断改用 pre_trigger_count
+ *                                                而非被 dst_len 截断的 n，
+ *                                                修复已绕回+dst_len<cap 时
+ *                                                快照乱序
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -226,7 +231,11 @@ uint32_t bm_daq_frontend_copy_pre_trigger(const bm_daq_frontend_axis_t *axis,
     if (n > dst_len) {
         n = dst_len;
     }
-    if (n < cap) {
+    /* 分支须按环形缓冲"是否已绕回"（pre_trigger_count 是否达到 cap）判断，
+     * 而非按本次请求量 n——n 会被 dst_len 截断，若缓冲已绕回但调用方
+     * dst_len < cap，用 n 判断会误走"未绕回"分支，从 buffer[0] 直拷，
+     * 产出乱序（非按时间由旧到新）的快照。 */
+    if (st->pre_trigger_count < cap) {
         for (i = 0u; i < n; i++) {
             dst[i] = st->pre_trigger_buffer[i];
         }

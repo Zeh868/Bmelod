@@ -424,8 +424,10 @@ static void gcc_phat_fill_time(float *ri, uint32_t fft_n, const float *src,
 /**
  * @brief 原址计算归一化互功率谱（PHAT 加权）
  *
- * PHAT 加权公式：R(k) = X_ref(k) * conj(X_sig(k)) / |X_ref(k) * conj(X_sig(k))|
+ * PHAT 加权公式：R(k) = conj(X_ref(k)) * X_sig(k) / |conj(X_ref(k)) * X_sig(k)|
  * 归一化使所有频率分量幅值为 1，增强时延估计对宽带噪声的鲁棒性。
+ * 注：此约定使 bm_algo_gcc_phat_delay 的正值表示 sig 落后 ref（见头文件契约），
+ * 与下方 cr/ci 的实现（cr=rr*sr+ri*si, ci=rr*si-ri*sr）一致。
  * 幅值低于 1e-12 时将该频率箱置零以防止除零。
  *
  * @param ref_spec 参考信号频谱（原址修改为归一化互功率谱），长度 2*fft_n

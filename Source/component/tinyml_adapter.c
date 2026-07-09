@@ -455,6 +455,14 @@ static int run_maxpool_2x2_node(const bm_tinyml_tensor_t *in_tensor,
 
     oh = h / 2u;
     ow = w / 2u;
+    /* 写入前校验输出缓冲容量（照兄弟算子 depthwise/conv2d 的约定），
+     * 并防 oh*ow 的乘法溢出。 */
+    if (oh > 0u && ow > UINT32_MAX / oh) {
+        return -1;
+    }
+    if (out_tensor->byte_count < oh * ow) {
+        return -1;
+    }
 
     for (y = 0u; y < oh; ++y) {
         for (x = 0u; x < ow; ++x) {

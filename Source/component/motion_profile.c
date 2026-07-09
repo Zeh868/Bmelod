@@ -6,14 +6,18 @@
  * 并提供 bm_exec_ops_t 调度封装以接入 bm_exec 生命周期管理。
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.2
- * @date 2026-06-17
+ * @version 0.3
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-17       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 NULL 保护（validate/goto/step）；exec_ops；Doxygen；SPDX
+ * 2026-07-09       0.3            zeh            H12：exec_safe_stop 补清零
+ *                                                trapezoid/scurve.velocity，
+ *                                                修复急停后 step() 仍回显
+ *                                                残留速度
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -150,8 +154,12 @@ void bm_motion_profile_exec_safe_stop(const bm_exec_t *instance) {
         return;
     }
     axis = (bm_motion_profile_axis_t *)instance->state;
-    /* 安全停止：清除运动激活标志，停止轨迹输出 */
+    /* 安全停止：清除运动激活标志，并清零底层梯形/S 曲线速度状态——
+     * 否则 step() 在 !active 分支仍会原样回显停止前残留的非零速度
+     * （H12），下游误以为轴仍在运动。 */
     axis->state.active = 0;
+    axis->state.trapezoid.velocity = 0.0f;
+    axis->state.scurve.velocity = 0.0f;
 }
 
 const bm_exec_ops_t bm_motion_profile_exec_ops = {

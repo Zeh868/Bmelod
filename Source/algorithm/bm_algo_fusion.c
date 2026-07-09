@@ -3,8 +3,8 @@
  * @brief 姿态融合算法实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.2
- * @date 2026-06-23
+ * @version 1.3
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
@@ -12,6 +12,10 @@
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-17       1.1            zeh            增加 IMU 偏置/比例标定
  * 2026-06-23       1.2            zeh            NaN 拦截改用 bm_algo_is_finite_f；Mahony 积分项增加对称限幅
+ * 2026-07-09       1.3            zeh            H10：Mahony/Madgwick 补陀螺
+ *                                                gx/gy/gz 有限性校验，非有限
+ *                                                则跳过本次积分，避免污染
+ *                                                四元数持久状态
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -116,6 +120,13 @@ void bm_algo_mahony_step(bm_algo_mahony_state_t *state,
     if (state == NULL || config == NULL || dt_s <= 0.0f) {
         return;
     }
+    /* H10：陀螺 gx/gy/gz 无论加速度计路径是否生效都直接参与 q_dot 计算，
+     * 一旦为 NaN/Inf 会立即污染四元数持久状态；非有限则跳过本次积分，
+     * 保持上一次有限的姿态估计不变。 */
+    if (!bm_algo_is_finite_f(gx) || !bm_algo_is_finite_f(gy) ||
+        !bm_algo_is_finite_f(gz)) {
+        return;
+    }
 
     q0 = state->q.w;
     q1 = state->q.x;
@@ -204,6 +215,13 @@ void bm_algo_madgwick_step(bm_algo_madgwick_state_t *state,
     float q_dot3;
 
     if (state == NULL || config == NULL || dt_s <= 0.0f) {
+        return;
+    }
+    /* H10：陀螺 gx/gy/gz 无论加速度计路径是否生效都直接参与 q_dot 计算，
+     * 一旦为 NaN/Inf 会立即污染四元数持久状态；非有限则跳过本次积分，
+     * 保持上一次有限的姿态估计不变。 */
+    if (!bm_algo_is_finite_f(gx) || !bm_algo_is_finite_f(gy) ||
+        !bm_algo_is_finite_f(gz)) {
         return;
     }
 

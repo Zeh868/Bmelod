@@ -5,8 +5,8 @@
  *
  * 基于 HAL 定时器 ISR 按周期触发回调；支持 deadline 错过弱钩子。
  * @author zeh (china_qzh@163.com)
- * @version 1.6
- * @date 2026-07-02
+ * @version 1.7
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
@@ -19,6 +19,9 @@
  * 2026-06-15       1.5            zeh            协作式 bm_hrt_poll 供 QEMU 慢仿真
  * 2026-07-02       1.6            zeh            QD-6：cache-line 补齐改用 union，
  *                                                消除 MSVC C2233
+ * 2026-07-09       1.7            zeh            H3：hrt_dispatch 连错多周期时
+ *                                                deadline_missed 按实际错过
+ *                                                周期数累加，而非固定 +1
  *
  */
 #include "bm_hrt.h"
@@ -177,8 +180,13 @@ static void hrt_dispatch(bm_hrt_cpu_state_t *state) {
             continue;
         }
         if ((uint32_t)(now - slot->next_tick) >= slot->period_ticks) {
+            /* 一次 ISR 内可能连错 N(>1) 个周期，按实际错过周期数饱和
+             * 累加，而非固定 +1（否则连错场景严重低估 miss 程度）。 */
+            uint32_t missed_periods =
+                1u + (uint32_t)(now - slot->next_tick) / slot->period_ticks;
+
             slot->deadline_missed =
-                bm_u32_saturating_inc(slot->deadline_missed);
+                bm_u32_saturating_add(slot->deadline_missed, missed_periods);
             bm_hrt_deadline_missed_hook(&slot->pub);
 #if BM_CONFIG_HRT_RUN_MISSED_CALLBACK
             if (slot->pub.callback) {

@@ -355,6 +355,54 @@ void test_tinyml_graph_maxpool_2x2_node(void) {
     TEST_ASSERT_EQUAL_INT8(expected[3], tensors[1].data[3]);
 }
 
+void test_tinyml_graph_maxpool_2x2_rejects_undersized_output(void) {
+    bm_tinyml_arena_t arena;
+    bm_tinyml_tensor_t tensors[2];
+    uint32_t in_dims[2] = { 4u, 4u };
+    bm_tinyml_quant_params_t quant = { .scale = 1.0f, .zero_point = 0 };
+    bm_tinyml_graph_node_t nodes[1];
+    bm_tinyml_graph_t graph;
+    /* 4x4 输入 2x2 池化应产出 2x2=4 字节，但 out_tensor 只声明容量 2，
+     * out_region[2]/[3] 是越界哨兵，不应被写入。 */
+    int8_t out_region[4];
+    uint32_t i;
+
+    bm_tinyml_arena_reset(&arena);
+    TEST_ASSERT_EQUAL(0, bm_tinyml_tensor_alloc_i8(&arena, &tensors[0],
+                                                   in_dims, 2u, &quant));
+    for (i = 0u; i < 16u; ++i) {
+        tensors[0].data[i] = (int8_t)(i + 1);
+    }
+
+    memset(&tensors[1], 0, sizeof(tensors[1]));
+    tensors[1].data = out_region;
+    tensors[1].byte_count = 2u;
+    tensors[1].ndim = 2u;
+    tensors[1].dims[0] = 2u;
+    tensors[1].dims[1] = 2u;
+    tensors[1].scale = 1.0f;
+    out_region[2] = (int8_t)111;
+    out_region[3] = (int8_t)111;
+
+    nodes[0].op = BM_TINYML_OP_MAXPOOL_2X2;
+    nodes[0].input_tensor = 0u;
+    nodes[0].input_tensor_b = 0u;
+    nodes[0].output_tensor = 1u;
+    nodes[0].fc_weights = NULL;
+    nodes[0].fc_in_dim = 0u;
+    nodes[0].fc_out_dim = 0u;
+
+    graph.nodes = nodes;
+    graph.node_count = 1u;
+    graph.arena = &arena;
+    graph.tensors = tensors;
+    graph.tensor_count = 2u;
+
+    TEST_ASSERT_NOT_EQUAL(0, bm_tinyml_graph_run(&graph, NULL, 0u, NULL, 0u));
+    TEST_ASSERT_EQUAL_INT8(111, out_region[2]);
+    TEST_ASSERT_EQUAL_INT8(111, out_region[3]);
+}
+
 static void test_tinyml_graph_depthwise_conv2d_node(void) {
     bm_tinyml_arena_t arena;
     bm_tinyml_tensor_t tensors[2];
@@ -736,6 +784,7 @@ int main(void) {
     RUN_TEST(test_tinyml_graph_add_node);
     RUN_TEST(test_tinyml_graph_mul_node);
     RUN_TEST(test_tinyml_graph_maxpool_2x2_node);
+    RUN_TEST(test_tinyml_graph_maxpool_2x2_rejects_undersized_output);
     RUN_TEST(test_tinyml_graph_depthwise_conv2d_node);
     RUN_TEST(test_tinyml_graph_conv2d_1x1_node);
     RUN_TEST(test_tinyml_conv2d_1x1_degenerate);

@@ -52,9 +52,12 @@ void bm_radar_frontend_reset(bm_radar_frontend_axis_t *axis) {
         return;
     }
     if (axis->state.clutter_mean != NULL &&
-        axis->state.profile_len > 0u) {
+        axis->config.fft_size > 0u) {
+        /* clutter_mean 契约长度为 fft_size/2（见 feed_chirp 中 bins 的写入范围），
+         * 而非 profile_len（distance profile 缓冲长度，≥ fft_size），
+         * 用 profile_len 计算会越界写 clutter_mean 缓冲之外的内存。 */
         memset(axis->state.clutter_mean, 0,
-               (size_t)axis->state.profile_len * sizeof(float));
+               ((size_t)axis->config.fft_size / 2u) * sizeof(float));
     }
     axis->state.step_count = 0u;
     memset(&axis->state.telemetry, 0, sizeof(axis->state.telemetry));

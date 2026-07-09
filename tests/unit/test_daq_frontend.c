@@ -171,6 +171,43 @@ void test_daq_frontend_pre_trigger_partial_copy(void) {
 }
 
 /**
+ * @brief H11 回归：预触发缓冲已绕回（写满超 cap 次）后，用 dst_len < cap
+ *        的小目标数组 copy，须仍按真实时间顺序（从 head 开始）取最旧的
+ *        n 个样本，而非误判为"未绕回"直接从 buffer[0] 拷贝
+ *
+ * PRE_BUF_LEN=8；推入 12 个样本（值=索引*0.01f），使缓冲绕回一轮
+ * （head=4，物理内容按写入序覆盖）。真实时间序（旧→新）应为
+ * [0.04, 0.05, ..., 0.11]；用 dst_len=5 只取最旧 5 个，
+ * 期望 [0.04, 0.05, 0.06, 0.07, 0.08]。
+ */
+void test_daq_frontend_pre_trigger_wrapped_partial_copy_correct_order(void) {
+    bm_daq_frontend_axis_t axis;
+    float dst[5];
+    uint32_t n;
+    uint32_t i;
+    static const float expected[5] = { 0.04f, 0.05f, 0.06f, 0.07f, 0.08f };
+
+    make_axis(&axis, PRE_BUF_LEN, 16u, TRIGGER_LEVEL);
+    TEST_ASSERT_EQUAL(BM_OK, bm_daq_frontend_init(
+        &axis, g_rms_buf, RMS_BUF_LEN, g_pre_buf, PRE_BUF_LEN));
+
+    bm_daq_frontend_arm(&axis);
+
+    /* 推入 12 个样本（均低于触发电平），使 8 深度环形缓冲绕回一轮 */
+    for (i = 0u; i < 12u; i++) {
+        bm_daq_frontend_feed(&axis, (float)i * 0.01f);
+    }
+    TEST_ASSERT_EQUAL(0, axis.state.triggered);
+    TEST_ASSERT_EQUAL(PRE_BUF_LEN, axis.state.pre_trigger_count);
+
+    n = bm_daq_frontend_copy_pre_trigger(&axis, dst, 5u);
+    TEST_ASSERT_EQUAL(5u, n);
+    for (i = 0u; i < 5u; i++) {
+        TEST_ASSERT_FLOAT_WITHIN(1e-5f, expected[i], dst[i]);
+    }
+}
+
+/**
  * @brief 未 armed 时 feed 返回 BM_ERR_INVALID
  */
 void test_daq_frontend_feed_without_arm_returns_invalid(void) {
@@ -281,6 +318,7 @@ int main(void) {
     RUN_TEST(test_daq_frontend_arm_feed_trigger_capture_done);
     RUN_TEST(test_daq_frontend_pre_trigger_copy_correct_order);
     RUN_TEST(test_daq_frontend_pre_trigger_partial_copy);
+    RUN_TEST(test_daq_frontend_pre_trigger_wrapped_partial_copy_correct_order);
     RUN_TEST(test_daq_frontend_feed_without_arm_returns_invalid);
     RUN_TEST(test_daq_frontend_reset_clears_state);
     RUN_TEST(test_daq_frontend_peak_tracks_max_abs);

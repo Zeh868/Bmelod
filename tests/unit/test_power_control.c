@@ -35,6 +35,14 @@ static int read_fb(void *user, float *v_out_v, float *i_out_a) {
     return 0;
 }
 
+/** H13：模拟电流采样失败（返回非零），v_out/i_out 均写 0 模拟"读不到" */
+static int read_fb_fail(void *user, float *v_out_v, float *i_out_a) {
+    (void)user;
+    *v_out_v = 0.0f;
+    *i_out_a = 0.0f;
+    return -1;
+}
+
 static int write_duty(void *user, float duty) {
     float v_target;
     float i_target;
@@ -115,8 +123,48 @@ void test_power_control_tracks_voltage_setpoint(void) {
     TEST_ASSERT_TRUE(g_tel_count > 0u);
 }
 
+/**
+ * @brief H13 回归：current_step 中 read_feedback 失败时须锁存故障、
+ *        输出安全占空比 duty_min，不得以 i_out=0 喂 PI 施加错误大修正
+ */
+void test_power_control_current_step_latches_fault_on_feedback_failure(void) {
+    bm_power_control_axis_t axis;
+    bm_power_ctrl_cmd_t cmd;
+
+    memset(&axis, 0, sizeof(axis));
+    axis.config.pi_current.kp = 1.0f;
+    axis.config.pi_current.ki = 20.0f;
+    axis.config.pi_current.out_min = 0.0f;
+    axis.config.pi_current.out_max = 1.0f;
+    axis.config.pi_current.integrator_min = -2.0f;
+    axis.config.pi_current.integrator_max = 2.0f;
+    axis.config.duty_min = 0.0f;
+    axis.config.duty_max = 1.0f;
+    axis.config.current_dt_s = 0.001f;
+    axis.resources.read_feedback = read_fb_fail;
+    axis.resources.write_duty = write_duty;
+    axis.resources.publish_telemetry = publish_tel;
+
+    bm_power_control_reset(&axis);
+
+    cmd.sequence = 1u;
+    cmd.status = BM_POWER_CTRL_CMD_ENABLED;
+    cmd.v_set_v = 0.0f;
+    bm_power_control_apply_command(&axis, &cmd);
+
+    /* 模拟电压环已算出较大参考电流，验证不会被误用来施加大修正 */
+    axis.state.i_ref_a = 5.0f;
+
+    bm_power_control_current_step(&axis);
+
+    TEST_ASSERT_EQUAL(1, axis.state.fault_latched);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, axis.config.duty_min, axis.state.duty);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, axis.config.duty_min, g_last_duty);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_power_control_tracks_voltage_setpoint);
+    RUN_TEST(test_power_control_current_step_latches_fault_on_feedback_failure);
     return UNITY_END();
 }

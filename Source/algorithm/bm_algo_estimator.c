@@ -3,8 +3,8 @@
  * @brief 固定维度状态估算实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.3
- * @date 2026-06-23
+ * @version 1.4
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
@@ -13,6 +13,9 @@
  * 2026-06-17       1.1            zeh            增加 1D UKF 与 EKF 创新门控
  * 2026-06-23       1.2            zeh            KF 更新分母阈值放宽为 1e-9f；UKF β 修正项补注释
  * 2026-06-23       1.3            zeh            落地 UKF β 协方差修正项：pzz 中 i=0 项使用 w0_cov
+ * 2026-07-09       1.4            zeh            H9：ekf_cv_predict/update 补
+ *                                                NaN/Inf 输入护栏，避免一次
+ *                                                毛刺永久污染持久协方差状态
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -114,7 +117,12 @@ void bm_algo_ekf_cv_predict(bm_algo_ekf_cv_state_t *state,
     float p10;
     float p11;
 
-    if (state == NULL || config == NULL || dt_s <= 0.0f) {
+    /* H9：dt_s/q_pos/q_vel 非有限（NaN/Inf）会经 p00/p11 累加直接污染
+     * 持久协方差状态；一次毛刺即可永久损坏后续估计，故入口拒绝更新，
+     * 保持旧状态不变（照 ekf_cv_update_gated 已有护栏的做法）。 */
+    if (state == NULL || config == NULL || dt_s <= 0.0f ||
+        !bm_algo_is_finite_f(dt_s) || !bm_algo_is_finite_f(config->q_pos) ||
+        !bm_algo_is_finite_f(config->q_vel)) {
         return;
     }
 
@@ -144,6 +152,11 @@ void bm_algo_ekf_cv_update(bm_algo_ekf_cv_state_t *state,
     float p11;
 
     if (state == NULL || config == NULL) {
+        return;
+    }
+    /* H9：pos_meas/r_pos 非有限会经 k0/k1 污染 pos/vel/p* 持久状态，
+     * 入口拒绝更新，保持旧状态不变。 */
+    if (!bm_algo_is_finite_f(pos_meas) || !bm_algo_is_finite_f(config->r_pos)) {
         return;
     }
 

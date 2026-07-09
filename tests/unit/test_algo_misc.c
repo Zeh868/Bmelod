@@ -423,6 +423,53 @@ static void test_review_fixes(void) {
     TEST_ASSERT_EQUAL_INT16(0, gy[8]);
 }
 
+/**
+ * @brief H9 回归：coulomb_step 与 soc_ekf_predict/update_voltage 注入一次
+ *        NaN 输入后，持久状态须保持有限且不变（不得被永久污染）——
+ *        bm_algo_clamp_f 本身对 NaN 不钳位，故须在函数入口拦截。
+ */
+static void test_h9_nan_guard_rejects_and_preserves_state(void) {
+    bm_algo_coulomb_config_t coulomb_cfg = {
+        .nominal_capacity_ah = 10.0f,
+        .coulomb_efficiency = 1.0f,
+        .soc_min = 0.0f,
+        .soc_max = 1.0f
+    };
+    bm_algo_coulomb_state_t coulomb_st;
+    float nan_val = NAN;
+    float soc_after;
+    bm_algo_soc_ekf_config_t ekf_cfg = {
+        .q_soc = 1e-6f,
+        .q_bias = 1e-8f,
+        .r_v = 0.01f,
+        .coulomb_efficiency = 1.0f,
+        .nominal_capacity_ah = 10.0f,
+        .ocv_slope_v_per_soc = 0.5f
+    };
+    bm_algo_soc_ekf_state_t ekf;
+
+    /* coulomb_step：注入一次 NaN 电流，soc 应保持旧值且有限 */
+    bm_algo_coulomb_reset(&coulomb_st, 0.5f);
+    soc_after = bm_algo_coulomb_step(&coulomb_st, &coulomb_cfg, nan_val, 1.0f);
+    TEST_ASSERT_TRUE(isfinite(soc_after));
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.5f, soc_after);
+    /* 后续正常调用应仍能正常积分，证明状态未被永久污染 */
+    soc_after = bm_algo_coulomb_step(&coulomb_st, &coulomb_cfg, 1.0f, 3600.0f);
+    TEST_ASSERT_TRUE(isfinite(soc_after));
+
+    /* soc_ekf_predict：注入一次 NaN 电流 */
+    bm_algo_soc_ekf_reset(&ekf, 0.5f);
+    bm_algo_soc_ekf_predict(&ekf, &ekf_cfg, nan_val, 1.0f);
+    TEST_ASSERT_TRUE(isfinite(ekf.soc) && isfinite(ekf.p00) && isfinite(ekf.p11));
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.5f, ekf.soc);
+
+    /* soc_ekf_update_voltage：注入一次 NaN 电压 */
+    bm_algo_soc_ekf_reset(&ekf, 0.5f);
+    bm_algo_soc_ekf_update_voltage(&ekf, &ekf_cfg, nan_val, 3.7f);
+    TEST_ASSERT_TRUE(isfinite(ekf.soc) && isfinite(ekf.bias_a));
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.5f, ekf.soc);
+}
+
 void test_algo_misc(void) {
     RUN_TEST(test_coulomb_soc);
     RUN_TEST(test_image_label_merges_connected_pixels);
@@ -438,6 +485,7 @@ void test_algo_misc(void) {
     RUN_TEST(test_detection_matched_and_ultrasonic);
     RUN_TEST(test_w2_audio_spectral_motion);
     RUN_TEST(test_review_fixes);
+    RUN_TEST(test_h9_nan_guard_rejects_and_preserves_state);
 }
 
 int main(void) {
