@@ -268,13 +268,20 @@ static uint32_t tt_gcd(uint32_t a, uint32_t b) {
 
 /**
  * @brief 计算最小公倍数
- * @details 先除后乘，避免 a*b 中间结果在 uint32_t 上溢出。
- * @param a 输入 a
- * @param b 输入 b
- * @return lcm(a, b)
+ * @details 先除后乘（a/gcd*b）避免 a*b 中间量溢出；但 a/gcd*b 本身在极端
+ * 输入下仍可能超 uint32_t，此时返回 0 哨兵表示溢出，由调用方视为非法配置
+ * 拒绝（#1）。合法输入 a,b>0 时 lcm>=1，0 不与任何合法结果冲突。
+ * @param a 输入 a（调用方保证 >0）
+ * @param b 输入 b（调用方保证 >0）
+ * @return lcm(a, b)；若结果溢出 uint32_t 则返回 0
  */
 static uint32_t tt_lcm(uint32_t a, uint32_t b) {
-    return a / tt_gcd(a, b) * b;
+    uint32_t q = a / tt_gcd(a, b);
+
+    if (b != 0u && q > UINT32_MAX / b) {
+        return 0u; /* q*b 会溢出 uint32_t */
+    }
+    return q * b;
 }
 
 /**
@@ -317,7 +324,11 @@ static int tt_frame_check(const bm_tt_schedule_t *s, uint32_t n_frames) {
             continue;
         }
         for (uint32_t t = a->at; t < n_frames; t += a->every) {
-            w[t] += a->wcet_us;
+            /* #2：与快路（上方 sum）一致用饱和加。裸加 w[t]+=wcet 在
+             * minor_us 接近 UINT32_MAX 且单次 wcet 巨大时可能跨 uint32
+             * 回绕、绕回小值而漏检超载；饱和到 UINT32_MAX 后必 > minor_us
+             * 被正确拒。 */
+            w[t] = bm_u32_saturating_add(w[t], a->wcet_us);
             if (w[t] > s->minor_us) {
                 return BM_ERR_INVALID;
             }
@@ -440,9 +451,17 @@ int bm_tt_schedule_init(bm_tt_schedule_t *sched) {
                 return BM_ERR_INVALID;
             }
         }
+        /* #3：以 64 位校验任务周期 minor_us×every 不超 uint32_t。超界时
+         * tt_freeze_inputs / rt_slot_at 中回落 uint32 的 period 会被截断，
+         * 导致 age/stale 判龄与 RTA 导出周期错乱，故 init 期从源头拒。
+         * （当前 every<=256，需 minor_us>16.7s 才触发，属防御性上界。） */
+        if ((uint64_t)sched->minor_us * a->every > UINT32_MAX) {
+            return BM_ERR_INVALID;
+        }
+        /* #1：tt_lcm 溢出时返回 0 哨兵，与 LCM 超 MAX_FRAMES 一并拒。 */
         n = tt_lcm(n, a->every);
-        if (n > BM_CONFIG_TT_SCHED_MAX_FRAMES) {
-            return BM_ERR_INVALID; /* 挡 LCM 爆炸 */
+        if (n == 0u || n > BM_CONFIG_TT_SCHED_MAX_FRAMES) {
+            return BM_ERR_INVALID; /* 挡 LCM 爆炸 / 溢出 */
         }
     }
 
