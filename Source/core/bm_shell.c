@@ -5,9 +5,10 @@
  *
  * 字符回显、退格处理与命令分词执行；通过 Console CLI 通道收发。
  * v1.1 新增：前台模态命令（Ctrl+C 退出）、Tab 命令补全、内建 help 兜底。
+ * v1.2 新增：行历史（↑/↓ 回翻）、ESC 序列吞噬（修箭头键注入垃圾字符）。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-11
  *
  * @par 修改日志:
@@ -15,6 +16,7 @@
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
  * 2026-07-11       1.1            zeh            shell 交互批①：前台模态命令（Ctrl+C 退出）+ Tab 补全 + 内建 help 兜底
+ * 2026-07-11       1.2            zeh            shell 交互批②：行历史（↑/↓ 回翻）+ ESC 序列吞噬（修箭头键注入垃圾字符）
  *
  */
 #include "bm_shell.h"
@@ -77,6 +79,12 @@ void bm_shell_init(bm_shell_t *shell) {
     shell->modal_tick = NULL;
     shell->modal_stop = NULL;
     shell->modal_ctx = NULL;
+    shell->esc_state = 0;
+#if BM_CONFIG_SHELL_HISTORY_DEPTH > 0
+    shell->hist_count = 0;
+    shell->hist_head = 0;
+    shell->hist_nav = 0;
+#endif
     BM_LOGI("shell", "init");
 }
 
@@ -211,6 +219,7 @@ static void _modal_exit(bm_shell_t *shell) {
     shell->modal_tick = NULL;
     shell->modal_stop = NULL;
     shell->modal_ctx = NULL;
+    shell->esc_state = 0; /* 模态期丢字符可能吃掉半截 ESC 序列，退出时归零 */
     if (stop) {
         stop(ctx);
     }
@@ -290,6 +299,100 @@ static void _tab_complete(bm_shell_t *shell) {
     _puts(shell->buf);
 }
 
+#if BM_CONFIG_SHELL_HISTORY_DEPTH > 0
+/**
+ * @brief 整行替换：擦除当前行显示，src 非 NULL 时拷入并回显。
+ *
+ * @param shell Shell 实例（调用方保证非 NULL）
+ * @param src   替换内容；NULL = 仅清空行
+ */
+static void _line_replace(bm_shell_t *shell, const char *src) {
+    while (shell->cursor > 0) {
+        _puts("\b \b");
+        shell->cursor--;
+    }
+    shell->buf[0] = '\0';
+    if (src != NULL) {
+        size_t n = strlen(src);
+        if (n > (size_t)(BM_CONFIG_SHELL_BUF_SIZE - 1)) {
+            n = (size_t)(BM_CONFIG_SHELL_BUF_SIZE - 1);
+        }
+        (void)memcpy(shell->buf, src, n);
+        shell->buf[n] = '\0';
+        shell->cursor = (uint8_t)n;
+        _puts(shell->buf);
+    }
+}
+
+/**
+ * @brief 取浏览位置对应的历史条目。
+ *
+ * @param shell Shell 实例
+ * @param nav   浏览位置（1=最新..hist_count=最旧）
+ * @return 条目字符串（环形表内，NUL 结尾）
+ */
+static const char *_hist_at(const bm_shell_t *shell, uint8_t nav) {
+    uint8_t idx = (uint8_t)((shell->hist_head +
+                             (uint8_t)BM_CONFIG_SHELL_HISTORY_DEPTH - nav) %
+                            (uint8_t)BM_CONFIG_SHELL_HISTORY_DEPTH);
+    return shell->hist[idx];
+}
+
+/**
+ * @brief ↑：向更旧一条回翻并整行替换；无历史/已到最旧时响铃。
+ */
+static void _hist_up(bm_shell_t *shell) {
+    if (shell->hist_count == 0u || shell->hist_nav >= shell->hist_count) {
+        _puts("\a");
+        return;
+    }
+    shell->hist_nav++;
+    _line_replace(shell, _hist_at(shell, shell->hist_nav));
+}
+
+/**
+ * @brief ↓：向更新一条回翻；越过最新 = 清空行；非浏览态无操作。
+ */
+static void _hist_down(bm_shell_t *shell) {
+    if (shell->hist_nav == 0u) {
+        return;
+    }
+    shell->hist_nav--;
+    if (shell->hist_nav == 0u) {
+        _line_replace(shell, NULL);
+        return;
+    }
+    _line_replace(shell, _hist_at(shell, shell->hist_nav));
+}
+
+/**
+ * @brief 非空行入环形历史；与最近一条相同则去重。
+ *
+ * 须在 bm_shell_exec 之前调用（exec 就地分词会改写行缓冲）。
+ */
+static void _hist_push(bm_shell_t *shell, const char *line) {
+    size_t n;
+
+    if (line[0] == '\0') {
+        return;
+    }
+    if (shell->hist_count > 0u && _strcmp(_hist_at(shell, 1u), line) == 0) {
+        return;
+    }
+    n = strlen(line);
+    if (n > (size_t)(BM_CONFIG_SHELL_BUF_SIZE - 1)) {
+        n = (size_t)(BM_CONFIG_SHELL_BUF_SIZE - 1);
+    }
+    (void)memcpy(shell->hist[shell->hist_head], line, n);
+    shell->hist[shell->hist_head][n] = '\0';
+    shell->hist_head = (uint8_t)((shell->hist_head + 1u) %
+                                 (uint8_t)BM_CONFIG_SHELL_HISTORY_DEPTH);
+    if (shell->hist_count < (uint8_t)BM_CONFIG_SHELL_HISTORY_DEPTH) {
+        shell->hist_count++;
+    }
+}
+#endif /* BM_CONFIG_SHELL_HISTORY_DEPTH > 0 */
+
 /**
  * @brief 处理单个输入字符（回显、退格、Tab 补全、回车执行、模态 Ctrl+C）
  *
@@ -316,8 +419,45 @@ void bm_shell_feed(bm_shell_t *shell, char c) {
     }
     shell->swallow_lf = 0;
 
+    /* ESC 序列微状态机：吞 CSI（ESC[）/SS3（ESC O）序列——↑/↓ 触发历史，
+     * 其余序列（←→/Home/End/Del…）静默吞掉，修「箭头键注入 [A 垃圾字符」。
+     * 序列中出现非法字节（不在参数/终字节范围）：中止序列，该字节按普通
+     * 字符继续走后续分支。 */
+    if (shell->esc_state == 1u) {
+        if (c == '[' || c == 'O') {
+            shell->esc_state = 2u;
+            return;
+        }
+        shell->esc_state = 0u; /* 独立 ESC：丢弃 ESC 本身，c 继续正常处理 */
+    } else if (shell->esc_state == 2u) {
+        unsigned char uc = (unsigned char)c;
+
+        if (uc >= 0x20u && uc <= 0x3Fu) {
+            return; /* 参数/中间字节（如 ESC[1;5A 的 1;5），继续吞 */
+        }
+        shell->esc_state = 0u;
+        if (uc >= 0x40u && uc <= 0x7Eu) {
+#if BM_CONFIG_SHELL_HISTORY_DEPTH > 0
+            if (c == 'A') {
+                _hist_up(shell);
+            } else if (c == 'B') {
+                _hist_down(shell);
+            }
+#endif
+            return; /* 终字节：A/B 触发历史，其余静默吞掉 */
+        }
+        /* 非法字节：中止序列，按普通字符继续处理 */
+    }
+    if (c == 0x1B) {
+        shell->esc_state = 1u;
+        return;
+    }
+
     if (c == '\b' || c == 0x7F) {
         if (shell->cursor > 0) {
+#if BM_CONFIG_SHELL_HISTORY_DEPTH > 0
+            shell->hist_nav = 0u; /* 编辑输入复位浏览态（buf 保留当前内容） */
+#endif
             shell->cursor--;
             shell->buf[shell->cursor] = '\0';
             _puts("\b \b");
@@ -326,12 +466,18 @@ void bm_shell_feed(bm_shell_t *shell, char c) {
     }
 
     if (c == '\t') {
+#if BM_CONFIG_SHELL_HISTORY_DEPTH > 0
+        shell->hist_nav = 0u; /* 编辑输入复位浏览态（buf 保留当前内容） */
+#endif
         _tab_complete(shell);
         return;
     }
 
     if (c >= 0x20 && c < 0x7F) {
         if (shell->cursor < BM_CONFIG_SHELL_BUF_SIZE - 1) {
+#if BM_CONFIG_SHELL_HISTORY_DEPTH > 0
+            shell->hist_nav = 0u; /* 编辑输入复位浏览态（buf 保留当前内容） */
+#endif
             shell->buf[shell->cursor++] = c;
             (void)bm_hal_console_write(BM_CONSOLE_CLI, (const uint8_t *)&c, 1u);
         } else {
@@ -349,6 +495,10 @@ void bm_shell_feed(bm_shell_t *shell, char c) {
         _puts("\r\n");
         if (shell->cursor > 0) {
             shell->buf[shell->cursor] = '\0';
+#if BM_CONFIG_SHELL_HISTORY_DEPTH > 0
+            _hist_push(shell, shell->buf); /* exec 就地分词改写 buf，先入史 */
+            shell->hist_nav = 0u;
+#endif
             bm_shell_exec(shell, shell->buf);
             shell->cursor = 0;
         }

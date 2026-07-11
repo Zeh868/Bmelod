@@ -5,7 +5,7 @@
  *
  * 支持字符流喂入、命令注册与 Console CLI 轮询，适用于裸机调试。
  *
- * @par 交互能力（v1.1）
+ * @par 交互能力（v1.2）
  *   - **Tab 补全**：行首命令词前缀匹配——唯一匹配补全余下字符并回显；
  *     多个匹配换行列出候选后重绘提示符与已输入前缀；无匹配响铃 \\a。
  *   - **内建 help**：用户未注册同名命令时，`help` 由框架兜底实现——
@@ -13,9 +13,12 @@
  *   - **前台模态命令**：命令 handler 调 bm_shell_modal_enter() 进入模态，
  *     长驻前台流式输出（如 watch 遥测），Ctrl+C（0x03）退出。契约见
  *     bm_shell_modal_enter() 注释。
+ *   - **历史命令**：↑/↓ 回翻整行历史（深度 BM_CONFIG_SHELL_HISTORY_DEPTH，
+ *     0=裁剪；连续重复去重；按 ↑ 时未提交输入被替换不保存；其余 ESC
+ *     序列静默吞掉）。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-11
  *
  * @par 修改日志:
@@ -23,6 +26,7 @@
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
  * 2026-07-11       1.1            zeh            shell 交互批①：前台模态命令（Ctrl+C 退出）+ Tab 补全 + 内建 help 兜底
+ * 2026-07-11       1.2            zeh            shell 交互批②：行历史（↑/↓ 回翻）+ ESC 序列吞噬（修箭头键注入垃圾字符）
  *
  */
 #ifndef BM_SHELL_H
@@ -50,6 +54,14 @@
 
 #if BM_CONFIG_SHELL_MAX_NAME_LEN < 2
 #error "BM_CONFIG_SHELL_MAX_NAME_LEN 至少为 2"
+#endif
+
+#ifndef BM_CONFIG_SHELL_HISTORY_DEPTH
+#define BM_CONFIG_SHELL_HISTORY_DEPTH 8
+#endif
+
+#if BM_CONFIG_SHELL_HISTORY_DEPTH < 0 || BM_CONFIG_SHELL_HISTORY_DEPTH > 32
+#error "BM_CONFIG_SHELL_HISTORY_DEPTH 须在 0..32 范围内（0=编译裁剪历史功能）"
 #endif
 
 #if BM_CONFIG_SHELL_BUF_SIZE < 2 || BM_CONFIG_SHELL_BUF_SIZE > 256
@@ -112,6 +124,16 @@ typedef struct {
     bm_shell_modal_stop_fn_t modal_stop;
     /** 模态回调用户上下文 */
     void                    *modal_ctx;
+    /** ESC 序列解析状态：0=空闲，1=已见 ESC，2=CSI/SS3 序列中 */
+    uint8_t                  esc_state;
+#if BM_CONFIG_SHELL_HISTORY_DEPTH > 0
+    /** 历史环形表（hist_head 为下一写入槽；最新条目在 head-1） */
+    char    hist[BM_CONFIG_SHELL_HISTORY_DEPTH][BM_CONFIG_SHELL_BUF_SIZE];
+    uint8_t hist_count; /**< 已存条数（<= DEPTH） */
+    uint8_t hist_head;  /**< 下一写入槽位 */
+    /** 浏览位置：0=非浏览态，1=最新..hist_count=最旧（0 基零初始化安全） */
+    uint8_t hist_nav;
+#endif
 } bm_shell_t;
 
 /** 静态定义 Shell 实例 */

@@ -130,6 +130,8 @@ endif()
 
 if(BM_ENABLE_SHELL)
     bm_add_test(test_shell test_shell.c bm_shell)
+    # 历史命令 + ESC 序列吞噬（批 P 后继小批）
+    bm_add_test(test_shell_history test_shell_history.c bm_shell)
 
     if(BM_ENABLE_BUS)
         # #11 shell 业务命令集成：验证「命令字符串→业务动作生效」链路
