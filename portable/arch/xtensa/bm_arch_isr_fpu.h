@@ -51,7 +51,7 @@
  *       打印、不加锁，可在 IRAM ISR 内调用。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-11
  *
  * @par 修改日志:
@@ -59,6 +59,7 @@
  *    Date         Version        Author          Description
  * 2026-07-11       1.0            zeh    从 vendor/esp32_idf/bm_vendor_esp32_isr_fpu.h 下沉为 arch 层原语
  * 2026-07-11       1.1            zeh    门控修正：ESP_PLATFORM（环境宏，vendor 静态库 TU 不定义→守卫被 no-op 化）→ BM_ARCH_XTENSA_HAS_XTHAL（构建目标显式定义），修真机 Coprocessor exception 回归
+ * 2026-07-11       1.2            zeh    enter/exit 加 always_inline：-Og 下独立拷贝落 .flash.text，IRAM ISR（ESP_INTR_FLAG_IRAM）调 flash 代码有 cache 关闭期崩溃风险
  */
 #ifndef BM_ARCH_ISR_FPU_H
 #define BM_ARCH_ISR_FPU_H
@@ -105,10 +106,16 @@ extern "C" {
  * BM_ARCH_XTENSA_HAS_XTHAL 且有 FPU 时执行真实存盘；其余情况（无 xthal
  * 环境，或无 FPU 芯片）退化为 no-op 并返回 0。返回值须原样传给配对的 exit。
  *
+ * @note 强制内联（always_inline）：调用方多为 IRAM_ATTR ISR（esp_intr_alloc
+ *       带 ESP_INTR_FLAG_IRAM），若 -Og 下不内联，本函数会以独立拷贝落在
+ *       .flash.text——cache 关闭期间从 IRAM ISR 调 flash 代码会崩。强制内联
+ *       使守卫指令直接嵌入 ISR 本体（也便于 objdump 反汇编硬门直接看到
+ *       cpenable/xthal 指令）。
+ *
  * @param[out] sa CP0 现场保存区，须 16 字节对齐、大小 BM_ARCH_ISR_FPU_SA_SIZE。
  * @return 进入前的 CPENABLE 值，供 exit 还原。
  */
-static inline unsigned bm_arch_isr_fpu_enter(void *sa)
+__attribute__((always_inline)) static inline unsigned bm_arch_isr_fpu_enter(void *sa)
 {
 #if defined(BM_ARCH_XTENSA_HAS_XTHAL) && XCHAL_CP0_SA_SIZE > 0
     unsigned prev = xthal_get_cpenable();
@@ -128,10 +135,12 @@ static inline unsigned bm_arch_isr_fpu_enter(void *sa)
  * BM_ARCH_XTENSA_HAS_XTHAL 且有 FPU 时执行真实恢复；其余情况退化为 no-op。
  * @p sa 必须与配对 enter 同一缓冲，@p prev 必须为该 enter 的返回值。
  *
+ * @note 强制内联理由同 bm_arch_isr_fpu_enter（IRAM ISR 安全 + 反汇编硬门）。
+ *
  * @param[in] sa   CP0 现场保存区（与配对 enter 同一缓冲）。
  * @param[in] prev 配对 enter 返回的 CPENABLE 旧值。
  */
-static inline void bm_arch_isr_fpu_exit(void *sa, unsigned prev)
+__attribute__((always_inline)) static inline void bm_arch_isr_fpu_exit(void *sa, unsigned prev)
 {
 #if defined(BM_ARCH_XTENSA_HAS_XTHAL) && XCHAL_CP0_SA_SIZE > 0
     xthal_restore_cp0(sa);
