@@ -2,11 +2,12 @@
  * @file test_shell.c
  * @brief Shell 命令注册、解析、feed 与边界条件单元测试
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-10
+ * @version 1.1
+ * @date 2026-07-11
  * @par 修改日志:
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
+ * 2026-07-11       1.1            zeh            shell 交互批①：补模态机制与 Tab 补全用例
  */
 
 #include "unity.h"
@@ -35,11 +36,19 @@ int cmd_fail(int argc, char *argv[]) {
 
 BM_SHELL_DEFINE(my_shell);
 
+/* 模态回调桩计数（定义前置，供 setUp 复位；实现见模态用例节） */
+static int g_tick_count;
+static int g_stop_count;
+static void *g_stop_ctx;
+
 void setUp(void) {
     BM_LOGI("test_shell", "setUp: reset shell state");
     g_cmd_count = 0;
     g_last_argc = 0;
     for (int i = 0; i < 4; i++) g_last_argv[i] = NULL;
+    g_tick_count = 0;
+    g_stop_count = 0;
+    g_stop_ctx = NULL;
     bm_shell_init(&my_shell);
 }
 void tearDown(void) {}
@@ -133,6 +142,130 @@ void test_shell_feed_backspace(void) {
     TEST_ASSERT_EQUAL_STRING("echo", g_last_argv[0]);
 }
 
+/* =========================================================================
+ * 前台模态机制（v1.1）
+ * ========================================================================= */
+
+/** 模态 tick 回调桩：只计数。 */
+static void modal_tick(void *ctx) {
+    (void)ctx;
+    g_tick_count++;
+}
+
+/** 模态 stop 回调桩：计数并记录 ctx。 */
+static void modal_stop(void *ctx) {
+    g_stop_count++;
+    g_stop_ctx = ctx;
+}
+
+void test_shell_modal_enter_invalid_args(void) {
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID,
+                      bm_shell_modal_enter(NULL, modal_tick, modal_stop, NULL));
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID,
+                      bm_shell_modal_enter(&my_shell, NULL, modal_stop, NULL));
+    TEST_ASSERT_EQUAL(0, bm_shell_modal_active(&my_shell));
+}
+
+void test_shell_modal_nested_rejected(void) {
+    TEST_ASSERT_EQUAL(BM_OK,
+                      bm_shell_modal_enter(&my_shell, modal_tick, modal_stop, NULL));
+    TEST_ASSERT_EQUAL(1, bm_shell_modal_active(&my_shell));
+    /* 静态单槽：模态中再进入返回 BUSY */
+    TEST_ASSERT_EQUAL(BM_ERR_BUSY,
+                      bm_shell_modal_enter(&my_shell, modal_tick, modal_stop, NULL));
+    /* 清理：Ctrl+C 退出 */
+    bm_shell_feed(&my_shell, 0x03);
+    TEST_ASSERT_EQUAL(0, bm_shell_modal_active(&my_shell));
+}
+
+void test_shell_modal_ctrl_c_calls_stop(void) {
+    int marker = 42;
+
+    g_stop_count = 0;
+    g_stop_ctx = NULL;
+    TEST_ASSERT_EQUAL(BM_OK,
+                      bm_shell_modal_enter(&my_shell, modal_tick, modal_stop, &marker));
+    bm_shell_feed(&my_shell, 0x03); /* Ctrl+C */
+    TEST_ASSERT_EQUAL(1, g_stop_count);
+    TEST_ASSERT_EQUAL_PTR(&marker, g_stop_ctx);
+    TEST_ASSERT_EQUAL(0, bm_shell_modal_active(&my_shell));
+}
+
+void test_shell_modal_discards_other_input(void) {
+    TEST_ASSERT_EQUAL(BM_OK, bm_shell_register(&my_shell, "echo", cmd_echo, NULL));
+    TEST_ASSERT_EQUAL(BM_OK,
+                      bm_shell_modal_enter(&my_shell, modal_tick, NULL, NULL));
+    /* 模态期间普通字符与回车均被丢弃：不进行缓冲、不触发命令执行 */
+    bm_shell_feed(&my_shell, 'e');
+    bm_shell_feed(&my_shell, 'c');
+    bm_shell_feed(&my_shell, 'h');
+    bm_shell_feed(&my_shell, 'o');
+    bm_shell_feed(&my_shell, '\r');
+    TEST_ASSERT_EQUAL(0, g_cmd_count);
+    TEST_ASSERT_EQUAL(0u, my_shell.cursor);
+    TEST_ASSERT_EQUAL(1, bm_shell_modal_active(&my_shell));
+    /* stop_fn 为 NULL（只读命令）时 Ctrl+C 亦可正常退出 */
+    bm_shell_feed(&my_shell, 0x03);
+    TEST_ASSERT_EQUAL(0, bm_shell_modal_active(&my_shell));
+}
+
+/* =========================================================================
+ * Tab 补全（v1.1）
+ * ========================================================================= */
+
+void test_shell_tab_unique_match_completes(void) {
+    TEST_ASSERT_EQUAL(BM_OK, bm_shell_register(&my_shell, "stats", cmd_echo, NULL));
+    TEST_ASSERT_EQUAL(BM_OK, bm_shell_register(&my_shell, "fault", cmd_echo, NULL));
+
+    bm_shell_feed(&my_shell, 's');
+    bm_shell_feed(&my_shell, 't');
+    bm_shell_feed(&my_shell, '\t'); /* "st" 唯一匹配 stats → 补全 */
+    TEST_ASSERT_EQUAL(5u, my_shell.cursor);
+    TEST_ASSERT_EQUAL_STRING("stats", my_shell.buf);
+
+    /* 补全后的行可直接回车执行 */
+    bm_shell_feed(&my_shell, '\r');
+    TEST_ASSERT_EQUAL(1, g_cmd_count);
+    TEST_ASSERT_EQUAL_STRING("stats", g_last_argv[0]);
+}
+
+void test_shell_tab_multi_match_keeps_prefix(void) {
+    TEST_ASSERT_EQUAL(BM_OK, bm_shell_register(&my_shell, "stats", cmd_echo, NULL));
+    TEST_ASSERT_EQUAL(BM_OK, bm_shell_register(&my_shell, "set", cmd_echo, NULL));
+
+    bm_shell_feed(&my_shell, 's');
+    bm_shell_feed(&my_shell, '\t'); /* "s" 匹配 stats/set → 列出候选，前缀保留 */
+    TEST_ASSERT_EQUAL(1u, my_shell.cursor);
+    TEST_ASSERT_EQUAL('s', my_shell.buf[0]);
+}
+
+void test_shell_tab_no_match_keeps_buffer(void) {
+    TEST_ASSERT_EQUAL(BM_OK, bm_shell_register(&my_shell, "stats", cmd_echo, NULL));
+
+    bm_shell_feed(&my_shell, 'z');
+    bm_shell_feed(&my_shell, '\t'); /* 无匹配 → 响铃，缓冲不变 */
+    TEST_ASSERT_EQUAL(1u, my_shell.cursor);
+    TEST_ASSERT_EQUAL('z', my_shell.buf[0]);
+}
+
+void test_shell_tab_completes_builtin_help(void) {
+    TEST_ASSERT_EQUAL(BM_OK, bm_shell_register(&my_shell, "stats", cmd_echo, NULL));
+
+    bm_shell_feed(&my_shell, 'h');
+    bm_shell_feed(&my_shell, '\t'); /* 内建 help 是虚拟候选 → 补全 */
+    TEST_ASSERT_EQUAL(4u, my_shell.cursor);
+    TEST_ASSERT_EQUAL_STRING("help", my_shell.buf);
+}
+
+void test_shell_builtin_help_executes(void) {
+    char line[] = "help";
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_shell_register(&my_shell, "stats", cmd_echo, "遥测统计"));
+    /* 未注册 help 时由框架兜底实现，返回 BM_OK（非 NOT_FOUND） */
+    TEST_ASSERT_EQUAL(BM_OK, bm_shell_exec(&my_shell, line));
+    TEST_ASSERT_EQUAL(0, g_cmd_count);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_shell_register_and_exec);
@@ -144,5 +277,14 @@ int main(void) {
     RUN_TEST(test_shell_too_many_args_rejected);
     RUN_TEST(test_shell_accepts_exact_argument_limit);
     RUN_TEST(test_shell_copies_command_name);
+    RUN_TEST(test_shell_modal_enter_invalid_args);
+    RUN_TEST(test_shell_modal_nested_rejected);
+    RUN_TEST(test_shell_modal_ctrl_c_calls_stop);
+    RUN_TEST(test_shell_modal_discards_other_input);
+    RUN_TEST(test_shell_tab_unique_match_completes);
+    RUN_TEST(test_shell_tab_multi_match_keeps_prefix);
+    RUN_TEST(test_shell_tab_no_match_keeps_buffer);
+    RUN_TEST(test_shell_tab_completes_builtin_help);
+    RUN_TEST(test_shell_builtin_help_executes);
     return UNITY_END();
 }

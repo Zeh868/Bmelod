@@ -4,14 +4,17 @@
  * @brief 轻量级非阻塞串口命令行实现
  *
  * 字符回显、退格处理与命令分词执行；通过 Console CLI 通道收发。
+ * v1.1 新增：前台模态命令（Ctrl+C 退出）、Tab 命令补全、内建 help 兜底。
+ *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-10
+ * @version 1.1
+ * @date 2026-07-11
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
+ * 2026-07-11       1.1            zeh            shell 交互批①：前台模态命令（Ctrl+C 退出）+ Tab 补全 + 内建 help 兜底
  *
  */
 #include "bm_shell.h"
@@ -45,6 +48,21 @@ static void _puts(const char *s) {
 }
 
 /**
+ * @brief 判断 b 是否为 a 的前缀
+ *
+ * @param a 完整字符串
+ * @param b 前缀候选
+ * @return 非 0 表示 b 是 a 的前缀（含相等）；0 表示不是
+ */
+static int _starts_with(const char *a, const char *b) {
+    while (*b) {
+        if (*a != *b) return 0;
+        a++; b++;
+    }
+    return 1;
+}
+
+/**
  * @brief 初始化 Shell 上下文与命令表
  *
  * @param shell Shell 实例指针
@@ -55,6 +73,10 @@ void bm_shell_init(bm_shell_t *shell) {
     shell->cursor = 0;
     shell->cmd_count = 0;
     shell->swallow_lf = 0;
+    shell->modal_active = 0;
+    shell->modal_tick = NULL;
+    shell->modal_stop = NULL;
+    shell->modal_ctx = NULL;
     BM_LOGI("shell", "init");
 }
 
@@ -149,6 +171,23 @@ int bm_shell_exec(bm_shell_t *shell, char *line) {
         }
     }
 
+    /* 内建 help 兜底：用户未注册同名命令时由框架实现（表命中优先，
+     * 上方循环已保证）。遍历命令表打印「名字 + 帮助文本」。 */
+    if (_strcmp(argv[0], "help") == 0) {
+        _puts("commands:\r\n");
+        for (uint8_t i = 0; i < shell->cmd_count; i++) {
+            _puts("  ");
+            _puts(shell->cmds[i].name);
+            if (shell->cmds[i].help) {
+                _puts(" - ");
+                _puts(shell->cmds[i].help);
+            }
+            _puts("\r\n");
+        }
+        _puts("  help - list commands\r\n");
+        return BM_OK;
+    }
+
     BM_LOGW("shell", "unknown cmd '%s'", argv[0]);
     _puts("unknown command: ");
     _puts(argv[0]);
@@ -157,13 +196,119 @@ int bm_shell_exec(bm_shell_t *shell, char *line) {
 }
 
 /**
- * @brief 处理单个输入字符（回显、退格、回车执行）
+ * @brief 退出前台模态：调 stop 回调、清模态态、重绘提示符
+ *
+ * 先清模态态再调 stop 回调，保证 stop 内（若间接触发输出/查询）看到的
+ * shell 已回到空闲态；随后打印 "^C" + 换行 + 提示符。
+ *
+ * @param shell Shell 实例指针（调用方保证非 NULL 且处于模态）
+ */
+static void _modal_exit(bm_shell_t *shell) {
+    bm_shell_modal_stop_fn_t stop = shell->modal_stop;
+    void                    *ctx  = shell->modal_ctx;
+
+    shell->modal_active = 0;
+    shell->modal_tick = NULL;
+    shell->modal_stop = NULL;
+    shell->modal_ctx = NULL;
+    if (stop) {
+        stop(ctx);
+    }
+    _puts("^C\r\n$ ");
+}
+
+/**
+ * @brief Tab 命令补全：对行首命令词做前缀匹配
+ *
+ * 候选集 = 已注册命令表 ∪ 内建 "help"（用户未注册同名命令时）：
+ *   - 唯一匹配：补全余下字符并回显；
+ *   - 多个匹配：换行列出全部候选，重绘提示符与已输入前缀；
+ *   - 无匹配：响铃 \\a。
+ * 仅补全命令词：前缀中已含空白（进入参数区）时响铃退出。
+ * 遍历命令表 O(N)，N 有界（BM_CONFIG_SHELL_MAX_CMDS）。
+ *
+ * @param shell Shell 实例指针（调用方保证非 NULL）
+ */
+static void _tab_complete(bm_shell_t *shell) {
+    const char *match = NULL;
+    uint8_t     n_match = 0;
+    uint8_t     help_registered = 0;
+
+    /* 只补全行首命令词：已进入参数区（前缀含空白）时不补全 */
+    for (uint8_t i = 0; i < shell->cursor; i++) {
+        if (shell->buf[i] == ' ' || shell->buf[i] == '\t') {
+            _puts("\a");
+            return;
+        }
+    }
+    shell->buf[shell->cursor] = '\0';
+
+    for (uint8_t i = 0; i < shell->cmd_count; i++) {
+        if (_strcmp(shell->cmds[i].name, "help") == 0) {
+            help_registered = 1;
+        }
+        if (_starts_with(shell->cmds[i].name, shell->buf)) {
+            n_match++;
+            match = shell->cmds[i].name;
+        }
+    }
+    /* 内建 help 作为虚拟候选（与 bm_shell_exec 的 help 兜底一致） */
+    if (!help_registered && _starts_with("help", shell->buf)) {
+        n_match++;
+        match = "help";
+    }
+
+    if (n_match == 0) {
+        _puts("\a");
+        return;
+    }
+
+    if (n_match == 1) {
+        /* 唯一匹配：补全余下字符并回显（受行缓冲上限约束） */
+        const char *rest = match + shell->cursor;
+        while (*rest && shell->cursor < BM_CONFIG_SHELL_BUF_SIZE - 1) {
+            shell->buf[shell->cursor++] = *rest;
+            (void)bm_hal_console_write(BM_CONSOLE_CLI,
+                                       (const uint8_t *)rest, 1u);
+            rest++;
+        }
+        return;
+    }
+
+    /* 多个匹配：换行列出候选，重绘提示符与已输入前缀 */
+    _puts("\r\n");
+    for (uint8_t i = 0; i < shell->cmd_count; i++) {
+        if (_starts_with(shell->cmds[i].name, shell->buf)) {
+            _puts(shell->cmds[i].name);
+            _puts("  ");
+        }
+    }
+    if (!help_registered && _starts_with("help", shell->buf)) {
+        _puts("help  ");
+    }
+    _puts("\r\n$ ");
+    _puts(shell->buf);
+}
+
+/**
+ * @brief 处理单个输入字符（回显、退格、Tab 补全、回车执行、模态 Ctrl+C）
+ *
+ * 模态期间仅识别 0x03（Ctrl+C）触发退出，**其余输入字符一律丢弃**
+ * （静态单槽最简设计，见 bm_shell_modal_enter 契约）。
  *
  * @param shell Shell 实例指针
  * @param c 输入字符
  */
 void bm_shell_feed(bm_shell_t *shell, char c) {
     if (!shell) return;
+
+    /* 前台模态：只检 Ctrl+C，其余丢弃 */
+    if (shell->modal_active) {
+        if (c == 0x03) {
+            _modal_exit(shell);
+        }
+        return;
+    }
 
     if (c == '\n' && shell->swallow_lf) {
         shell->swallow_lf = 0;
@@ -177,6 +322,11 @@ void bm_shell_feed(bm_shell_t *shell, char c) {
             shell->buf[shell->cursor] = '\0';
             _puts("\b \b");
         }
+        return;
+    }
+
+    if (c == '\t') {
+        _tab_complete(shell);
         return;
     }
 
@@ -202,7 +352,10 @@ void bm_shell_feed(bm_shell_t *shell, char c) {
             bm_shell_exec(shell, shell->buf);
             shell->cursor = 0;
         }
-        _puts("$ ");
+        /* 命令若已进入前台模态，提示符留待模态退出时重绘 */
+        if (!shell->modal_active) {
+            _puts("$ ");
+        }
     }
 }
 
@@ -216,6 +369,9 @@ void bm_shell_feed(bm_shell_t *shell, char c) {
  * 每轮最多处理 BM_CONFIG_SHELL_MAX_CHARS_PER_POLL 字符，
  * 保证主循环有界执行。剩余字符在后续 poll 中处理。
  *
+ * 前台模态期间：输入仍逐字符喂入（feed 内只检 Ctrl+C、其余丢弃），
+ * 处理完输入后若仍处于模态则调一次 tick 回调（限频由回调自理）。
+ *
  * @param shell Shell 实例指针
  */
 void bm_shell_poll(bm_shell_t *shell) {
@@ -227,6 +383,9 @@ void bm_shell_poll(bm_shell_t *shell) {
         bm_shell_feed(shell, (char)c);
         remaining--;
     }
+    if (shell->modal_active && shell->modal_tick) {
+        shell->modal_tick(shell->modal_ctx);
+    }
 }
 
 /**
@@ -236,4 +395,38 @@ void bm_shell_poll(bm_shell_t *shell) {
  */
 void bm_shell_puts(const char *s) {
     if (s) _puts(s);
+}
+
+/**
+ * @brief 进入前台模态（契约详见头文件 bm_shell_modal_enter 注释）
+ *
+ * @param shell   Shell 实例指针
+ * @param tick_fn 模态 tick 回调（必填）
+ * @param stop_fn 模态 stop 回调（可为 NULL，仅限只读命令）
+ * @param ctx     透传给回调的用户上下文
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效；BM_ERR_BUSY 已处于模态
+ */
+int bm_shell_modal_enter(bm_shell_t *shell, bm_shell_modal_tick_fn_t tick_fn,
+                         bm_shell_modal_stop_fn_t stop_fn, void *ctx) {
+    if (!shell || !tick_fn) return BM_ERR_INVALID;
+    if (shell->modal_active) {
+        BM_LOGW("shell", "modal nested enter rejected");
+        return BM_ERR_BUSY;
+    }
+    shell->modal_tick = tick_fn;
+    shell->modal_stop = stop_fn;
+    shell->modal_ctx = ctx;
+    shell->modal_active = 1;
+    BM_LOGD("shell", "modal enter");
+    return BM_OK;
+}
+
+/**
+ * @brief 查询是否处于前台模态
+ *
+ * @param shell Shell 实例指针
+ * @return 非 0 处于模态；0 空闲或 shell 为空
+ */
+int bm_shell_modal_active(const bm_shell_t *shell) {
+    return (shell && shell->modal_active) ? 1 : 0;
 }

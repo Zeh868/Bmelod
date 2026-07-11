@@ -25,7 +25,7 @@
  *       待硬件：若日后迁移到 IDF FreeRTOS 应用路径，可切换为 esp_task_wdt_init。
  *
  * @author zeh (china_qzh@163.com)
- * @version 3.2
+ * @version 3.3
  * @date 2026-07-11
  *
  * @par 修改日志:
@@ -37,6 +37,7 @@
  * 2026-06-19       3.0            zeh            Phase 3：RCC 宏正规化 + task WDT 类型归档
  * 2026-06-26       3.1            zeh            添加 bm_hal_uptime_ns_raw()（路线图 #9 时间基统一 1a）
  * 2026-07-11       3.2            zeh            tick ISR 加 FPU 协处理器守卫，修复 10kHz 电流环回调触发 Coprocessor 异常崩溃
+ * 2026-07-11       3.3            zeh            esp32_uart_recv 实现 UART0 RX FIFO 非阻塞轮询读（uart_ll），修 shell 无法输入
  *
  */
 #include "bm_drv_timer.h"
@@ -56,6 +57,14 @@
 #include "esp_rom_sys.h"
 #include "hal/mwdt_ll.h"
 #include "hal/timer_ll.h"
+/*
+ * UART0 RX FIFO 轮询读依赖 uart_ll_get_rxfifo_len / uart_ll_read_rxfifo。
+ * hal/uart_ll.h 及其全部传递依赖（hal/misc.h、soc/uart_reg.h、soc/uart_struct.h、
+ * soc/dport_reg.h、hal/uart_types.h）均在 pack 注入的 IDF 头清单
+ * （cmake/bm_sdk_esp32_idf.cmake）与 _compilecheck harness 的 include 路径内，
+ * 故直接 #include（与 timer_ll/mwdt_ll 同一惯例），无需 esp_timer 式前向声明。
+ */
+#include "hal/uart_ll.h"
 #include "soc/timer_group_struct.h"
 #include "soc/interrupts.h"
 #include "esp_intr_alloc.h"
@@ -382,16 +391,42 @@ static int esp32_uart_send(const uint8_t *data, size_t len)
 }
 
 /**
- * @brief 接收字节（裸机模式下不支持，返回 0）。
- * @param data    未使用。
- * @param max_len 未使用。
- * @return 0（无可用字节）。
+ * @brief 接收字节：UART0 RX FIFO 非阻塞轮询读。
+ *
+ * 直接经 uart_ll 读硬件 RX FIFO（uart_ll_get_rxfifo_len 查可读字节数，
+ * uart_ll_read_rxfifo 逐字节搬出），有多少读多少（不超过 @p max_len），
+ * FIFO 空立即返回 0，不阻塞不等待——契合裸机主循环轮询（bm_shell_poll →
+ * bm_hal_console_read → 本函数）的节奏。
+ *
+ * @note 只读 FIFO，不动波特率/引脚/时钟配置：UART0 由 boot ROM 按 115200
+ *       配好并被 esp_rom_printf（TX 侧）复用，RX 侧同一硬件口。
+ * @note 刻意不用 IDF uart_driver_install（会起后台中断+环形缓冲+任务，
+ *       与本 vendor 裸机零调度架构不搭）；FIFO 深 128 字节，主循环 tick
+ *       级轮询下人工敲键不会溢出。
+ *
+ * @param data    接收缓冲区。
+ * @param max_len 缓冲区容量（字节）。
+ * @return 实际读出的字节数；无数据/未初始化/参数无效时为 0。
  */
 static size_t esp32_uart_recv(uint8_t *data, size_t max_len)
 {
-    (void)data;
-    (void)max_len;
-    return 0u;
+    uint32_t avail;
+    uint32_t n;
+
+    if (data == NULL || max_len == 0u) {
+        return 0u;
+    }
+    if (g_uart_ready == 0u) {
+        return 0u;
+    }
+
+    avail = uart_ll_get_rxfifo_len(&UART0);
+    if (avail == 0u) {
+        return 0u;
+    }
+    n = (avail < (uint32_t)max_len) ? avail : (uint32_t)max_len;
+    uart_ll_read_rxfifo(&UART0, data, n);
+    return (size_t)n;
 }
 
 /**
