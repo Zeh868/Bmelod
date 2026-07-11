@@ -7,7 +7,7 @@
  * ring 模式下 RT 路径仅入队，由 bootstrap 按预算 drain。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.3
+ * @version 1.4
  * @date 2026-06-15
  *
  * @par 修改日志:
@@ -17,6 +17,7 @@
  * 2026-06-14       1.1            zeh            per-CPU 有界 ring
  * 2026-06-15       1.2            zeh            hard RT 日志配置 fail-closed
  * 2026-06-15       1.3            zeh            hard RT 下裁剪格式化实现
+ * 2026-07-11       1.4            zeh            批 P：运行期级别阈值
  *
  */
 #include "bm_log.h"
@@ -41,6 +42,35 @@ static const char *const k_level_chars[] = {
     "E", "W", "I", "D", "T"
 };
 #endif
+
+/** 运行期日志级别阈值（初值 = 编译期级别；只能在其之下收紧，见 bm_log.h） */
+static bm_log_level_t s_runtime_level = (bm_log_level_t)BM_CONFIG_LOG_LEVEL;
+
+/**
+ * @brief 设置运行期日志级别阈值（越界夹取，见 bm_log.h 契约）
+ *
+ * @param level 新阈值
+ */
+void bm_log_set_level(bm_log_level_t level) {
+    int v = (int)level;
+
+    if (v < (int)BM_LOG_ERROR) {
+        v = (int)BM_LOG_ERROR;
+    }
+    if (v > (int)BM_LOG_TRACE) {
+        v = (int)BM_LOG_TRACE;
+    }
+    s_runtime_level = (bm_log_level_t)v;
+}
+
+/**
+ * @brief 查询当前运行期日志级别阈值
+ *
+ * @return 当前阈值
+ */
+bm_log_level_t bm_log_get_level(void) {
+    return s_runtime_level;
+}
 
 #if BM_CONFIG_ENABLE_LOG && BM_CONFIG_LOG_RING
 
@@ -236,6 +266,9 @@ void bm_log(bm_log_level_t level, const char *tag, const char *fmt, ...) {
     }
     if (level_index > (int)BM_LOG_TRACE) {
         level_index = (int)BM_LOG_TRACE;
+    }
+    if (level_index > (int)s_runtime_level) {
+        return; /* 运行期阈值过滤：早退，不格式化不输出 */
     }
     if (!tag) {
         tag = "bm";

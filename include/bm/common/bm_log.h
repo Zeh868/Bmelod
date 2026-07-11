@@ -5,9 +5,10 @@
  *
  * 通过 BM_CONFIG_ENABLE_LOG 与 BM_CONFIG_LOG_LEVEL 在编译期裁剪。
  * hard RT 剖面下 BM_LOG* 在宏层直接裁剪，不进入格式化/stdio 路径。
+ * 运行期可在编译期级别之下收紧阈值，但不能放开已被编译裁掉的级别。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.2
+ * @version 1.3
  * @date 2026-06-15
  *
  * @par 修改日志:
@@ -16,6 +17,7 @@
  * 2026-06-10       1.0            zeh            正式发布
  * 2026-06-14       1.1            zeh            per-CPU 有界 ring
  * 2026-06-15       1.2            zeh            hard RT 日志宏裁剪
+ * 2026-07-11       1.3            zeh            批 P：运行期级别阈值
  *
  */
 #ifndef BM_LOG_H
@@ -65,6 +67,25 @@ typedef enum {
 
 void bm_log(bm_log_level_t level, const char *tag, const char *fmt, ...);
 void bm_log_output(const char *buf, size_t len);
+
+/**
+ * @brief 设置运行期日志级别阈值（仅 bm_log() 函数路径生效）。
+ *
+ * 初值 = BM_CONFIG_LOG_LEVEL。**编译期级别是天花板**：BM_LOGx 宏在宏层
+ * 先按 BM_CONFIG_LOG_LEVEL 裁剪，已被编译裁掉的级别无法用本函数放开；
+ * 运行期阈值只能在天花板之下进一步收紧（如模态命令期把 INFO 压到 WARN）。
+ * hard RT 剖面下宏整体裁剪，本函数存在但无效果。
+ *
+ * @param level 新阈值；越界值自动夹取到 [BM_LOG_ERROR, BM_LOG_TRACE]。
+ */
+void bm_log_set_level(bm_log_level_t level);
+
+/**
+ * @brief 查询当前运行期日志级别阈值。
+ *
+ * @return 当前阈值（初值 = BM_CONFIG_LOG_LEVEL）。
+ */
+bm_log_level_t bm_log_get_level(void);
 
 /**
  * @brief hard RT 剖面是否满足日志 ring 配置
