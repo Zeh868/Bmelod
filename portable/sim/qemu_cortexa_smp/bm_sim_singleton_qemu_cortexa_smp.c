@@ -5,13 +5,14 @@
  *
  * 临界区与内存屏障由 `bm_port_arch_armv7a` 提供。
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-15
+ * @version 1.1
+ * @date 2026-07-11
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-15       1.0            zeh            正式发布
+ * 2026-07-11       1.1            zeh            tick 回调派发接入 arch 层 FPU 守卫（bm_arch_isr_fpu.h，armv7a 路径当前仍为 no-op）
  *
  */
 #include "bm_drv_timer.h"
@@ -21,6 +22,7 @@
 #include "bm_types.h"
 #include "hal/bm_hal_cpu.h"
 #include "hal/bm_hal_uptime.h"
+#include "armv7a/bm_arch_isr_fpu.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -210,21 +212,32 @@ const struct bm_timer_driver_api bm_drv_timer_api = {
     cortexa_timer_set_callback,
 };
 
+/** @brief tick ISR 内 FPU 现场保存区（当前 armv7a no-op，接线预留）。 */
+static uint8_t g_tick_cp0_sa[BM_ARCH_ISR_FPU_SA_SIZE] __attribute__((aligned(16)));
+
 /**
  * @brief IRQ 顶层分发（由异常向量汇编调用）
+ *
+ * g_tick_cb 派发可能触达浮点回调，经 bm_arch_isr_fpu_enter/exit
+ * （portable/arch/armv7a/bm_arch_isr_fpu.h）包裹；该路径当前为 no-op（QEMU
+ * cortex-a 裸机 IRQ 入口未保存 VFP 现场，见该头文件注释），此处接线只为
+ * 统一调用点，行为不变。
  */
 void bm_qemu_cortexa_irq_dispatch(void) {
     uint32_t cpu = cortexa_smp_cpu_index();
     uint32_t iar = GICC_IAR;
     uint32_t irq_id = iar & 0x3FFu;
     void (*cb)(void);
+    unsigned cp_prev;
 
     if (irq_id == BM_CORTEXA_TIMER_IRQ_ID) {
         g_ticks[cpu]++;
+        cp_prev = bm_arch_isr_fpu_enter(g_tick_cp0_sa);
         cb = g_tick_cb[cpu];
         if (cb) {
             cb();
         }
+        bm_arch_isr_fpu_exit(g_tick_cp0_sa, cp_prev);
         bm_cortexa_timer_rearm(cpu);
     }
     GICC_EOIR = iar;

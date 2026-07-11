@@ -25,8 +25,8 @@
  *       待硬件：若日后迁移到 IDF FreeRTOS 应用路径，可切换为 esp_task_wdt_init。
  *
  * @author zeh (china_qzh@163.com)
- * @version 3.1
- * @date 2026-06-26
+ * @version 3.2
+ * @date 2026-07-11
  *
  * @par 修改日志:
  *
@@ -36,6 +36,7 @@
  * 2026-06-19       2.0            zeh            Phase 2：timer_group LL + ISR 驱动
  * 2026-06-19       3.0            zeh            Phase 3：RCC 宏正规化 + task WDT 类型归档
  * 2026-06-26       3.1            zeh            添加 bm_hal_uptime_ns_raw()（路线图 #9 时间基统一 1a）
+ * 2026-07-11       3.2            zeh            tick ISR 加 FPU 协处理器守卫，修复 10kHz 电流环回调触发 Coprocessor 异常崩溃
  *
  */
 #include "bm_drv_timer.h"
@@ -45,6 +46,7 @@
 #include "bm_vendor_esp32_idf_compat.h"
 #include "bm_hal_uptime.h"
 #include "bm_types.h"
+#include "xtensa/bm_arch_isr_fpu.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -141,6 +143,18 @@ static uint8_t     g_uart_ready;
 static uint8_t     g_wdt_ready;
 static intr_handle_t g_tick_intr_handle;
 
+/**
+ * @brief tick ISR 内 FPU(CP0) 现场保存区（16 字节对齐）。
+ *
+ * 供 bm_arch_isr_fpu_enter/exit（portable/arch/xtensa/bm_arch_isr_fpu.h）
+ * 保存/恢复被打断代码的浮点现场，使 g_tick_callback 派发链（经 hrt_dispatch
+ * 触达 10kHz 电流环等浮点回调）在 ISR 内安全执行。单例定时器只有一份 tick
+ * ISR，故仅需一份保存区（不与 PWM ISR 的 cp0_sa 共享，二者互不嵌套）。
+ * 无 FPU 芯片或非 ESP_PLATFORM 路径上 BM_ARCH_ISR_FPU_SA_SIZE=1，仅占位、
+ * 守卫为 no-op。
+ */
+static uint8_t g_tick_cp0_sa[BM_ARCH_ISR_FPU_SA_SIZE] __attribute__((aligned(16)));
+
 /* ---------- Timer ISR ---------- */
 
 /**
@@ -149,13 +163,20 @@ static intr_handle_t g_tick_intr_handle;
  * 每次 timer alarm 触发时：
  *   1. 清除中断标志并重新使能 alarm（自动重载已配置，此处重使能 alarm）
  *   2. 递增 tick 计数
- *   3. 调用注册的 tick 回调
+ *   3. 在 FPU 守卫内调用注册的 tick 回调
+ *
+ * 铁律步骤 1-2（清中断、计数）在 FPU 守卫之外先完成，不受浮点开销影响；
+ * g_tick_callback 经 hrt_dispatch 可能派发到 10kHz 电流环等浮点回调（FOC
+ * current_step 等），ESP 中断上下文默认禁用 FPU(CP0)，故整段派发须包在
+ * bm_arch_isr_fpu_enter/exit 之间，顺序铁律见 bm_arch_isr_fpu.h：
+ * 开 CP0 → 存现场 → 跑浮点 → 复现场 → 还原 CPENABLE。
  *
  * @param arg 未使用（NULL）。
  */
 static void IRAM_ATTR bm_vendor_tick_isr(void *arg)
 {
     timg_dev_t *hw;
+    unsigned    cp_prev;
 
     (void)arg;
     hw = TIMER_LL_GET_HW(BM_VENDOR_TICK_TIMER_GROUP);
@@ -167,10 +188,12 @@ static void IRAM_ATTR bm_vendor_tick_isr(void *arg)
     /* 递增 tick 计数 */
     g_tick_count++;
 
-    /* 调用注册的 tick 回调 */
+    /* 调用注册的 tick 回调（FPU 守卫内，见函数头注释） */
+    cp_prev = bm_arch_isr_fpu_enter(g_tick_cp0_sa);
     if (g_tick_callback != NULL) {
         g_tick_callback();
     }
+    bm_arch_isr_fpu_exit(g_tick_cp0_sa, cp_prev);
 }
 
 /* ---------- timer 驱动实现 ---------- */

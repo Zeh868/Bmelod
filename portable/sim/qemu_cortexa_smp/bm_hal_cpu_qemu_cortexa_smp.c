@@ -17,6 +17,7 @@
 #include "hal/bm_hal_cpu.h"
 #include "bm_config.h"
 
+#include <stddef.h> /* NULL */
 #include <stdint.h>
 
 /** PSCI CPU_ON（HVC 32-bit） */

@@ -5,13 +5,14 @@
  *
  * 临界区与内存屏障由 `bm_port_arch_riscv64` 提供；M-mode trap 由 boot 层 `_trap_entry` 分发。
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-15
+ * @version 1.1
+ * @date 2026-07-11
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-15       1.0            zeh            正式发布
+ * 2026-07-11       1.1            zeh            tick 回调派发接入 arch 层 FPU 守卫（bm_arch_isr_fpu.h，riscv64 IMAC 无 FPU 恒 no-op）
  *
  */
 #include "bm_drv_timer.h"
@@ -20,6 +21,7 @@
 #include "bm_log.h"
 #include "bm_types.h"
 #include "hal/bm_hal_cpu.h"
+#include "riscv64/bm_arch_isr_fpu.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -136,22 +138,32 @@ const struct bm_timer_driver_api bm_drv_timer_api = {
     rv64_smp_timer_set_callback,
 };
 
+/** @brief tick ISR 内 FPU 现场保存区（riscv64 IMAC 无 FPU，恒 no-op，接线预留）。 */
+static uint8_t g_tick_cp0_sa[BM_ARCH_ISR_FPU_SA_SIZE] __attribute__((aligned(16)));
+
 /**
  * @brief M-mode 机器定时器中断（由 startup trap 向量调用）
+ *
+ * g_tick_cb 派发经 bm_arch_isr_fpu_enter/exit
+ * （portable/arch/riscv64/bm_arch_isr_fpu.h）包裹；riscv64 为 IMAC（无 F/D
+ * 扩展）恒 no-op，此处接线只为统一调用点，行为不变。
  */
 void qemu_rv64_smp_on_timer_irq(void) {
     uint32_t cpu = rv64_smp_cpu_index();
     void (*cb)(void);
+    unsigned cp_prev;
 
     if (!g_timer_armed[cpu]) {
         return;
     }
     clint_set_mtimecmp(cpu, clint_get_mtime() + g_timer_interval[cpu]);
     g_ticks[cpu]++;
+    cp_prev = bm_arch_isr_fpu_enter(g_tick_cp0_sa);
     cb = g_tick_cb[cpu];
     if (cb) {
         cb();
     }
+    bm_arch_isr_fpu_exit(g_tick_cp0_sa, cp_prev);
 }
 
 /**

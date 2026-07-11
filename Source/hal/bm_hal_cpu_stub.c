@@ -16,6 +16,7 @@
  * 2026-07-04       1.2            zeh            freq 三函数加 BM_HAL_CPU_HAS_PORT_FREQ 去重 guard，供 esp32 等真机 port 让出符号
  *
  */
+#include <stddef.h> /* NULL */
 #include "hal/bm_hal_cpu.h"
 #include "bm_config.h"
 

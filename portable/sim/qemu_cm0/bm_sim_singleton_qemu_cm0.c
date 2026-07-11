@@ -5,14 +5,15 @@
  *
  * 临界区与内存屏障由 `bm_port_arch_armv6m` 提供。
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-26
+ * @version 1.2
+ * @date 2026-07-11
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            从 qemu_cortex_m0 singleton 拆分
  * 2026-06-26       1.1            zeh            添加 bm_hal_uptime_ns_raw()（路线图 #9 时间基统一 1a）
+ * 2026-07-11       1.2            zeh            tick 回调派发接入 arch 层 FPU 守卫（bm_arch_isr_fpu.h，armv6m 无 FPU 恒 no-op）
  *
  */
 #include "bm_drv_timer.h"
@@ -21,6 +22,7 @@
 #include "bm_log.h"
 #include "bm_types.h"
 #include "hal/bm_hal_uptime.h"
+#include "armv6m/bm_arch_isr_fpu.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -57,16 +59,30 @@ static void qemu_timer_program_period(void) {
     TIMER1_CC0 = cc;
 }
 
+/** @brief tick ISR 内 FPU 现场保存区（armv6m 无 FPU 硬件，恒 no-op，接线预留）。 */
+static uint8_t g_tick_cp0_sa[BM_ARCH_ISR_FPU_SA_SIZE] __attribute__((aligned(16)));
+
+/**
+ * @brief TIMER1 比较中断服务函数。
+ *
+ * g_qemu_tick_cb 派发经 bm_arch_isr_fpu_enter/exit
+ * （portable/arch/armv6m/bm_arch_isr_fpu.h）包裹；Cortex-M0 无 FPU 硬件恒
+ * no-op，此处接线只为统一调用点，行为不变。
+ */
 void TIMER1_IRQHandler(void) {
+    unsigned cp_prev;
+
     if (TIMER1_EVENTS_COMPARE0 == 0U) {
         return;
     }
     TIMER1_EVENTS_COMPARE0 = 0U;
     TIMER1_TASKS_CLEAR = 1U;
     g_qemu_ticks++;
+    cp_prev = bm_arch_isr_fpu_enter(g_tick_cp0_sa);
     if (g_qemu_tick_cb) {
         g_qemu_tick_cb();
     }
+    bm_arch_isr_fpu_exit(g_tick_cp0_sa, cp_prev);
     TIMER1_TASKS_START = 1U;
 }
 

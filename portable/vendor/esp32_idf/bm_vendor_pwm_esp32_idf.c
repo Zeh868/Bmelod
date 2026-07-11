@@ -16,8 +16,8 @@
  *       性能为待硬件验证项。
  *
  * @author zeh (china_qzh@163.com)
- * @version 3.2
- * @date 2026-06-22
+ * @version 3.3
+ * @date 2026-07-11
  *
  * @par 修改日志:
  *
@@ -33,11 +33,12 @@
  * 2026-06-22       3.0            zeh            FOC 混合架构：新增 bm_vendor_pwm_hw_init_isr_only（仅挂 ISR）
  * 2026-06-22       3.1            zeh            清 B2 诊断埋点（DIAG_ISR 计时/diag_read_clear/diag_get_duty）
  * 2026-06-22       3.2            zeh            ISR 分频：新增 isr_decimate/isr_div_count 字段与 set_isr_decimate API，ADC+回调按 N 抽稀降 CPU 负载
+ * 2026-07-11       3.3            zeh            FPU 守卫下沉为 arch 层原语（bm_arch_isr_fpu.h），替换 vendor 私有头
  *
  */
 #include "bm_vendor_pwm_esp32_idf.h"
 #include "bm_vendor_esp32_idf_compat.h"
-#include "bm_vendor_esp32_isr_fpu.h"
+#include "xtensa/bm_arch_isr_fpu.h"
 #include "bm_hal_instances_esp32wroom32e.h"
 #include "bm_types.h"
 
@@ -104,11 +105,12 @@ typedef struct {
     /**
      * @brief ISR 内 FPU(CP0) 现场保存区（per-context 各一份，16 字节对齐）。
      *
-     * 供 bm_vendor_esp32_isr_fpu_enter/exit 保存/恢复被打断代码的浮点现场，
-     * 让本 ISR 回调内的浮点运算安全。每 MCPWM unit 独立持有，避免共享/嵌套。
-     * 无 FPU 芯片上 BM_VENDOR_ESP32_ISR_FPU_SA_SIZE=1，仅占位、守卫为 no-op。
+     * 供 bm_arch_isr_fpu_enter/exit（portable/arch/xtensa/bm_arch_isr_fpu.h）
+     * 保存/恢复被打断代码的浮点现场，让本 ISR 回调内的浮点运算安全。每
+     * MCPWM unit 独立持有，避免共享/嵌套。无 FPU 芯片或非 ESP_PLATFORM 路径
+     * 上 BM_ARCH_ISR_FPU_SA_SIZE=1，仅占位、守卫为 no-op。
      */
-    uint8_t cp0_sa[BM_VENDOR_ESP32_ISR_FPU_SA_SIZE] __attribute__((aligned(16)));
+    uint8_t cp0_sa[BM_ARCH_ISR_FPU_SA_SIZE] __attribute__((aligned(16)));
     /**
      * @brief ISR ADC 采样+回调的分频因子（CPU 预算调节）。
      *
@@ -416,7 +418,7 @@ static void IRAM_ATTR bm_vendor_pwm_isr(void *arg)
      * 守卫顺序铁律：开 CP0 → 存现场 → 跑浮点 → 复现场 → 还原 CPENABLE。
      */
     {
-        unsigned cp_prev = bm_vendor_esp32_isr_fpu_enter(ctx->cp0_sa);
+        unsigned cp_prev = bm_arch_isr_fpu_enter(ctx->cp0_sa);
 
         /* ADC 完成回调（由 ADC 模块注册） */
         if (ctx->adc_complete_binding.callback != NULL) {
@@ -428,7 +430,7 @@ static void IRAM_ATTR bm_vendor_pwm_isr(void *arg)
             ctx->update_binding.callback(ctx->update_binding.context);
         }
 
-        bm_vendor_esp32_isr_fpu_exit(ctx->cp0_sa, cp_prev);
+        bm_arch_isr_fpu_exit(ctx->cp0_sa, cp_prev);
     }
 }
 

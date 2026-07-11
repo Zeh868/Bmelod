@@ -17,6 +17,7 @@
 #include "hal/bm_hal_cpu.h"
 #include "bm_config.h"
 
+#include <stddef.h> /* NULL */
 #include <stdint.h>
 
 /** QEMU virt CLINT 基址 */

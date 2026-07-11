@@ -11,16 +11,23 @@
  * 2. 将 `portable/arch/<id>` 加入 include path，以便使用 `bm_arch_portmacro.h`。
  * 3. 下方 timer/uart/wdg 为弱符号示例；应用可提供强符号覆盖，或改用 vendor 单例。
  * 4. 使用 `BM_BACKEND` pack 时通常无需本文件（pack 已链 arch + vendor）。
+ * 5. 若定时器 ISR（`bm_port_timer_isr`）派发的用户回调可能包含浮点运算
+ *    （例如电流环等控制律回调），必须在派发前后调用 `portable/arch/<id>/
+ *    bm_arch_isr_fpu.h` 提供的 `bm_arch_isr_fpu_enter/exit` 守卫——多数裸机
+ *    ISR 入口默认不保存/不开启浮点协处理器现场，中断内直接跑浮点会踩坑
+ *    （轻则现场污染，重则触发协处理器异常复位，详见该头文件各架构平台
+ *    真相注释）。见 `bm_port_timer_isr` 内的示范。
  *
  * @author zeh (china_qzh@163.com)
- * @version 2.1
- * @date 2026-06-15
+ * @version 2.2
+ * @date 2026-07-11
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-15       2.0            zeh            组合模板：arch 头 + vendor 弱钩子
  * 2026-06-15       2.1            zeh            修正弱符号覆盖点为全局 API 对象
+ * 2026-07-11       2.2            zeh            timer_isr 补 ISR FPU 守卫调用示范（bm_arch_isr_fpu.h）
  *
  */
 #include <stddef.h>
@@ -74,7 +81,24 @@ BM_PORT_WEAK const struct bm_timer_driver_api bm_drv_timer_api = {
     port_timer_set_callback,
 };
 
-/** 应用定时器 ISR 中调用，转发框架 tick 回调 */
+/**
+ * @brief 应用定时器 ISR 中调用，转发框架 tick 回调。
+ *
+ * @note 若 g_tick_cb 链路可能触达浮点回调（如控制律），须在派发前后加
+ *       ISR FPU 守卫。将 `portable/arch/<id>` 加入 include path 后取消下方
+ *       注释即可接线（no-op 架构上零开销，接线不影响行为）：
+ * @code
+ * #include "<archid>/bm_arch_isr_fpu.h"
+ * static uint8_t g_fpu_sa[BM_ARCH_ISR_FPU_SA_SIZE] __attribute__((aligned(16)));
+ * void bm_port_timer_isr(void) {
+ *     unsigned prev = bm_arch_isr_fpu_enter(g_fpu_sa);
+ *     if (g_tick_cb) {
+ *         g_tick_cb();
+ *     }
+ *     bm_arch_isr_fpu_exit(g_fpu_sa, prev);
+ * }
+ * @endcode
+ */
 void bm_port_timer_isr(void) {
     if (g_tick_cb) {
         g_tick_cb();

@@ -1,0 +1,23 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/**
+ * @file bm_arch_isr_fpu.h
+ * @brief ARMv7E-M（Cortex-M4/M4F/M7）ISR 内浮点安全守卫。
+ *
+ * 转发 arm/common/bm_arch_arm_isr_fpu.h：硬件自动/lazy stacking 承担浮点
+ * 现场保存，守卫恒为 no-op。
+ *
+ * @author zeh (china_qzh@163.com)
+ * @version 1.0
+ * @date 2026-07-11
+ *
+ * @par 修改日志:
+ *
+ *    Date         Version        Author          Description
+ * 2026-07-11       1.0            zeh            新增（转发 arm/common 实现）
+ */
+#ifndef BM_ARCH_ISR_FPU_H
+#define BM_ARCH_ISR_FPU_H
+
+#include "arm/common/bm_arch_arm_isr_fpu.h"
+
+#endif /* BM_ARCH_ISR_FPU_H */

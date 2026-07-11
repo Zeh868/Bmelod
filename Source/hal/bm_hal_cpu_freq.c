@@ -17,6 +17,7 @@
  * 2026-07-03       1.0            zeh            正式发布
  *
  */
+#include <stddef.h> /* NULL */
 #include "hal/bm_hal_cpu.h"
 #include "bm/common/bm_types.h"
 #include "bm_config.h"

@@ -17,6 +17,7 @@
 #ifndef BM_CRC32_H
 #define BM_CRC32_H
 
+#include <stddef.h> /* NULL（bm_crc32 空指针防御分支使用） */
 #include <stdint.h>
 
 /**
