@@ -226,6 +226,14 @@ if(BM_ENABLE_BUS)
     target_compile_definitions(bm_core PUBLIC BM_ENABLE_BUS=1)
 endif()
 
+option(BM_ENABLE_PARAM "Enable bm_param runtime parameter registry" ON)
+if(BM_ENABLE_PARAM)
+    add_library(bm_param STATIC Source/core/bm_param.c)
+    target_link_libraries(bm_param PUBLIC bm_core bm_hal)  # persist 在 bm_hal
+    bm_target_internal_includes(bm_param)
+    target_link_libraries(bm_framework INTERFACE bm_param)
+endif()
+
 if(BM_ENABLE_SHELL)
     add_library(bm_shell STATIC Source/core/bm_shell.c)
     target_link_libraries(bm_shell PUBLIC bm_core)

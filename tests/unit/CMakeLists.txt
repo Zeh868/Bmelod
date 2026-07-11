@@ -33,6 +33,14 @@ bm_add_test(test_idle test_idle.c bm_core)
 bm_add_test(test_persist test_persist.c bm_core)
 target_include_directories(test_persist PRIVATE
     ${CMAKE_SOURCE_DIR}/portable/sim/native)
+
+# 批 P：bm_param 参数注册表测试（persist 依赖 native_sim 文件仿真 NVS）
+if(BM_ENABLE_PARAM)
+    bm_add_test(test_param test_param.c bm_param)
+    target_include_directories(test_param PRIVATE
+        ${CMAKE_SOURCE_DIR}/portable/sim/native)
+endif()
+
 bm_add_test(test_ultra test_ultra.c bm_core)
 target_compile_definitions(test_ultra PRIVATE BM_ENABLE_ULTRA_TEST_HOOK=1)
 bm_add_test(test_mempool test_mempool.c bm_core)
