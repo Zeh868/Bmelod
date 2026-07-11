@@ -139,6 +139,11 @@ if(BM_ENABLE_SHELL)
         target_include_directories(test_shell_cmds PRIVATE
             ${CMAKE_SOURCE_DIR}/Demo/bus_servo)
     endif()
+
+    # 批 P：框架内建命令组（param/log/ver/uptime）
+    if(BM_ENABLE_PARAM)
+        bm_add_test(test_shell_builtins test_shell_builtins.c "bm_shell;bm_param")
+    endif()
 endif()
 
 if(BM_ENABLE_HRT)

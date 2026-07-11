@@ -239,6 +239,13 @@ if(BM_ENABLE_SHELL)
     target_link_libraries(bm_shell PUBLIC bm_core)
     bm_target_internal_includes(bm_shell)
     target_link_libraries(bm_framework INTERFACE bm_shell)
+
+    if(BM_ENABLE_PARAM)
+        # 批 P：框架内建命令组（param/log/ver/uptime），app 经
+        # bm_shell_register_builtins() 一把注册（命令面控制权仍在 app）
+        target_sources(bm_shell PRIVATE Source/core/bm_shell_builtins.c)
+        target_link_libraries(bm_shell PUBLIC bm_param)
+    endif()
 endif()
 
 if(BM_ENABLE_WDG)
