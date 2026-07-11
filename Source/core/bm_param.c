@@ -9,20 +9,26 @@
  * reset 恢复出厂默认。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-11
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-11       1.0            zeh            正式发布（批 P：bm_param 参数注册表）
+ * 2026-07-11       1.1            zeh            新增 param_range_ok 值域校验，接入
+ *                                                 register/set/load_overlay 三处强制
  *
  */
 #include "bm/core/bm_param.h"
 #include "bm/common/bm_persist.h"
 #include "bm/common/bm_types.h"
+#include "bm_log.h"
 
+#include <math.h>
 #include <string.h>
+
+#define TAG "param"
 
 /** @brief 登记的静态描述表（app 所有）。 */
 static const bm_param_desc_t *s_table;
@@ -67,6 +73,24 @@ static void param_apply(const bm_param_desc_t *d, float v)
     }
 }
 
+/**
+ * @brief 值域校验：isfinite 恒必需；min<max 时闭区间检查；min==max 仅 isfinite。
+ *
+ * @param d 表项
+ * @param v 候选值
+ * @return 1 合法；0 拒绝
+ */
+static int param_range_ok(const bm_param_desc_t *d, float v)
+{
+    if (!isfinite(v)) {
+        return 0;
+    }
+    if (d->min < d->max && (v < d->min || v > d->max)) {
+        return 0;
+    }
+    return 1;
+}
+
 int bm_param_register_table(const bm_param_desc_t *table, uint16_t count)
 {
     uint16_t i;
@@ -80,6 +104,10 @@ int bm_param_register_table(const bm_param_desc_t *table, uint16_t count)
     for (i = 0u; i < count; ++i) {
         if (table[i].name == NULL ||
             (table[i].ptr == NULL && table[i].apply == NULL)) {
+            return BM_ERR_INVALID;
+        }
+        if (!isfinite(table[i].min) || !isfinite(table[i].max) ||
+            table[i].min > table[i].max || !param_range_ok(&table[i], table[i].def_val)) {
             return BM_ERR_INVALID;
         }
     }
@@ -108,6 +136,10 @@ int bm_param_load_overlay(void)
         }
         if (bm_persist_get(s_table[i].pkey, &v, (uint16_t)sizeof(v), &len) == BM_OK &&
             len == (uint16_t)sizeof(v)) {
+            if (!param_range_ok(&s_table[i], v)) {
+                BM_LOGW(TAG, "overlay '%s' rejected: out of range/non-finite", s_table[i].pkey);
+                continue; /* 坏 KV 跳过，镜像保持出厂，不计数 */
+            }
             s_vals[i] = v;
             param_apply(&s_table[i], v); /* REBOOT 项此处照常 apply：boot 生效点 */
             hits++;
@@ -126,6 +158,9 @@ int bm_param_set(const char *name, float val)
     idx = param_find(name);
     if (idx < 0) {
         return BM_ERR_NOT_FOUND;
+    }
+    if (!param_range_ok(&s_table[idx], val)) {
+        return BM_ERR_INVALID; /* 越界/非有限：不写镜像、不 apply */
     }
     s_vals[idx] = val;
     if ((s_table[idx].flags & BM_PARAM_FLAG_REBOOT) != 0u) {

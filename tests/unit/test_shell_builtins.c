@@ -8,13 +8,14 @@
  * 设置）、ver、uptime 四条内建命令经 bm_shell_exec 的行为。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-11
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-11       1.0            zeh            正式发布（批 P：内建命令组单测）
+ * 2026-07-11       1.1            zeh            同步 min/max 新布局；新增 set 越界提示用例
  *
  */
 #include "unity.h"
@@ -27,10 +28,13 @@
 
 static bm_shell_t s_shell;
 static float s_kp;
+static float s_bd;
 
 static const bm_param_desc_t k_tbl[] = {
-    { "t.kp", 1.0f, &s_kp, NULL, NULL, NULL, 0u },
+    { "t.kp", 1.0f, 0.0f, 0.0f,  &s_kp, NULL, NULL, NULL, 0u },
+    { "t.bd", 1.0f, 0.0f, 10.0f, &s_bd, NULL, NULL, NULL, 0u },
 };
+#define K_TBL_N ((uint16_t)(sizeof(k_tbl) / sizeof(k_tbl[0])))
 
 /** @brief 就地可写命令行辅助：bm_shell_exec 会修改缓冲。 */
 static int exec_line(const char *cmd) {
@@ -44,8 +48,9 @@ static int exec_line(const char *cmd) {
 void setUp(void) {
     bm_shell_init(&s_shell);
     s_kp = 0.0f;
+    s_bd = 0.0f;
     TEST_ASSERT_EQUAL(BM_OK, bm_shell_register_builtins(&s_shell));
-    TEST_ASSERT_EQUAL(BM_OK, bm_param_register_table(k_tbl, 1u));
+    TEST_ASSERT_EQUAL(BM_OK, bm_param_register_table(k_tbl, K_TBL_N));
     bm_param_set_reset_guard(NULL);
     bm_log_set_level((bm_log_level_t)BM_CONFIG_LOG_LEVEL);
 }
@@ -59,6 +64,13 @@ void test_builtins_param_set_get_via_shell(void) {
     TEST_ASSERT_EQUAL(BM_ERR_NOT_FOUND, exec_line("param set nope 1"));
     TEST_ASSERT_EQUAL(BM_ERR_INVALID, exec_line("param set t.kp abc"));
     TEST_ASSERT_EQUAL(BM_ERR_INVALID, exec_line("param bogus"));
+}
+
+void test_builtins_param_set_out_of_range(void) {
+    TEST_ASSERT_EQUAL(BM_OK, exec_line("param set t.bd 9.5"));
+    TEST_ASSERT_EQUAL_FLOAT(9.5f, s_bd);
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, exec_line("param set t.bd 99"));
+    TEST_ASSERT_EQUAL_FLOAT(9.5f, s_bd); /* 拒绝后落点保持原值（注意 register 不 apply，s_bd 初值非 def） */
 }
 
 void test_builtins_param_reset_via_shell(void) {
@@ -85,6 +97,7 @@ void test_builtins_ver_uptime_ok(void) {
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_builtins_param_set_get_via_shell);
+    RUN_TEST(test_builtins_param_set_out_of_range);
     RUN_TEST(test_builtins_param_reset_via_shell);
     RUN_TEST(test_builtins_log_level_via_shell);
     RUN_TEST(test_builtins_ver_uptime_ok);

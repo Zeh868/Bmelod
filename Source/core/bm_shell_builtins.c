@@ -10,13 +10,15 @@
  * -1 不补 NUL 的坑）。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-11
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-11       1.0            zeh            正式发布（批 P：shell 内建命令组）
+ * 2026-07-11       1.1            zeh            set 越界提示区分 BM_ERR_INVALID；
+ *                                                 list 每行追加有界参数的 [min..max]
  *
  */
 #include "bm/core/bm_shell_builtins.h"
@@ -35,7 +37,7 @@
  */
 static int cmd_param(int argc, char *argv[])
 {
-    char buf[112];
+    char buf[160];
 
     if (argc < 2) {
         bm_shell_puts("usage: param <list|get|set|save|reset> [name] [value]\r\n");
@@ -52,12 +54,19 @@ static int cmd_param(int argc, char *argv[])
         for (i = 0u; i < n; ++i) {
             const bm_param_desc_t *d = bm_param_desc_at(i);
             float v = 0.0f;
+            char range_buf[32] = "";
 
             (void)bm_param_value_at(i, &v);
-            (void)snprintf(buf, sizeof(buf), "  %s = %.6f%s%s\r\n",
+            if (d->min < d->max) {
+                (void)snprintf(range_buf, sizeof(range_buf), " [%g..%g]",
+                               (double)d->min, (double)d->max);
+                range_buf[sizeof(range_buf) - 1u] = '\0';
+            }
+            (void)snprintf(buf, sizeof(buf), "  %s = %.6f%s%s%s\r\n",
                            d->name, (double)v,
                            (d->pkey != NULL) ? " [kv]" : "",
-                           ((d->flags & BM_PARAM_FLAG_REBOOT) != 0u) ? " [reboot]" : "");
+                           ((d->flags & BM_PARAM_FLAG_REBOOT) != 0u) ? " [reboot]" : "",
+                           range_buf);
             buf[sizeof(buf) - 1u] = '\0';
             bm_shell_puts(buf);
         }
@@ -101,6 +110,10 @@ static int cmd_param(int argc, char *argv[])
         if (rc == BM_PARAM_REBOOT_REQUIRED) {
             bm_shell_puts("param: stored (reboot required)\r\n");
             return BM_OK;
+        }
+        if (rc == BM_ERR_INVALID) {
+            bm_shell_puts("param: value out of range or not finite\r\n");
+            return rc;
         }
         if (rc != BM_OK) {
             bm_shell_puts("param: set failed (not found?)\r\n");

@@ -12,7 +12,7 @@
  * 典型用法：
  * @code
  * static const bm_param_desc_t k_params[] = {
- *     { "bal.kp", BAL_KP_DEFAULT, &g_bal_kp, NULL, NULL, "bal.kp", 0u },
+ *     { "bal.kp", BAL_KP_DEFAULT, 0.0f, 0.0f, &g_bal_kp, NULL, NULL, "bal.kp", 0u },
  * };
  * bm_param_register_table(k_params, (uint16_t)(sizeof(k_params) / sizeof(k_params[0])));
  * bm_param_load_overlay();   // 上电：用持久化值覆盖出厂默认（如有）
@@ -21,6 +21,13 @@
  * bm_param_save();
  * @endcode
  *
+ * 值域校验规则（v1.1 新增，`bm_param_set`/`bm_param_load_overlay`/
+ * `bm_param_register_table` 三处统一强制）：
+ * 1. `isfinite(v)` 恒必需——NaN/Inf 一律拒绝，无逃生口；
+ * 2. `min < max` 时按闭区间 `[min, max]` 校验；
+ * 3. `min == max`（如都写 0）表示该参数无界，仅做 isfinite 校验
+ *    （无界参数的显式逃生口，避免误填 0/0 被当成“只能取 0”）。
+ *
  * @warning 并发契约：与 bm_persist 相同——本模块内部无任何并发保护
  *          （无锁、无临界区），全部 API 须在单一执行上下文（如 shell
  *          主循环）中调用，且不在 ISR 中。apply 回调落点跨执行上下文
@@ -28,13 +35,15 @@
  *          由登记方（app）的 apply 回调自行保证其落点满足该前提。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-11
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-11       1.0            zeh            正式发布（批 P：bm_param 参数注册表）
+ * 2026-07-11       1.1            zeh            新增 min/max 值域校验（isfinite 恒必需，
+ *                                                 min==max 为无界逃生口）
  *
  */
 #ifndef BM_PARAM_H
@@ -83,6 +92,8 @@ typedef int (*bm_param_reset_guard_fn_t)(void);
 typedef struct {
     const char         *name;       /**< 点分小写唯一名（如 "bal.kp"），静态生存期 */
     float               def_val;    /**< 出厂默认值（来源 gains.h 宏，保持单源） */
+    float               min;        /**< 值域下界；min==max（如都写 0）= 不做区间校验，仅 isfinite */
+    float               max;        /**< 值域上界（闭区间 [min,max]，仅 min<max 时生效） */
     float              *ptr;        /**< 直写目标；可 NULL（用 apply） */
     bm_param_apply_fn_t apply;      /**< 热写回调；可 NULL（用 ptr）；与 ptr 至少一个非空 */
     void               *apply_user; /**< apply 回调透传上下文 */
@@ -94,7 +105,9 @@ typedef struct {
  * @brief 登记参数静态表
  *
  * 校验表非空、1<=count<=BM_CONFIG_PARAM_MAX、每项 name 非空且
- * ptr/apply 至少一个非空。成功后 RAM 镜像逐项置为 def_val（不触发
+ * ptr/apply 至少一个非空，另逐项校验 `min`/`max` 均为有限值且
+ * `min<=max`，以及 `def_val` 本身通过值域校验（挡表作者笔误：
+ * def 越界或 min>max）。成功后 RAM 镜像逐项置为 def_val（不触发
  * apply——模块 init 已用同一 gains.h 宏灌过默认值）。可重复调用
  * （覆盖此前登记，供单测/重复 boot 使用），不影响已设置的 reset guard。
  *
@@ -103,7 +116,9 @@ typedef struct {
  *
  * @param table 静态描述符数组（调用方保证生存期覆盖后续所有 API 调用）
  * @param count 表项数
- * @return BM_OK 成功；BM_ERR_INVALID 参数非法；BM_ERR_NO_MEM 超出 BM_CONFIG_PARAM_MAX
+ * @return BM_OK 成功；BM_ERR_INVALID 参数非法（含 min/max 非有限、
+ *         min>max 或 def_val 未过值域校验）；BM_ERR_NO_MEM 超出
+ *         BM_CONFIG_PARAM_MAX
  */
 int bm_param_register_table(const bm_param_desc_t *table, uint16_t count);
 
@@ -112,23 +127,27 @@ int bm_param_register_table(const bm_param_desc_t *table, uint16_t count);
  *
  * 逐项 pkey 非 NULL 者从 bm_persist 读取，命中且长度匹配则写入镜像
  * 并执行 ptr 直写/apply 回调（REBOOT 项此处照常 apply——boot 即为其
- * 重启生效点）。
+ * 重启生效点）。读回的值若未过值域校验（非 isfinite 或越界），视为
+ * 坏 KV：跳过（不写镜像、不 apply、不计入返回条数，镜像保持出厂
+ * 默认），并经 BM_LOGW 记录。
  *
- * @return 命中并应用的条数（>=0）；未登记返回 BM_ERR_NOT_INIT
+ * @return 命中并应用的条数（>=0，坏值不计入）；未登记返回 BM_ERR_NOT_INIT
  */
 int bm_param_load_overlay(void);
 
 /**
  * @brief 按名设置参数值
  *
- * 未命中返回 BM_ERR_NOT_FOUND。命中时先写 RAM 镜像：若该项带
- * BM_PARAM_FLAG_REBOOT，只改镜像，返回 BM_PARAM_REBOOT_REQUIRED；
- * 否则热写落点（先 ptr 直写，后 apply 回调；两者都给则都执行），
- * 返回 BM_OK。
+ * 未命中返回 BM_ERR_NOT_FOUND。命中后先做值域校验：`val` 非
+ * isfinite 或越界（见值域校验规则）→ BM_ERR_INVALID，不写镜像、
+ * 不 apply。校验通过才写 RAM 镜像：若该项带 BM_PARAM_FLAG_REBOOT，
+ * 只改镜像，返回 BM_PARAM_REBOOT_REQUIRED；否则热写落点（先 ptr
+ * 直写，后 apply 回调；两者都给则都执行），返回 BM_OK。
  *
  * @param name 参数名
  * @param val  新值
- * @return BM_OK / BM_PARAM_REBOOT_REQUIRED / 负错误码
+ * @return BM_OK / BM_PARAM_REBOOT_REQUIRED / BM_ERR_INVALID（值域拒绝）
+ *         / 其他负错误码
  */
 int bm_param_set(const char *name, float val);
 
