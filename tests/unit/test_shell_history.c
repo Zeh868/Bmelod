@@ -116,7 +116,15 @@ void test_esc_sequences_swallowed(void) {
     bm_shell_feed(&s_shell, 'H');
     bm_shell_feed(&s_shell, 'y');
     TEST_ASSERT_EQUAL_STRING("xy", s_shell.buf);
-    /* 带参数字节的序列（ESC [ 1 ; 5 A）也整段处理，且触发历史无副作用 */
+    /* 带参数字节的 CSI（ESC [ 1 ; 5 A）：参数字节整段被吞；本用例历史为空，
+     * 终字节 A 仅响铃，行缓冲不被注入任何字符 */
+    bm_shell_feed(&s_shell, 0x1B);
+    bm_shell_feed(&s_shell, '[');
+    bm_shell_feed(&s_shell, '1');
+    bm_shell_feed(&s_shell, ';');
+    bm_shell_feed(&s_shell, '5');
+    bm_shell_feed(&s_shell, 'A');
+    TEST_ASSERT_EQUAL_STRING("xy", s_shell.buf);
     feed_str("\r");                       /* 执行 "xy"（unknown 命令，无妨） */
     s_shell.buf[0] = '\0';
 }
