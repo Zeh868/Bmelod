@@ -25,7 +25,7 @@
  *       待硬件：若日后迁移到 IDF FreeRTOS 应用路径，可切换为 esp_task_wdt_init。
  *
  * @author zeh (china_qzh@163.com)
- * @version 3.4
+ * @version 3.5
  * @date 2026-07-12
  *
  * @par 修改日志:
@@ -43,6 +43,9 @@
  *                                                校准/NVS commit）内触发即 cache panic
  *                                                循环重启（真机实证）；改为窗口内自动
  *                                                延迟，丢拍由 LET/wcet 账目如实体现
+ * 2026-07-12       3.5            zeh            去除 TG0 组级复位（误伤 esp_timer LACT
+ *                                                时基致 WiFi 连接 INT WDT），改窄范围清
+ *                                                timer0 中断
  *
  */
 #include "bm_drv_timer.h"
@@ -248,13 +251,30 @@ static int esp32_timer_init(uint32_t freq_hz)
      *   - 真实 IDF 构建（ESP_PLATFORM）：展开为 PERIPH_RCC_ATOMIC(){...} 临界块。
      *   - compilecheck/freestanding：展开为带守卫变量声明的普通块（满足 IDF LL 宏要求）。
      */
+    /*
+     * 仅使能总线时钟，刻意不做组级复位 timer_ll_reset_register(TG0)：
+     *   timer_ll_reset_register(BM_VENDOR_TICK_TIMER_GROUP) 是对整个 Timer
+     *   Group 0 的 DPORT 组级复位，会连带复位 esp_timer 在 ESP32 上占用的
+     *   TG0 LACT 微秒时基（CONFIG_ESP_TIMER_IMPL_TG0_LAC）。LACT 一旦被复位，
+     *   esp_timer 时基失准、已 arm 的定时器永不触发/移除，WiFi 一连上狂 arm
+     *   使有序链表暴涨，timer_insert 持锁遍历长链表吃满 300ms 触发 CPU0
+     *   Interrupt WDT（真机 2026-07-12 实证：station 连上 SoftAP 即崩）。
+     *   timer0 所需初态由下方逐寄存器显式配置独立达成，不依赖组复位；
+     *   组复位唯一有用副作用（清 timer0 pending 中断位）用窄范围清中断精确补回。
+     * timer_ll_enable_bus_clock 幂等、只动总线时钟门控，不扰 LACT，保留。
+     */
     BM_PERIPH_RCC_ATOMIC_BEGIN
         timer_ll_enable_bus_clock(BM_VENDOR_TICK_TIMER_GROUP, true);
-        timer_ll_reset_register(BM_VENDOR_TICK_TIMER_GROUP);
     BM_PERIPH_RCC_ATOMIC_END
 
     /* 停止计数 */
     timer_ll_enable_counter(hw, BM_VENDOR_TICK_TIMER_NUM, false);
+
+    /*
+     * 替代组复位唯一有用副作用：清 timer0 pending 中断位。
+     * 窄范围只清 timer0 的 alarm 事件，不碰 LACT / 整组，避免误伤 esp_timer 时基。
+     */
+    timer_ll_clear_intr_status(hw, TIMER_LL_EVENT_ALARM(BM_VENDOR_TICK_TIMER_NUM));
 
     /* 配置分频、向上计数、自动重载 */
     timer_ll_set_clock_prescale(hw, BM_VENDOR_TICK_TIMER_NUM, divider);
