@@ -16,8 +16,8 @@
  *       性能为待硬件验证项。
  *
  * @author zeh (china_qzh@163.com)
- * @version 3.3
- * @date 2026-07-11
+ * @version 3.4
+ * @date 2026-07-12
  *
  * @par 修改日志:
  *
@@ -34,6 +34,15 @@
  * 2026-06-22       3.1            zeh            清 B2 诊断埋点（DIAG_ISR 计时/diag_read_clear/diag_get_duty）
  * 2026-06-22       3.2            zeh            ISR 分频：新增 isr_decimate/isr_div_count 字段与 set_isr_decimate API，ADC+回调按 N 抽稀降 CPU 负载
  * 2026-07-11       3.3            zeh            FPU 守卫下沉为 arch 层原语（bm_arch_isr_fpu.h），替换 vendor 私有头
+ * 2026-07-12       3.4            zeh            TEZ 中断注册（两处 esp_intr_alloc）去掉
+ *                                                ESP_INTR_FLAG_IRAM：update_binding/
+ *                                                adc_complete_binding 回调链落 flash，
+ *                                                flash 写窗口（WiFi PHY 校准/NVS commit，
+ *                                                cache 关闭）内触发即 cache panic 循环重启
+ *                                                （真机实证，PC 落在 flash 映射区）；与
+ *                                                tick ISR 同款根因，同款修法（commit
+ *                                                1c3a859）：改为窗口内自动延迟，丢拍由
+ *                                                LET/wcet 账目如实体现
  *
  */
 #include "bm_vendor_pwm_esp32_idf.h"
@@ -496,9 +505,19 @@ static int bm_vendor_pwm_hw_init(bm_vendor_pwm_context_t *ctx)
      * 重入窗口——避免在 hw 尚未完成、ctx->initialized 仍为 0 时被 TEZ ISR
      * 抢入而重入 hw_init / esp_intr_alloc。
      */
+    /*
+     * 刻意不带 ESP_INTR_FLAG_IRAM：update_binding/adc_complete_binding
+     * 回调链（FOC current_step 等用户回调）位于 flash，若以 IRAM-safe
+     * 注册，flash 写入窗口（WiFi PHY 校准/NVS commit 等，cache 关闭）内
+     * 中断照常触发会跳入 flash 地址，触发 "Cache disabled but cached
+     * memory region accessed" panic（同 tick ISR 根因，见 commit
+     * 1c3a859）。去掉该标志后 flash 操作期间本中断被 IDF 自动延迟、窗口
+     * 结束恢复——控制环丢拍由 LET staleness/wcet deadline-miss 账目如实
+     * 体现。
+     */
     intr_src = (motor_id == 0u) ? ETS_PWM0_INTR_SOURCE : ETS_PWM1_INTR_SOURCE;
     ret = esp_intr_alloc(intr_src,
-                         ESP_INTR_FLAG_LEVEL3 | ESP_INTR_FLAG_IRAM |
+                         ESP_INTR_FLAG_LEVEL3 |
                              ESP_INTR_FLAG_INTRDISABLED,
                          bm_vendor_pwm_isr,
                          ctx,
@@ -813,9 +832,14 @@ int bm_vendor_pwm_hw_init_isr_only(uint32_t motor_id)
      * 注册 TEZ ISR，以 ESP_INTR_FLAG_INTRDISABLED 装入：alloc 后中断处于
      * 禁用态，配合最后 esp_intr_enable 消除 init 期重入窗口。
      */
+    /*
+     * 刻意不带 ESP_INTR_FLAG_IRAM：理由同 bm_vendor_pwm_hw_init（同文件
+     * 上方），update_binding 回调链落 flash，flash 写窗口内触发会 cache
+     * panic（同 tick ISR 根因，commit 1c3a859 同款修法）。
+     */
     intr_src = (motor_id == 0u) ? ETS_PWM0_INTR_SOURCE : ETS_PWM1_INTR_SOURCE;
     ret = esp_intr_alloc(intr_src,
-                         ESP_INTR_FLAG_LEVEL3 | ESP_INTR_FLAG_IRAM |
+                         ESP_INTR_FLAG_LEVEL3 |
                              ESP_INTR_FLAG_INTRDISABLED,
                          bm_vendor_pwm_isr,
                          ctx,
