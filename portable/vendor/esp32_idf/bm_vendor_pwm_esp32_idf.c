@@ -16,7 +16,7 @@
  *       性能为待硬件验证项。
  *
  * @author zeh (china_qzh@163.com)
- * @version 3.4
+ * @version 3.5
  * @date 2026-07-12
  *
  * @par 修改日志:
@@ -43,6 +43,23 @@
  *                                                tick ISR 同款根因，同款修法（commit
  *                                                1c3a859）：改为窗口内自动延迟，丢拍由
  *                                                LET/wcet 账目如实体现
+ * 2026-07-12       3.5            zeh            TEZ 中断注册（两处 esp_intr_alloc）级别从
+ *                                                ESP_INTR_FLAG_LEVEL3 降为 LEVEL2：Plan B
+ *                                                Task4 真机诊断坐实 core0 上 LEVEL3 非共享
+ *                                                通用线仅 2 条（intno 23/27），PWM0+PWM1+
+ *                                                tick/HRT(TG0_T0) 三者抢 2 条线致
+ *                                                esp_intr_alloc 分配失败、`No free interrupt
+ *                                                inputs for TG0_T0_LEVEL`、控制环 LET 全
+ *                                                run=0（诊断详见 .superpowers/sdd/
+ *                                                task-4c-intr-contention-diag.md 方案(c)）；
+ *                                                LEVEL2 通用线有 3 条（19/20/21），可容纳两
+ *                                                个 PWM TEZ 请求，tick 独占 LEVEL3 后不再
+ *                                                竞争。IRAM 标志与本次容量竞争无关（已用
+ *                                                源码证伪），保持去掉状态不回退。新增风险
+ *                                                窗口：tick(LEVEL3) 可抢占正在跑的 PWM
+ *                                                ISR(LEVEL2)，PWM ISR 职责轻（清中断+分频
+ *                                                判断+ADC 触发），真机验证判据见诊断文档
+ *                                                §5 实验 C
  *
  */
 #include "bm_vendor_pwm_esp32_idf.h"
@@ -517,7 +534,7 @@ static int bm_vendor_pwm_hw_init(bm_vendor_pwm_context_t *ctx)
      */
     intr_src = (motor_id == 0u) ? ETS_PWM0_INTR_SOURCE : ETS_PWM1_INTR_SOURCE;
     ret = esp_intr_alloc(intr_src,
-                         ESP_INTR_FLAG_LEVEL3 |
+                         ESP_INTR_FLAG_LEVEL2 |
                              ESP_INTR_FLAG_INTRDISABLED,
                          bm_vendor_pwm_isr,
                          ctx,
@@ -839,7 +856,7 @@ int bm_vendor_pwm_hw_init_isr_only(uint32_t motor_id)
      */
     intr_src = (motor_id == 0u) ? ETS_PWM0_INTR_SOURCE : ETS_PWM1_INTR_SOURCE;
     ret = esp_intr_alloc(intr_src,
-                         ESP_INTR_FLAG_LEVEL3 |
+                         ESP_INTR_FLAG_LEVEL2 |
                              ESP_INTR_FLAG_INTRDISABLED,
                          bm_vendor_pwm_isr,
                          ctx,
