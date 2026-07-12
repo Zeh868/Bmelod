@@ -118,6 +118,30 @@ typedef uint8_t (*bm_module_owner_resolver_t)(uint32_t module_index);
         (deinit_fn) \
     }
 
+/**
+ * @brief 同时指定 domain 与 owner_cpu 的模块声明宏（Plan B 缺口③）。
+ *
+ * BM_MODULE_DEFINE_DOMAIN 硬编码 owner_cpu=BM_CPU_ANY；BM_MODULE_DEFINE_OWNER
+ * 硬编码 domain=BM_DOMAIN_COMMON。真机双核部署需要"SRT/WORKER 域 + 指定
+ * owner_cpu"的组合（module_table.c 真机双核归属表），故新增本宏，不改动上述
+ * 两个既有宏的行为（零回归面）。
+ */
+#define BM_MODULE_DEFINE_DOMAIN_OWNER(name, priority, domain, owner_cpu, \
+                                      init_fn, start_fn, stop_fn, deinit_fn) \
+    const bm_module_t _bm_mod_##name = { \
+        #name, \
+        (uint8_t)(priority), \
+        (domain), \
+        (uint8_t)(owner_cpu), \
+        NULL, \
+        0u, \
+        BM_MODULE_STATE_UNINIT, \
+        (init_fn), \
+        (start_fn), \
+        (stop_fn), \
+        (deinit_fn) \
+    }
+
 /** 在 module_table.c 中前置声明各模块条目 */
 #define BM_MODULE_DECLARE(name) \
     extern const bm_module_t _bm_mod_##name
