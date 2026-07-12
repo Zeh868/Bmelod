@@ -81,3 +81,9 @@ target_compile_definitions(bm_vendor_esp32_idf PUBLIC
     BM_ESP32_BAREMETAL=1
     BM_HAL_CPU_HAS_PORT_FREQ
     BM_PORT_ARCH_ID=\"xtensa\")
+
+# Plan B 缺口②：仅当上层关闭单核 CPU stub 时才编入真实 CPU-ID 实现，
+# 避免与 Source/hal/bm_hal_cpu_stub.c 重复定义 bm_hal_cpu_id()。
+if(NOT BM_HAL_USE_CPU_STUB)
+    target_sources(bm_vendor_esp32_idf PRIVATE bm_hal_cpu_esp32_idf.c)
+endif()
