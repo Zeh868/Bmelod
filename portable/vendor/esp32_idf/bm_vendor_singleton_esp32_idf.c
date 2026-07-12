@@ -25,8 +25,8 @@
  *       待硬件：若日后迁移到 IDF FreeRTOS 应用路径，可切换为 esp_task_wdt_init。
  *
  * @author zeh (china_qzh@163.com)
- * @version 3.3
- * @date 2026-07-11
+ * @version 3.4
+ * @date 2026-07-12
  *
  * @par 修改日志:
  *
@@ -38,6 +38,11 @@
  * 2026-06-26       3.1            zeh            添加 bm_hal_uptime_ns_raw()（路线图 #9 时间基统一 1a）
  * 2026-07-11       3.2            zeh            tick ISR 加 FPU 协处理器守卫，修复 10kHz 电流环回调触发 Coprocessor 异常崩溃
  * 2026-07-11       3.3            zeh            esp32_uart_recv 实现 UART0 RX FIFO 非阻塞轮询读（uart_ll），修 shell 无法输入
+ * 2026-07-12       3.4            zeh            tick 中断注册去掉 ESP_INTR_FLAG_IRAM：
+ *                                                回调链在 flash，flash 写窗口（WiFi PHY
+ *                                                校准/NVS commit）内触发即 cache panic
+ *                                                循环重启（真机实证）；改为窗口内自动
+ *                                                延迟，丢拍由 LET/wcet 账目如实体现
  *
  */
 #include "bm_drv_timer.h"
@@ -276,9 +281,19 @@ static int esp32_timer_init(uint32_t freq_hz)
 
         status_reg  = timer_ll_get_intr_status_reg(hw);
         status_mask = TIMER_LL_EVENT_ALARM(BM_VENDOR_TICK_TIMER_NUM);
+        /*
+         * 刻意不带 ESP_INTR_FLAG_IRAM：tick 回调链（bm_hrt 派发→tt_schedule→
+         * 控制 LET）整体位于 flash，若以 IRAM-safe 注册，flash 写入窗口
+         * （WiFi PHY 校准/NVS commit 等，cache 关闭）内中断照常触发会跳入
+         * flash 地址，触发 "Cache disabled but cached memory region accessed"
+         * panic（真机 2026-07-12 实证：WiFi 起网必炸循环重启）。去掉该标志
+         * 后 flash 操作期间本中断被 IDF 自动延迟、窗口结束恢复——控制环丢拍
+         * 由 LET staleness/wcet deadline-miss 账目如实体现；出力期与 flash
+         * 写的互斥由业务门控保证（web spec §6 R1：armed 拒 save/reset）。
+         */
         (void)esp_intr_alloc_intrstatus(
             ETS_TG0_T0_LEVEL_INTR_SOURCE,
-            ESP_INTR_FLAG_LEVEL3 | ESP_INTR_FLAG_IRAM,
+            ESP_INTR_FLAG_LEVEL3,
             (uint32_t)(uintptr_t)status_reg,
             status_mask,
             bm_vendor_tick_isr,
