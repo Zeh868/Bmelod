@@ -65,14 +65,14 @@ typedef struct {
     const bm_bus_t *bus;          /**< 核内 LATEST 源 */
     uint32_t        max_age_us;   /**< 0=显式不检龄；BM_LET_AGE_DEFAULT=2×任务周期 */
     uint32_t        elem_size;    /**< 快照/拷出字节数 */
-    const void     *safe_default; /**< 冻结失败时填充（非 NULL，编译期由宏强制） */
+    const void     *safe_default; /**< 冻结失败时填充（非 NULL，由 bm_tt_schedule_init 运行期校验） */
 } bm_let_input_t;
 
 /** 输出绑定：目标 LATEST bus + 安全值 */
 typedef struct {
     bm_bus_t       *bus;
     uint32_t        elem_size;
-    const void     *safe_default; /**< 非 NULL，编译期强制 */
+    const void     *safe_default; /**< 非 NULL，由 bm_tt_schedule_init 运行期强制 */
 } bm_let_output_t;
 
 /** step 上下文（不透明，仅经访问器读写） */

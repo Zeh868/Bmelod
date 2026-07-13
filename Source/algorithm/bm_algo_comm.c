@@ -3,13 +3,14 @@
  * @brief 通信 DSP：CRC 与 DTMF 检测实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-13
+ * @version 1.1
+ * @date 2026-06-17
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
+ * 2026-06-17       1.1            zeh            2-FSK 解调与 Hamming(7,4)
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

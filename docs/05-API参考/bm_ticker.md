@@ -22,8 +22,8 @@ Ticker 在慢速域按固定毫秒周期向事件总线发布事件，供后台�
 
 ### `bm_ticker_poll()`
 
-检查各 slot 是否到期，到期则 `bm_event_publish_copy`。事件队列满时饱和递增对应 slot 的 `dropped` 计数并推进周期；其他发布错误原样返回。tick 回绕不会产生额外发布。
-返回：本次发布数；负值为 `BM_ERR_NOT_INIT` 或事件发布错误。
+检查各 slot 是否到期，到期则 `bm_event_publish_copy`。发布失败（队列满 `BM_ERR_OVERFLOW`、事件类型未注册、多核转发失败等）统一按丢弃处理：饱和递增对应 slot 的 `dropped` 计数、推进该槽 `next_us`，然后 `break` 出内层循环处理下一槽——绝不提前 `return` 中断整轮 slot 遍历，避免同一槽反复复现同一错误、拖累后续槽全部被跳过。catchup 预算耗尽仍落后时按 resync 补记：把本次静默跳过的周期数一并计入该槽 `dropped`，口径与发布失败路径一致。tick 回绕不会产生额外发布。
+返回：本次发布数；负值仅为 `BM_ERR_NOT_INIT`（未初始化）。
 
 ### `bm_ticker_get_dropped(slot_index)`
 

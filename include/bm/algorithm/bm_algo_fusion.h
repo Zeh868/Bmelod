@@ -4,8 +4,8 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.2
- * @date 2026-06-23
+ * @version 1.3
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
@@ -13,6 +13,10 @@
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-17       1.1            zeh            增加 IMU 偏置/比例标定
  * 2026-06-23       1.2            zeh            NaN 拦截改用 bm_algo_is_finite_f；Mahony 积分项增加对称限幅
+ * 2026-07-09       1.3            zeh            H10：Mahony/Madgwick 补陀螺
+ *                                                gx/gy/gz 有限性校验，非有限
+ *                                                则跳过本次积分，避免污染
+ *                                                四元数持久状态
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
