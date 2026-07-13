@@ -2,8 +2,8 @@
  * @file bms_estimation.c
  * @brief BMS Pack SOC 估算组件实现
  * @author zeh (china_qzh@163.com)
- * @version 0.3
- * @date 2026-06-17
+ * @version 0.4
+ * @date 2026-07-13
  *
  * @par 修改日志:
  *
@@ -11,6 +11,10 @@
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-17       0.2            zeh            接入 soc_ekf 模式
  * 2026-06-23       0.3            zeh            补 SPDX 与函数级 Doxygen
+ * 2026-07-13       0.4            zeh            C11：EKF 预测 OCV 改用
+ *                                                bm_algo_ocv_lookup_voltage
+ *                                                （SOC→OCV），修正误用
+ *                                                lookup_soc 致 SOC 估算失真
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -106,7 +110,10 @@ void bm_bms_estimation_step(bm_bms_estimation_axis_t *axis) {
         bm_algo_soc_ekf_predict(&st->soc_ekf, &ekf_cfg, current_a, cfg->dt_s);
 
         if (cfg->ocv_table != NULL) {
-            ocv_from_soc = bm_algo_ocv_lookup_soc(cfg->ocv_table, st->soc_ekf.soc);
+            /* C11：预测 OCV 须走 SOC→OCV 方向（lookup_voltage）。此前误用
+             * lookup_soc（电压→SOC 方向），SOC(0~1) 被当电压查表恒命中表底
+             * y[0]，量测新息恒≈端电压全值，EKF 每拍被拉偏直至钳位卡死。 */
+            ocv_from_soc = bm_algo_ocv_lookup_voltage(cfg->ocv_table, st->soc_ekf.soc);
             ocv_comp_v = bm_algo_battery_temp_compensate_ocv(
                 voltage_v, temp_c, &cfg->temp);
             bm_algo_soc_ekf_update_voltage(&st->soc_ekf, &ekf_cfg,

@@ -9,8 +9,8 @@
  * 依赖方向保持 hybrid→core，bus 核心不引用任何 hybrid 类型。
  * 编译期用 BM_BUS_DEFINE 静态分配存储，零动态分配。
  * @author zeh (china_qzh@163.com)
- * @version 0.6
- * @date 2026-06-27
+ * @version 0.7
+ * @date 2026-07-13
  *
  * @par 修改日志:
  *
@@ -21,6 +21,9 @@
  * 2026-06-26       0.4            zeh            新增 bm_bus_reset()：freeze 对称解冻/复位，与 bm_event_reset() 语义对称
  * 2026-06-26       0.5            zeh            seqlock 多读者 LATEST 读：新增 latest_seq + bm_bus_latest_read（增量并存方案）
  * 2026-06-27       0.6            zeh            BM_BUS_IPC 控制反转：bm_bus_bind_ipc_backend + 五入口 IPC 分流
+ * 2026-07-13       0.7            zeh            C7：bm_bus_reader_t 新增 borrowed 借出标记，
+ *                                                 QUEUE/SIGNAL 未 acquire 先 release 拒绝为
+ *                                                 BM_ERR_INVALID（与写侧 write_in_progress 对称）
  *
  */
 #ifndef BM_BUS_H
@@ -121,6 +124,10 @@ typedef struct {
 typedef struct {
     bm_bus_storage_t *storage;
     uint32_t          slot_idx;   /**< readers[] 数组下标；LATEST 时无效（设 UINT32_MAX） */
+    uint8_t           borrowed;   /**< QUEUE/SIGNAL：1=已 acquire 未 release（借出中）。
+                                       与写侧 write_in_progress 对称，防未借先还使
+                                       read_cur 越过 write_cur 永久毒化游标（C7）。
+                                       仅读者自身上下文读写，无需同步。 */
 } bm_bus_reader_t;
 
 /**

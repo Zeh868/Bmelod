@@ -5,8 +5,8 @@
  *
  * 主循环轮询到期槽，向事件总线发布空载荷事件；统计丢弃次数。
  * @author zeh (china_qzh@163.com)
- * @version 1.9
- * @date 2026-07-09
+ * @version 1.10
+ * @date 2026-07-13
  *
  * @par 修改日志:
  *
@@ -25,6 +25,9 @@
  *                                                提前 return、槽永久停发（H1）；
  *                                                catchup 预算耗尽 resync 时补计
  *                                                被跳过周期数入 dropped（H2）
+ * 2026-07-13       1.10           zeh            get_dropped 注释口径与 H1/H2 新语义
+ *                                                对齐（含全部发布失败与 resync 补记，
+ *                                                不再只写"队列满"）
  *
  */
 #include "bm_ticker.h"
@@ -229,7 +232,11 @@ int bm_ticker_poll(void) {
 }
 
 /**
- * @brief 查询指定槽因队列满而丢弃的事件次数
+ * @brief 查询指定槽的累计丢弃计数
+ *
+ * 口径与 bm_ticker_poll 一致（H1/H2 之后）：含所有发布失败（队列满
+ * BM_ERR_OVERFLOW、事件类型未注册、多核转发失败等）与 catchup 预算耗尽
+ * resync 时补记的静默跳过周期数。
  *
  * @param slot_index 槽索引
  * @return 丢弃次数；索引无效返回 0

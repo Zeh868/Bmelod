@@ -27,8 +27,8 @@
  * 域·预算账（无硬时间格语义，逐行列 wcet_us + 建议 run_pending budget）。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.10
- * @date 2026-07-04
+ * @version 1.11
+ * @date 2026-07-13
  *
  * @par 修改日志:
  *
@@ -53,6 +53,11 @@
  * 2026-07-04       1.10           zeh            Task 5：report_json 新增 interference_sources
  *                                                 一源一行导出（tier 0/1 -> "hardware"/"scheduled"
  *                                                 字符串），m0 默认值补 interference/count 零初始化
+ * 2026-07-13       1.11           zeh            C3/C8：init 补 inputs safe_default 非空校验
+ *                                                 （冻结失败路径 memcpy 解引用，缺校验即 ISR 内
+ *                                                 空指针崩溃）；补 input/output elem_size 与所绑
+ *                                                 bus 存储 elem_size 一致性校验（不匹配即静默
+ *                                                 写穿快照区/bus 数据区）
  *
  */
 #include "bm_tt_schedule.h"
@@ -401,8 +406,9 @@ static int tt_wcet_attach(const bm_tt_activity_t *act) {
  * @brief 初始化调度表：校验 + 算 N=LCM + 节拍负载校验 + 预发布 safe_default
  *
  * @details 依次：① 参数/周期一致性校验（`minor_us`、`entry_count`、每任务
- * `every/at`、`input_count`、每 input/output 的 `elem_size` 上界、每 output
- * 的 `safe_default` 非空）→ ② `n = LCM(every)`，超过 `BM_CONFIG_TT_SCHED_
+ * `every/at`、`input_count`、每 input/output 的 `elem_size` 上界与所绑 bus
+ * 存储 `elem_size` 的一致性、每 input/output 的 `safe_default` 非空）→
+ * ② `n = LCM(every)`，超过 `BM_CONFIG_TT_SCHED_
  * MAX_FRAMES` 即拒（挡 LCM 爆炸）→ ③ `tt_frame_check` 节拍负载校验 → ④ 每
  * output 的双缓冲两份都预填 `safe_default` 并经 `tt_bus_publish` 发布到
  * bus（使首拍 tick 之前下游即可读到安全值）→ ⑤ 每 input 用
@@ -442,12 +448,34 @@ int bm_tt_schedule_init(bm_tt_schedule_t *sched) {
             if (a->inputs[i].elem_size > BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE) {
                 return BM_ERR_INVALID;
             }
+            /* C3：input 的 safe_default 在 tt_freeze_inputs 冻结失败路径
+             * （首拍上游尚未发布必然走到）被 memcpy 解引用，为 NULL 即 ISR
+             * 内空指针崩溃。此前只校验 outputs，头文件注释却声称 init 会
+             * 校验 inputs——补齐校验使注释成立，与 outputs 路径对称。 */
+            if (a->inputs[i].safe_default == NULL) {
+                return BM_ERR_INVALID;
+            }
+            /* C8：绑定表 elem_size 与所绑 bus 存储的 elem_size 不一致时，
+             * bm_bus_latest_read_seq 按 bus 宽度拷出会写穿快照槽（bus 宽 >
+             * 声明宽）或截断数据（bus 宽 < 声明宽），属静默内存破坏，init
+             * 期 fail-closed。bus 为 NULL 时冻结路径按读失败回落 safe_default
+             * （既有语义），不在此拒绝。 */
+            if (a->inputs[i].bus != NULL && a->inputs[i].bus->storage != NULL &&
+                a->inputs[i].bus->storage->elem_size != a->inputs[i].elem_size) {
+                return BM_ERR_INVALID;
+            }
         }
         for (uint8_t o = 0u; o < a->output_count; ++o) {
             if (a->outputs[o].elem_size > BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE) {
                 return BM_ERR_INVALID;
             }
             if (a->outputs[o].safe_default == NULL) {
+                return BM_ERR_INVALID;
+            }
+            /* C8：输出侧同理——tt_bus_publish 按声明 elem_size 拷入 bus 槽，
+             * 大于 bus 存储宽度会写穿 bus 数据区，init 期一并拒绝。 */
+            if (a->outputs[o].bus != NULL && a->outputs[o].bus->storage != NULL &&
+                a->outputs[o].bus->storage->elem_size != a->outputs[o].elem_size) {
                 return BM_ERR_INVALID;
             }
         }

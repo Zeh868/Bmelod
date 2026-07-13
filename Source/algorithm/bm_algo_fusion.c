@@ -3,8 +3,8 @@
  * @brief 姿态融合算法实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.3
- * @date 2026-07-09
+ * @version 1.4
+ * @date 2026-07-13
  *
  * @par 修改日志:
  *
@@ -16,6 +16,10 @@
  *                                                gx/gy/gz 有限性校验，非有限
  *                                                则跳过本次积分，避免污染
  *                                                四元数持久状态
+ * 2026-07-13       1.4            zeh            C4：complementary 补 gx/gy/
+ *                                                ax/ay/az/alpha 有限性护栏
+ *                                                （H10 遗漏的第三个滤波器）；
+ *                                                三滤波器 dt_s 补 NaN 拦截
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -72,6 +76,17 @@ void bm_algo_complementary_step(bm_algo_complementary_state_t *state,
     if (state == NULL || config == NULL || dt_s <= 0.0f) {
         return;
     }
+    /* C4（H10 同款护栏）：gx/gy 直接积分进 roll_rad/pitch_rad 持久状态，
+     * ax/ay/az 经 atan2f 参与互补混合，config->alpha 逐项相乘，dt_s 为
+     * NaN 时可穿过上方 <=0 判断——任一非有限输入一次即可永久污染姿态
+     * 状态且无法自愈。非有限则跳过本次积分，保持上一次有限估计不变。
+     * gz 未参与运算（(void)gz），不做校验以免误拒可用样本。 */
+    if (!bm_algo_is_finite_f(dt_s) ||
+        !bm_algo_is_finite_f(gx) || !bm_algo_is_finite_f(gy) ||
+        !bm_algo_is_finite_f(ax) || !bm_algo_is_finite_f(ay) ||
+        !bm_algo_is_finite_f(az) || !bm_algo_is_finite_f(config->alpha)) {
+        return;
+    }
 
     roll_acc = atan2f(ay, az);
     pitch_acc = atan2f(-ax, sqrtf(ay * ay + az * az));
@@ -117,7 +132,10 @@ void bm_algo_mahony_step(bm_algo_mahony_state_t *state,
     float q_dot2;
     float q_dot3;
 
-    if (state == NULL || config == NULL || dt_s <= 0.0f) {
+    /* dt_s 为 NaN 时 <=0 比较恒 false 会放行，经 q += q_dot*dt 污染四元数，
+     * 补有限性校验（与 ekf_cv_predict 的 H9 护栏纪律对齐） */
+    if (state == NULL || config == NULL || dt_s <= 0.0f ||
+        !bm_algo_is_finite_f(dt_s)) {
         return;
     }
     /* 配置增益 kp/ki 非有限会经积分项污染四元数持久状态，此前无护栏 */
@@ -218,7 +236,10 @@ void bm_algo_madgwick_step(bm_algo_madgwick_state_t *state,
     float q_dot2;
     float q_dot3;
 
-    if (state == NULL || config == NULL || dt_s <= 0.0f) {
+    /* dt_s 为 NaN 时 <=0 比较恒 false 会放行，经 q += q_dot*dt 污染四元数，
+     * 补有限性校验（与 Mahony 路径一致） */
+    if (state == NULL || config == NULL || dt_s <= 0.0f ||
+        !bm_algo_is_finite_f(dt_s)) {
         return;
     }
     /* 配置增益 beta 非有限会经梯度修正项污染四元数持久状态，此前无护栏 */

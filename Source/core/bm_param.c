@@ -9,8 +9,8 @@
  * reset 恢复出厂默认。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-07-11
+ * @version 1.2
+ * @date 2026-07-13
  *
  * @par 修改日志:
  *
@@ -18,6 +18,8 @@
  * 2026-07-11       1.0            zeh            正式发布（批 P：bm_param 参数注册表）
  * 2026-07-11       1.1            zeh            新增 param_range_ok 值域校验，接入
  *                                                 register/set/load_overlay 三处强制
+ * 2026-07-13       1.2            zeh            C6：set/get 补 name==NULL 防护，
+ *                                                 消除 param_find 内 strcmp(NULL) UB
  *
  */
 #include "bm/core/bm_param.h"
@@ -152,6 +154,11 @@ int bm_param_set(const char *name, float val)
 {
     int idx;
 
+    /* name==NULL 会使 param_find 内 strcmp 解引用空指针（UB），与框架
+     * 其余公共 API 的 NULL 防护纪律对齐，入口拒绝 */
+    if (name == NULL) {
+        return BM_ERR_INVALID;
+    }
     if (s_count == 0u) {
         return BM_ERR_NOT_INIT;
     }
@@ -177,7 +184,8 @@ int bm_param_get(const char *name, float *out)
     if (s_count == 0u) {
         return BM_ERR_NOT_INIT;
     }
-    if (out == NULL) {
+    /* name 空指针防护同 bm_param_set */
+    if (name == NULL || out == NULL) {
         return BM_ERR_INVALID;
     }
     idx = param_find(name);

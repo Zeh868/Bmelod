@@ -4,8 +4,8 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.3
- * @date 2026-07-09
+ * @version 1.4
+ * @date 2026-07-13
  *
  * @par 修改日志:
  *
@@ -17,6 +17,9 @@
  *                                                gx/gy/gz 有限性校验，非有限
  *                                                则跳过本次积分，避免污染
  *                                                四元数持久状态
+ * 2026-07-13       1.4            zeh            C4：complementary 补 gx/gy/
+ *                                                ax/ay/az/alpha 有限性护栏；
+ *                                                三滤波器 dt_s 补 NaN 拦截
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

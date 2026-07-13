@@ -15,8 +15,8 @@
  * @core_affinity 本核（per-CPU）
  * 调度表实例、rt 状态均为静态分配，跨核使用需各核独立实例。
  * @author zeh (china_qzh@163.com)
- * @version 1.4
- * @date 2026-07-04
+ * @version 1.5
+ * @date 2026-07-13
  *
  * @par 修改日志:
  *
@@ -34,6 +34,9 @@
  *                                                 `bm_tt_schedule_json_meta_t` 追加
  *                                                 interference/interference_count，供
  *                                                 report_json 导出 interference_sources
+ * 2026-07-13       1.5            zeh            C3/C8：注明 input/output elem_size 须与所绑
+ *                                                 bus 存储一致（init 运行期校验，与 safe_default
+ *                                                 非空校验一并在 bm_tt_schedule_init 落地）
  *
  */
 #ifndef BM_TT_SCHEDULE_H
@@ -64,14 +67,14 @@ typedef enum {
 typedef struct {
     const bm_bus_t *bus;          /**< 核内 LATEST 源 */
     uint32_t        max_age_us;   /**< 0=显式不检龄；BM_LET_AGE_DEFAULT=2×任务周期 */
-    uint32_t        elem_size;    /**< 快照/拷出字节数 */
+    uint32_t        elem_size;    /**< 快照/拷出字节数（须与所绑 bus 存储 elem_size 一致，init 校验） */
     const void     *safe_default; /**< 冻结失败时填充（非 NULL，由 bm_tt_schedule_init 运行期校验） */
 } bm_let_input_t;
 
 /** 输出绑定：目标 LATEST bus + 安全值 */
 typedef struct {
     bm_bus_t       *bus;
-    uint32_t        elem_size;
+    uint32_t        elem_size;    /**< 须与目标 bus 存储 elem_size 一致，init 校验 */
     const void     *safe_default; /**< 非 NULL，由 bm_tt_schedule_init 运行期强制 */
 } bm_let_output_t;
 

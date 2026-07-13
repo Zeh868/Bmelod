@@ -158,12 +158,17 @@ static void test_encoder_direction_and_electrical_offset_are_applied(void) {
     axis.resources.sim_fb.id_a = &s_id_feedback;
     axis.resources.sim_fb.iq_a = &s_iq_feedback;
     axis.resources.on_voltage = capture_voltage;
-    axis.state.speed.encoder.position_rad = 0.5f;
+    /* C9 后电角度由编码器单圈原始计数（prev_count）求得：经正规注入点
+     * encoder_reset 注入 512 计数（cpr=4096 → 机械角 π/4），替代直接
+     * 伪造 position_rad（该字段不再参与电角度计算）。 */
+    bm_algo_encoder_reset(&axis.state.speed.encoder, &axis.config.encoder, 512);
     axis.state.cmd.status = BM_MOTOR_FOC_CMD_ENABLED;
 
     bm_motor_foc_sensored_current_step(&axis);
 
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, -1.75f, s_last_theta);
+    /* theta = wrap(direction(-1) × π/4 × pole_pairs(4) + 0.25)
+     *       = wrap(0.25 - π) = 0.25 - π ≈ -2.8915927 */
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.25f - 3.14159265f, s_last_theta);
 }
 
 static void test_speed_step_preserves_current_pi_integrator(void) {

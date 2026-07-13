@@ -2,8 +2,8 @@
  * @file motor_foc_sensored.c
  * @brief 有感 FOC 伺服轴领域组件实现
  * @author zeh (china_qzh@163.com)
- * @version 0.6
- * @date 2026-07-09
+ * @version 0.7
+ * @date 2026-07-13
  *
  * @par 修改日志:
  *
@@ -21,6 +21,9 @@
  * 2026-07-09       0.6            zeh            validate_config 补 iq_max_a>0 校验（与
  *                                                sensorless 对齐）；current_step 禁用分支
  *                                                补发遥测（清 VALID/SAT/FAULT 位），修陈旧 status
+ * 2026-07-13       0.7            zeh            C9：read_theta_elec 改由编码器单圈原始
+ *                                                计数求电角度（有界量、精度不随圈数
+ *                                                劣化），替代无界 position_rad×pole_pairs
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -33,16 +36,31 @@
 #include <math.h>
 #include <string.h>
 
+#ifndef BM_ALGO_PI_F
+#define BM_ALGO_PI_F 3.14159265358979323846f
+#endif
+
 static float read_theta_elec(const bm_motor_foc_sensored_axis_t *axis) {
     const bm_motor_foc_sensored_config_t *cfg = &axis->config;
     const bm_motor_foc_sensored_resources_t *res = &axis->resources;
+    float mech_single_turn_rad;
 
     if (res->sim_fb.theta_elec_rad != NULL) {
         return bm_algo_angle_wrap_rad(*res->sim_fb.theta_elec_rad);
     }
+    /* C9：电角度改由编码器单圈原始计数（encoder.prev_count，硬件回绕于
+     * counts_per_rev，恒落在 [0,cpr)，与 encoder_update 跨圈检测的既有
+     * 契约一致）直接求得，量值有界、float 精度恒满。原式用无界累计的
+     * position_rad × pole_pairs：turns×cpr 超 2^24 后 float 分辨率低于
+     * 编码器分辨率且随圈数线性劣化，连续旋转数分钟即出现可测电角度误差。
+     * 数学等价前提：pole_pairs 为整数（电机物理必然）——此时两式相差
+     * turns×2π×pole_pairs×direction 为 2π 整数倍，wrap 后一致。 */
+    mech_single_turn_rad =
+        (float)axis->state.speed.encoder.prev_count *
+        (2.0f * BM_ALGO_PI_F / (float)cfg->encoder.counts_per_rev);
     return bm_algo_angle_wrap_rad(
         cfg->encoder_direction *
-        axis->state.speed.encoder.position_rad * cfg->pole_pairs +
+        mech_single_turn_rad * cfg->pole_pairs +
         cfg->electrical_offset_rad);
 }
 

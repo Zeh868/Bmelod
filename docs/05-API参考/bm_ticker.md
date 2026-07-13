@@ -17,8 +17,8 @@ Ticker 在慢速域按固定毫秒周期向事件总线发布事件，供后台�
 
 ### `bm_ticker_init(slots, slot_count)`
 
-注册 ticker slot 表。校验 `period_ms` 非零、`event_type` / `priority` 在配置界内，且 `bm_hal_timer_get_freq()` 非零。  
-返回：`BM_OK`；`BM_ERR_INVALID`；`BM_ERR_OVERFLOW`（槽数超限）；`BM_ERR_ALREADY`（重复 init）；`BM_ERR_NOT_INIT`（定时器未配置）。
+注册 ticker slot 表。校验 `period_ms` 非零、`event_type` / `priority` 在配置界内。时间基为统一单调时钟 `bm_uptime_us()`，不依赖 HAL 定时器 tick 频率。  
+返回：`BM_OK`；`BM_ERR_INVALID`；`BM_ERR_OVERFLOW`（槽数超限）；`BM_ERR_ALREADY`（重复 init）。
 
 ### `bm_ticker_poll()`
 
@@ -27,7 +27,7 @@ Ticker 在慢速域按固定毫秒周期向事件总线发布事件，供后台�
 
 ### `bm_ticker_get_dropped(slot_index)`
 
-返回指定 slot 因队列满丢弃的事件数（临界区内读取），用于监控背压。索引无效返回 0。
+返回指定 slot 的累计丢弃计数（临界区内读取）：含所有发布失败（队列满、事件类型未注册、多核转发失败等）与 catchup resync 补记的静默跳过周期数，口径与 `bm_ticker_poll()` 一致，用于监控背压与落后程度。索引无效返回 0。
 
 ### `bm_ticker_reset()`
 

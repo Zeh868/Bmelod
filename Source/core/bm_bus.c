@@ -8,8 +8,8 @@
  * BLOCK 模式以控制反转方式透传至 bm_block_backend_iface_t 后端，
  * IPC 模式以控制反转方式透传至 bm_ipc_backend_iface_t 后端，core 层不引用任何 hybrid 类型。
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-27
+ * @version 1.1
+ * @date 2026-07-13
  *
  * @par 修改日志:
  *
@@ -24,6 +24,8 @@
  * 2026-06-26       0.8            zeh            新增 bm_bus_reset()：freeze 对称解冻/复位，与 bm_event_reset() 语义对称
  * 2026-06-26       0.9            zeh            seqlock 多读者 LATEST 读：latest_seq 字段 + bm_bus_latest_read 增量并存方案
  * 2026-06-27       1.0            zeh            BM_BUS_IPC 控制反转：bm_bus_bind_ipc_backend + 五入口 IPC 分流（无分配无循环）
+ * 2026-07-13       1.1            zeh            C7：QUEUE/SIGNAL 读侧新增 borrowed 借出跟踪，未 acquire 先 release
+ *                                                拒绝为 BM_ERR_INVALID，防 read_cur 越过 write_cur 永久毒化游标
  *
  */
 /* 本 TU 是 bm_bus_latest_read_seq 的定义方（无条件编入 bm_core，决议 B）。
@@ -578,6 +580,7 @@ int bm_bus_reader_attach(bm_bus_t *h, bm_bus_reader_t *r) {
         st->reader_count++;
         r->storage  = st;
         r->slot_idx = UINT32_MAX;
+        r->borrowed = 0u;
         BUS_UNLOCK(s);
         return BM_OK;
     }
@@ -592,6 +595,7 @@ int bm_bus_reader_attach(bm_bus_t *h, bm_bus_reader_t *r) {
         st->reader_count++;
         r->storage  = st;
         r->slot_idx = UINT32_MAX;
+        r->borrowed = 0u;
         BUS_UNLOCK(s);
         return BM_OK;
     }
@@ -626,6 +630,7 @@ int bm_bus_reader_attach(bm_bus_t *h, bm_bus_reader_t *r) {
     st->reader_count++;
     r->storage  = st;
     r->slot_idx = i;
+    r->borrowed = 0u;
     BUS_UNLOCK(s);
     BM_LOGD("bus", "reader_attach slot=%u mode=%u",
             (unsigned)i, (unsigned)st->mode);
@@ -737,11 +742,13 @@ int bm_bus_acquire_read(bm_bus_reader_t *r, const void **slot_out) {
         rc = new_rc;
         BUS_UNLOCK(s);
         *slot_out = bus_slot_ptr(st, rc);
+        r->borrowed = 1u; /* OVERFLOW 仍借出槽指针，须配对 release（C7） */
         return BM_ERR_OVERFLOW;
     }
 
     *slot_out = bus_slot_ptr(st, rc);
     BUS_UNLOCK(s);
+    r->borrowed = 1u;
     return BM_OK;
 }
 
@@ -769,7 +776,7 @@ int bm_bus_acquire_read(bm_bus_reader_t *r, const void **slot_out) {
  *
  * @param r 读者句柄
  * @return BM_OK 成功；BM_ERR_OVERFLOW SIGNAL 消费窗口内本帧被覆盖（作废重取）；
- *         BM_ERR_INVALID 参数错（slot_idx 越界）
+ *         BM_ERR_INVALID 参数错（slot_idx 越界）或未 acquire 先 release（C7）
  */
 int bm_bus_release(bm_bus_reader_t *r) {
     bm_bus_storage_t *st;
@@ -793,6 +800,14 @@ int bm_bus_release(bm_bus_reader_t *r) {
     if (r->slot_idx >= st->max_consumers) {
         return BM_ERR_INVALID;
     }
+    /* C7：未借先还防护（与写侧 write_in_progress 对称）。若无此防护，
+     * 误用（release 未配对 acquire）会把 read_cur 推过 write_cur，
+     * (wc-rc) 下溢为巨值 → ready_count 恒 cap-1、acquire_read 恒走 lap
+     * 分支读陈旧槽，游标被永久毒化且无诊断。 */
+    if (!r->borrowed) {
+        return BM_ERR_INVALID;
+    }
+    r->borrowed = 0u;
 
     BUS_LOCK(&s);
     {

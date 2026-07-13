@@ -6,8 +6,8 @@
  * 并提供 bm_exec_ops_t 调度封装。
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.4
- * @date 2026-07-09
+ * @version 0.5
+ * @date 2026-07-13
  *
  * @par 修改日志:
  *
@@ -17,6 +17,9 @@
  * 2026-06-23       0.3            zeh            修复 Smith 预估器 u_controller 误传 outer_out（应为 inner_out）
  * 2026-07-09       0.4            zeh            STALE 分支补推进 Smith 延迟线，
  *                                                 避免延迟线停滞不前（疑似-16.2）
+ * 2026-07-13       0.5            zeh            validate_config 显式拒绝 delay_steps==0
+ *                                                 （底层 smith_predictor_init 本就拒绝，
+ *                                                 原注释误称合法），注释与契约对齐
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -38,8 +41,11 @@ int bm_process_control_validate_config(const bm_process_control_config_t *config
     if (config->smith.model_gain <= 0.0f) {
         return BM_ERR_INVALID;
     }
-    /* 延迟步数须在缓冲区范围内（delay_steps=0 表示无延迟，合法） */
-    if (config->smith.delay_steps >= config->smith_line_len) {
+    /* 延迟步数须 ≥1 且在缓冲区范围内：bm_algo_smith_predictor_init 拒绝
+     * delay_steps==0（Smith 预估器至少需 1 格延迟线），此处提前显式拒绝，
+     * 与底层契约一致（原注释误称 0 合法，实际 init 必失败）。 */
+    if (config->smith.delay_steps == 0u ||
+        config->smith.delay_steps >= config->smith_line_len) {
         return BM_ERR_INVALID;
     }
     return BM_OK;
