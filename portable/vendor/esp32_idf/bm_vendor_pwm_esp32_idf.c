@@ -60,6 +60,15 @@
  *                                                ISR(LEVEL2)，PWM ISR 职责轻（清中断+分频
  *                                                判断+ADC 触发），真机验证判据见诊断文档
  *                                                §5 实验 C
+ * 2026-07-13       3.6            zeh            v3.5 接受的"tick(LEVEL3) 抢占 PWM ISR
+ *                                                (LEVEL2)"风险在 Plan B 把 FOC 电流环 bind
+ *                                                到本 TEZ ISR 后失效——该 ISR 不再职责轻而
+ *                                                跑满 FPU（sqrtf/foc step），LEVEL3 tick 嵌套
+ *                                                抢占之破坏寄存器窗口/FPU 上下文致真机
+ *                                                LoadProhibited 崩溃（addr2line 实证）。已在
+ *                                                bm_vendor_singleton_esp32_idf.c 把 tick 降至
+ *                                                LEVEL2 与本 TEZ 同级消除嵌套（本文件 TEZ
+ *                                                级别不变，仍 LEVEL2）
  *
  */
 #include "bm_vendor_pwm_esp32_idf.h"

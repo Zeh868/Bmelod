@@ -46,6 +46,12 @@
  * 2026-07-12       3.5            zeh            去除 TG0 组级复位（误伤 esp_timer LACT
  *                                                时基致 WiFi 连接 INT WDT），改窄范围清
  *                                                timer0 中断
+ * 2026-07-13       3.6            zeh            tick 中断级别 LEVEL3→LEVEL2：Plan B 把 FOC
+ *                                                电流环 bind 到 PWM TEZ ISR（LEVEL2）后该
+ *                                                ISR 跑满 FPU，LEVEL3 tick 抢占之致嵌套中断
+ *                                                破坏寄存器窗口/FPU 上下文 LoadProhibited
+ *                                                崩溃（真机 addr2line 实证）；降至与 TEZ 同级
+ *                                                消除嵌套，三请求正好占满 3 条 LEVEL2 线
  *
  */
 #include "bm_drv_timer.h"
@@ -311,9 +317,24 @@ static int esp32_timer_init(uint32_t freq_hz)
          * 由 LET staleness/wcet deadline-miss 账目如实体现；出力期与 flash
          * 写的互斥由业务门控保证（web spec §6 R1：armed 拒 save/reset）。
          */
+        /*
+         * 中断级别 LEVEL2：与两个 PWM TEZ ISR（bm_vendor_pwm_esp32_idf.c
+         * 的 esp_intr_alloc，ESP_INTR_FLAG_LEVEL2）严格同级。Plan B 把 FOC
+         * 电流环 bind 到 TEZ ISR 后，该 ISR 不再"职责轻"而是跑满 FPU
+         * （sqrtf / foc current_step）；若本 tick 保持 LEVEL3，会抢占正在算
+         * FPU 的 TEZ ISR，嵌套中断破坏 Xtensa 寄存器窗口 / FPU 协处理器
+         * 上下文，致 LoadProhibited 崩溃（真机 2026-07-13 addr2line 实证：
+         * _xt_medint3 → tick → tt_bus_publish 打断 current_hw_isr_axis 的
+         * sqrtf）。同级则互不抢占、串行执行，从根上消除嵌套（等价于 v3.5
+         * 拆分级别之前 tick/TEZ 同为 LEVEL3 的"无嵌套"不变量，因 LEVEL3 只
+         * 有 2 条通用线容不下 3 个请求，故同级落点改取 LEVEL2）。
+         * PWM0 + PWM1 + tick 三请求正好占满 3 条 LEVEL2 通用线（intno
+         * 19/20/21）；若日后同核再增 LEVEL2 消费者需重评容量（见
+         * bm_vendor_pwm_esp32_idf.c changelog v3.5 / v3.6）。
+         */
         (void)esp_intr_alloc_intrstatus(
             ETS_TG0_T0_LEVEL_INTR_SOURCE,
-            ESP_INTR_FLAG_LEVEL3,
+            ESP_INTR_FLAG_LEVEL2,
             (uint32_t)(uintptr_t)status_reg,
             status_mask,
             bm_vendor_tick_isr,
