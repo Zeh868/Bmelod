@@ -2475,6 +2475,98 @@ void test_fixed_subtraction_saturation_no_wrap(void) {
     TEST_ASSERT_TRUE(bm_algo_q15_to_float(pid15_st.output) <= 1.0f);
 }
 
+/**
+ * @brief A 批回归：定点 6 处减法/自增/微分项溢出修复
+ *
+ * 覆盖：
+ *  - pid_q15_step：满量程异号阶跃时微分项不得溢出反号
+ *  - trapezoid_q31_step：dist 满量程异号不反号；velocity 自增/自减饱和
+ *  - rate_limit_q31_step / ramp_q31_step：delta 满量程异号不反号
+ *  - ramp_q15_step：delta 窄化 -1 时不直接跳满量程
+ *  - trapezoid_q15_step：dist 窄化不反号
+ */
+static void test_fixed_a_batch_overflow_regressions(void) {
+    bm_algo_pid_q15_config_t pid15_cfg = {
+        .kp = 0,
+        .ki = 0,
+        .kd = BM_ALGO_Q15_ONE,
+        .out_min = (bm_algo_q15_t)-32768,
+        .out_max = BM_ALGO_Q15_ONE,
+        .integrator_min = (bm_algo_q15_t)-32768,
+        .integrator_max = BM_ALGO_Q15_ONE,
+        .d_filter_alpha_q15 = BM_ALGO_Q15_ONE
+    };
+    bm_algo_pid_q15_state_t pid15_st;
+    bm_algo_trapezoid_q31_config_t trap31_cfg = {
+        .max_vel_q31 = BM_ALGO_Q31_ONE,
+        .max_accel_q31 = BM_ALGO_Q31_ONE,
+        .max_decel_q31 = BM_ALGO_Q31_ONE
+    };
+    bm_algo_trapezoid_q31_state_t trap31_st;
+    bm_algo_trapezoid_q15_config_t trap15_cfg = {
+        .max_vel_q15 = BM_ALGO_Q15_ONE,
+        .max_accel_q15 = BM_ALGO_Q15_ONE,
+        .max_decel_q15 = BM_ALGO_Q15_ONE
+    };
+    bm_algo_trapezoid_q15_state_t trap15_st;
+    bm_algo_rate_limit_q31_config_t rl31_cfg = {
+        .max_rise_per_s_q31 = BM_ALGO_Q31_ONE,
+        .max_fall_per_s_q31 = BM_ALGO_Q31_ONE
+    };
+    bm_algo_rate_limit_q31_state_t rl31_st;
+    bm_algo_ramp_q31_config_t ramp31_cfg = {
+        .rate_per_s_q31 = BM_ALGO_Q31_ONE
+    };
+    bm_algo_ramp_q31_state_t ramp31_st;
+    bm_algo_ramp_q15_config_t ramp15_cfg = {
+        .rate_per_s_q15 = bm_algo_float_to_q15(0.5f)
+    };
+    bm_algo_ramp_q15_state_t ramp15_st;
+
+    /* pid_q15_step：error 从 0 阶跃到 INT16_MIN，微分项应为负 */
+    bm_algo_pid_q15_reset(&pid15_st, 0);
+    (void)bm_algo_pid_q15_step(&pid15_st, &pid15_cfg,
+                               (bm_algo_q15_t)INT16_MIN, BM_ALGO_Q15_ONE);
+    TEST_ASSERT_TRUE(pid15_st.output < 0);
+
+    /* trapezoid_q31_step：position=INT32_MIN, target=INT32_MAX，方向须为正 */
+    bm_algo_trapezoid_q31_reset(&trap31_st, (bm_algo_q31_t)INT32_MIN, 0);
+    bm_algo_trapezoid_q31_set_target(&trap31_st, (bm_algo_q31_t)INT32_MAX);
+    (void)bm_algo_trapezoid_q31_step(&trap31_st, &trap31_cfg,
+                                     BM_ALGO_Q31_ONE);
+    TEST_ASSERT_TRUE(trap31_st.velocity > 0);
+
+    /* trapezoid_q15_step：position=INT16_MIN, target=INT16_MAX，方向须为正 */
+    bm_algo_trapezoid_q15_reset(&trap15_st, (bm_algo_q15_t)INT16_MIN, 0);
+    bm_algo_trapezoid_q15_set_target(&trap15_st, (bm_algo_q15_t)INT16_MAX);
+    (void)bm_algo_trapezoid_q15_step(&trap15_st, &trap15_cfg,
+                                     BM_ALGO_Q15_ONE);
+    TEST_ASSERT_TRUE(trap15_st.velocity > 0);
+
+    /* rate_limit_q31_step：output=INT32_MIN, target=INT32_MAX，须正向上升 */
+    bm_algo_rate_limit_q31_reset(&rl31_st, (bm_algo_q31_t)INT32_MIN);
+    (void)bm_algo_rate_limit_q31_step(&rl31_st, &rl31_cfg,
+                                      (bm_algo_q31_t)INT32_MAX,
+                                      BM_ALGO_Q31_ONE);
+    TEST_ASSERT_TRUE(rl31_st.output > (bm_algo_q31_t)INT32_MIN);
+
+    /* ramp_q31_step：同上 */
+    bm_algo_ramp_q31_reset(&ramp31_st, (bm_algo_q31_t)INT32_MIN);
+    (void)bm_algo_ramp_q31_step(&ramp31_st, &ramp31_cfg,
+                                (bm_algo_q31_t)INT32_MAX, BM_ALGO_Q31_ONE);
+    TEST_ASSERT_TRUE(ramp31_st.output > (bm_algo_q31_t)INT32_MIN);
+
+    /* ramp_q15_step：output=-32768, target=32767，rate=0.5, dt 很小，
+     * 旧 bug 下 delta 窄化为 -1，会落入 else 直接跳到 target；
+     * 修复后应只走一小步，output 仍小于 target */
+    bm_algo_ramp_q15_reset(&ramp15_st, (bm_algo_q15_t)INT16_MIN);
+    (void)bm_algo_ramp_q15_step(&ramp15_st, &ramp15_cfg,
+                                BM_ALGO_Q15_ONE,
+                                bm_algo_float_to_q15(0.1f));
+    TEST_ASSERT_TRUE(ramp15_st.output > (bm_algo_q15_t)INT16_MIN);
+    TEST_ASSERT_TRUE(ramp15_st.output < BM_ALGO_Q15_ONE);
+}
+
 void test_algo_fixed(void) {
     RUN_TEST(test_batch3_k0_extensions);
     RUN_TEST(test_batch4_k0_and_fixed_batch3);
@@ -2514,6 +2606,7 @@ void test_algo_fixed(void) {
     RUN_TEST(test_suspect8_moving_avg_q15_window_shrink_no_stale_pollution);
     RUN_TEST(test_suspect8_rms_q31_window_shrink_no_stale_pollution);
     RUN_TEST(test_fixed_subtraction_saturation_no_wrap);
+    RUN_TEST(test_fixed_a_batch_overflow_regressions);
 }
 
 int main(void) {

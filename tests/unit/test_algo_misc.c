@@ -295,6 +295,30 @@ static void test_p1_k0_and_fixed_extensions(void) {
     TEST_ASSERT_EQUAL(BM_ALGO_FAULT_REDUNDANT_MISMATCH,
                       bm_algo_redundant_pair_step(1.0f, 2.0f, &rp_cfg));
 
+    /* RANGE_NAN 新语义：NaN/Inf 样本必须报 RANGE_NAN，而不是被洗白为 0 */
+    {
+        bm_algo_range_monitor_config_t rm_cfg = {
+            .min_v = 0.0f,
+            .max_v = 10.0f,
+            .max_rate_per_s = 100.0f
+        };
+        bm_algo_range_monitor_state_t rm_st;
+        uint32_t flags;
+
+        bm_algo_range_monitor_reset(&rm_st, 5.0f);
+        flags = bm_algo_range_monitor_step(&rm_st, &rm_cfg, NAN, 0.01f);
+        TEST_ASSERT_TRUE((flags & BM_ALGO_FAULT_RANGE_NAN) != 0u);
+        TEST_ASSERT_TRUE((flags & (BM_ALGO_FAULT_UNDER_RANGE |
+                                   BM_ALGO_FAULT_OVER_RANGE |
+                                   BM_ALGO_FAULT_RATE |
+                                   BM_ALGO_FAULT_FROZEN)) == 0u);
+
+        bm_algo_range_monitor_reset(&rm_st, 5.0f);
+        flags = bm_algo_range_monitor_step(&rm_st, &rm_cfg,
+                                           INFINITY, 0.01f);
+        TEST_ASSERT_TRUE((flags & BM_ALGO_FAULT_RANGE_NAN) != 0u);
+    }
+
     bm_algo_dob_reset(&dob);
     (void)bm_algo_dob_step(&dob, &dob_cfg, 1.0f, 2.5f, &disturbance);
     TEST_ASSERT_TRUE(fabsf(disturbance) > 0.0f);

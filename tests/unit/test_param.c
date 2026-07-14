@@ -146,6 +146,27 @@ void test_param_reset_guard_and_restore(void) {
         bm_persist_get("t.ptr", raw, sizeof(raw), &len)); /* KV 已清 */
 }
 
+/** @brief reset 期间 commit 失败后须回滚旧值，避免 flash/RAM 分叉。 */
+void test_param_reset_rollback_on_commit_failure(void) {
+    float v = 0.0f;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_param_set("t.ptr", 6.0f));
+    TEST_ASSERT_TRUE(bm_param_save() >= 0);
+
+    /* 注入：下一次 save（reset 内部的 commit）强制失败 */
+    bm_drv_nvs_native_set_fail_save_count(1);
+    TEST_ASSERT_EQUAL(BM_ERR_OVERFLOW, bm_param_reset());
+
+    /* 回滚后 persist 应仍保留旧值 6.0f，而非被擦除或回出厂 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_param_get("t.ptr", &v));
+    TEST_ASSERT_EQUAL_FLOAT(6.0f, v);
+    uint8_t raw[8]; uint16_t len = 0u;
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_persist_get("t.ptr", raw, sizeof(raw), &len));
+    TEST_ASSERT_EQUAL_UINT16((uint16_t)sizeof(float), len);
+    TEST_ASSERT_EQUAL_FLOAT(6.0f, *(const float *)(const void *)raw);
+}
+
 /** @brief NaN/Inf 恒被拒（含无界逃生口项）。 */
 void test_param_set_rejects_non_finite(void) {
     union { uint32_t u; float f; } nan_u; nan_u.u = 0x7FC00000u;
@@ -205,6 +226,7 @@ int main(void) {
     RUN_TEST(test_param_reboot_flag_defers_apply);
     RUN_TEST(test_param_save_then_overlay_roundtrip);
     RUN_TEST(test_param_reset_guard_and_restore);
+    RUN_TEST(test_param_reset_rollback_on_commit_failure);
     RUN_TEST(test_param_set_rejects_non_finite);
     RUN_TEST(test_param_set_range_enforced);
     RUN_TEST(test_param_overlay_skips_out_of_range);

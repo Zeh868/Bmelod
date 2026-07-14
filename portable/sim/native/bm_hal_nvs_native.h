@@ -61,6 +61,16 @@ void bm_drv_nvs_native_set_path(const char *path);
  */
 void bm_drv_nvs_native_reset(void);
 
+/**
+ * @brief 设置接下来多少次 bm_hal_nvs_save 调用强制失败
+ *
+ * 仅用于测试持久化回滚路径。调用 save 时若计数器 > 0，计数器递减并返回
+ * BM_ERR_OVERFLOW，模拟 flash 写入失败；计数器为 0 时恢复真实写入。
+ *
+ * @param n 接下来强制失败的 save 次数（< 0 视为 0）
+ */
+void bm_drv_nvs_native_set_fail_save_count(int n);
+
 #ifdef __cplusplus
 }
 #endif
