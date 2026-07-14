@@ -3,8 +3,8 @@
  * @brief 算法公共工具实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-07-09
+ * @version 1.2
+ * @date 2026-07-14
  *
  * @par 修改日志:
  *
@@ -15,6 +15,10 @@
  *                                                bm_algo_clamp_f 对 NaN 不
  *                                                钳位，一次非有限输入即可
  *                                                永久污染 state->output
+ * 2026-07-14       1.2            zeh            Medium-6 修复：bm_algo_clamp_f
+ *                                                对 NaN/Inf 回退到区间内最
+ *                                                靠近 0 的安全值，避免污染
+ *                                                下游持久状态
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -30,12 +34,25 @@
 /**
  * @brief 将浮点值钳位到指定区间 [min_v, max_v]
  *
+ * 非有限输入（NaN/Inf）回退到区间内最靠近 0 的安全值，避免一次毛刺永久污染
+ * 调用方的持久状态。
+ *
  * @param value 输入值
  * @param min_v 下限
  * @param max_v 上限
  * @return 钳位后的值
  */
 float bm_algo_clamp_f(float value, float min_v, float max_v) {
+    /* NaN/Inf 比较恒为 false，会原样穿透；强制回到区间内有限安全值 */
+    if (!bm_algo_is_finite_f(value)) {
+        if (min_v > 0.0f) {
+            return min_v;
+        }
+        if (max_v < 0.0f) {
+            return max_v;
+        }
+        return 0.0f;
+    }
     if (value < min_v) {
         return min_v;
     }

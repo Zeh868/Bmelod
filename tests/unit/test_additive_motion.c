@@ -36,7 +36,8 @@ void test_additive_zv_shapes_step(void) {
     axis.config.natural_freq_hz = 10.0f;
     axis.config.damping_ratio = 0.05f;
     axis.config.dt_s = 0.001f;
-    axis.config.max_velocity_mm_s = 100.0f;
+    /* 速度上限须足够大，让整形器在 200 步内收敛到 10 mm 目标 */
+    axis.config.max_velocity_mm_s = 10000.0f;
 
     TEST_ASSERT_EQUAL(BM_OK, bm_additive_motion_init(&axis));
     bm_additive_motion_shape_cmd(&axis, 10.0f);
@@ -227,12 +228,42 @@ void test_additive_exec_ops_null_safe(void) {
     bm_additive_motion_exec_run(NULL);       /* 不崩溃即通过 */
 }
 
+/*
+ * Medium-6：速度限幅须真实约束 write_z 发送的位置，而不仅是遥测。
+ * 用 max_velocity_mm_s = 5 mm/s、dt = 0.001 s，施加 1000 mm 阶跃，
+ * 单周期 shaped_mm 增量不应超过 0.005 mm。
+ */
+void test_additive_velocity_saturation_affects_output(void) {
+    bm_additive_motion_axis_t axis;
+    float prev_shaped;
+
+    memset(&axis, 0, sizeof(axis));
+    axis.config.natural_freq_hz = 10.0f;
+    axis.config.damping_ratio = 0.05f;
+    axis.config.dt_s = 0.001f;
+    axis.config.max_velocity_mm_s = 5.0f;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_additive_motion_init(&axis));
+
+    bm_additive_motion_shape_cmd(&axis, 1000.0f);
+    prev_shaped = axis.state.prev_shaped_mm;
+    bm_additive_motion_step(&axis);
+
+    TEST_ASSERT_TRUE(
+        fabsf(axis.state.shaped_mm - prev_shaped) <=
+        axis.config.max_velocity_mm_s * axis.config.dt_s + 0.0001f);
+    TEST_ASSERT_TRUE(
+        fabsf(axis.state.telemetry.velocity_mm_s) <=
+        axis.config.max_velocity_mm_s + 0.001f);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_additive_zv_shapes_step);
     RUN_TEST(test_additive_pressure_advance_linear);
     RUN_TEST(test_additive_delay_steps_clamped);
     RUN_TEST(test_additive_velocity_saturation);
+    RUN_TEST(test_additive_velocity_saturation_affects_output);
     RUN_TEST(test_additive_zv_coeffs_sum_to_one);
     RUN_TEST(test_additive_velocity_nonzero_after_shape);
     RUN_TEST(test_additive_overdamped_coeffs_finite);

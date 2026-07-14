@@ -2408,6 +2408,73 @@ void test_algo_motion_h6_encoder_diag_int32_boundary_delta(void) {
     TEST_ASSERT_TRUE((faults & BM_ALGO_ENCODER_FAULT_MISSED) != 0u);
 }
 
+void test_fixed_subtraction_saturation_no_wrap(void) {
+    bm_algo_mppt_ic_q31_config_t ic31_cfg = {
+        .step_v_q31 = bm_algo_float_to_q31(0.01f),
+        .v_min_q31 = (bm_algo_q31_t)INT32_MIN,
+        .v_max_q31 = BM_ALGO_Q31_ONE
+    };
+    bm_algo_mppt_ic_q31_state_t ic31_st;
+    bm_algo_mppt_ic_q15_config_t ic15_cfg = {
+        .step_v_q15 = bm_algo_float_to_q15(0.01f),
+        .v_min_q15 = (bm_algo_q15_t)-32768,
+        .v_max_q15 = BM_ALGO_Q15_ONE
+    };
+    bm_algo_mppt_ic_q15_state_t ic15_st;
+    bm_algo_pid2_q31_config_t pid31_cfg = {
+        .kp_q31 = BM_ALGO_Q31_ONE,
+        .ki_q31 = 0,
+        .kd_q31 = 0,
+        .b_q31 = BM_ALGO_Q31_ONE,
+        .out_min = (bm_algo_q31_t)INT32_MIN,
+        .out_max = BM_ALGO_Q31_ONE,
+        .integrator_min = (bm_algo_q31_t)INT32_MIN,
+        .integrator_max = BM_ALGO_Q31_ONE
+    };
+    bm_algo_pid2_q31_state_t pid31_st;
+    bm_algo_pid2_q15_config_t pid15_cfg = {
+        .kp_q15 = BM_ALGO_Q15_ONE,
+        .ki_q15 = 0,
+        .kd_q15 = 0,
+        .b_q15 = BM_ALGO_Q15_ONE,
+        .out_min = (bm_algo_q15_t)-32768,
+        .out_max = BM_ALGO_Q15_ONE,
+        .integrator_min = (bm_algo_q15_t)-32768,
+        .integrator_max = BM_ALGO_Q15_ONE
+    };
+    bm_algo_pid2_q15_state_t pid15_st;
+
+    /* mppt_ic_q31：INT32_MIN 与 INT32_MAX 相减须饱和而非回绕 */
+    bm_algo_mppt_ic_q31_reset(&ic31_st, (bm_algo_q31_t)INT32_MIN);
+    (void)bm_algo_mppt_ic_q31_step(&ic31_st, &ic31_cfg,
+        (bm_algo_q31_t)INT32_MAX, BM_ALGO_Q31_ONE);
+    TEST_ASSERT_TRUE(bm_algo_q31_to_float(ic31_st.v_ref_q31) >= -1.0f);
+    TEST_ASSERT_TRUE(bm_algo_q31_to_float(ic31_st.v_ref_q31) <= 1.0f);
+
+    /* mppt_ic_q15：INT16_MIN 与 INT16_MAX 相减须饱和而非回绕 */
+    bm_algo_mppt_ic_q15_reset(&ic15_st, (bm_algo_q15_t)-32768);
+    (void)bm_algo_mppt_ic_q15_step(&ic15_st, &ic15_cfg,
+        (bm_algo_q15_t)32767, BM_ALGO_Q15_ONE);
+    TEST_ASSERT_TRUE(bm_algo_q15_to_float(ic15_st.v_ref_q15) >= -1.0f);
+    TEST_ASSERT_TRUE(bm_algo_q15_to_float(ic15_st.v_ref_q15) <= 1.0f);
+
+    /* pid2_q31：reference=INT32_MAX, measurement=INT32_MIN 的误差须饱和 */
+    bm_algo_pid2_q31_reset(&pid31_st, 0);
+    (void)bm_algo_pid2_q31_step(&pid31_st, &pid31_cfg,
+        (bm_algo_q31_t)INT32_MAX, (bm_algo_q31_t)INT32_MIN,
+        bm_algo_float_to_q31(0.01f));
+    TEST_ASSERT_TRUE(bm_algo_q31_to_float(pid31_st.output) >= -1.0f);
+    TEST_ASSERT_TRUE(bm_algo_q31_to_float(pid31_st.output) <= 1.0f);
+
+    /* pid2_q15：reference=INT16_MAX, measurement=INT16_MIN 的误差须饱和 */
+    bm_algo_pid2_q15_reset(&pid15_st, 0);
+    (void)bm_algo_pid2_q15_step(&pid15_st, &pid15_cfg,
+        (bm_algo_q15_t)32767, (bm_algo_q15_t)-32768,
+        bm_algo_float_to_q15(0.01f));
+    TEST_ASSERT_TRUE(bm_algo_q15_to_float(pid15_st.output) >= -1.0f);
+    TEST_ASSERT_TRUE(bm_algo_q15_to_float(pid15_st.output) <= 1.0f);
+}
+
 void test_algo_fixed(void) {
     RUN_TEST(test_batch3_k0_extensions);
     RUN_TEST(test_batch4_k0_and_fixed_batch3);
@@ -2446,6 +2513,7 @@ void test_algo_fixed(void) {
     RUN_TEST(test_medium5_image_resize_rejects_oversized_dst);
     RUN_TEST(test_suspect8_moving_avg_q15_window_shrink_no_stale_pollution);
     RUN_TEST(test_suspect8_rms_q31_window_shrink_no_stale_pollution);
+    RUN_TEST(test_fixed_subtraction_saturation_no_wrap);
 }
 
 int main(void) {

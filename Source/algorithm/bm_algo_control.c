@@ -3,8 +3,8 @@
  * @brief 控制算法：积分器、微分器、PI/PID、PR 与补偿器实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.3
- * @date 2026-07-09
+ * @version 1.4
+ * @date 2026-07-14
  *
  * @par 修改日志:
  *
@@ -16,6 +16,10 @@
  *                                                补 k+p==0 保护，避免双线性
  *                                                变换分母为 0 产生 Inf/NaN
  *                                                却返回成功
+ * 2026-07-14       1.4            zeh            Medium-6 修复：integrator/
+ *                                                differentiator/pr/lead_lag
+ *                                                step 补输入/系数有限性护栏，
+ *                                                与 pi/pid/pid2 对齐
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -38,6 +42,10 @@ float bm_algo_integrator_step(bm_algo_integrator_state_t *state,
                               float dt_s) {
     if (state == NULL || config == NULL || dt_s <= 0.0f) {
         return input;
+    }
+    /* 非有限输入会污染持久积分状态；保持旧输出不变 */
+    if (!bm_algo_is_finite_f(input)) {
+        return state->integrator;
     }
 
     state->integrator += input * dt_s;
@@ -63,6 +71,10 @@ float bm_algo_differentiator_step(bm_algo_differentiator_state_t *state,
 
     if (state == NULL || config == NULL || dt_s <= 0.0f) {
         return 0.0f;
+    }
+    /* 非有限输入会污染 prev_input 历史状态；保持旧微分值不变 */
+    if (!bm_algo_is_finite_f(input)) {
+        return state->derivative;
     }
 
     raw_d = (input - state->prev_input) / dt_s;
@@ -319,6 +331,13 @@ float bm_algo_pr_step(bm_algo_pr_state_t *state,
     if (state == NULL || config == NULL) {
         return 0.0f;
     }
+    /* 非有限输入或系数会污染 x1/x2/y1/y2 持久状态；保持旧输出不变 */
+    if (!bm_algo_is_finite_f(error) ||
+        !bm_algo_is_finite_f(b0) || !bm_algo_is_finite_f(b1) ||
+        !bm_algo_is_finite_f(b2) || !bm_algo_is_finite_f(a1) ||
+        !bm_algo_is_finite_f(a2)) {
+        return state->output;
+    }
 
     y = b0 * error + b1 * state->x1 + b2 * state->x2
         - a1 * state->y1 - a2 * state->y2;
@@ -375,6 +394,10 @@ float bm_algo_lead_lag_step(bm_algo_lead_lag_state_t *state, float input) {
 
     if (state == NULL) {
         return input;
+    }
+    /* 非有限输入会污染 x1/y1 持久状态；保持旧输出不变 */
+    if (!bm_algo_is_finite_f(input)) {
+        return state->y1;
     }
 
     y = state->b0 * input + state->b1 * state->x1 - state->a1 * state->y1;

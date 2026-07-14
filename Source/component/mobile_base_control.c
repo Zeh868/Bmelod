@@ -6,14 +6,17 @@
  * 通过 bm_mobile_base_control_exec_ops 接入 bm_exec 生命周期。
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.2
- * @date 2026-06-17
+ * @version 0.3
+ * @date 2026-07-14
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-17       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 exec_ops、Doxygen、SPDX
+ * 2026-07-14       0.3            zeh            Medium-6 修复：set_cmd 与 step
+ *                                                增加有限性校验，非有限指令按
+ *                                                0 处理，避免 NaN 轮速下发
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -77,6 +80,12 @@ void bm_mobile_base_control_set_cmd(bm_mobile_base_control_axis_t *axis,
     if (axis == NULL) {
         return;
     }
+    /* 非有限指令直接清零，避免后续运动学产生 NaN 轮速 */
+    if (!bm_algo_is_finite_f(linear_m_s) || !bm_algo_is_finite_f(angular_rad_s)) {
+        axis->state.linear_cmd_m_s = 0.0f;
+        axis->state.angular_cmd_rad_s = 0.0f;
+        return;
+    }
     axis->state.linear_cmd_m_s = linear_m_s;
     axis->state.angular_cmd_rad_s = angular_rad_s;
 }
@@ -101,6 +110,14 @@ void bm_mobile_base_control_step(bm_mobile_base_control_axis_t *axis) {
     half_base = cfg->wheel_base_m * 0.5f;
     v = st->linear_cmd_m_s;
     w = st->angular_cmd_rad_s;
+
+    /* 防御 state 被非合法路径写入的非有限值 */
+    if (!bm_algo_is_finite_f(v) || !bm_algo_is_finite_f(w)) {
+        v = 0.0f;
+        w = 0.0f;
+        st->linear_cmd_m_s = 0.0f;
+        st->angular_cmd_rad_s = 0.0f;
+    }
 
     if (cfg->enable_slope_feedforward) {
         slope_ff = cfg->slope_feedforward_gain *

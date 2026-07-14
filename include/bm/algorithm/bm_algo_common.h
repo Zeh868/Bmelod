@@ -29,6 +29,8 @@ extern "C" {
 /**
  * @brief 将浮点值钳位到指定区间 [min_v, max_v]
  *
+ * 非有限输入（NaN/Inf）回退到区间内最靠近 0 的安全值。
+ *
  * @param value 输入值
  * @param min_v 下限
  * @param max_v 上限（须 >= min_v，否则行为未定义）

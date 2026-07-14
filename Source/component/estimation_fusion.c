@@ -6,8 +6,8 @@
  * 并提供 bm_exec_ops_t 调度封装（run 驱动 IMU 读取→step→publish）。
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.3
- * @date 2026-06-13
+ * @version 0.4
+ * @date 2026-07-14
  *
  * @par 修改日志:
  *
@@ -15,10 +15,15 @@
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            落地 EKF_CV 融合模式：放行 validate、补 step 分支
  * 2026-06-23       0.3            zeh            补 exec_ops 封装；补全公共函数 Doxygen
+ * 2026-07-14       0.4            zeh            Medium-6 修复：read_imu 成功
+ *                                                返回后统一校验六轴有限性，
+ *                                                非有限时跳过融合并上报 STALE，
+ *                                                避免 EKF_CV 持久状态被 NaN 污染
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/component/estimation_fusion.h"
+#include "bm/algorithm/bm_algo_common.h"
 #include "bm/common/bm_types.h"
 #include "bm/component/bm_component_common.h"
 
@@ -114,6 +119,21 @@ void bm_estimation_fusion_step(bm_estimation_fusion_axis_t *axis) {
 
     if (axis->resources.read_imu(axis->resources.read_imu_user,
                                  &gx, &gy, &gz, &ax, &ay, &az) != 0) {
+        st->step_count++;
+        st->telemetry.sequence = st->step_count;
+        st->telemetry.status = BM_EST_FUSION_TEL_STALE;
+        st->telemetry.roll_rad = st->euler.roll_rad;
+        st->telemetry.pitch_rad = st->euler.pitch_rad;
+        st->telemetry.yaw_rad = st->euler.yaw_rad;
+        BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
+        return;
+    }
+
+    /* read_imu 成功返回不代表数据合法；六轴任一非有限即可永久污染姿态状态
+     *（EKF_CV 的 vel=gy 直写会绕过算法层护栏），统一拦截并上报 STALE */
+    if (!bm_algo_is_finite_f(gx) || !bm_algo_is_finite_f(gy) ||
+        !bm_algo_is_finite_f(gz) || !bm_algo_is_finite_f(ax) ||
+        !bm_algo_is_finite_f(ay) || !bm_algo_is_finite_f(az)) {
         st->step_count++;
         st->telemetry.sequence = st->step_count;
         st->telemetry.status = BM_EST_FUSION_TEL_STALE;

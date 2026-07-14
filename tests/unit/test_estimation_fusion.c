@@ -260,6 +260,44 @@ void test_estimation_fusion_exec_ops_lifecycle(void) {
 }
 
 /**
+ * @brief EKF_CV 模式：gy 为 NaN 时应跳过本次融合，状态不被污染，telemetry 不为 VALID
+ */
+void test_ekf_cv_rejects_nan_imu(void) {
+    bm_estimation_fusion_axis_t axis;
+    float pitch_before;
+
+    s_sim_gy = 0.0f;
+    s_sim_ax = -0.5f;
+    s_sim_az = 0.8660254f;
+
+    memset(&axis, 0, sizeof(axis));
+    axis.config.mode            = BM_EST_FUSION_EKF_CV;
+    axis.config.dt_s            = 0.01f;
+    axis.config.ekf_cv.q_pos    = 0.001f;
+    axis.config.ekf_cv.q_vel    = 0.001f;
+    axis.config.ekf_cv.r_pos    = 0.05f;
+    axis.resources.read_imu     = read_imu_stub;
+    axis.resources.publish_telemetry = publish_tel_stub;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_estimation_fusion_init(&axis));
+
+    /* 先走若干步建立有限估计 */
+    bm_estimation_fusion_step(&axis);
+    bm_estimation_fusion_step(&axis);
+    pitch_before = axis.state.euler.pitch_rad;
+    TEST_ASSERT_TRUE(isfinite(pitch_before));
+
+    /* 注入 NaN 陀螺 */
+    s_sim_gy = NAN;
+    bm_estimation_fusion_step(&axis);
+
+    TEST_ASSERT_TRUE(
+        axis.state.telemetry.status != BM_EST_FUSION_TEL_VALID);
+    TEST_ASSERT_TRUE(isfinite(axis.state.euler.pitch_rad));
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, pitch_before, axis.state.euler.pitch_rad);
+}
+
+/**
  * @brief exec_ops init 对非法配置返回 BM_ERR_INVALID
  */
 void test_estimation_fusion_exec_ops_init_rejects_bad_config(void) {
@@ -312,6 +350,7 @@ int main(void) {
     RUN_TEST(test_ekf_cv_pitch_converges_to_zero);
     RUN_TEST(test_ekf_cv_pitch_converges_to_30deg);
     RUN_TEST(test_complementary_mode_still_works);
+    RUN_TEST(test_ekf_cv_rejects_nan_imu);
     RUN_TEST(test_estimation_fusion_exec_ops_lifecycle);
     RUN_TEST(test_estimation_fusion_exec_ops_init_rejects_bad_config);
     RUN_TEST(test_estimation_fusion_exec_ops_run_forwards_to_step);

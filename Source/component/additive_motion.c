@@ -6,8 +6,8 @@
  * bm_exec 周期调度框架接入。
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.4
- * @date 2026-07-09
+ * @version 0.5
+ * @date 2026-07-14
  *
  * @par 修改日志:
  *
@@ -16,6 +16,9 @@
  * 2026-06-17       0.2            zeh            pressure advance 线性模型
  * 2026-06-23       0.3            zeh            exec_ops 表；zv_compute_coeffs Doxygen；SPDX
  * 2026-07-09       0.4            zeh            safe_stop 补清空环形缓冲（疑似-16.1）
+ * 2026-07-14       0.5            zeh            Medium-6 修复：速度限幅从只写
+ *                                                遥测改为真实约束 shaped_mm 增
+ *                                                量，write_z 发送已限幅位置
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -168,12 +171,23 @@ void bm_additive_motion_step(bm_additive_motion_axis_t *axis) {
      * 速度由整形位置相对「上一周期 step」的差分求得（P0-5b）。此前 prev 在同
      * 一次 step 内取 shaped_mm 快照、其间无人改写 shaped_mm，导致 vel 恒为 0、
      * 下方限速判断成为死代码。改用跨周期持久的 prev_shaped_mm 后差分才有意义。
+     *
+     * Medium-6 修复：速度限幅不能只写遥测，须真实约束 shaped_mm 增量，
+     * 使 write_z 发送的位置也受到 max_velocity_mm_s 限制。
      */
-    vel = (st->shaped_mm - st->prev_shaped_mm) / cfg->dt_s;
-    if (fabsf(vel) > cfg->max_velocity_mm_s) {
-        vel = (vel > 0.0f) ? cfg->max_velocity_mm_s : -cfg->max_velocity_mm_s;
+    {
+        float delta_mm = st->shaped_mm - st->prev_shaped_mm;
+        float max_delta_mm = cfg->max_velocity_mm_s * cfg->dt_s;
+
+        if (delta_mm > max_delta_mm) {
+            delta_mm = max_delta_mm;
+        } else if (delta_mm < -max_delta_mm) {
+            delta_mm = -max_delta_mm;
+        }
+        st->shaped_mm = st->prev_shaped_mm + delta_mm;
+        vel = delta_mm / cfg->dt_s;
+        st->prev_shaped_mm = st->shaped_mm;
     }
-    st->prev_shaped_mm = st->shaped_mm;
 
     if (axis->resources.write_z != NULL) {
         (void)axis->resources.write_z(axis->resources.write_z_user,

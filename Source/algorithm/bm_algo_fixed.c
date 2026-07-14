@@ -3,8 +3,8 @@
  * @brief Q31/Q15 定点算法实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 2.6
- * @date 2026-07-09
+ * @version 2.7
+ * @date 2026-07-14
  *
  * @par 修改日志:
  *
@@ -37,6 +37,10 @@
  *                                                INT32_MIN 窄化取绝对值回绕
  *                                                为负数误判死区内，改 int64
  *                                                内比较
+ * 2026-07-14       2.7            zeh            Medium-5 修复：mppt_ic_q31/q15、
+ *                                                pid2_q31/q15 的差分运算改用
+ *                                                int64/int32 宽化后饱和，避免
+ *                                                INT32_MIN/INT16_MIN 相减回绕
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -2361,8 +2365,9 @@ bm_algo_q15_t bm_algo_mppt_ic_q15_step(bm_algo_mppt_ic_q15_state_t *state,
         return voltage_q15;
     }
 
-    dv = voltage_q15 - state->prev_v_q15;
-    di = current_q15 - state->prev_i_q15;
+    /* 宽化到 int32 后饱和，避免 INT16_MIN 相减回绕 */
+    dv = saturate_q15_i32((int32_t)voltage_q15 - (int32_t)state->prev_v_q15);
+    di = saturate_q15_i32((int32_t)current_q15 - (int32_t)state->prev_i_q15);
 
     if (dv != 0 && voltage_q15 != 0) {
         lhs = (int64_t)di * (int64_t)voltage_q15;
@@ -3662,8 +3667,9 @@ bm_algo_q31_t bm_algo_mppt_ic_q31_step(bm_algo_mppt_ic_q31_state_t *state,
         return voltage_q31;
     }
 
-    dv = voltage_q31 - state->prev_v_q31;
-    di = current_q31 - state->prev_i_q31;
+    /* 宽化到 int64 后饱和，避免 INT32_MIN 相减回绕 */
+    dv = saturate_q31_i64((int64_t)voltage_q31 - (int64_t)state->prev_v_q31);
+    di = saturate_q31_i64((int64_t)current_q31 - (int64_t)state->prev_i_q31);
 
     if (dv != 0 && voltage_q31 != 0) {
         lhs = (int64_t)di * (int64_t)voltage_q31;
@@ -3712,7 +3718,8 @@ bm_algo_q15_t bm_algo_pid2_q15_step(bm_algo_pid2_q15_state_t *state,
         return 0;
     }
 
-    error_i = reference_q15 - measurement_q15;
+    /* 宽化到 int32 后饱和，避免 INT16_MIN 相减回绕 */
+    error_i = saturate_q15_i32((int32_t)reference_q15 - (int32_t)measurement_q15);
     ref_weighted = (int32_t)mul_q15(config->b_q15, reference_q15) -
                    (int32_t)measurement_q15;
     p_term = mul_q15(config->kp_q15, saturate_q15_i32(ref_weighted));
@@ -3782,7 +3789,8 @@ bm_algo_q31_t bm_algo_pid2_q31_step(bm_algo_pid2_q31_state_t *state,
         return 0;
     }
 
-    error_i = reference_q31 - measurement_q31;
+    /* 宽化到 int64 后饱和，避免 INT32_MIN 相减回绕 */
+    error_i = saturate_q31_i64((int64_t)reference_q31 - (int64_t)measurement_q31);
     ref_weighted = saturate_q31_i64(
         (int64_t)mul_q31(config->b_q31, reference_q31) - (int64_t)measurement_q31);
     p_term = mul_q31(config->kp_q31, ref_weighted);

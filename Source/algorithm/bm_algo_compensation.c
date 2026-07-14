@@ -3,8 +3,8 @@
  * @brief 执行器非线性补偿实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.4
- * @date 2026-07-09
+ * @version 1.5
+ * @date 2026-07-14
  *
  * @par 修改日志:
  *
@@ -16,6 +16,9 @@
  *                                                补 u/y 有限性护栏，避免一次
  *                                                NaN/Inf 污染 y_hat/disturbance
  *                                                持久状态
+ * 2026-07-14       1.5            zeh            Medium-6 修复：friction_comp
+ *                                                对非有限 velocity 返回 0，
+ *                                                避免 NaN 力矩穿透到执行器
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -48,6 +51,10 @@ float bm_algo_friction_comp(float velocity,
                             float v_deadband) {
     float sign_v;
 
+    /* NaN 时 fabsf(NaN) < v_deadband 恒为 false，会错误地返回带 NaN 的力矩 */
+    if (!bm_algo_is_finite_f(velocity)) {
+        return 0.0f;
+    }
     if (fabsf(velocity) < v_deadband) {
         return 0.0f;
     }

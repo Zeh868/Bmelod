@@ -30,6 +30,58 @@ static void test_common_clamp_and_deadband(void) {
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 5.0f, bm_algo_clamp_f(10.0f, 0.0f, 5.0f));
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, bm_algo_deadband_f(0.05f, 0.1f));
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.1f, bm_algo_deadband_f(0.2f, 0.1f));
+
+    /* NaN/Inf 应回退到区间内最靠近 0 的安全值 */
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, bm_algo_clamp_f(NAN, -5.0f, 5.0f));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, bm_algo_clamp_f(NAN, 1.0f, 5.0f));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, -1.0f, bm_algo_clamp_f(NAN, -5.0f, -1.0f));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, bm_algo_saturate_f(NAN, 5.0f));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, bm_algo_saturate_f(INFINITY, 5.0f));
+}
+
+static void test_control_family_nan_guard(void) {
+    bm_algo_integrator_state_t int_st;
+    bm_algo_integrator_config_t int_cfg = {
+        .min = -10.0f, .max = 10.0f
+    };
+    bm_algo_differentiator_state_t diff_st;
+    bm_algo_differentiator_config_t diff_cfg = {
+        .coeff = 1.0f
+    };
+    bm_algo_pr_state_t pr_st;
+    bm_algo_pr_config_t pr_cfg = {
+        .out_min = -1.0f, .out_max = 1.0f
+    };
+    bm_algo_lead_lag_state_t ll_st;
+    bm_algo_lead_lag_config_t ll_cfg = {
+        .gain = 1.0f, .zero_rad_s = 1.0f, .pole_rad_s = 10.0f
+    };
+
+    /* 积分器：NaN 输入不污染 integrator */
+    bm_algo_integrator_reset(&int_st, 1.0f);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f,
+        bm_algo_integrator_step(&int_st, &int_cfg, NAN, 0.01f));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, int_st.integrator);
+
+    /* 微分器：NaN 输入不污染 prev_input，保持上一拍有限微分值 */
+    bm_algo_differentiator_reset(&diff_st);
+    (void)bm_algo_differentiator_step(&diff_st, &diff_cfg, 1.0f, 0.01f);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, diff_st.derivative,
+        bm_algo_differentiator_step(&diff_st, &diff_cfg, NAN, 0.01f));
+    TEST_ASSERT_TRUE(bm_algo_is_finite_f(diff_st.prev_input));
+
+    /* PR：NaN error 不污染 x1/x2/y1/y2，保持旧输出 */
+    bm_algo_pr_reset(&pr_st);
+    (void)bm_algo_pr_step(&pr_st, &pr_cfg, 1.0f, 0.5f, 0.0f, -0.5f, 0.0f, 0.0f);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, pr_st.output,
+        bm_algo_pr_step(&pr_st, &pr_cfg, NAN, 0.5f, 0.0f, -0.5f, 0.0f, 0.0f));
+    TEST_ASSERT_TRUE(bm_algo_is_finite_f(pr_st.x1));
+
+    /* 超前滞后：NaN 输入保持旧输出 */
+    TEST_ASSERT_EQUAL(0, bm_algo_lead_lag_init(&ll_st, &ll_cfg, 0.01f));
+    (void)bm_algo_lead_lag_step(&ll_st, 1.0f);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, ll_st.y1,
+        bm_algo_lead_lag_step(&ll_st, NAN));
 }
 
 static void test_pi_step_and_saturation(void) {
@@ -228,6 +280,7 @@ static void test_runtime_buffer_config_changes_are_rejected(void) {
 
 void test_algo_basic(void) {
     RUN_TEST(test_common_clamp_and_deadband);
+    RUN_TEST(test_control_family_nan_guard);
     RUN_TEST(test_pi_step_and_saturation);
     RUN_TEST(test_ramp_reaches_target);
     RUN_TEST(test_scurve_reaches_target);
