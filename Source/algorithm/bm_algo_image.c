@@ -145,6 +145,7 @@ int bm_algo_image_label_u8(const uint8_t *binary,
     uint32_t y;
     uint16_t next_label = 1u;
     uint32_t blob_count = 0u;
+    uint32_t total_blobs = 0u;
     size_t pixel_count;
 
     if (binary == NULL || labels == NULL || width == 0u || height == 0u ||
@@ -227,6 +228,7 @@ int bm_algo_image_label_u8(const uint8_t *binary,
                 }
             }
 
+            total_blobs++;
             if (blobs == NULL || blob_count < max_blobs) {
                 blob_count++;
             }
@@ -234,7 +236,12 @@ int bm_algo_image_label_u8(const uint8_t *binary,
         }
     }
 
-    return (int)blob_count;
+    /* Batch-3：返回实际连通域总数；当输出缓冲放不下时给出溢出提示，
+     * 避免调用方把 max_blobs 误当总数。 */
+    if (blobs != NULL && total_blobs > max_blobs) {
+        return BM_ALGO_ERR_OVERFLOW;
+    }
+    return (int)total_blobs;
 }
 
 void bm_algo_image_frame_diff_u8(const uint8_t *prev,

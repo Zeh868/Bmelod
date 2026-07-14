@@ -220,7 +220,8 @@ void test_process_validate_rejects_zero_model_gain(void) {
 }
 
 /* ================================================================
- * 测试 6：validate_config 拒绝 delay_steps >= line_len
+ * 测试 6：validate_config 拒绝 delay_steps > line_len；
+ *         delay_steps == line_len 是算法层合法边界，组件层不再多拒。
  * ================================================================ */
 void test_process_validate_rejects_delay_overflow(void) {
     bm_process_control_config_t cfg;
@@ -231,7 +232,7 @@ void test_process_validate_rejects_delay_overflow(void) {
     cfg = axis.config;
     cfg.smith_delay_line  = dl;
     cfg.smith_line_len    = 4u;
-    cfg.smith.delay_steps = 4u; /* delay_steps == line_len，非法 */
+    cfg.smith.delay_steps = 5u; /* delay_steps > line_len，非法 */
 
     TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_process_control_validate_config(&cfg));
 }

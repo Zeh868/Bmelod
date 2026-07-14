@@ -56,7 +56,9 @@ void bm_algo_kalman1d_reset(bm_algo_kalman1d_state_t *state,
                             float x0,
                             float p0) {
     if (state != NULL) {
-        state->x = x0;
+        /* Batch-3：与 ukf1d_reset 对齐，x0 非有限时复位到 0，
+         * 避免 NaN 初值直接种进持久状态 */
+        state->x = bm_algo_is_finite_f(x0) ? x0 : 0.0f;
         state->p = (p0 >= 0.0f && bm_algo_is_finite_f(p0)) ? p0 : 0.0f;
     }
 }

@@ -871,7 +871,7 @@ void bm_algo_trapezoid_q31_set_target(bm_algo_trapezoid_q31_state_t *state,
 bm_algo_q31_t bm_algo_trapezoid_q31_step(bm_algo_trapezoid_q31_state_t *state,
                                         const bm_algo_trapezoid_q31_config_t *config,
                                         bm_algo_q31_t dt_q31) {
-    bm_algo_q31_t dist;
+    int64_t dist;
     bm_algo_q31_t accel_step;
     bm_algo_q31_t decel_step;
     bm_algo_q31_t vel_step;
@@ -887,7 +887,8 @@ bm_algo_q31_t bm_algo_trapezoid_q31_step(bm_algo_trapezoid_q31_state_t *state,
         return state->position;
     }
 
-    dist = saturate_q31_i64((int64_t)state->target - (int64_t)state->position);
+    /* Batch-3：dist 用 int64 局部量，避免 dist 饱和到 INT32_MIN 时取负溢出 UB */
+    dist = (int64_t)state->target - (int64_t)state->position;
     if (dist == 0 && state->velocity == 0) {
         state->done = 1;
         return state->position;
@@ -902,7 +903,7 @@ bm_algo_q31_t bm_algo_trapezoid_q31_step(bm_algo_trapezoid_q31_state_t *state,
         (stop_num << 31) / (2 * (int64_t)config->max_decel_q31));
 
     if (dist > 0) {
-        if (dist > stop_dist || state->velocity < 0) {
+        if (dist > (int64_t)stop_dist || state->velocity < 0) {
             state->velocity = saturate_q31_i64((int64_t)state->velocity +
                                                (int64_t)accel_step);
             if (state->velocity > config->max_vel_q31) {
@@ -916,7 +917,7 @@ bm_algo_q31_t bm_algo_trapezoid_q31_step(bm_algo_trapezoid_q31_state_t *state,
             }
         }
     } else if (dist < 0) {
-        if (-dist > stop_dist || state->velocity > 0) {
+        if (-dist > (int64_t)stop_dist || state->velocity > 0) {
             state->velocity = saturate_q31_i64((int64_t)state->velocity -
                                                (int64_t)accel_step);
             if (state->velocity < -config->max_vel_q31) {
@@ -936,9 +937,9 @@ bm_algo_q31_t bm_algo_trapezoid_q31_step(bm_algo_trapezoid_q31_state_t *state,
     state->position = saturate_q31_i64((int64_t)state->position +
                                        (int64_t)pos_delta);
 
-    dist = saturate_q31_i64((int64_t)state->target - (int64_t)state->position);
-    if ((dist >= 0 && state->velocity <= 0 && dist <= accel_step) ||
-        (dist <= 0 && state->velocity >= 0 && -dist <= accel_step)) {
+    dist = (int64_t)state->target - (int64_t)state->position;
+    if ((dist >= 0 && state->velocity <= 0 && dist <= (int64_t)accel_step) ||
+        (dist <= 0 && state->velocity >= 0 && -dist <= (int64_t)accel_step)) {
         state->position = state->target;
         state->velocity = 0;
         state->done = 1;

@@ -195,7 +195,10 @@ int bm_motor_foc_sensored_validate_config(
     if (config == NULL) {
         return BM_ERR_INVALID;
     }
+    /* Batch-3：pole_pairs 须为正整数（C9 电角度公式数学前提），
+     * 拒绝 3.5 类误配。 */
     if (!bm_algo_is_finite_f(config->pole_pairs) || config->pole_pairs <= 0.0f ||
+        floorf(config->pole_pairs) != config->pole_pairs ||
         (config->encoder_direction != 1.0f &&
          config->encoder_direction != -1.0f) ||
         config->vbus_v <= 0.0f ||

@@ -81,6 +81,10 @@ float bm_algo_saturate_f(float value, float limit) {
  * @return 死区处理后的值
  */
 float bm_algo_deadband_f(float value, float width) {
+    /* Batch-3：NaN 输入会静默洗白为 0；透传 NaN 让调用方感知异常 */
+    if (!bm_algo_is_finite_f(value)) {
+        return value;
+    }
     if (width <= 0.0f) {
         return value;
     }

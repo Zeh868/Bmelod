@@ -181,7 +181,15 @@ void bm_estimation_fusion_step(bm_estimation_fusion_axis_t *axis) {
         st->euler.yaw_rad   = 0.0f;
         break;
     default:
-        break;
+        /* Batch-3：运行期 mode 损坏时（仅 init 校验不够），不应标 VALID */
+        st->step_count++;
+        st->telemetry.sequence = st->step_count;
+        st->telemetry.status = BM_EST_FUSION_TEL_STALE;
+        st->telemetry.roll_rad = st->euler.roll_rad;
+        st->telemetry.pitch_rad = st->euler.pitch_rad;
+        st->telemetry.yaw_rad = st->euler.yaw_rad;
+        BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
+        return;
     }
 
     st->step_count++;

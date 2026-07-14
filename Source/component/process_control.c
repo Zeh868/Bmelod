@@ -51,8 +51,10 @@ int bm_process_control_validate_config(const bm_process_control_config_t *config
     /* 延迟步数须 ≥1 且在缓冲区范围内：bm_algo_smith_predictor_init 拒绝
      * delay_steps==0（Smith 预估器至少需 1 格延迟线），此处提前显式拒绝，
      * 与底层契约一致（原注释误称 0 合法，实际 init 必失败）。 */
+    /* Batch-3：delay_steps == line_len 在算法层是合法边界（init 只拒绝 >），
+     * 组件层此前用 >= 多拒了一个合法值；改为 > 对齐底层契约。 */
     if (config->smith.delay_steps == 0u ||
-        config->smith.delay_steps >= config->smith_line_len) {
+        config->smith.delay_steps > config->smith_line_len) {
         return BM_ERR_INVALID;
     }
     return BM_OK;

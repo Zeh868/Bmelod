@@ -14,6 +14,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_calibration.h"
+#include "bm/algorithm/bm_algo_common.h"
 #include <stddef.h>
 
 /**
@@ -36,6 +37,12 @@ float bm_algo_lut1d_interp(const bm_algo_lut1d_t *lut, float x) {
         return 0.0f;
     }
 
+    /* Batch-3：NaN 输入若饱和到末端值，会比传播 NaN 更危险（静默错误满量程输出）；
+     * 非有限输入直接透传，让下游可见异常。 */
+    if (!bm_algo_is_finite_f(x)) {
+        return x;
+    }
+
     if (x <= lut->x[0]) {
         return lut->y[0];
     }
@@ -48,8 +55,9 @@ float bm_algo_lut1d_interp(const bm_algo_lut1d_t *lut, float x) {
             float span = lut->x[i + 1u] - lut->x[i];
             float t;
 
+            /* Batch-3：非单调区间跳过而非立即返回左端点，继续向后查找合法区间 */
             if (span <= 0.0f) {
-                return lut->y[i];
+                continue;
             }
             t = (x - lut->x[i]) / span;
             return lut->y[i] + t * (lut->y[i + 1u] - lut->y[i]);

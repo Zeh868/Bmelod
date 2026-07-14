@@ -18,6 +18,7 @@
  */
 #include "bm/algorithm/bm_algo_spectral.h"
 #include "bm/algorithm/bm_algo_errors.h"
+#include "bm/algorithm/bm_algo_common.h"
 #include <stddef.h>
 
 #include <math.h>
@@ -63,6 +64,10 @@ int bm_algo_goertzel_feed(bm_algo_goertzel_state_t *state,
     float s;
 
     if (state == NULL || config == NULL) {
+        return BM_ALGO_ERR_INVALID;
+    }
+    /* Batch-3：单个非有限样本会污染整块 Goertzel 状态；拒绝该样本 */
+    if (!bm_algo_is_finite_f(sample)) {
         return BM_ALGO_ERR_INVALID;
     }
 
@@ -150,19 +155,30 @@ int bm_algo_find_peak_bin(const float *spectrum,
     uint32_t i;
     float max_v;
     uint32_t max_i;
+    int found = 0;
 
     if (spectrum == NULL || peak_bin == NULL || peak_value == NULL ||
         end_bin <= start_bin) {
         return BM_ALGO_ERR_INVALID;
     }
 
-    max_v = spectrum[start_bin];
+    /* Batch-3：首元素为 NaN 时旧逻辑会让 max_v 恒为 NaN，全程失效；
+     * 跳过所有非有限样本，找一个合法峰值。 */
+    max_v = 0.0f;
     max_i = start_bin;
-    for (i = start_bin + 1u; i < end_bin; ++i) {
-        if (spectrum[i] > max_v) {
+    for (i = start_bin; i < end_bin; ++i) {
+        if (!bm_algo_is_finite_f(spectrum[i])) {
+            continue;
+        }
+        if (!found || spectrum[i] > max_v) {
             max_v = spectrum[i];
             max_i = i;
+            found = 1;
         }
+    }
+
+    if (!found) {
+        return BM_ALGO_ERR_INVALID;
     }
 
     *peak_bin = max_i;

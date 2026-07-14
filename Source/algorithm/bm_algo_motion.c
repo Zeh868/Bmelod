@@ -67,6 +67,9 @@ float bm_algo_encoder_update(bm_algo_encoder_state_t *state,
     delta = (int64_t)raw_count - (int64_t)state->prev_count;
     /* eff_delta = 本拍等效计数位移（含跨圈回绕修正），与 turns 增减严格对应 */
     eff_delta = delta;
+    /* TODO(Batch-3/low-14)：turns 饱和（INT32_MAX/MIN）后，position_rad 基于
+     * 冻结的 turns 会与 velocity_rad_s 失去同步；需改用 int64 turns 或饱和
+     * 标记才能根治。当前 21.5 亿圈才触发，按设计债挂账处理。 */
     if (delta > (int64_t)(config->counts_per_rev / 2u)) {
         if (state->turns > INT32_MIN) {
             state->turns--;

@@ -93,13 +93,26 @@ void bm_algo_soc_ekf_predict(bm_algo_soc_ekf_state_t *state,
     p10 = state->p10;
     p11 = state->p11;
 
-    state->p00 = p00 - bias_gain * (p01 + p10)
-                 + bias_gain * bias_gain * p11
-                 + config->q_soc * dt_s;
-    state->p01 = p01 - bias_gain * p11;
-    state->p10 = p10 - bias_gain * p11;
-    state->p11 = p11 + (bm_algo_is_finite_f(config->q_bias)
-                            ? config->q_bias : 0.0f) * dt_s;
+    /* Batch-3：q_soc 与 q_bias 同享护栏；非有限过程噪声回退到 0，
+     * 避免一次非法配置永久污染协方差。
+     * 同时校验 p00 计算结果有限：极小容量可使 bias_gain²*p11 溢出为 Inf，
+     * 进而在 update_voltage 中造成 Inf/Inf=NaN；溢出时保持旧 p00。 */
+    {
+        float q_soc_safe = bm_algo_is_finite_f(config->q_soc)
+                               ? config->q_soc : 0.0f;
+        float q_bias_safe = bm_algo_is_finite_f(config->q_bias)
+                                ? config->q_bias : 0.0f;
+
+        state->p00 = p00 - bias_gain * (p01 + p10)
+                     + bias_gain * bias_gain * p11
+                     + q_soc_safe * dt_s;
+        if (!bm_algo_is_finite_f(state->p00)) {
+            state->p00 = p00;
+        }
+        state->p01 = p01 - bias_gain * p11;
+        state->p10 = p10 - bias_gain * p11;
+        state->p11 = p11 + q_bias_safe * dt_s;
+    }
     if (state->p11 < 1e-12f) {
         state->p11 = 1e-12f;
     }

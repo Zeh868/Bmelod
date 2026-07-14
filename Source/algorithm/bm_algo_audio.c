@@ -123,7 +123,10 @@ void bm_algo_agc_process(bm_algo_agc_state_t *state,
     if (!bm_algo_is_finite_f(state->gain)) {
         state->gain = min_gain;
     }
-    if (level >= silence_threshold && bm_algo_is_finite_f(level)) {
+    if (level >= silence_threshold && bm_algo_is_finite_f(level) &&
+        bm_algo_is_finite_f(config->target_level) &&
+        bm_algo_is_finite_f(config->attack_coeff) &&
+        bm_algo_is_finite_f(config->release_coeff)) {
         err = config->target_level - level * state->gain;
         coeff = (err > 0.0f) ? config->attack_coeff : config->release_coeff;
         coeff = bm_algo_clamp_f(coeff, 0.0f, 1.0f);
@@ -160,7 +163,15 @@ void bm_algo_vad_process(bm_algo_vad_state_t *state,
     e /= (float)n;
 
     if (bm_algo_is_finite_f(e)) {
-        state->energy += config->alpha * (e - state->energy);
+        float alpha = config->alpha;
+
+        /* Batch-3：alpha 非有限或越界会永久污染 energy 状态 */
+        if (!bm_algo_is_finite_f(alpha) || alpha < 0.0f) {
+            alpha = 0.0f;
+        } else if (alpha > 1.0f) {
+            alpha = 1.0f;
+        }
+        state->energy += alpha * (e - state->energy);
     }
     state->voice_active = (state->energy > config->energy_threshold) ? 1 : 0;
 }

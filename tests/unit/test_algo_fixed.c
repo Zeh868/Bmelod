@@ -2523,8 +2523,11 @@ static void test_fixed_a_batch_overflow_regressions(void) {
     };
     bm_algo_ramp_q15_state_t ramp15_st;
 
-    /* pid_q15_step：error 从 0 阶跃到 INT16_MIN，微分项应为负 */
+    /* Batch-3：pid_q15_step 溢出回归需 +满量程→−满量程两步阶跃，
+     * 才覆盖真正的差分溢出场景 */
     bm_algo_pid_q15_reset(&pid15_st, 0);
+    (void)bm_algo_pid_q15_step(&pid15_st, &pid15_cfg,
+                               (bm_algo_q15_t)INT16_MAX, BM_ALGO_Q15_ONE);
     (void)bm_algo_pid_q15_step(&pid15_st, &pid15_cfg,
                                (bm_algo_q15_t)INT16_MIN, BM_ALGO_Q15_ONE);
     TEST_ASSERT_TRUE(pid15_st.output < 0);

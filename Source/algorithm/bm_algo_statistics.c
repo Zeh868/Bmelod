@@ -157,15 +157,21 @@ float bm_algo_stats_crest_factor(const bm_algo_stats_state_t *state) {
 float bm_algo_array_mean(const float *data, uint32_t n) {
     float sum = 0.0f;
     uint32_t i;
+    uint32_t valid = 0u;
 
     if (data == NULL || n == 0u) {
         return 0.0f;
     }
 
     for (i = 0u; i < n; ++i) {
+        /* Batch-3：坏样本会污染整组统计；跳过非有限值 */
+        if (!bm_algo_is_finite_f(data[i])) {
+            continue;
+        }
         sum += data[i];
+        valid++;
     }
-    return sum / (float)n;
+    return (valid > 0u) ? (sum / (float)valid) : 0.0f;
 }
 
 /**
@@ -178,15 +184,21 @@ float bm_algo_array_mean(const float *data, uint32_t n) {
 float bm_algo_array_rms(const float *data, uint32_t n) {
     float sum_sq = 0.0f;
     uint32_t i;
+    uint32_t valid = 0u;
 
     if (data == NULL || n == 0u) {
         return 0.0f;
     }
 
     for (i = 0u; i < n; ++i) {
+        /* Batch-3：坏样本会污染 RMS；跳过非有限值 */
+        if (!bm_algo_is_finite_f(data[i])) {
+            continue;
+        }
         sum_sq += data[i] * data[i];
+        valid++;
     }
-    return sqrtf(sum_sq / (float)n);
+    return (valid > 0u) ? sqrtf(sum_sq / (float)valid) : 0.0f;
 }
 
 /**

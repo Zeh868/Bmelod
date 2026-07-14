@@ -118,7 +118,8 @@ void bm_algo_pi_bumpless_reset(bm_algo_pi_state_t *state,
 
     output = bm_algo_clamp_f(output, config->out_min, config->out_max);
 
-    if (config->ki != 0.0f) {
+    /* Batch-3：ki 非有限或为零时，反算积分器会种入 NaN/Inf；直接清零积分器 */
+    if (bm_algo_is_finite_f(config->ki) && config->ki != 0.0f) {
         state->integrator = output / config->ki;
         state->integrator = bm_algo_clamp_f(state->integrator,
                                             config->integrator_min,
@@ -559,7 +560,13 @@ float bm_algo_smith_predictor_step(bm_algo_smith_predictor_state_t *state,
     state->y_delayed = config->model_gain * u_delayed;
     y_predicted = y_nd + measurement - state->y_delayed;
 
-    state->u_delay_line[state->head] = u_controller;
+    /* Batch-3：NaN 控制量入延迟线会在 delay_steps 拍后复发一次；
+     * 非有限输入不入线，改用 0 占位保持 head 前进。 */
+    if (!bm_algo_is_finite_f(u_controller)) {
+        state->u_delay_line[state->head] = 0.0f;
+    } else {
+        state->u_delay_line[state->head] = u_controller;
+    }
     state->head = (state->head + 1u) % config->delay_steps;
     state->y_model = y_nd;
 
