@@ -159,7 +159,9 @@ void bm_algo_vad_process(bm_algo_vad_state_t *state,
     }
     e /= (float)n;
 
-    state->energy += config->alpha * (e - state->energy);
+    if (bm_algo_is_finite_f(e)) {
+        state->energy += config->alpha * (e - state->energy);
+    }
     state->voice_active = (state->energy > config->energy_threshold) ? 1 : 0;
 }
 
@@ -268,7 +270,7 @@ void bm_algo_compressor_process(bm_algo_compressor_state_t *state,
 
     for (i = 0u; i < n; ++i) {
         float x = in[i];
-        float ax = fabsf(x);
+        float ax = bm_algo_is_finite_f(x) ? fabsf(x) : state->envelope;
         float gain;
         float coeff;
 
@@ -319,7 +321,7 @@ void bm_algo_noise_gate_process(bm_algo_noise_gate_state_t *state,
 
     for (i = 0u; i < n; ++i) {
         float x = in[i];
-        float ax = fabsf(x);
+        float ax = bm_algo_is_finite_f(x) ? fabsf(x) : state->envelope;
         float target;
         float coeff;
 
@@ -731,10 +733,13 @@ void bm_algo_mvdr_beamform(const float * const *channels,
         phase = 6.283185307f * MVDR_REF_FREQ_HZ * (float)delay / sample_hz;
         steer = cosf(phase);
         weight[ch] = (steer * steer) / var[ch];
+        if (!bm_algo_is_finite_f(weight[ch])) {
+            weight[ch] = 0.0f;
+        }
         denom += weight[ch];
     }
 
-    if (denom < 1e-12f) {
+    if (!bm_algo_is_finite_f(denom) || denom < 1e-12f) {
         bm_algo_delay_and_sum(channels, delay_samples, num_channels, n, out);
         return;
     }

@@ -195,7 +195,7 @@ int bm_motor_foc_sensored_validate_config(
     if (config == NULL) {
         return BM_ERR_INVALID;
     }
-    if (config->pole_pairs <= 0.0f ||
+    if (!bm_algo_is_finite_f(config->pole_pairs) || config->pole_pairs <= 0.0f ||
         (config->encoder_direction != 1.0f &&
          config->encoder_direction != -1.0f) ||
         config->vbus_v <= 0.0f ||
@@ -235,6 +235,8 @@ void bm_motor_foc_sensored_reset(bm_motor_foc_sensored_axis_t *axis) {
     bm_algo_pi_reset(&axis->state.current.pi_q, 0.0f);
     bm_algo_pi_reset(&axis->state.speed.pi_speed, 0.0f);
     bm_algo_ramp_reset(&axis->state.speed.speed_ramp, 0.0f);
+    /* 编码器机械原点取 0：当前 encoder 配置无零点偏移字段，机械零点由安装
+     * 标定决定；电角度偏移由 electrical_offset_rad 在 read_theta_elec 中单独补偿。 */
     bm_algo_encoder_reset(&axis->state.speed.encoder, &cfg->encoder, 0);
 }
 

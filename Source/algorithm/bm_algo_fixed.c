@@ -554,7 +554,7 @@ bm_algo_q31_t bm_algo_rate_limit_q31_step(bm_algo_rate_limit_q31_state_t *state,
 
     max_up = mul_q31(config->max_rise_per_s_q31, dt_q31);
     max_dn = mul_q31(config->max_fall_per_s_q31, dt_q31);
-    delta = target - state->output;
+    delta = saturate_q31_i64((int64_t)target - (int64_t)state->output);
 
     if (delta > max_up) {
         state->output = saturate_q31_i64((int64_t)state->output + (int64_t)max_up);
@@ -643,7 +643,7 @@ bm_algo_q31_t bm_algo_ramp_q31_step(bm_algo_ramp_q31_state_t *state,
         return target;
     }
 
-    delta = target - state->output;
+    delta = saturate_q31_i64((int64_t)target - (int64_t)state->output);
     step = mul_q31(config->rate_per_s_q31, dt_q31);
 
     if (delta > step) {
@@ -793,15 +793,15 @@ bm_algo_q15_t bm_algo_pid_q15_step(bm_algo_pid_q15_state_t *state,
                                           config->integrator_min,
                                           config->integrator_max);
 
-    d_raw = (((int32_t)error - (int32_t)state->prev_error) << 15) /
-            (int32_t)dt_q15;
+    d_raw = div_q15((int32_t)error - (int32_t)state->prev_error, dt_q15);
     state->prev_error = error;
 
     alpha = (int32_t)bm_algo_clamp_q15(config->d_filter_alpha_q15,
                                        0, BM_ALGO_Q15_ONE);
     state->d_filtered = saturate_q15_i32(
         (int32_t)state->d_filtered +
-        ((alpha * ((int32_t)d_raw - (int32_t)state->d_filtered)) >> 15));
+        (int32_t)(((int64_t)alpha *
+                   ((int64_t)d_raw - (int64_t)state->d_filtered)) >> 15));
     d_term = ((int32_t)config->kd * (int32_t)state->d_filtered) >> 15;
 
     u_unsat = p_term +
@@ -887,7 +887,7 @@ bm_algo_q31_t bm_algo_trapezoid_q31_step(bm_algo_trapezoid_q31_state_t *state,
         return state->position;
     }
 
-    dist = state->target - state->position;
+    dist = saturate_q31_i64((int64_t)state->target - (int64_t)state->position);
     if (dist == 0 && state->velocity == 0) {
         state->done = 1;
         return state->position;
@@ -903,24 +903,28 @@ bm_algo_q31_t bm_algo_trapezoid_q31_step(bm_algo_trapezoid_q31_state_t *state,
 
     if (dist > 0) {
         if (dist > stop_dist || state->velocity < 0) {
-            state->velocity += accel_step;
+            state->velocity = saturate_q31_i64((int64_t)state->velocity +
+                                               (int64_t)accel_step);
             if (state->velocity > config->max_vel_q31) {
                 state->velocity = config->max_vel_q31;
             }
         } else {
-            state->velocity -= decel_step;
+            state->velocity = saturate_q31_i64((int64_t)state->velocity -
+                                               (int64_t)decel_step);
             if (state->velocity < 0) {
                 state->velocity = 0;
             }
         }
     } else if (dist < 0) {
         if (-dist > stop_dist || state->velocity > 0) {
-            state->velocity -= accel_step;
+            state->velocity = saturate_q31_i64((int64_t)state->velocity -
+                                               (int64_t)accel_step);
             if (state->velocity < -config->max_vel_q31) {
                 state->velocity = -config->max_vel_q31;
             }
         } else {
-            state->velocity += decel_step;
+            state->velocity = saturate_q31_i64((int64_t)state->velocity +
+                                               (int64_t)decel_step);
             if (state->velocity > 0) {
                 state->velocity = 0;
             }
@@ -932,7 +936,7 @@ bm_algo_q31_t bm_algo_trapezoid_q31_step(bm_algo_trapezoid_q31_state_t *state,
     state->position = saturate_q31_i64((int64_t)state->position +
                                        (int64_t)pos_delta);
 
-    dist = state->target - state->position;
+    dist = saturate_q31_i64((int64_t)state->target - (int64_t)state->position);
     if ((dist >= 0 && state->velocity <= 0 && dist <= accel_step) ||
         (dist <= 0 && state->velocity >= 0 && -dist <= accel_step)) {
         state->position = state->target;
@@ -1985,7 +1989,7 @@ bm_algo_q15_t bm_algo_ramp_q15_step(bm_algo_ramp_q15_state_t *state,
         return target;
     }
 
-    delta = target - state->output;
+    delta = saturate_q15_i32((int32_t)target - (int32_t)state->output);
     step = mul_q15(config->rate_per_s_q15, dt_q15);
 
     if (delta > step) {
@@ -2039,7 +2043,7 @@ bm_algo_q15_t bm_algo_trapezoid_q15_step(bm_algo_trapezoid_q15_state_t *state,
         return state->position;
     }
 
-    dist = state->target - state->position;
+    dist = saturate_q15_i32((int32_t)state->target - (int32_t)state->position);
     if (dist == 0 && state->velocity == 0) {
         state->done = 1;
         return state->position;
@@ -2090,7 +2094,7 @@ bm_algo_q15_t bm_algo_trapezoid_q15_step(bm_algo_trapezoid_q15_state_t *state,
     state->position = saturate_q15_i32((int32_t)state->position +
                                        (int32_t)pos_delta);
 
-    dist = state->target - state->position;
+    dist = saturate_q15_i32((int32_t)state->target - (int32_t)state->position);
     if ((dist >= 0 && state->velocity <= 0 && dist <= accel_step) ||
         (dist <= 0 && state->velocity >= 0 && -dist <= accel_step)) {
         state->position = state->target;

@@ -23,6 +23,7 @@
 #include "bm_log.h"
 #include "bm_config.h"
 #include "bm/common/bm_atomic_ipc.h"
+#include "bm/common/bm_critical_wrap.h"
 #include "hal/bm_hal_cpu.h"
 #include "hal/bm_hal_critical.h"
 
@@ -47,11 +48,23 @@ static const char *const k_level_chars[] = {
 static bm_log_level_t s_runtime_level = (bm_log_level_t)BM_CONFIG_LOG_LEVEL;
 
 /**
+ * @brief 在临界区内读取运行期级别阈值，保证跨核一致性。
+ */
+static int log_runtime_level(void) {
+    bm_irq_state_t s = BM_CRITICAL_ENTER();
+    int lvl = (int)s_runtime_level;
+
+    BM_CRITICAL_EXIT(s);
+    return lvl;
+}
+
+/**
  * @brief 设置运行期日志级别阈值（越界夹取，见 bm_log.h 契约）
  *
  * @param level 新阈值
  */
 void bm_log_set_level(bm_log_level_t level) {
+    bm_irq_state_t s = BM_CRITICAL_ENTER();
     int v = (int)level;
 
     if (v < (int)BM_LOG_ERROR) {
@@ -61,6 +74,7 @@ void bm_log_set_level(bm_log_level_t level) {
         v = (int)BM_LOG_TRACE;
     }
     s_runtime_level = (bm_log_level_t)v;
+    BM_CRITICAL_EXIT(s);
 }
 
 /**
@@ -69,7 +83,7 @@ void bm_log_set_level(bm_log_level_t level) {
  * @return 当前阈值
  */
 bm_log_level_t bm_log_get_level(void) {
-    return s_runtime_level;
+    return (bm_log_level_t)log_runtime_level();
 }
 
 #if BM_CONFIG_ENABLE_LOG && BM_CONFIG_LOG_RING
@@ -267,7 +281,7 @@ void bm_log(bm_log_level_t level, const char *tag, const char *fmt, ...) {
     if (level_index > (int)BM_LOG_TRACE) {
         level_index = (int)BM_LOG_TRACE;
     }
-    if (level_index > (int)s_runtime_level) {
+    if (level_index > log_runtime_level()) {
         return; /* 运行期阈值过滤：早退，不格式化不输出 */
     }
     if (!tag) {

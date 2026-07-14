@@ -50,6 +50,9 @@ void bm_motion_coordination_reset(bm_motion_coordination_axis_t *axis,
     }
 
     n = axis->config.axis_count;
+    if (n == 0u || n > BM_MOTION_COORD_MAX_AXES) {
+        return;
+    }
     for (i = 0u; i < n; i++) {
         float pos = (initial != NULL) ? initial[i] : 0.0f;
         bm_algo_ramp_reset(&axis->state.ramp[i], pos);
@@ -76,6 +79,10 @@ void bm_motion_coordination_set_targets(bm_motion_coordination_axis_t *axis,
     if (axis == NULL || targets == NULL) {
         return;
     }
+    if (axis->config.axis_count == 0u ||
+        axis->config.axis_count > BM_MOTION_COORD_MAX_AXES) {
+        return;
+    }
     for (i = 0u; i < axis->config.axis_count; i++) {
         axis->state.target[i] = targets[i];
     }
@@ -92,6 +99,10 @@ void bm_motion_coordination_step(bm_motion_coordination_axis_t *axis) {
 
     cfg = &axis->config;
     st = &axis->state;
+
+    if (cfg->axis_count == 0u || cfg->axis_count > BM_MOTION_COORD_MAX_AXES) {
+        return;
+    }
 
     for (i = 0u; i < cfg->axis_count; i++) {
         st->telemetry.position[i] =

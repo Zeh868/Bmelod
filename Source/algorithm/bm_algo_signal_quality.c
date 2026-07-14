@@ -78,22 +78,26 @@ uint32_t bm_algo_range_monitor_step(bm_algo_range_monitor_state_t *state,
         return 0u;
     }
 
-    if (sample < config->min_v) {
-        flags |= BM_ALGO_FAULT_UNDER_RANGE;
-    }
-    if (sample > config->max_v) {
-        flags |= BM_ALGO_FAULT_OVER_RANGE;
-    }
-
-    if (dt_s > 0.0f) {
-        rate = fabsf(sample - state->prev) / dt_s;
-        if (rate > config->max_rate_per_s) {
-            flags |= BM_ALGO_FAULT_RATE;
+    if (!bm_algo_is_finite_f(sample)) {
+        flags |= BM_ALGO_FAULT_RANGE_NAN;
+    } else {
+        if (sample < config->min_v) {
+            flags |= BM_ALGO_FAULT_UNDER_RANGE;
         }
-    }
+        if (sample > config->max_v) {
+            flags |= BM_ALGO_FAULT_OVER_RANGE;
+        }
 
-    if (sample == state->prev) {
-        flags |= BM_ALGO_FAULT_FROZEN;
+        if (dt_s > 0.0f) {
+            rate = fabsf(sample - state->prev) / dt_s;
+            if (rate > config->max_rate_per_s) {
+                flags |= BM_ALGO_FAULT_RATE;
+            }
+        }
+
+        if (sample == state->prev) {
+            flags |= BM_ALGO_FAULT_FROZEN;
+        }
     }
 
     state->prev = sample;

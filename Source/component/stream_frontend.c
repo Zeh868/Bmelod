@@ -59,6 +59,7 @@ static void update_submit_drift(bm_stream_frontend_axis_t *axis,
     float actual_s;
 
     if (axis == NULL || timestamp == NULL ||
+        timestamp->rate_hz == 0u ||
         axis->config.expected_block_period_us == 0u) {
         return;
     }

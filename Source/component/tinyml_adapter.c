@@ -710,6 +710,14 @@ static int run_conv2d_node(const bm_tinyml_graph_node_t *node,
     pad_left   = node->conv_pad_left;
     pad_right  = node->conv_pad_right;
 
+    /* padding 上界保护：防止 ih/iw 与 padding 相加 u32 溢出 */
+    if (pad_top > UINT32_MAX - ih_dim ||
+        pad_bottom > UINT32_MAX - ih_dim - pad_top ||
+        pad_left > UINT32_MAX - iw_dim ||
+        pad_right > UINT32_MAX - iw_dim - pad_left) {
+        return -1;
+    }
+
     /* 参数合法性校验 */
     if (c_in_dim == 0u || c_out_dim == 0u || n_dim == 0u ||
         ih_dim == 0u || iw_dim == 0u ||

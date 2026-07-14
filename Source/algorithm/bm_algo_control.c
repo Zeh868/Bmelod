@@ -255,7 +255,8 @@ int bm_algo_pr_compute_coeffs(const bm_algo_pr_config_t *config,
     }
 
     /* 配置增益/频率非有限（NaN/Inf）会污染双线性变换的每一步计算，此前无校验 */
-    if (!bm_algo_is_finite_f(config->omega_rad_s) ||
+    if (!bm_algo_is_finite_f(config->kp) ||
+        !bm_algo_is_finite_f(config->omega_rad_s) ||
         !bm_algo_is_finite_f(config->bandwidth_rad_s) ||
         !bm_algo_is_finite_f(config->kr)) {
         return BM_ALGO_ERR_INVALID;

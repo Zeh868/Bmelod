@@ -102,7 +102,7 @@ static int cmd_param(int argc, char *argv[])
             return BM_ERR_INVALID;
         }
         v = strtof(argv[3], &endptr);
-        if (endptr == argv[3]) {
+        if (endptr == argv[3] || *endptr != '\0') {
             bm_shell_puts("param: invalid float value\r\n");
             return BM_ERR_INVALID;
         }

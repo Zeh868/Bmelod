@@ -24,13 +24,20 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/component/process_control.h"
+#include "bm/algorithm/bm_algo_common.h"
 #include "bm/common/bm_types.h"
 #include "bm/component/bm_component_common.h"
 
 #include <string.h>
 
 int bm_process_control_validate_config(const bm_process_control_config_t *config) {
-    if (config == NULL || config->dt_s <= 0.0f) {
+    if (config == NULL ||
+        !bm_algo_is_finite_f(config->dt_s) || config->dt_s <= 0.0f) {
+        return BM_ERR_INVALID;
+    }
+    /* 外环/内环 PID 参数须通过算法层校验，避免 NaN/Inf 增益污染控制律 */
+    if (bm_algo_pid_validate_config(&config->outer_pid) != 0 ||
+        bm_algo_pid_validate_config(&config->inner_pid) != 0) {
         return BM_ERR_INVALID;
     }
     /* 延迟线缓冲区须有效 */

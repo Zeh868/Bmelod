@@ -25,7 +25,9 @@
 
 void bm_algo_coulomb_reset(bm_algo_coulomb_state_t *state, float soc_init) {
     if (state != NULL) {
-        state->soc = soc_init;
+        state->soc = bm_algo_is_finite_f(soc_init)
+                         ? bm_algo_clamp_f(soc_init, 0.0f, 1.0f)
+                         : 0.0f;
         state->charge_ah = 0.0f;
     }
 }
@@ -42,6 +44,7 @@ float bm_algo_coulomb_step(bm_algo_coulomb_state_t *state,
      * 入口拒绝更新，保持旧 soc 不变。 */
     if (state == NULL || config == NULL || dt_s <= 0.0f ||
         !bm_algo_is_finite_f(dt_s) || !bm_algo_is_finite_f(current_a) ||
+        !bm_algo_is_finite_f(config->nominal_capacity_ah) ||
         config->nominal_capacity_ah <= 0.0f) {
         return state != NULL ? state->soc : 0.0f;
     }
@@ -164,7 +167,7 @@ float bm_algo_soh_update(bm_algo_soh_state_t *state,
     threshold_ah = config->initial_capacity_ah * threshold_ratio;
 
     /* 仅当本次放电量达到有效循环阈值时才更新学习容量与计数 */
-    if (discharged_ah >= threshold_ah) {
+    if (bm_algo_is_finite_f(discharged_ah) && discharged_ah >= threshold_ah) {
         /* 指数平滑：抑制单次噪声对历史估计的冲击 */
         state->learned_capacity_ah =
             (1.0f - alpha) * state->learned_capacity_ah + alpha * discharged_ah;
@@ -180,12 +183,13 @@ float bm_algo_battery_temp_capacity_ah(float nominal_capacity_ah,
                                        const bm_algo_battery_temp_config_t *config) {
     float factor;
 
-    if (config == NULL || nominal_capacity_ah <= 0.0f) {
+    if (config == NULL || !bm_algo_is_finite_f(nominal_capacity_ah) ||
+        nominal_capacity_ah <= 0.0f) {
         return nominal_capacity_ah;
     }
 
     factor = 1.0f + config->capacity_coeff_per_c * (temp_c - config->ref_temp_c);
-    if (factor < 0.1f) {
+    if (!bm_algo_is_finite_f(factor) || factor < 0.1f) {
         factor = 0.1f;
     }
     return nominal_capacity_ah * factor;

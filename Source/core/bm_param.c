@@ -236,6 +236,9 @@ int bm_param_reset(void)
 {
     uint16_t i;
     int any_pkey = 0;
+    int rc;
+    float old_vals[BM_CONFIG_PARAM_MAX];
+    uint8_t old_valid[BM_CONFIG_PARAM_MAX];
 
     if (s_count == 0u) {
         return BM_ERR_NOT_INIT;
@@ -243,32 +246,38 @@ int bm_param_reset(void)
     if (s_guard != NULL && s_guard() != 0) {
         return BM_ERR_BUSY;
     }
+
+    /* 快照现有 KV 内容：若后续 commit 失败，可回滚避免 flash/RAM 分叉。 */
     for (i = 0u; i < s_count; ++i) {
+        old_valid[i] = 0;
+        old_vals[i] = 0.0f;
         if (s_table[i].pkey != NULL) {
+            uint16_t len = 0u;
+
             any_pkey = 1;
-            break;
+            if (bm_persist_get(s_table[i].pkey, &old_vals[i], (uint16_t)sizeof(old_vals[i]), &len) == BM_OK &&
+                len == (uint16_t)sizeof(old_vals[i])) {
+                old_valid[i] = 1;
+            }
         }
     }
+
     if (any_pkey) {
         for (i = 0u; i < s_count; ++i) {
-            int rc;
-
             if (s_table[i].pkey == NULL) {
                 continue;
             }
             rc = bm_persist_erase(s_table[i].pkey);
             if (rc != BM_OK && rc != BM_ERR_NOT_FOUND) {
-                return rc;
+                goto rollback;
             }
         }
-        {
-            int rc = bm_persist_commit();
-
-            if (rc != BM_OK) {
-                return rc;
-            }
+        rc = bm_persist_commit();
+        if (rc != BM_OK) {
+            goto rollback;
         }
     }
+
     for (i = 0u; i < s_count; ++i) {
         s_vals[i] = s_table[i].def_val;
         if ((s_table[i].flags & BM_PARAM_FLAG_REBOOT) == 0u) {
@@ -276,6 +285,17 @@ int bm_param_reset(void)
         }
     }
     return BM_OK;
+
+rollback:
+    for (i = 0u; i < s_count; ++i) {
+        if (s_table[i].pkey != NULL && old_valid[i]) {
+            (void)bm_persist_set(s_table[i].pkey, &old_vals[i], (uint16_t)sizeof(old_vals[i]));
+        }
+    }
+    if (any_pkey) {
+        (void)bm_persist_commit(); /* 尽力回滚；若仍失败只能返回原错误 */
+    }
+    return rc;
 }
 
 void bm_param_set_reset_guard(bm_param_reset_guard_fn_t guard)

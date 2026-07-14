@@ -244,6 +244,9 @@ int bmp_motor_ekf_step(bmp_motor_ekf_state_t *state,
 
     rs = config->rs_ohm;
     ls = config->ls_h;
+    if (ls <= 0.0f || !bm_algo_is_finite_f(ls)) {
+        return -1;
+    }
     inv_ls = 1.0f / ls;
     q_diag = (config->q_covariance > 0.0f) ?
              config->q_covariance : BMP_MOTOR_EKF_Q_DEFAULT;

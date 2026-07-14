@@ -240,7 +240,7 @@ static void _modal_exit(bm_shell_t *shell) {
  */
 static void _tab_complete(bm_shell_t *shell) {
     const char *match = NULL;
-    uint8_t     n_match = 0;
+    uint16_t    n_match = 0;
     uint8_t     help_registered = 0;
 
     /* 只补全行首命令词：已进入参数区（前缀含空白）时不补全 */

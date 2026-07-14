@@ -135,6 +135,8 @@ void bm_power_control_voltage_step(bm_power_control_axis_t *axis) {
     if (st->fault_latched ||
         (st->cmd.status & BM_POWER_CTRL_CMD_ENABLED) == 0u) {
         st->i_ref_a = 0.0f;
+        /* 未使能/故障态统一复位电压环积分器，避免残留积分量造成重启冲击 */
+        bm_algo_pi_reset(&st->pi_voltage, 0.0f);
         return;
     }
 

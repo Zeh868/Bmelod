@@ -92,6 +92,9 @@ void bm_robot_joint_control_step(bm_robot_joint_control_axis_t *axis) {
 
     /* 非有限反馈会穿透速度限幅、PI 积分及摩擦补偿，最终形成 NaN 力矩下发 */
     if (!bm_algo_is_finite_f(pos) || !bm_algo_is_finite_f(vel)) {
+        /* 故障拍：将 NaN/Inf 反馈替换为安全值后再发布，避免遥测透传非法值 */
+        pos = 0.0f;
+        vel = 0.0f;
         pi_out = 0.0f;
         friction_ff = 0.0f;
         torque = 0.0f;

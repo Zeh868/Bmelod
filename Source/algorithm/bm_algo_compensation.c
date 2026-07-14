@@ -87,7 +87,9 @@ float bm_algo_dob_step(bm_algo_dob_state_t *state,
     /* Medium-7：u/y 为 NaN/Inf 时会直接污染 y_hat/disturbance 持久状态
      * （config->plant_gain * u 或 y - y_hat 产生 NaN 后再被低通滤波
      * 永久扩散）；入口拒绝非有限输入，保持旧扰动估计不变（H9 同款护栏）。 */
-    if (!bm_algo_is_finite_f(u) || !bm_algo_is_finite_f(y)) {
+    if (!bm_algo_is_finite_f(u) || !bm_algo_is_finite_f(y) ||
+        !bm_algo_is_finite_f(config->plant_gain) ||
+        config->plant_gain <= 0.0f) {
         if (disturbance_out != NULL) {
             *disturbance_out = state->disturbance;
         }
@@ -97,7 +99,7 @@ float bm_algo_dob_step(bm_algo_dob_state_t *state,
     state->y_hat = config->plant_gain * u;
     residual = y - state->y_hat;
     alpha = config->lpf_alpha;
-    if (alpha < 0.0f) {
+    if (!bm_algo_is_finite_f(alpha) || alpha < 0.0f) {
         alpha = 0.0f;
     }
     if (alpha > 1.0f) {
@@ -128,7 +130,8 @@ float bm_algo_backlash_inverse(float command,
     float *p_offset; /* 指向当前方向偏移的指针 */
     float  out;
 
-    if (state == NULL || width <= 0.0f || slope <= 0.0f) {
+    if (state == NULL || !bm_algo_is_finite_f(width) ||
+        !bm_algo_is_finite_f(slope) || width <= 0.0f || slope <= 0.0f) {
         return command;
     }
 

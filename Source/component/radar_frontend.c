@@ -19,6 +19,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/component/radar_frontend.h"
+#include "bm/algorithm/bm_algo_common.h"
 #include "bm/common/bm_types.h"
 
 #include <math.h>
@@ -37,7 +38,8 @@ int bm_radar_frontend_validate_config(
         !bm_algo_fft_is_supported_size(config->fft_size)) {
         return BM_ERR_INVALID;
     }
-    if (config->clutter_alpha < 0.0f || config->clutter_alpha > 1.0f) {
+    if (!bm_algo_is_finite_f(config->clutter_alpha) ||
+        config->clutter_alpha < 0.0f || config->clutter_alpha > 1.0f) {
         return BM_ERR_INVALID;
     }
     return BM_OK;
@@ -146,6 +148,11 @@ int bm_radar_frontend_feed_chirp(bm_radar_frontend_axis_t *axis,
 
     bins = fft_n / 2u;
     alpha = cfg->clutter_alpha;
+    /* NaN 会绕过 [0,1] 校验并永久污染杂波均值；运行时再做 isfinite+clamp 防护 */
+    if (!bm_algo_is_finite_f(alpha)) {
+        alpha = 0.0f;
+    }
+    alpha = bm_algo_clamp_f(alpha, 0.0f, 1.0f);
     /* 疑似-16.5：RFFT 实际写到索引 bins（Nyquist bin，见 bm_algo_rfft_f32_execute
      * 的 i<=fft->size/2 循环），但此前峰值搜索只扫 i<bins，遗漏该 bin——若目标
      * 峰值恰好落在 Nyquist 频率会漏检。clutter_mean 契约长度为 bins（无

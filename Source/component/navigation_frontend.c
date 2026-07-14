@@ -17,6 +17,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/component/navigation_frontend.h"
+#include "bm/algorithm/bm_algo_common.h"
 #include "bm/common/bm_types.h"
 #include "bm/component/bm_component_common.h"
 
@@ -52,6 +53,10 @@ int bm_navigation_frontend_validate_config(
     const bm_navigation_frontend_config_t *config) {
     if (config == NULL || config->dt_s <= 0.0f ||
         config->wheel_radius_m <= 0.0f) {
+        return BM_ERR_INVALID;
+    }
+    /* EKF 门控阈值须为正，否则 innovation 检查无意义 */
+    if (config->gate.innovation_threshold <= 0.0f) {
         return BM_ERR_INVALID;
     }
     /* 融合权重须非负 */
@@ -157,10 +162,20 @@ void bm_navigation_frontend_step(bm_navigation_frontend_axis_t *axis) {
             status |= BM_NAV_FRONTEND_TEL_GNSS_STALE;
         }
     } else if (wheel_ok) {
-        st->fused_velocity_m_s = wheel_v;
-        status |= BM_NAV_FRONTEND_TEL_WHEEL_ONLY;
+        if (bm_algo_is_finite_f(wheel_v)) {
+            st->fused_velocity_m_s = wheel_v;
+            status |= BM_NAV_FRONTEND_TEL_WHEEL_ONLY;
+        } else {
+            st->fused_velocity_m_s = st->ekf.pos;
+            status |= BM_NAV_FRONTEND_TEL_GNSS_STALE;
+        }
     } else if (gnss_ok) {
-        st->fused_velocity_m_s = gnss_v;
+        if (bm_algo_is_finite_f(gnss_v)) {
+            st->fused_velocity_m_s = gnss_v;
+        } else {
+            st->fused_velocity_m_s = st->ekf.pos;
+            status |= BM_NAV_FRONTEND_TEL_GNSS_STALE;
+        }
     } else {
         st->fused_velocity_m_s = st->ekf.pos;
         status |= BM_NAV_FRONTEND_TEL_GNSS_STALE;

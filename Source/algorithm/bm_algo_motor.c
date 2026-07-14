@@ -271,8 +271,11 @@ float bm_algo_flux_observer_step(bm_algo_flux_observer_state_t *state,
     float theta_meas;
     float pll_error;
 
-    if (state == NULL || config == NULL || dt_s <= 0.0f) {
-        return 0.0f;
+    if (state == NULL || config == NULL ||
+        !bm_algo_is_finite_f(dt_s) || dt_s <= 0.0f ||
+        !bm_algo_is_finite_f(v_alpha) || !bm_algo_is_finite_f(v_beta) ||
+        !bm_algo_is_finite_f(i_alpha) || !bm_algo_is_finite_f(i_beta)) {
+        return (state != NULL) ? state->theta_rad : 0.0f;
     }
 
     v_alpha_emf = v_alpha - config->rs_ohm * i_alpha;

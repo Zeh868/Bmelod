@@ -161,7 +161,7 @@ void bm_algo_ekf_cv_update(bm_algo_ekf_cv_state_t *state,
     }
 
     s = state->p00 + config->r_pos;
-    if (s <= 0.0f) {
+    if (s <= 0.0f || !bm_algo_is_finite_f(s)) {
         return;
     }
     k0 = state->p00 / s;

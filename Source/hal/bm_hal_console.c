@@ -17,6 +17,7 @@
 #include "hal/bm_hal_console.h"
 #include "bm_types.h"
 #include "hal/bm_hal_cpu.h"
+#include "bm/common/bm_critical_wrap.h"
 
 #if BM_CONFIG_HARD_RT_PROFILE && \
     (BM_CONFIG_CONSOLE_LOG_BACKEND == BM_CONSOLE_BACKEND_STDIO || \
@@ -40,8 +41,8 @@ int bm_console_rtt_init(void);
 int bm_console_rtt_write(const uint8_t *data, size_t len);
 size_t bm_console_rtt_read(uint8_t *data, size_t max_len);
 
-static int g_log_backend_inited;
-static int g_cli_backend_inited;
+static volatile int g_log_backend_inited;
+static volatile int g_cli_backend_inited;
 
 /**
  * @brief 按后端 ID 初始化
@@ -117,12 +118,21 @@ static int console_cli_allowed_this_cpu(void) {
 #endif
 }
 
+/**
+ * @brief 初始化 console HAL（日志 + CLI 后端）
+ *
+ * @details 并发契约：本函数幂等且只执行一次真实后端初始化。多核/多任务
+ * 环境下调用须由调用方保证串行，或本函数内部用临界区保护 init-once 标志
+ * 的读改，避免重复初始化/资源泄漏。
+ */
 int bm_hal_console_init(void) {
     int rc;
+    bm_irq_state_t irq_state = BM_CRITICAL_ENTER();
 
     if (!g_log_backend_inited) {
         rc = console_init_backend((int)BM_CONFIG_CONSOLE_LOG_BACKEND);
         if (rc != BM_OK) {
+            BM_CRITICAL_EXIT(irq_state);
             return rc;
         }
         g_log_backend_inited = 1;
@@ -131,12 +141,14 @@ int bm_hal_console_init(void) {
         (int)BM_CONFIG_CONSOLE_LOG_BACKEND && !g_cli_backend_inited) {
         rc = console_init_backend((int)BM_CONFIG_CONSOLE_CLI_BACKEND);
         if (rc != BM_OK) {
+            BM_CRITICAL_EXIT(irq_state);
             return rc;
         }
         g_cli_backend_inited = 1;
     } else if (!g_cli_backend_inited) {
         g_cli_backend_inited = g_log_backend_inited;
     }
+    BM_CRITICAL_EXIT(irq_state);
     return BM_OK;
 }
 

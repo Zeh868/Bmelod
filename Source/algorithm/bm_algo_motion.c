@@ -216,7 +216,8 @@ uint32_t bm_algo_stepper_process(bm_algo_stepper_state_t *state,
     int8_t dir;
     uint32_t count = 0u;
 
-    if (state == NULL || config == NULL || dt_s <= 0.0f) {
+    if (state == NULL || config == NULL ||
+        !bm_algo_is_finite_f(dt_s) || dt_s <= 0.0f) {
         return 0u;
     }
     /* velocity_steps_s 非有限（NaN/Inf）时下方钳位/符号判断均为 false，

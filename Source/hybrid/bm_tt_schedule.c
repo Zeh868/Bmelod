@@ -64,6 +64,7 @@
 #include "bm_config.h"
 #include "bm_log.h"
 #include "bm_safety.h"
+#include "bm/common/bm_critical_wrap.h"
 #if BM_TT_SCHED_WCET_MON
 #include "bm/hybrid/bm_wcet_mon.h"
 #endif
@@ -367,17 +368,22 @@ static bm_wcet_span_t *tt_wcet_span_for(const bm_tt_activity_t *act) {
  *        新映射则从池取槽并注册；池/注册表耗尽返回 BM_ERR_NO_MEM
  */
 static int tt_wcet_attach(const bm_tt_activity_t *act) {
-    bm_wcet_span_t *sp = tt_wcet_span_for(act);
+    bm_irq_state_t irq_state;
+    bm_wcet_span_t *sp;
     int rc;
 
+    irq_state = BM_CRITICAL_ENTER();
+    sp = tt_wcet_span_for(act);
     if (sp != NULL) { /* re-init：复位观测面复用；register 幂等（监控模块可能已被重新 init 清过表） */
         (void)memset(sp, 0, sizeof(*sp));
         sp->name = act->name;
         sp->budget_us = act->wcet_us;
         rc = bm_wcet_mon_register(sp);
+        BM_CRITICAL_EXIT(irq_state);
         return (rc == BM_ERR_ALREADY) ? BM_OK : rc;
     }
     if (tt_wcet_used >= BM_CONFIG_WCET_MON_MAX_SPANS) {
+        BM_CRITICAL_EXIT(irq_state);
         return BM_ERR_NO_MEM;
     }
     sp = &tt_wcet_slots[tt_wcet_used].span;
@@ -386,10 +392,12 @@ static int tt_wcet_attach(const bm_tt_activity_t *act) {
     sp->budget_us = act->wcet_us;
     rc = bm_wcet_mon_register(sp);
     if (rc != BM_OK) {
+        BM_CRITICAL_EXIT(irq_state);
         return rc;
     }
     tt_wcet_slots[tt_wcet_used].act = act;
     tt_wcet_used++;
+    BM_CRITICAL_EXIT(irq_state);
     return BM_OK;
 }
 

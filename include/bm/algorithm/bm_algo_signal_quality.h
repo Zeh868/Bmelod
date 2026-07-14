@@ -59,6 +59,7 @@ typedef struct {
 #define BM_ALGO_FAULT_RATE         (1u << 2)
 #define BM_ALGO_FAULT_FROZEN              (1u << 3)
 #define BM_ALGO_FAULT_REDUNDANT_MISMATCH  (1u << 4)
+#define BM_ALGO_FAULT_RANGE_NAN           (1u << 5)
 
 void bm_algo_range_monitor_reset(bm_algo_range_monitor_state_t *state, float v);
 uint32_t bm_algo_range_monitor_step(bm_algo_range_monitor_state_t *state,

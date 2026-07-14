@@ -122,7 +122,7 @@ float bm_algo_envelope_step(bm_algo_envelope_state_t *state, float input) {
         return input;
     }
 
-    abs_in = fabsf(input);
+    abs_in = bm_algo_is_finite_f(input) ? fabsf(input) : 0.0f;
     state->envelope += state->alpha * (abs_in - state->envelope);
     state->prev = input;
     return state->envelope;
@@ -148,15 +148,17 @@ int bm_algo_find_peak_bin(const float *spectrum,
                           uint32_t *peak_bin,
                           float *peak_value) {
     uint32_t i;
-    float max_v = -1.0f;
-    uint32_t max_i = start_bin;
+    float max_v;
+    uint32_t max_i;
 
     if (spectrum == NULL || peak_bin == NULL || peak_value == NULL ||
         end_bin <= start_bin) {
         return BM_ALGO_ERR_INVALID;
     }
 
-    for (i = start_bin; i < end_bin; ++i) {
+    max_v = spectrum[start_bin];
+    max_i = start_bin;
+    for (i = start_bin + 1u; i < end_bin; ++i) {
         if (spectrum[i] > max_v) {
             max_v = spectrum[i];
             max_i = i;
@@ -333,12 +335,13 @@ void bm_algo_order_tracker_feed(bm_algo_order_tracker_state_t *state,
     float raw_order;
     float alpha;
 
-    if (state == NULL || config == NULL) {
+    if (state == NULL || config == NULL ||
+        !bm_algo_is_finite_f(rpm_hint) || !bm_algo_is_finite_f(peak_freq_hz)) {
         return;
     }
 
     shaft_hz = (rpm_hint / 60.0f) * config->pole_pairs;
-    if (shaft_hz <= 0.0f) {
+    if (!bm_algo_is_finite_f(shaft_hz) || shaft_hz <= 0.0f) {
         return;
     }
 
@@ -350,7 +353,7 @@ void bm_algo_order_tracker_feed(bm_algo_order_tracker_state_t *state,
     }
 
     alpha = config->lpf_alpha;
-    if (alpha < 0.0f) {
+    if (!bm_algo_is_finite_f(alpha) || alpha < 0.0f) {
         alpha = 0.0f;
     }
     if (alpha > 1.0f) {

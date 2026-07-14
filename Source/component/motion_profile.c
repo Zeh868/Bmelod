@@ -22,10 +22,12 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/component/motion_profile.h"
+#include "bm/algorithm/bm_algo_common.h"
 #include "bm/common/bm_types.h"
 
 int bm_motion_profile_validate_config(const bm_motion_profile_config_t *config) {
-    if (config == NULL || config->dt_s <= 0.0f ||
+    if (config == NULL ||
+        !bm_algo_is_finite_f(config->dt_s) || config->dt_s <= 0.0f ||
         config->vmax <= 0.0f || config->amax <= 0.0f) {
         return BM_ERR_INVALID;
     }

@@ -35,7 +35,9 @@ void bm_algo_soc_ekf_reset(bm_algo_soc_ekf_state_t *state, float soc_init) {
     if (state == NULL) {
         return;
     }
-    state->soc = bm_algo_clamp_f(soc_init, 0.0f, 1.0f);
+    state->soc = bm_algo_is_finite_f(soc_init)
+                     ? bm_algo_clamp_f(soc_init, 0.0f, 1.0f)
+                     : 0.0f;
     state->bias_a = 0.0f;
     state->p00 = 0.01f;
     state->p01 = 0.0f;
@@ -75,6 +77,7 @@ void bm_algo_soc_ekf_predict(bm_algo_soc_ekf_state_t *state,
      * 入口拒绝更新，保持旧状态不变。 */
     if (state == NULL || config == NULL || dt_s <= 0.0f ||
         !bm_algo_is_finite_f(dt_s) || !bm_algo_is_finite_f(current_a) ||
+        !bm_algo_is_finite_f(config->nominal_capacity_ah) ||
         config->nominal_capacity_ah <= 0.0f) {
         return;
     }
@@ -95,7 +98,11 @@ void bm_algo_soc_ekf_predict(bm_algo_soc_ekf_state_t *state,
                  + config->q_soc * dt_s;
     state->p01 = p01 - bias_gain * p11;
     state->p10 = p10 - bias_gain * p11;
-    state->p11 = p11 + config->q_bias * dt_s;
+    state->p11 = p11 + (bm_algo_is_finite_f(config->q_bias)
+                            ? config->q_bias : 0.0f) * dt_s;
+    if (state->p11 < 1e-12f) {
+        state->p11 = 1e-12f;
+    }
 }
 
 /**

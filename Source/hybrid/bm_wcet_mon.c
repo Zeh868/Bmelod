@@ -27,6 +27,7 @@
 #include "bm/common/bm_types.h"
 #include "bm/common/bm_uptime.h"
 #include "bm/common/bm_safety.h"
+#include "bm/common/bm_critical_wrap.h"
 #include "bm_config.h"
 
 #include <stddef.h>
@@ -54,19 +55,27 @@ void bm_wcet_mon_init(void) {
  * @brief 注册一个监控段（拒绝 NULL / 重复 / 满表）
  */
 int bm_wcet_mon_register(bm_wcet_span_t *span) {
+    bm_irq_state_t irq_state;
+
     if (span == NULL) {
         return BM_ERR_INVALID;
     }
+    /* init barrier 契约：register 必须在调度器启动前完成；
+     * 运行期再注册属于误用，调用方自行保证。 */
+    irq_state = BM_CRITICAL_ENTER();
     for (uint32_t i = 0u; i < s_span_count; ++i) {
         if (s_spans[i] == span) {
+            BM_CRITICAL_EXIT(irq_state);
             return BM_ERR_ALREADY;
         }
     }
     if (s_span_count >= BM_CONFIG_WCET_MON_MAX_SPANS) {
+        BM_CRITICAL_EXIT(irq_state);
         return BM_ERR_NO_MEM;
     }
     s_spans[s_span_count] = span;
     s_span_count++;
+    BM_CRITICAL_EXIT(irq_state);
     return BM_OK;
 }
 
@@ -74,25 +83,36 @@ int bm_wcet_mon_register(bm_wcet_span_t *span) {
  * @brief 设置模块级 sink 快回调
  */
 void bm_wcet_mon_set_sink(bm_wcet_sink_fn fn, void *user) {
+    bm_irq_state_t irq_state = BM_CRITICAL_ENTER();
+
     s_sink = fn;
     s_sink_user = user;
+    BM_CRITICAL_EXIT(irq_state);
 }
 
 /**
  * @brief 查询已注册监控段数量
  */
 uint32_t bm_wcet_mon_span_count(void) {
-    return s_span_count;
+    bm_irq_state_t irq_state = BM_CRITICAL_ENTER();
+    uint32_t count = s_span_count;
+
+    BM_CRITICAL_EXIT(irq_state);
+    return count;
 }
 
 /**
  * @brief 按注册顺序索引访问监控段（越界返回 NULL）
  */
 const bm_wcet_span_t *bm_wcet_mon_span_at(uint32_t idx) {
-    if (idx >= s_span_count) {
-        return NULL;
+    bm_irq_state_t irq_state = BM_CRITICAL_ENTER();
+    const bm_wcet_span_t *span = NULL;
+
+    if (idx < s_span_count) {
+        span = s_spans[idx];
     }
-    return s_spans[idx];
+    BM_CRITICAL_EXIT(irq_state);
+    return span;
 }
 
 /**
@@ -100,14 +120,18 @@ const bm_wcet_span_t *bm_wcet_mon_span_at(uint32_t idx) {
  * @param span 监控段；NULL 直接返回
  */
 void bm_wcet_mon_begin(bm_wcet_span_t *span) {
+    bm_irq_state_t irq_state;
+
     if (span == NULL) {
         return;
     }
+    irq_state = BM_CRITICAL_ENTER();
     if (span->running != 0u) {
         span->misuse_count = bm_u32_saturating_inc(span->misuse_count);
     }
     span->t0_us = bm_uptime_us();
     span->running = 1u;
+    BM_CRITICAL_EXIT(irq_state);
 }
 
 /**
@@ -117,12 +141,16 @@ void bm_wcet_mon_begin(bm_wcet_span_t *span) {
 void bm_wcet_mon_end(bm_wcet_span_t *span) {
     uint64_t delta;
     uint32_t elapsed;
+    bm_wcet_sink_fn fn = NULL;
+    bm_irq_state_t irq_state;
 
     if (span == NULL) {
         return;
     }
+    irq_state = BM_CRITICAL_ENTER();
     if (span->running == 0u) {
         span->misuse_count = bm_u32_saturating_inc(span->misuse_count);
+        BM_CRITICAL_EXIT(irq_state);
         return;
     }
     delta = bm_uptime_us() - span->t0_us;
@@ -135,9 +163,11 @@ void bm_wcet_mon_end(bm_wcet_span_t *span) {
     span->run_count = bm_u32_saturating_inc(span->run_count);
     if (span->budget_us > 0u && elapsed > span->budget_us) {
         span->overrun_count = bm_u32_saturating_inc(span->overrun_count);
-        if (s_sink != NULL) {
-            s_sink(span, BM_WCET_EVT_BUDGET_OVERRUN, elapsed, s_sink_user);
-        }
+        fn = s_sink;
+    }
+    BM_CRITICAL_EXIT(irq_state);
+    if (fn != NULL) {
+        fn(span, BM_WCET_EVT_BUDGET_OVERRUN, elapsed, s_sink_user);
     }
 }
 
@@ -146,11 +176,17 @@ void bm_wcet_mon_end(bm_wcet_span_t *span) {
  * @param span 监控段；NULL 直接返回
  */
 void bm_wcet_mon_report_miss(bm_wcet_span_t *span) {
+    bm_wcet_sink_fn fn = NULL;
+    bm_irq_state_t irq_state;
+
     if (span == NULL) {
         return;
     }
+    irq_state = BM_CRITICAL_ENTER();
     span->miss_count = bm_u32_saturating_inc(span->miss_count);
-    if (s_sink != NULL) {
-        s_sink(span, BM_WCET_EVT_DEADLINE_MISS, 0u, s_sink_user);
+    fn = s_sink;
+    BM_CRITICAL_EXIT(irq_state);
+    if (fn != NULL) {
+        fn(span, BM_WCET_EVT_DEADLINE_MISS, 0u, s_sink_user);
     }
 }

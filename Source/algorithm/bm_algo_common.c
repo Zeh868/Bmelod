@@ -122,6 +122,11 @@ float bm_algo_hysteresis_step(bm_algo_hysteresis_state_t *state,
     if (state == NULL || config == NULL) {
         return value;
     }
+    /* 阈值非有限时比较恒为 false，latch 将永久锁死；拒绝非法配置并保持当前输出 */
+    if (!bm_algo_is_finite_f(config->low_threshold) ||
+        !bm_algo_is_finite_f(config->high_threshold)) {
+        return state->latch ? 1.0f : 0.0f;
+    }
     if (state->latch) {
         if (value < config->low_threshold) {
             state->latch = 0;
@@ -173,6 +178,11 @@ float bm_algo_rate_limit_step(bm_algo_rate_limit_state_t *state,
         return target;
     }
     if (!bm_algo_is_finite_f(target)) {
+        return state->output;
+    }
+    /* 速率限制阈值非有限时会污染 output 持久状态；保持旧输出不变 */
+    if (!bm_algo_is_finite_f(config->max_rise_per_s) ||
+        !bm_algo_is_finite_f(config->max_fall_per_s)) {
         return state->output;
     }
 
@@ -227,6 +237,9 @@ float bm_algo_angle_wrap_0_2pi_rad(float angle_rad) {
     angle_rad = fmodf(angle_rad, two_pi);
     if (angle_rad < 0.0f) {
         angle_rad += two_pi;
+    }
+    if (angle_rad >= two_pi) {
+        angle_rad -= two_pi;
     }
     return angle_rad;
 }

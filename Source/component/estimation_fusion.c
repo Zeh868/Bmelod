@@ -61,6 +61,12 @@ int bm_estimation_fusion_validate_config(
     if (config == NULL || config->dt_s <= 0.0f) {
         return BM_ERR_INVALID;
     }
+    /* 拒绝非法/未定义融合模式，防止 step 直接发布上一拍数据并标 VALID */
+    if (config->mode != BM_EST_FUSION_COMPLEMENTARY &&
+        config->mode != BM_EST_FUSION_MAHONY &&
+        config->mode != BM_EST_FUSION_EKF_CV) {
+        return BM_ERR_INVALID;
+    }
     if (config->mode == BM_EST_FUSION_EKF_CV) {
         /* 校验 EKF_CV 所需噪声参数：须为非负有限值 */
         if (config->ekf_cv.q_pos < 0.0f || config->ekf_cv.q_vel < 0.0f ||

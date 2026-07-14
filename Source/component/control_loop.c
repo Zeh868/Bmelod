@@ -57,6 +57,9 @@ void bm_control_loop_step(bm_control_loop_axis_t *axis) {
         return;
     }
 
+    /* TODO: 本组件缺少运行/故障状态机；后续应在配置或命令层增加 enable/fault
+     * 标志，未使能或故障时停止输出并复位两级 PI 积分器。 */
+
     cfg = &axis->config;
     st = &axis->state;
 

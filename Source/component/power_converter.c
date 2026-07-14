@@ -198,6 +198,8 @@ void bm_power_converter_current_step(bm_power_converter_axis_t *axis) {
     if ((st->cmd.status & BM_PWR_CONV_CMD_ENABLED) == 0u) {
         st->i_ref_a = 0.0f;
         bm_algo_ramp_reset(&st->i_ramp, 0.0f);
+        /* 未使能/故障态统一复位电流环积分器，避免残留积分量造成重启冲击 */
+        bm_algo_pi_reset(&st->pi_current, 0.0f);
         st->duty = cfg->duty_min;
         if (axis->resources.write_duty != NULL &&
             axis->resources.write_duty(axis->resources.write_duty_user,

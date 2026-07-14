@@ -15,6 +15,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/component/fault_derating.h"
+#include "bm/algorithm/bm_algo_common.h"
 #include "bm/common/bm_types.h"
 #include "bm/component/bm_component_common.h"
 
@@ -34,7 +35,8 @@
  * @return BM_OK 合法；BM_ERR_INVALID 任一字段不合法
  */
 int bm_fault_derating_validate_config(const bm_fault_derating_config_t *config) {
-    if (config == NULL || config->dt_s <= 0.0f ||
+    if (config == NULL ||
+        !bm_algo_is_finite_f(config->dt_s) || config->dt_s <= 0.0f ||
         config->derate_ramp.rate_per_s <= 0.0f ||
         config->recovery_time_s < 0.0f ||
         config->derate_target < 0.0f || config->derate_target > 1.0f) {
