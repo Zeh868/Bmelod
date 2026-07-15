@@ -2,8 +2,8 @@
  * @file motor_foc_sensorless.c
  * @brief 无感 FOC 领域组件实现
  * @author zeh (china_qzh@163.com)
- * @version 0.4
- * @date 2026-07-09
+ * @version 0.5
+ * @date 2026-07-15
  *
  * @par 修改日志:
  *
@@ -15,6 +15,8 @@
  *                                                VALID/SAT/FAULT 位），修陈旧 status；
  *                                                OBSERVER 相仿真路径 omega_rad_s 改为
  *                                                逐拍差分估算，修开环末速度陈旧值
+ * 2026-07-15       0.5            zeh            validate_config 补 is_finite 与 pole_pairs
+ *                                                整数校验（对齐 sensored）
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -261,17 +263,31 @@ static void begin_enable(bm_motor_foc_sensorless_axis_t *axis) {
 
 int bm_motor_foc_sensorless_validate_config(
     const bm_motor_foc_sensorless_config_t *config) {
-    if (config == NULL || config->vbus_v <= 0.0f ||
-        config->phase_r_ohm <= 0.0f || config->current_dt_s <= 0.0f ||
-        config->pole_pairs <= 0.0f || config->iq_max_a <= 0.0f) {
+    if (config == NULL ||
+        !bm_algo_is_finite_f(config->vbus_v) || config->vbus_v <= 0.0f ||
+        !bm_algo_is_finite_f(config->phase_r_ohm) ||
+        config->phase_r_ohm <= 0.0f ||
+        !bm_algo_is_finite_f(config->current_dt_s) ||
+        config->current_dt_s <= 0.0f ||
+        !bm_algo_is_finite_f(config->pole_pairs) ||
+        config->pole_pairs <= 0.0f ||
+        floorf(config->pole_pairs) != config->pole_pairs ||
+        !bm_algo_is_finite_f(config->iq_max_a) || config->iq_max_a <= 0.0f) {
         return BM_ERR_INVALID;
     }
-    if (config->observer.rs_ohm <= 0.0f || config->observer.ls_h <= 0.0f ||
-        config->observer.pll_kp < 0.0f || config->observer.pll_ki < 0.0f) {
+    if (!bm_algo_is_finite_f(config->observer.rs_ohm) ||
+        config->observer.rs_ohm <= 0.0f ||
+        !bm_algo_is_finite_f(config->observer.ls_h) ||
+        config->observer.ls_h <= 0.0f ||
+        !bm_algo_is_finite_f(config->observer.pll_kp) ||
+        config->observer.pll_kp < 0.0f ||
+        !bm_algo_is_finite_f(config->observer.pll_ki) ||
+        config->observer.pll_ki < 0.0f) {
         return BM_ERR_INVALID;
     }
     if (config->enable_mtpa &&
-        (config->ld_h <= 0.0f || config->lq_h <= 0.0f)) {
+        (!bm_algo_is_finite_f(config->ld_h) || config->ld_h <= 0.0f ||
+         !bm_algo_is_finite_f(config->lq_h) || config->lq_h <= 0.0f)) {
         return BM_ERR_INVALID;
     }
     return BM_OK;

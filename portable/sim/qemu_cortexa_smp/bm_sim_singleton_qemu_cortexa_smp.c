@@ -127,17 +127,21 @@ static void bm_cortexa_gic_dist_init(void) {
     for (irq = 32u; irq < 1020u; irq += 16u) {
         GICD_ICFGR(irq / 16u) = 0u;
     }
-    GICD_ISENABLER(BM_CORTEXA_TIMER_IRQ_ID / 32u) =
-        (1u << (BM_CORTEXA_TIMER_IRQ_ID % 32u));
     GICD_CTLR = 1u;
 }
 
 /**
  * @brief 初始化当前 CPU 的 GIC CPU 接口
+ *
+ * IRQ 0–31（SGI/PPI）的 ISENABLER0 是 per-core banked 寄存器：
+ * 每核须写自己那份 banked 位才能使能本核的 Generic Timer PPI，
+ * 只在 bootstrap 的 dist_init 里写一次会导致从核收不到 tick。
  */
 static void bm_cortexa_gic_cpu_init(void) {
     GICC_PMR = 0xFFu;
     GICC_CTLR = 1u;
+    GICD_ISENABLER(BM_CORTEXA_TIMER_IRQ_ID / 32u) =
+        (1u << (BM_CORTEXA_TIMER_IRQ_ID % 32u));
 }
 
 /**

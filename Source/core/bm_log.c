@@ -44,27 +44,26 @@ static const char *const k_level_chars[] = {
 };
 #endif
 
-/** 运行期日志级别阈值（初值 = 编译期级别；只能在其之下收紧，见 bm_log.h） */
-static bm_log_level_t s_runtime_level = (bm_log_level_t)BM_CONFIG_LOG_LEVEL;
+/** 运行期日志级别阈值（初值 = 编译期级别；只能在其之下收紧，见 bm_log.h）。
+ *  原子单字：读热路径（每条日志含被过滤的）零临界区，写侧夹取后单字 store。 */
+static bm_atomic_ipc_u32_t s_runtime_level =
+    BM_ATOMIC_IPC_U32_INIT(BM_CONFIG_LOG_LEVEL);
 
 /**
- * @brief 在临界区内读取运行期级别阈值，保证跨核一致性。
+ * @brief 以 acquire load 读取运行期级别阈值（零临界区）。
  */
 static int log_runtime_level(void) {
-    bm_irq_state_t s = BM_CRITICAL_ENTER();
-    int lvl = (int)s_runtime_level;
-
-    BM_CRITICAL_EXIT(s);
-    return lvl;
+    return (int)bm_atomic_ipc_load_u32(&s_runtime_level);
 }
 
 /**
  * @brief 设置运行期日志级别阈值（越界夹取，见 bm_log.h 契约）
  *
+ * 单字对齐 store 天然原子，clamp 逻辑保留在写侧，无需持锁。
+ *
  * @param level 新阈值
  */
 void bm_log_set_level(bm_log_level_t level) {
-    bm_irq_state_t s = BM_CRITICAL_ENTER();
     int v = (int)level;
 
     if (v < (int)BM_LOG_ERROR) {
@@ -73,8 +72,7 @@ void bm_log_set_level(bm_log_level_t level) {
     if (v > (int)BM_LOG_TRACE) {
         v = (int)BM_LOG_TRACE;
     }
-    s_runtime_level = (bm_log_level_t)v;
-    BM_CRITICAL_EXIT(s);
+    bm_atomic_ipc_store_u32(&s_runtime_level, (uint32_t)v);
 }
 
 /**

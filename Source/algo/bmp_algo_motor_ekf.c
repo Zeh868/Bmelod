@@ -4,8 +4,14 @@
  * @brief 高级无感观测器 (EKF) 实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-17
+ * @version 1.2
+ * @date 2026-07-15
+ *
+ * @par 修改日志:
+ *
+ *    Date         Version        Author          Description
+ * 2026-06-17       1.1            zeh            完整 P 预测/更新，接入 q/r 协方差
+ * 2026-07-15       1.2            zeh            step 补输入/配置 NaN-Inf 护栏，rs 收紧为必须 >0
  */
 #include "bmp/algo/bmp_algo_motor_ekf.h"
 
@@ -238,13 +244,23 @@ int bmp_motor_ekf_step(bmp_motor_ekf_state_t *state,
     float speed;
     float cross_prod;
 
-    if (state == NULL || config == NULL || state->initialized == 0u || dt_s <= 0.0f) {
+    if (state == NULL || config == NULL || state->initialized == 0u ||
+        !bm_algo_is_finite_f(dt_s) || dt_s <= 0.0f) {
         return -1;
     }
 
     rs = config->rs_ohm;
     ls = config->ls_h;
-    if (ls <= 0.0f || !bm_algo_is_finite_f(ls)) {
+    if (!bm_algo_is_finite_f(ls) || ls <= 0.0f ||
+        !bm_algo_is_finite_f(rs) || rs <= 0.0f ||
+        !bm_algo_is_finite_f(config->ke_v_rad_s) ||
+        !bm_algo_is_finite_f(config->q_covariance) ||
+        !bm_algo_is_finite_f(config->r_covariance)) {
+        return -1;
+    }
+
+    if (!bm_algo_is_finite_f(v_alpha) || !bm_algo_is_finite_f(v_beta) ||
+        !bm_algo_is_finite_f(i_alpha_meas) || !bm_algo_is_finite_f(i_beta_meas)) {
         return -1;
     }
     inv_ls = 1.0f / ls;

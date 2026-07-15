@@ -153,7 +153,7 @@ bmelod-baremetal/
 ├── portable/             # 平台 Port（类比 FreeRTOS/portable/）
 │   ├── packs/            # BM_BACKEND 组合包（native_sim、sdk_stm32g4…）
 │   ├── sim/              # 仿真后端（native、qemu_cm0、qemu_riscv64）
-│   ├── vendor/           # 芯片外设（stm32g4、ch32v003）
+│   ├── vendor/           # 芯片外设（esp32_idf；stm32g4/ch32v003 暂缓）
 │   └── arch/             # ISA 临界区与屏障
 ├── Demo/                 # 示例（类比 FreeRTOS/Demo/）
 ├── tests/

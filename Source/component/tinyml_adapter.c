@@ -5,8 +5,8 @@
  * bump pointer 分配，tensor 元数据委托 bm_algo_features 量化。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.3
- * @date 2026-07-13
+ * @version 1.4
+ * @date 2026-07-15
  *
  * @par 修改日志:
  *
@@ -28,6 +28,7 @@
  * 2026-07-13       1.3            zeh            C10：conv2d/conv2d_1x1 容量校验的维度
  *                                                 乘积补 u32 溢出防护（mul_u32_checked），
  *                                                 补齐 1.2 漏修的两处同类缺口
+ * 2026-07-15       1.4            zeh            maxpool 补读侧输入容量校验（含 h*w 溢出防护）
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -480,6 +481,14 @@ static int run_maxpool_2x2_node(const bm_tinyml_tensor_t *in_tensor,
     h = in_tensor->dims[0];
     w = in_tensor->dims[1];
     if (h == 0u || w == 0u || (h & 1u) != 0u || (w & 1u) != 0u) {
+        return -1;
+    }
+
+    /* 读侧校验：输入 tensor 容量须覆盖 h*w，并防 h*w 乘法溢出。 */
+    if (w > UINT32_MAX / h) {
+        return -1;
+    }
+    if (in_tensor->byte_count < h * w) {
         return -1;
     }
 

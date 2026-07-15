@@ -126,8 +126,12 @@ static int _rollback_inits(bm_module_cpu_state_t *state, uint32_t through_index)
     return rc;
 }
 
+#if BM_CPU_LOCAL_ENABLE_ROUTE
 /**
  * @brief start 失败时逆序停止已启动模块（调用方须持有非 NULL 的 state）
+ *
+ * 仅被 ROUTE 分支（bm_module_start_on_this_cpu 的 start 回滚）引用，
+ * 非 ROUTE 构建下不编入以避免 unused 告警。
  */
 static int _rollback_starts(bm_module_cpu_state_t *state, uint32_t through_index) {
     int rc = BM_OK;
@@ -152,6 +156,7 @@ static int _rollback_starts(bm_module_cpu_state_t *state, uint32_t through_index
     }
     return rc;
 }
+#endif /* BM_CPU_LOCAL_ENABLE_ROUTE */
 
 /**
  * @brief 从模块表加载并依次调用 init

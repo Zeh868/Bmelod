@@ -3,18 +3,20 @@
  * @brief 通信 DSP：CRC 与 DTMF 检测实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-17
+ * @version 1.2
+ * @date 2026-07-15
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-17       1.1            zeh            2-FSK 解调与 Hamming(7,4)
+ * 2026-07-15       1.2            zeh            goertzel_energy 检查 init 返回值；DTMF/FSK 补 finite 与 Nyquist 校验
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_comm.h"
+#include "bm/algorithm/bm_algo_common.h"
 #include "bm/algorithm/bm_algo_errors.h"
 #include "bm/algorithm/bm_algo_spectral.h"
 #include <stddef.h>
@@ -141,7 +143,9 @@ static float goertzel_energy(const float *samples, uint32_t n,
     cfg.target_freq_hz = freq_hz;
     cfg.sample_hz = sample_hz;
     cfg.block_size = n;
-    bm_algo_goertzel_init(&st, &cfg);
+    if (bm_algo_goertzel_init(&st, &cfg) != 0) {
+        return 0.0f;
+    }
 
     for (i = 0u; i < n; ++i) {
         bm_algo_goertzel_feed(&st, &cfg, samples[i]);
@@ -176,7 +180,9 @@ int bm_algo_dtmf_detect(bm_algo_dtmf_state_t *state,
     float max_c = 0.0f;
 
     if (state == NULL || config == NULL || samples == NULL ||
-        symbol_out == NULL || n == 0u) {
+        symbol_out == NULL || n == 0u ||
+        !bm_algo_is_finite_f(config->sample_hz) ||
+        config->sample_hz <= 2.0f * s_dtmf_cols[BM_ALGO_DTMF_COL_COUNT - 1u]) {
         return BM_ALGO_ERR_INVALID;
     }
 
@@ -232,8 +238,14 @@ int bm_algo_fsk2_demod_block(const float *samples,
     uint32_t offset;
 
     if (samples == NULL || config == NULL || bits_out == NULL ||
+        !bm_algo_is_finite_f(config->sample_hz) ||
+        !bm_algo_is_finite_f(config->bit_rate_hz) ||
+        !bm_algo_is_finite_f(config->mark_hz) ||
+        !bm_algo_is_finite_f(config->space_hz) ||
         config->sample_hz <= 0.0f || config->bit_rate_hz <= 0.0f ||
         config->mark_hz <= 0.0f || config->space_hz <= 0.0f ||
+        config->mark_hz > 0.5f * config->sample_hz ||
+        config->space_hz > 0.5f * config->sample_hz ||
         n == 0u || max_bits == 0u) {
         return BM_ALGO_ERR_INVALID;
     }

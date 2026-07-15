@@ -6,8 +6,8 @@
  * 同时集成 token bucket 令牌桶对出队字节进行整形。
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.3
- * @date 2026-07-09
+ * @version 0.4
+ * @date 2026-07-15
  *
  * @par 修改日志:
  *
@@ -16,6 +16,7 @@
  * 2026-06-23       0.2            zeh            补 SPDX 与函数级 Doxygen
  * 2026-07-09       0.3            zeh            补 have_pending_tx，修复
  *                                                 now_ms()==0 与挂起哨兵冲突（疑似-13）
+ * 2026-07-15       0.4            zeh            step 超时判定去除无效双重强转，语义不变
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -216,8 +217,9 @@ void bm_transport_qos_step(bm_transport_qos_axis_t *axis) {
 
     if (st->have_pending_tx && axis->resources.now_ms != NULL) {
         now_ms = axis->resources.now_ms(axis->resources.now_ms_user);
-        if ((uint32_t)((int32_t)(now_ms - st->prev_tx_ms)) >
-            cfg->latency_alarm_ms) {
+        /* 无符号回绕安全差；双重 (uint32_t)((int32_t)(...)) 强转语义与直接减法
+         * 相同，故简化为直接相减。 */
+        if ((now_ms - st->prev_tx_ms) > cfg->latency_alarm_ms) {
             st->prev_tx_ms = 0u;
             st->have_pending_tx = 0;
         }

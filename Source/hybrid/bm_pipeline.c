@@ -3,14 +3,15 @@
  * @brief 静态线性 bm_pipeline 实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-15
+ * @version 1.2
+ * @date 2026-07-15
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-15       1.1            zeh            init 后禁止运行期 bypass 变更
+ * 2026-07-15       1.2            zeh            reset 对 bypass 节点也回调，与 init 的 prepare 对称
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -160,8 +161,9 @@ void bm_pipeline_reset(bm_pipeline_t *pipeline) {
     for (i = 0u; i < pipeline->node_count; ++i) {
         bm_pipeline_node_t *node = &pipeline->nodes[i];
 
-        if (node->bypass != 0u || node->ops == NULL ||
-            node->ops->reset == NULL) {
+        /* init 会对 bypass 节点调用 prepare，reset 必须对称地回调所有
+         * prepare 过的节点，否则 bypass 节点内状态可能永不复位。 */
+        if (node->ops == NULL || node->ops->reset == NULL) {
             continue;
         }
         node->ops->reset(node->state);

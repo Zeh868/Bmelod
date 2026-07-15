@@ -304,6 +304,7 @@ static int esp32_timer_init(uint32_t freq_hz)
     {
         volatile void *status_reg;
         uint32_t       status_mask;
+        esp_err_t      intr_rc;
 
         status_reg  = timer_ll_get_intr_status_reg(hw);
         status_mask = TIMER_LL_EVENT_ALARM(BM_VENDOR_TICK_TIMER_NUM);
@@ -332,7 +333,7 @@ static int esp32_timer_init(uint32_t freq_hz)
          * 19/20/21）；若日后同核再增 LEVEL2 消费者需重评容量（见
          * bm_vendor_pwm_esp32_idf.c changelog v3.5 / v3.6）。
          */
-        (void)esp_intr_alloc_intrstatus(
+        intr_rc = esp_intr_alloc_intrstatus(
             ETS_TG0_T0_LEVEL_INTR_SOURCE,
             ESP_INTR_FLAG_LEVEL2,
             (uint32_t)(uintptr_t)status_reg,
@@ -340,6 +341,12 @@ static int esp32_timer_init(uint32_t freq_hz)
             bm_vendor_tick_isr,
             NULL,
             &g_tick_intr_handle);
+        if (intr_rc != ESP_OK) {
+            /* tick 分配失败 = 系统无节拍，静默继续比崩溃更危险，必须 fail-fast */
+            esp_rom_printf("bm_vendor: tick intr alloc failed rc=%d\n",
+                           (int)intr_rc);
+            return BM_ERR_IO;
+        }
     }
 
     /* 启动计数 */

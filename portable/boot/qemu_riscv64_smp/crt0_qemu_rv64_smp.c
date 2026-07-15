@@ -45,8 +45,8 @@ void SystemInit(void) {
     while (dst < (uintptr_t *)&_ebss) {
         *dst++ = 0;
     }
+    __asm volatile("fence rw, rw" ::: "memory"); /* BSS 清零先于 flag 可见 */
     g_cpu0_system_init_done = 1u;
-    __asm volatile("fence rw, rw" ::: "memory");
 }
 
 /**
