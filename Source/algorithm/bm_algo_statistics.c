@@ -252,7 +252,9 @@ void bm_algo_rate_est_reset(bm_algo_rate_est_state_t *state, float input) {
 float bm_algo_rate_est_step(bm_algo_rate_est_state_t *state,
                             float input,
                             float dt_s) {
-    if (state == NULL || dt_s <= 0.0f) {
+    if (state == NULL || dt_s <= 0.0f ||
+        !bm_algo_is_finite_f(input) ||
+        !bm_algo_is_finite_f(dt_s)) {
         return state != NULL ? state->rate_per_s : 0.0f;
     }
 

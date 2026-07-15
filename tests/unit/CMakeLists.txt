@@ -52,6 +52,7 @@ target_include_directories(test_wdg PRIVATE
 
 if(BM_ENABLE_MODULE)
     bm_add_test(test_module test_module.c bm_module)
+    bm_add_test(test_module_domain test_module_domain.c bm_module)
 endif()
 
 if(BM_ENABLE_BUS)
@@ -184,6 +185,7 @@ if(BM_ENABLE_TT_SCHEDULE)
                     -DTOOL_ID=MSVC
                     -DDUMPBIN_EXE=${BM_DUMPBIN_EXE}
                     -DLIB_PATH=$<TARGET_FILE:bm_tt_schedule>
+                    -DTARGET_NAME=bm_tt_schedule
                     -P ${CMAKE_SOURCE_DIR}/tests/unit/support/check_no_alloc_symbols.cmake)
             set_tests_properties(test_tt_schedule_symbols_no_alloc PROPERTIES
                 LABELS "determinism")
@@ -199,6 +201,7 @@ if(BM_ENABLE_TT_SCHEDULE)
                     -DTOOL_ID=GNU
                     -DNM_EXE=${BM_NM_EXE}
                     -DLIB_PATH=$<TARGET_FILE:bm_tt_schedule>
+                    -DTARGET_NAME=bm_tt_schedule
                     -P ${CMAKE_SOURCE_DIR}/tests/unit/support/check_no_alloc_symbols.cmake)
             set_tests_properties(test_tt_schedule_symbols_no_alloc PROPERTIES
                 LABELS "determinism")
@@ -387,6 +390,7 @@ if(BM_ENABLE_WCET_MON)
                     -DTOOL_ID=GNU
                     -DNM_EXE=${BM_NM_EXE}
                     -DLIB_PATH=$<TARGET_FILE:bm_wcet_mon>
+                    -DTARGET_NAME=bm_wcet_mon
                     -P ${CMAKE_SOURCE_DIR}/tests/unit/support/check_no_alloc_symbols.cmake)
             set_tests_properties(test_wcet_mon_symbols_no_alloc PROPERTIES
                 LABELS "determinism")
@@ -399,6 +403,7 @@ if(BM_ENABLE_WCET_MON)
                     -DTOOL_ID=MSVC
                     -DDUMPBIN_EXE=${BM_DUMPBIN_EXE}
                     -DLIB_PATH=$<TARGET_FILE:bm_wcet_mon>
+                    -DTARGET_NAME=bm_wcet_mon
                     -P ${CMAKE_SOURCE_DIR}/tests/unit/support/check_no_alloc_symbols.cmake)
             set_tests_properties(test_wcet_mon_symbols_no_alloc PROPERTIES
                 LABELS "determinism")

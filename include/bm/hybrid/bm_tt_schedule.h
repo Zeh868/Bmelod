@@ -309,17 +309,20 @@ int bm_tt_schedule_rt_slot_at(const bm_tt_schedule_t *sched, uint32_t idx,
  *       常量表达式；违反者经 `_Static_assert` 在构建期直接失败，而非留到
  *       运行期才被（或未被）捕获。
  */
+/* 辅助：避免空输入/输出表生成零长数组（C11 约束违规），同时保持 count 为 0。 */
+#define _BM_LET_ARRAY_PAD1(count_) ((count_) > 0u ? (count_) : 1u)
+
 #define BM_LET_DEFINE_EX(id, domain_, every_, at_, wcet_, step_, state_, inputs_, outputs_)     \
     _Static_assert((every_) >= 1u, "BM_LET_DEFINE: every must be >= 1");                         \
     _Static_assert((at_) < (every_), "BM_LET_DEFINE: at must be < every");                       \
     static uint8_t  id##_snap[BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE *                                \
-                              (sizeof(inputs_) / sizeof((inputs_)[0]))];                        \
+                              _BM_LET_ARRAY_PAD1(sizeof(inputs_) / sizeof((inputs_)[0]))];      \
     static uint8_t  id##_out2[2u * BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE *                           \
-                              (sizeof(outputs_) / sizeof((outputs_)[0]))];                      \
-    static uint32_t id##_baseseq[(sizeof(inputs_) / sizeof((inputs_)[0]))];                     \
-    static uint32_t id##_miss[(sizeof(inputs_) / sizeof((inputs_)[0]))];                        \
-    static int      id##_stale[(sizeof(inputs_) / sizeof((inputs_)[0]))];                       \
-    static uint32_t id##_age[(sizeof(inputs_) / sizeof((inputs_)[0]))];                         \
+                              _BM_LET_ARRAY_PAD1(sizeof(outputs_) / sizeof((outputs_)[0]))];    \
+    static uint32_t id##_baseseq[_BM_LET_ARRAY_PAD1(sizeof(inputs_) / sizeof((inputs_)[0]))];   \
+    static uint32_t id##_miss[_BM_LET_ARRAY_PAD1(sizeof(inputs_) / sizeof((inputs_)[0]))];      \
+    static int      id##_stale[_BM_LET_ARRAY_PAD1(sizeof(inputs_) / sizeof((inputs_)[0]))];     \
+    static uint32_t id##_age[_BM_LET_ARRAY_PAD1(sizeof(inputs_) / sizeof((inputs_)[0]))];       \
     static bm_let_task_rt_t id##_rt = { 0u, 0u, 0u, 0u, 0u,                                     \
         id##_baseseq, id##_miss, id##_stale, id##_age };                                        \
     bm_tt_activity_t id = {                                                                     \

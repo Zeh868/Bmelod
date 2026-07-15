@@ -432,7 +432,8 @@ int bm_tt_schedule_init(bm_tt_schedule_t *sched) {
     int rc;
 
     if (sched == NULL || sched->minor_us == 0u || sched->entry_count == 0u ||
-        sched->entry_count > BM_CONFIG_TT_SCHED_MAX_ENTRIES) {
+        sched->entry_count > BM_CONFIG_TT_SCHED_MAX_ENTRIES ||
+        sched->entries == NULL) {
         return BM_ERR_INVALID;
     }
 
@@ -440,6 +441,9 @@ int bm_tt_schedule_init(bm_tt_schedule_t *sched) {
     for (uint8_t k = 0u; k < sched->entry_count; ++k) {
         bm_tt_activity_t *a = sched->entries[k];
 
+        if (a == NULL || a->rt == NULL || a->snapshot == NULL || a->outbuf == NULL) {
+            return BM_ERR_INVALID;
+        }
         if (a->every == 0u || a->at >= a->every) {
             return BM_ERR_INVALID;
         }

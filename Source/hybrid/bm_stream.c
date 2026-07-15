@@ -175,6 +175,8 @@ int bm_stream_init(bm_stream_t *stream,
     stream->block_count = block_count;
     stream->block_capacity = descriptor_capacity;
     stream->next_sequence = 0u;
+    stream->pending_drain = 0u;
+    memset(&stream->stats, 0, sizeof(stream->stats));
     stream->initialized = 1;
     return BM_OK;
 }

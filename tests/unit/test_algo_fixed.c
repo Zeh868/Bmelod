@@ -1070,14 +1070,14 @@ static void test_medium3_pid2_q31_differentiator_int32_min_negation(void) {
  */
 static void test_medium5_image_resize_avoids_u32_product_overflow(void) {
     /* H = 70000：y*H 在 y 接近 H 时突破 UINT32_MAX（约 4.29e9），
-     * 触发旧代码 uint32_t 中间乘积溢出。宽度固定为 1px 控制内存占用。 */
+     * 触发旧代码 uint32_t 中间乘积溢出。宽度固定为 1px 控制内存占用。
+     * 使用静态数组避免在零堆框架测试中依赖 malloc/free。 */
     const uint32_t h = 70000u;
-    uint8_t *src = (uint8_t *)malloc(h);
-    uint8_t *dst = (uint8_t *)malloc(h);
+    static uint8_t s_src[70000u];
+    static uint8_t s_dst[70000u];
+    uint8_t *src = s_src;
+    uint8_t *dst = s_dst;
     uint32_t y;
-
-    TEST_ASSERT_NOT_NULL(src);
-    TEST_ASSERT_NOT_NULL(dst);
 
     for (y = 0u; y < h; ++y) {
         src[y] = (uint8_t)(y & 0xFFu);
@@ -1089,9 +1089,6 @@ static void test_medium5_image_resize_avoids_u32_product_overflow(void) {
     TEST_ASSERT_EQUAL_UINT8(src[69999], dst[69999]);
     TEST_ASSERT_EQUAL_UINT8(src[42950], dst[42950]);
     TEST_ASSERT_EQUAL_UINT8(0, memcmp(src, dst, h));
-
-    free(src);
-    free(dst);
 }
 
 /**

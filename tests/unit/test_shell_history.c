@@ -28,10 +28,23 @@ static int  s_exec_count;
 
 /** @brief 记录命令：把 argv 重组回一行，供召回断言。 */
 static int cmd_rec(int argc, char *argv[]) {
+    size_t pos = 0u;
     s_last_cmd[0] = '\0';
     for (int i = 0; i < argc; i++) {
-        if (i > 0) strcat(s_last_cmd, " ");
-        strcat(s_last_cmd, argv[i]);
+        if (i > 0) {
+            if (pos + 1u >= sizeof(s_last_cmd)) break;
+            s_last_cmd[pos++] = ' ';
+            s_last_cmd[pos] = '\0';
+        }
+        size_t arg_len = strlen(argv[i]);
+        size_t copy = arg_len;
+        if (pos + copy >= sizeof(s_last_cmd)) {
+            copy = sizeof(s_last_cmd) - pos - 1u;
+        }
+        if (copy == 0u) break;
+        memcpy(&s_last_cmd[pos], argv[i], copy);
+        pos += copy;
+        s_last_cmd[pos] = '\0';
     }
     s_exec_count++;
     return BM_OK;

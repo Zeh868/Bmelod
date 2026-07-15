@@ -34,8 +34,11 @@
  * @return BM_OK 合法；BM_ERR_INVALID 参数无效（ema_alpha 超范围）
  */
 int bm_transport_qos_validate_config(const bm_transport_qos_config_t *config) {
-    if (config == NULL || config->ema_alpha <= 0.0f ||
-        config->ema_alpha > 1.0f) {
+    if (config == NULL ||
+        !bm_algo_is_finite_f(config->ema_alpha) ||
+        config->ema_alpha <= 0.0f ||
+        config->ema_alpha > 1.0f ||
+        !bm_algo_is_finite_f(config->token_rate_bytes_per_ms)) {
         return BM_ERR_INVALID;
     }
     return BM_OK;
@@ -157,7 +160,8 @@ static void token_refill(bm_transport_qos_axis_t *axis) {
     float burst;
     float added;
 
-    if (cfg->token_rate_bytes_per_ms <= 0.0f ||
+    if (!bm_algo_is_finite_f(cfg->token_rate_bytes_per_ms) ||
+        cfg->token_rate_bytes_per_ms <= 0.0f ||
         cfg->token_burst_bytes == 0u ||
         axis->resources.now_ms == NULL) {
         return;

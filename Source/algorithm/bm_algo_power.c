@@ -158,8 +158,10 @@ float bm_algo_mppt_po_step(bm_algo_mppt_po_state_t *state,
                            float current) {
     float power;
 
-    if (state == NULL || config == NULL) {
-        return voltage;
+    if (state == NULL || config == NULL ||
+        !bm_algo_is_finite_f(voltage) ||
+        !bm_algo_is_finite_f(current)) {
+        return (state != NULL) ? state->v_ref : voltage;
     }
 
     power = voltage * current;
@@ -188,8 +190,10 @@ float bm_algo_mppt_ic_step(bm_algo_mppt_ic_state_t *state,
     float dv;
     float di;
 
-    if (state == NULL || config == NULL) {
-        return voltage;
+    if (state == NULL || config == NULL ||
+        !bm_algo_is_finite_f(voltage) ||
+        !bm_algo_is_finite_f(current)) {
+        return (state != NULL) ? state->v_ref : voltage;
     }
 
     dv = voltage - state->prev_v;

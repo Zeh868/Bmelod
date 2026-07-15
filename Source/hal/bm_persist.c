@@ -310,7 +310,7 @@ int bm_persist_set(const char *key, const void *data, uint16_t len) {
     for (i = 0u; i < (uint16_t)BM_CONFIG_PERSIST_MAX_ENTRIES; i++) {
         if (g_store[i].valid &&
             (strncmp(g_store[i].key, key,
-                     (uint16_t)BM_CONFIG_PERSIST_KEY_MAX_LEN) == 0)) {
+                     (uint16_t)BM_CONFIG_PERSIST_KEY_MAX_LEN + 1u) == 0)) {
             (void)memcpy(g_store[i].val, data, len);
             g_store[i].val_len = len;
             return BM_OK;
