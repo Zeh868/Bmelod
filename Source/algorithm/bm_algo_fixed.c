@@ -3,8 +3,8 @@
  * @brief Q31/Q15 定点算法实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 2.7
- * @date 2026-07-14
+ * @version 2.8
+ * @date 2026-07-16
  *
  * @par 修改日志:
  *
@@ -41,6 +41,13 @@
  *                                                pid2_q31/q15 的差分运算改用
  *                                                int64/int32 宽化后饱和，避免
  *                                                INT32_MIN/INT16_MIN 相减回绕
+ * 2026-07-16       2.8            zeh            SOGI-PLL q15/q31 状态补
+ *                                                d_alpha_prev/d_beta_prev 持久化，
+ *                                                消除桥接 float 版时 Tustin 导数
+ *                                                缓存未初始化读（UB）并恢复跨帧
+ *                                                连续；debounce_analog q15/q31
+ *                                                stable_count 自增加 UINT32_MAX
+ *                                                饱和（镜像 float 版）
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -2463,7 +2470,10 @@ int bm_algo_debounce_analog_q15_step(
         diff = -diff;
     }
     if (diff <= (int32_t)config->tolerance_q15) {
-        state->stable_count++;
+        /* 饱和加法，防止 uint32_t 绕回（镜像 float 版 bm_algo_signal_quality.c） */
+        if (state->stable_count < UINT32_MAX) {
+            state->stable_count++;
+        }
     } else {
         state->candidate_q15 = sample_q15;
         state->stable_count = 0u;
@@ -2779,7 +2789,10 @@ int bm_algo_debounce_analog_q31_step(
         diff = -diff;
     }
     if (diff <= (int64_t)config->tolerance_q31) {
-        state->stable_count++;
+        /* 饱和加法，防止 uint32_t 绕回（镜像 float 版 bm_algo_signal_quality.c） */
+        if (state->stable_count < UINT32_MAX) {
+            state->stable_count++;
+        }
     } else {
         state->candidate_q31 = sample_q31;
         state->stable_count = 0u;
@@ -4058,6 +4071,8 @@ void bm_algo_sogi_pll_q15_reset(bm_algo_sogi_pll_q15_state_t *state,
     state->v_alpha = fst.v_alpha;
     state->v_beta = fst.v_beta;
     state->integrator = fst.integrator;
+    state->d_alpha_prev = fst.d_alpha_prev; /* Tustin 导数缓存同步清零 */
+    state->d_beta_prev = fst.d_beta_prev;   /* Tustin 导数缓存同步清零 */
     state->theta_rad_q15 = bm_algo_float_to_q15(fst.theta_rad);
     state->omega_rad_s_q15 = bm_algo_float_to_q15(fst.omega_rad_s);
 }
@@ -4083,6 +4098,10 @@ void bm_algo_sogi_pll_q15_step(bm_algo_sogi_pll_q15_state_t *state,
     fst.v_alpha = state->v_alpha;
     fst.v_beta = state->v_beta;
     fst.integrator = state->integrator;
+    /* Tustin 历史导数缓存随帧持久化，避免局部 fst 未初始化读（UB）
+     * 且保证梯形积分跨帧连续（与 float 版语义对齐）。 */
+    fst.d_alpha_prev = state->d_alpha_prev;
+    fst.d_beta_prev = state->d_beta_prev;
     bm_algo_sogi_pll_step(
         &fst, &fcfg,
         bm_algo_q15_to_float(v_input_q15),
@@ -4092,6 +4111,8 @@ void bm_algo_sogi_pll_q15_step(bm_algo_sogi_pll_q15_state_t *state,
     state->v_alpha = fst.v_alpha;
     state->v_beta = fst.v_beta;
     state->integrator = fst.integrator;
+    state->d_alpha_prev = fst.d_alpha_prev;
+    state->d_beta_prev = fst.d_beta_prev;
     state->theta_rad_q15 = bm_algo_float_to_q15(fst.theta_rad);
     state->omega_rad_s_q15 = bm_algo_float_to_q15(fst.omega_rad_s);
 }
@@ -4118,6 +4139,8 @@ void bm_algo_sogi_pll_q31_reset(bm_algo_sogi_pll_q31_state_t *state,
     state->v_alpha = fst.v_alpha;
     state->v_beta = fst.v_beta;
     state->integrator = fst.integrator;
+    state->d_alpha_prev = fst.d_alpha_prev; /* Tustin 导数缓存同步清零 */
+    state->d_beta_prev = fst.d_beta_prev;   /* Tustin 导数缓存同步清零 */
     state->theta_rad_q31 = bm_algo_float_to_q31(fst.theta_rad);
     state->omega_rad_s_q31 = bm_algo_float_to_q31(fst.omega_rad_s);
 }
@@ -4143,6 +4166,10 @@ void bm_algo_sogi_pll_q31_step(bm_algo_sogi_pll_q31_state_t *state,
     fst.v_alpha = state->v_alpha;
     fst.v_beta = state->v_beta;
     fst.integrator = state->integrator;
+    /* Tustin 历史导数缓存随帧持久化，避免局部 fst 未初始化读（UB）
+     * 且保证梯形积分跨帧连续（与 float 版语义对齐）。 */
+    fst.d_alpha_prev = state->d_alpha_prev;
+    fst.d_beta_prev = state->d_beta_prev;
     bm_algo_sogi_pll_step(
         &fst, &fcfg,
         bm_algo_q31_to_float(v_input_q31),
@@ -4152,6 +4179,8 @@ void bm_algo_sogi_pll_q31_step(bm_algo_sogi_pll_q31_state_t *state,
     state->v_alpha = fst.v_alpha;
     state->v_beta = fst.v_beta;
     state->integrator = fst.integrator;
+    state->d_alpha_prev = fst.d_alpha_prev;
+    state->d_beta_prev = fst.d_beta_prev;
     state->theta_rad_q31 = bm_algo_float_to_q31(fst.theta_rad);
     state->omega_rad_s_q31 = bm_algo_float_to_q31(fst.omega_rad_s);
 }

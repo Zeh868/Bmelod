@@ -16,8 +16,8 @@
  *       性能为待硬件验证项。
  *
  * @author zeh (china_qzh@163.com)
- * @version 3.5
- * @date 2026-07-12
+ * @version 3.7
+ * @date 2026-07-16
  *
  * @par 修改日志:
  *
@@ -69,6 +69,9 @@
  *                                                bm_vendor_singleton_esp32_idf.c 把 tick 降至
  *                                                LEVEL2 与本 TEZ 同级消除嵌套（本文件 TEZ
  *                                                级别不变，仍 LEVEL2）
+ * 2026-07-16       3.7            zeh            BM_VENDOR_PWM_TIMER_PRESCALE 由 B2 诊断值
+ *                                                20 恢复为正常工作值 4（载波回 20 kHz），
+ *                                                同步清理诊断注释
  *
  */
 #include "bm_vendor_pwm_esp32_idf.h"
@@ -112,10 +115,15 @@
  * => timer_prescale = 160M / (2 * 1000 * 20000) = 4。
  */
 #define BM_VENDOR_PWM_GROUP_PRESCALE  1
-/* B2 诊断①：临时降载波 20kHz→4kHz（prescale 4→20），把低边导通窗口拉宽到
- * ~125µs ≫ ADC 28µs 采样，验证"高频下采样窗口太窄→采不到相电流"假设。
- * 若降频后 ib raw 出现偏移/iq 跟上 → 根因坐实，进②重构采样；验证后恢复 4。 */
-#define BM_VENDOR_PWM_TIMER_PRESCALE  20u
+/** @brief timer 分频正常工作值 4（对应载波 20 kHz，推导见上方时钟公式注释）。
+ *
+ * @warning 真机回归注意：20 kHz 下 TEZ 谷底低边采样窗口约 18µs，小于
+ *       双通道 ADC oneshot 采样约 24µs（见 bm_vendor_adc_esp32_idf.c 的
+ *       B2 诊断②注释）。B3 采样重构（ADC 移出 ISR / 硬件触发）落地前，
+ *       若复现"采不到相电流"（iq 反馈恒≈0、vq 积分 windup），临时回退
+ *       为 20u（载波 4 kHz，窗口约 93µs）即可，属单行改动。
+ */
+#define BM_VENDOR_PWM_TIMER_PRESCALE  4u
 /** @brief up-down 中心对齐 peak 值（与 BOARD_FOC_PWM_MAX 对齐）。 */
 #define BM_VENDOR_PWM_PEAK            BOARD_FOC_PWM_MAX
 

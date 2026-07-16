@@ -17,8 +17,8 @@
  *       12 字节均在限制内。
  *
  * @author zeh (china_qzh@163.com)
- * @version 2.4
- * @date 2026-06-21
+ * @version 2.6
+ * @date 2026-07-16
  *
  * @par 修改日志:
  *
@@ -36,6 +36,8 @@
  *                                                移除 vendor 层 printf 恢复确定性流式特性
  * 2026-06-21       2.5            zeh         整理：提取 prepare_bus 助手去重 write/write_read 的
  *                                                总线准备段；移除临时失败诊断脚手架与两个 getter
+ * 2026-07-16       2.6            zeh         write_read 的 read_len==0（纯写事务）不再多发
+ *                                                RESTART+addr+R+READ(1,NACK)，修复多钟 1 字节
  */
 #include "bm_vendor_i2c_esp32_idf.h"
 #include "bm_vendor_esp32_idf_compat.h"
@@ -727,9 +729,11 @@ int bm_vendor_i2c_write_read(i2c_port_t port, uint8_t addr,
         i2c_ll_write_txfifo(hw, write_buf, (uint8_t)write_len);
     }
 
-    /* 读阶段地址也放入 TX FIFO */
-    addr_byte = (uint8_t)((addr << 1u) | 1u);  /* READ 地址 */
-    i2c_ll_write_txfifo(hw, &addr_byte, 1u);
+    if (read_len > 0u) {
+        /* 读阶段地址也放入 TX FIFO */
+        addr_byte = (uint8_t)((addr << 1u) | 1u);  /* READ 地址 */
+        i2c_ll_write_txfifo(hw, &addr_byte, 1u);
+    }
 
     cmd_idx = 0;
 
@@ -746,34 +750,36 @@ int bm_vendor_i2c_write_read(i2c_port_t port, uint8_t addr,
     cmd.ack_exp  = 0u;
     i2c_ll_master_write_cmd_reg(hw, cmd, cmd_idx++);
 
-    /* cmd[2]: RESTART（repeated start） */
-    memset(&cmd, 0, sizeof(cmd));
-    cmd.op_code = I2C_LL_CMD_RESTART;
-    i2c_ll_master_write_cmd_reg(hw, cmd, cmd_idx++);
+    if (read_len > 0u) {
+        /* cmd[2]: RESTART（repeated start） */
+        memset(&cmd, 0, sizeof(cmd));
+        cmd.op_code = I2C_LL_CMD_RESTART;
+        i2c_ll_master_write_cmd_reg(hw, cmd, cmd_idx++);
 
-    /* cmd[3]: WRITE(addr+R，1 字节） */
-    memset(&cmd, 0, sizeof(cmd));
-    cmd.op_code  = I2C_LL_CMD_WRITE;
-    cmd.byte_num = 1u;
-    cmd.ack_en   = 1u;
-    cmd.ack_exp  = 0u;
-    i2c_ll_master_write_cmd_reg(hw, cmd, cmd_idx++);
+        /* cmd[3]: WRITE(addr+R，1 字节） */
+        memset(&cmd, 0, sizeof(cmd));
+        cmd.op_code  = I2C_LL_CMD_WRITE;
+        cmd.byte_num = 1u;
+        cmd.ack_en   = 1u;
+        cmd.ack_exp  = 0u;
+        i2c_ll_master_write_cmd_reg(hw, cmd, cmd_idx++);
 
-    if (read_len > 1u) {
-        /* cmd[4]: READ(N-1 字节，发 ACK） */
+        if (read_len > 1u) {
+            /* cmd[4]: READ(N-1 字节，发 ACK） */
+            memset(&cmd, 0, sizeof(cmd));
+            cmd.op_code  = I2C_LL_CMD_READ;
+            cmd.byte_num = (uint8_t)(read_len - 1u);
+            cmd.ack_val  = 0u;  /* 发 ACK */
+            i2c_ll_master_write_cmd_reg(hw, cmd, cmd_idx++);
+        }
+
+        /* cmd[last-2]: READ(1 字节，发 NACK，最后一字节） */
         memset(&cmd, 0, sizeof(cmd));
         cmd.op_code  = I2C_LL_CMD_READ;
-        cmd.byte_num = (uint8_t)(read_len - 1u);
-        cmd.ack_val  = 0u;  /* 发 ACK */
+        cmd.byte_num = 1u;
+        cmd.ack_val  = 1u;  /* 发 NACK */
         i2c_ll_master_write_cmd_reg(hw, cmd, cmd_idx++);
     }
-
-    /* cmd[last-2]: READ(1 字节，发 NACK，最后一字节） */
-    memset(&cmd, 0, sizeof(cmd));
-    cmd.op_code  = I2C_LL_CMD_READ;
-    cmd.byte_num = 1u;
-    cmd.ack_val  = 1u;  /* 发 NACK */
-    i2c_ll_master_write_cmd_reg(hw, cmd, cmd_idx++);
 
     /* cmd[last-1]: STOP */
     memset(&cmd, 0, sizeof(cmd));
@@ -793,8 +799,10 @@ int bm_vendor_i2c_write_read(i2c_port_t port, uint8_t addr,
         return rc;
     }
 
-    /* 从 RX FIFO 读取数据 */
-    i2c_ll_read_rxfifo(hw, read_buf, (uint8_t)read_len);
+    /* 从 RX FIFO 读取数据（read_len==0 为纯写事务，RX FIFO 无内容） */
+    if (read_len > 0u) {
+        i2c_ll_read_rxfifo(hw, read_buf, (uint8_t)read_len);
+    }
 
     return BM_OK;
 }

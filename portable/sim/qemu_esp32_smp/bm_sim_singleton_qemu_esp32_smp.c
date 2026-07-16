@@ -5,14 +5,15 @@
  *
  * 临界区与内存屏障由 `bm_port_arch_xtensa` 提供。
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-07-11
+ * @version 1.2
+ * @date 2026-07-16
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-15       1.0            zeh            正式发布
  * 2026-07-11       1.1            zeh            tick 回调派发接入 arch 层 FPU 守卫（bm_arch_isr_fpu.h，xtensa 路径当前仍为 no-op）
+ * 2026-07-16       1.2            zeh            APP 核回调回本核派发：PRO ISR 只跑 cb[0]，APP 在自身 get_ticks 上下文按 tick 变化泵出（原 PRO 代跑全部核回调，APP 回调摸错核 per-CPU 状态）；配套 Level-1 向量改 callx4 蹦床 + 清 EXCM/置 WOE，出口改 rfe + PS/EPC1 软件自存自恢（XEA2 无 EPS1，rfi 1 还原不了原 PS；尾部以 EXCM=1 封死嵌套窗口）
  *
  */
 #include "bm_drv_timer.h"
@@ -71,6 +72,8 @@ static volatile uint32_t g_ticks[BM_CONFIG_CPU_COUNT];
 static void (*g_tick_cb[BM_CONFIG_CPU_COUNT])(void);
 static uint32_t g_timer_alarm_ticks[BM_CONFIG_CPU_COUNT];
 static int g_timer_armed[BM_CONFIG_CPU_COUNT];
+/** APP 核在自身上下文泵回调时已见到的 tick（PRO 无 TIMG 中断可发，见 get_ticks） */
+static uint32_t g_app_seen_tick[BM_CONFIG_CPU_COUNT];
 
 /** PRO_CPU 拥有 TIMG0；从核共享 cpu0 tick */
 #define ESP32_SMP_TIMER_OWNER_CPU  0u
@@ -122,6 +125,7 @@ static int esp32_smp_timer_init(uint32_t freq_hz) {
 
     g_tick_freq[cpu] = hz;
     g_ticks[cpu] = 0u;
+    g_app_seen_tick[cpu] = 0u;
     g_timer_alarm_ticks[cpu] = ESP32_SMP_TIMER_HZ / divider / hz;
     if (g_timer_alarm_ticks[cpu] == 0u) {
         g_timer_alarm_ticks[cpu] = 1u;
@@ -162,12 +166,20 @@ static void esp32_smp_timer_stop(void) {
 
 static uint32_t esp32_smp_timer_get_ticks(void) {
     uint32_t cpu = esp32_smp_cpu_index();
+    uint32_t t = g_ticks[0];
 
-    /* APP_CPU 读取 PRO_CPU 驱动的共享 tick */
-    if (cpu != 0u) {
-        return g_ticks[0];
+    /* APP 核无 TIMG 中断：在自身上下文泵出本核回调（替代 PRO 代跑——
+       代跑会让 APP 注册的回调在 PRO 的 ISR 上下文执行，摸错核的
+       per-CPU 状态）。框架 tick 查询路径在 APP 主循环定期到达。 */
+    if (cpu != 0u && t != g_app_seen_tick[cpu]) {
+        void (*cb)(void) = g_tick_cb[cpu];
+
+        g_app_seen_tick[cpu] = t;
+        if (cb) {
+            cb();
+        }
     }
-    return g_ticks[0];
+    return t;
 }
 
 static uint32_t esp32_smp_timer_get_freq(void) {
@@ -198,10 +210,9 @@ static uint8_t g_tick_cp0_sa[BM_ARCH_ISR_FPU_SA_SIZE] __attribute__((aligned(16)
  * 调用点，行为不变。
  */
 void qemu_esp32_smp_on_timer_irq(void) {
-    uint32_t cpu;
-    uint32_t n;
     void (*cb)(void);
     unsigned cp_prev;
+    uint32_t n;
 
     if (esp32_smp_cpu_index() != 0u) {
         return;
@@ -219,11 +230,10 @@ void qemu_esp32_smp_on_timer_irq(void) {
         g_ticks[n] = g_ticks[0];
     }
     cp_prev = bm_arch_isr_fpu_enter(g_tick_cp0_sa);
-    for (cpu = 0u; cpu < BM_CONFIG_CPU_COUNT; cpu++) {
-        cb = g_tick_cb[cpu];
-        if (cb) {
-            cb();
-        }
+    /* 只派发 PRO 本核回调；APP 核回调由 APP 在自身 get_ticks 上下文泵出 */
+    cb = g_tick_cb[0];
+    if (cb) {
+        cb();
     }
     bm_arch_isr_fpu_exit(g_tick_cp0_sa, cp_prev);
     esp32_smp_timer_arm(0u);

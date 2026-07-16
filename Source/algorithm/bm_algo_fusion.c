@@ -3,8 +3,8 @@
  * @brief 姿态融合算法实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.4
- * @date 2026-07-13
+ * @version 1.5
+ * @date 2026-07-16
  *
  * @par 修改日志:
  *
@@ -20,6 +20,9 @@
  *                                                ax/ay/az/alpha 有限性护栏
  *                                                （H10 遗漏的第三个滤波器）；
  *                                                三滤波器 dt_s 补 NaN 拦截
+ * 2026-07-16       1.5            zeh            imu_calib_accumulator_feed 改先校验
+ *                                                后提交：三轴任一非有限即整帧拒绝，
+ *                                                消除中途失败的半更新状态
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -376,10 +379,14 @@ int bm_algo_imu_calib_accumulator_feed(bm_algo_imu_calib_accumulator_t *acc,
     if (acc == NULL || raw_gyro == NULL || raw_accel == NULL) {
         return BM_ALGO_ERR_INVALID;
     }
+    /* 先校验后提交：三轴全部有限才累加，避免中途失败时已写入的轴
+     * 留下半更新状态（gyro_sum/accel_sum 已变而 sample_count 未增）。 */
     for (i = 0u; i < 3u; ++i) {
         if (!isfinite(raw_gyro[i]) || !isfinite(raw_accel[i])) {
             return BM_ALGO_ERR_INVALID;
         }
+    }
+    for (i = 0u; i < 3u; ++i) {
         acc->gyro_sum[i] += raw_gyro[i];
         acc->accel_sum[i] += raw_accel[i];
     }

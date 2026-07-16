@@ -5,8 +5,8 @@
  *
  * 临界区与内存屏障由 `bm_port_arch_armv6m` 提供。
  * @author zeh (china_qzh@163.com)
- * @version 1.2
- * @date 2026-07-11
+ * @version 1.3
+ * @date 2026-07-16
  *
  * @par 修改日志:
  *
@@ -14,6 +14,7 @@
  * 2026-06-14       1.0            zeh            从 qemu_cortex_m0 singleton 拆分
  * 2026-06-26       1.1            zeh            添加 bm_hal_uptime_ns_raw()（路线图 #9 时间基统一 1a）
  * 2026-07-11       1.2            zeh            tick 回调派发接入 arch 层 FPU 守卫（bm_arch_isr_fpu.h，armv6m 无 FPU 恒 no-op）
+ * 2026-07-16       1.3            zeh            semihosting 写改用 SYS_WRITE(0x05) 参数块按 len 写入（原 SYS_WRITE0 忽略 len、按 NUL 结尾整段写）
  *
  */
 #include "bm_drv_timer.h"
@@ -131,14 +132,15 @@ const struct bm_timer_driver_api bm_drv_timer_api = {
     qemu_timer_set_callback,
 };
 
+/* SYS_WRITE(0x05)：r1 指向参数块 [fd=1(主机 stdout), buf, len]，按 len 精确写入 */
 static void qemu_semihosting_write(const uint8_t *data, size_t len) {
-    (void)len;
+    uint32_t param[3] = {1u, (uint32_t)(uintptr_t)data, (uint32_t)len};
     __asm volatile (
-        "movs r0, #0x04\n"
+        "movs r0, #0x05\n"
         "movs r1, %0\n"
         "bkpt 0xAB\n"
         :
-        : "r"(data)
+        : "r"(param)
         : "r0", "r1", "memory"
     );
 }

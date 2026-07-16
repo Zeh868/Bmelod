@@ -3,14 +3,18 @@
  * @brief 电机数学核：Clarke/Park 与 SVPWM 实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.2
- * @date 2026-06-23
+ * @version 1.3
+ * @date 2026-07-16
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-23       1.2            zeh            磁链观测器纯积分改为带衰减积分，消除低速/静止时 DC 漂移
+ * 2026-07-16       1.3            zeh            norm_deg_f 补非有限输入护栏：
+ *                                                ±Inf 时 while 归一化死循环
+ *                                                （公共 API bm_algo_pwm_sample_window_valid
+ *                                                可达），非有限输入返回 0.0f
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -347,6 +351,11 @@ float bm_algo_fw_id_adjust(float id_ref_a, float vd, float vq, float v_max_pu) {
 }
 
 static float norm_deg_f(float deg) {
+    /* 非有限输入护栏：±Inf 会让下方 while 归一化永不收敛（死循环）；
+     * 返回 0.0f 安全值（处于合法角度域内），调用方按常规角度处理。 */
+    if (!bm_algo_is_finite_f(deg)) {
+        return 0.0f;
+    }
     while (deg < 0.0f) {
         deg += 360.0f;
     }

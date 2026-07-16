@@ -5,19 +5,19 @@
  *
  * @par 平台真相:
  *   QEMU aarch64 virt 裸机 IRQ 入口（boot/qemu_aarch64_smp/startup_qemu_aarch64_smp.S
- *   `aarch64_irq_spx`）仅 `stp` 保存少量通用寄存器（x0-x7/x29/x30），不保存
- *   SIMD/FP 寄存器（V0-V31）现场，ISR 回调因此禁止浮点/NEON 运算。是否需要
- *   补全现场保存、以及 CPACR_EL1/CPTR_EL2 陷入门控如何配置，待评估（本框架
- *   AArch64 路径当前仅用于仿真回归，尚无真实浮点 ISR 回调需求）。
+ *   `aarch64_irq_spx`）现保存完整通用寄存器（x0-x18/x29/x30）与 SIMD/FP 现场
+ *   （q0-q31 + FPCR/FPSR），且启动阶段已置 CPACR_EL1.FPEN 允许 EL1 浮点；
+ *   ISR 回调可安全使用浮点。enter/exit 维持 no-op 调用形态，与其它架构统一。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-07-11
+ * @version 1.1
+ * @date 2026-07-16
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-11       1.0            zeh            新增 AArch64 ISR FPU 守卫占位（no-op，待评估）
+ * 2026-07-16       1.1            zeh            平台真相更新：IRQ 入口已补全 FP 现场保存与 CPACR_EL1.FPEN 使能，ISR 浮点不再受限（守卫仍保持 no-op 形态）
  */
 #ifndef BM_ARCH_ISR_FPU_H
 #define BM_ARCH_ISR_FPU_H

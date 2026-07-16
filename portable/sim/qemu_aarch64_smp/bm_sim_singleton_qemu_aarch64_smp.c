@@ -5,8 +5,8 @@
  *
  * 临界区与内存屏障由 `bm_port_arch_aarch64` 提供。
  * @author zeh (china_qzh@163.com)
- * @version 1.2
- * @date 2026-07-15
+ * @version 1.3
+ * @date 2026-07-16
  *
  * @par 修改日志:
  *
@@ -14,6 +14,7 @@
  * 2026-06-15       1.0            zeh            正式发布
  * 2026-07-11       1.1            zeh            tick 回调派发接入 arch 层 FPU 守卫（bm_arch_isr_fpu.h，aarch64 路径当前仍为 no-op）
  * 2026-07-15       1.2            zeh            GICD_ISENABLER0（IRQ 0-31 为 per-core banked）从 gic_dist_init 移入 gic_cpu_init，从核各自使能定时器 PPI
+ * 2026-07-16       1.3            zeh            g_ticks/g_tick_cb/g_tick_freq_hz 改 per-CPU 数组（原共享标量双核互覆、tick 双倍计数），对齐 cortexa SMP 实现；配套 IRQ 向量补存 x8-x18 与 q0-q31/FPCR/FPSR 现场、启动使能 CPACR_EL1.FPEN 并 daifclr 开 IRQ（复位 DAIF 全屏蔽曾致 tick 永不触发）
  *
  */
 #include "bm_drv_timer.h"
@@ -59,11 +60,20 @@
 #define BM_AARCH64_TIMER_IRQ_ID  30u
 
 static uint32_t g_timer_freq_hz;
-static uint32_t g_tick_freq_hz;
-static volatile uint32_t g_ticks;
-static void (*g_tick_cb)(void);
+static uint32_t g_tick_freq_hz[BM_CONFIG_CPU_COUNT];
+static volatile uint32_t g_ticks[BM_CONFIG_CPU_COUNT];
+static void (*g_tick_cb[BM_CONFIG_CPU_COUNT])(void);
 static uint64_t g_timer_cntfrq;
 static int g_gic_ready;
+
+/**
+ * @brief 返回当前 CPU 索引（越界时回落 0，对齐 cortexa SMP 实现）
+ */
+static uint32_t aarch64_smp_cpu_index(void) {
+    uint32_t cpu = bm_hal_cpu_id();
+
+    return (cpu < BM_CONFIG_CPU_COUNT) ? cpu : 0u;
+}
 
 /**
  * @brief 读 CNTPCT_EL0 物理计数
@@ -120,18 +130,18 @@ static void bm_aarch64_gic_cpu_init(void) {
 }
 
 /**
- * @brief 按 tick 频率重装 Generic Timer 比较值
+ * @brief 按 tick 频率重装 Generic Timer 比较值（per-CPU）
  */
-static void bm_aarch64_timer_rearm(void) {
+static void bm_aarch64_timer_rearm(uint32_t cpu) {
     uint64_t now;
     uint64_t delta;
     uint64_t compare;
 
-    if (g_tick_freq_hz == 0u || g_timer_cntfrq == 0u) {
+    if (g_tick_freq_hz[cpu] == 0u || g_timer_cntfrq == 0u) {
         return;
     }
     now = bm_aarch64_read_cntpct();
-    delta = g_timer_cntfrq / (uint64_t)g_tick_freq_hz;
+    delta = g_timer_cntfrq / (uint64_t)g_tick_freq_hz[cpu];
     if (delta == 0u) {
         delta = 1u;
     }
@@ -141,40 +151,43 @@ static void bm_aarch64_timer_rearm(void) {
 }
 
 static int aarch64_timer_init(uint32_t freq_hz) {
-    g_tick_freq_hz = (freq_hz > 0u) ? freq_hz : 1000u;
+    uint32_t cpu = aarch64_smp_cpu_index();
+
+    g_tick_freq_hz[cpu] = (freq_hz > 0u) ? freq_hz : 1000u;
     g_timer_cntfrq = bm_aarch64_read_cntfrq();
     if (g_timer_cntfrq == 0u) {
         g_timer_cntfrq = 62500000u;
     }
     g_timer_freq_hz = (uint32_t)g_timer_cntfrq;
-    g_ticks = 0u;
+    g_ticks[cpu] = 0u;
 
     if (bm_hal_cpu_is_bootstrap() && !g_gic_ready) {
         bm_aarch64_gic_dist_init();
         g_gic_ready = 1;
     }
     bm_aarch64_gic_cpu_init();
-    bm_aarch64_timer_rearm();
-    BM_LOGI(TAG_TIMER, "init: tick_hz=%u cntfrq=%u",
-            (unsigned)g_tick_freq_hz, (unsigned)g_timer_freq_hz);
+    bm_aarch64_timer_rearm(cpu);
+    BM_LOGI(TAG_TIMER, "init: cpu=%u tick_hz=%u cntfrq=%u",
+            (unsigned)cpu, (unsigned)g_tick_freq_hz[cpu],
+            (unsigned)g_timer_freq_hz);
     return BM_OK;
 }
 
 static void aarch64_timer_stop(void) {
-    g_tick_cb = NULL;
+    g_tick_cb[aarch64_smp_cpu_index()] = NULL;
     __asm volatile("msr cntp_ctl_el0, %0" ::"r"(0ULL));
 }
 
 static uint32_t aarch64_timer_get_ticks(void) {
-    return g_ticks;
+    return g_ticks[aarch64_smp_cpu_index()];
 }
 
 static uint32_t aarch64_timer_get_freq(void) {
-    return g_tick_freq_hz;
+    return g_tick_freq_hz[aarch64_smp_cpu_index()];
 }
 
 static void aarch64_timer_set_callback(void (*cb)(void)) {
-    g_tick_cb = cb;
+    g_tick_cb[aarch64_smp_cpu_index()] = cb;
 }
 
 const struct bm_timer_driver_api bm_drv_timer_api = {
@@ -192,23 +205,25 @@ static uint8_t g_tick_cp0_sa[BM_ARCH_ISR_FPU_SA_SIZE] __attribute__((aligned(16)
  * @brief IRQ 顶层分发（由异常向量汇编调用）
  *
  * g_tick_cb 派发可能触达浮点回调，经 bm_arch_isr_fpu_enter/exit
- * （portable/arch/aarch64/bm_arch_isr_fpu.h）包裹；该路径当前为 no-op（QEMU
- * aarch64 裸机 IRQ 入口未保存 SIMD/FP 现场，见该头文件注释），此处接线只为
- * 统一调用点，行为不变。
+ * （portable/arch/aarch64/bm_arch_isr_fpu.h）包裹；IRQ 入口汇编已保存
+ * 完整 FP 现场（q0-q31/FPCR/FPSR），该守卫为 no-op 形态统一调用点。
  */
 void bm_qemu_aarch64_irq_dispatch(void) {
+    uint32_t cpu = aarch64_smp_cpu_index();
     uint32_t iar = GICC_IAR;
     uint32_t irq_id = iar & 0x3FFu;
+    void (*cb)(void);
     unsigned cp_prev;
 
     if (irq_id == BM_AARCH64_TIMER_IRQ_ID) {
-        g_ticks++;
+        g_ticks[cpu]++;
         cp_prev = bm_arch_isr_fpu_enter(g_tick_cp0_sa);
-        if (g_tick_cb) {
-            g_tick_cb();
+        cb = g_tick_cb[cpu];
+        if (cb) {
+            cb();
         }
         bm_arch_isr_fpu_exit(g_tick_cp0_sa, cp_prev);
-        bm_aarch64_timer_rearm();
+        bm_aarch64_timer_rearm(cpu);
     }
     GICC_EOIR = iar;
 }

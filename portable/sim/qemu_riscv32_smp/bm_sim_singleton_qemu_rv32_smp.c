@@ -6,14 +6,15 @@
  * 临界区与内存屏障由 `bm_port_arch_riscv32` 提供；M-mode trap 由 boot 层 `_trap_entry` 分发。
  * CLINT mtime/mtimecmp 为 64 位，RV32 上通过两次 32 位访问读写。
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-07-11
+ * @version 1.2
+ * @date 2026-07-16
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-15       1.0            zeh            正式发布
  * 2026-07-11       1.1            zeh            tick 回调派发接入 arch 层 FPU 守卫（bm_arch_isr_fpu.h，riscv32 IMAC 无 FPU 恒 no-op）
+ * 2026-07-16       1.2            zeh            timer_arm 补 csrs mie,MTIE（此前只开 mstatus.MIE，定时器中断永不触发）；配套 boot 层 _trap_entry 补全寄存器保存与 mcause 清零
  *
  */
 #include "bm_drv_timer.h"
@@ -96,6 +97,12 @@ static void rv32_smp_timer_arm(uint32_t cpu) {
 
     clint_set_mtimecmp(cpu, now + g_timer_interval[cpu]);
     g_timer_armed[cpu] = 1;
+    /* MTIE(bit7) + MIE：M-mode 机器定时器中断（对齐 RV64 SMP 实现，
+       此前只开 mstatus.MIE 不设 mie.MTIE，定时器中断永远不触发） */
+    {
+        uintptr_t mtie = 0x80u;
+        __asm volatile ("csrs mie, %0" :: "r"(mtie) : "memory");
+    }
     __asm volatile ("csrsi mstatus, 8" ::: "memory");
 }
 
