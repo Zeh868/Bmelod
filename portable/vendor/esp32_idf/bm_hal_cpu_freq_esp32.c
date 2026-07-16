@@ -41,6 +41,7 @@
 #include "hal/bm_hal_cpu.h"
 #include "bm/common/bm_types.h"
 #include "esp_private/esp_clk.h" /* esp_clk_cpu_freq()；IDF 5.x 私有头（上板 v5.2.3 核对：位于 esp_hw_support/include/esp_private） */
+#include <stddef.h> /* NULL：独立 CMake 裸机路径下无传递包含，须显式引入 */
 #ifdef CONFIG_PM_ENABLE
 #include "esp_pm.h" /* esp_pm_configure()/esp_pm_config_t；本机无 IDF 未编译验证，字段名/头随 IDF 版本待上板核对 */
 #endif
