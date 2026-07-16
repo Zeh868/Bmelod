@@ -29,6 +29,7 @@
  *                                                 乘积补 u32 溢出防护（mul_u32_checked），
  *                                                 补齐 1.2 漏修的两处同类缺口
  * 2026-07-15       1.4            zeh            maxpool 补读侧输入容量校验（含 h*w 溢出防护）
+ * 2026-07-16       1.5            zeh            FLATTEN dims 乘积补 u32 溢出防护
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -389,7 +390,9 @@ static int run_flatten_node(bm_tinyml_tensor_t *in_tensor,
     }
 
     for (i = 0u; i < in_tensor->ndim; ++i) {
-        total *= in_tensor->dims[i];
+        if (mul_u32_checked(total, in_tensor->dims[i], &total) != 0) {
+            return -1;
+        }
     }
 
     out_tensor->data = in_tensor->data;

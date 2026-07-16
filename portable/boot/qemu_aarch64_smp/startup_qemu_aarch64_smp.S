@@ -161,10 +161,13 @@ aarch64_irq_spx:
     .type   bm_aarch64_secondary_startup, %function
 bm_aarch64_secondary_startup:
     mrs     x0, mpidr_el1
-    and     x0, x0, #0xFF
+    and     x0, x0, #0xFF        /* x0 = CPU ID（QEMU virt 单 cluster） */
+    /* 按 CPU ID 计算独占栈顶：_secondary_stack + (cpu_id + 1) * stack_size */
     ldr     x1, =_secondary_stack
-    ldr     x2, =_secondary_stack_size
-    add     sp, x1, x2
+    ldr     x2, =_secondary_stack_size_per_cpu
+    mul     x3, x0, x2
+    add     x3, x3, x2
+    add     sp, x1, x3
     /* 同主核：使能 EL1 浮点/SIMD */
     mrs     x0, cpacr_el1
     orr     x0, x0, #(3 << 20)

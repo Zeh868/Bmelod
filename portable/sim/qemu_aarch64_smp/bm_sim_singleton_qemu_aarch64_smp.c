@@ -5,7 +5,7 @@
  *
  * 临界区与内存屏障由 `bm_port_arch_aarch64` 提供。
  * @author zeh (china_qzh@163.com)
- * @version 1.3
+ * @version 1.4
  * @date 2026-07-16
  *
  * @par 修改日志:
@@ -15,6 +15,7 @@
  * 2026-07-11       1.1            zeh            tick 回调派发接入 arch 层 FPU 守卫（bm_arch_isr_fpu.h，aarch64 路径当前仍为 no-op）
  * 2026-07-15       1.2            zeh            GICD_ISENABLER0（IRQ 0-31 为 per-core banked）从 gic_dist_init 移入 gic_cpu_init，从核各自使能定时器 PPI
  * 2026-07-16       1.3            zeh            g_ticks/g_tick_cb/g_tick_freq_hz 改 per-CPU 数组（原共享标量双核互覆、tick 双倍计数），对齐 cortexa SMP 实现；配套 IRQ 向量补存 x8-x18 与 q0-q31/FPCR/FPSR 现场、启动使能 CPACR_EL1.FPEN 并 daifclr 开 IRQ（复位 DAIF 全屏蔽曾致 tick 永不触发）
+ * 2026-07-16       1.4            zeh            IRQ 分发跳过 GICv2 保留/伪 IRQ ID（1022/1023），避免无条件写 GICC_EOIR
  *
  */
 #include "bm_drv_timer.h"
@@ -225,7 +226,10 @@ void bm_qemu_aarch64_irq_dispatch(void) {
         bm_arch_isr_fpu_exit(g_tick_cp0_sa, cp_prev);
         bm_aarch64_timer_rearm(cpu);
     }
-    GICC_EOIR = iar;
+    /* GICv2: 1022/1023 为保留/伪 IRQ ID，写 EOIR 在真机属 UNPREDICTABLE。 */
+    if (irq_id < 1022u) {
+        GICC_EOIR = iar;
+    }
 }
 
 static int aarch64_uart_init(void *config) {

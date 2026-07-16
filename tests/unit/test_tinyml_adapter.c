@@ -20,6 +20,7 @@
  * 2026-06-17       1.6            zeh            CONV2D 1x1 NCHW 测试
  * 2026-06-17       1.7            zeh            tflm_runtime stub 空回调注册测试
  * 2026-06-23       1.8            zeh            通用 CONV2D 多配置测试
+ * 2026-07-16       1.9            zeh            补 FLATTEN dims 溢出负样本
  */
 #include "unity.h"
 #include "bm/component/tinyml_adapter.h"
@@ -928,6 +929,51 @@ void test_tinyml_graph_quantize_validates_against_output_tensor(void) {
                                                  NULL, 0u));
 }
 
+/**
+ * @brief FLATTEN：输入 dims 乘积溢出时须拒绝，而非回绕后污染元数据
+ *
+ * 先正常分配小 tensor，再人为把 dims 改大成乘积极易溢出的值；
+ * run_flatten_node 内部应通过 mul_u32_checked 检出并返回错误。
+ */
+void test_tinyml_graph_flatten_rejects_dim_overflow(void) {
+    bm_tinyml_arena_t arena;
+    bm_tinyml_tensor_t tensors[2];
+    uint32_t small_dims[2] = { 2u, 2u };
+    uint32_t flat_dims[2] = { 1u, 4u };
+    bm_tinyml_quant_params_t quant = { .scale = 1.0f, .zero_point = 0 };
+    bm_tinyml_graph_node_t nodes[1];
+    bm_tinyml_graph_t graph;
+
+    bm_tinyml_arena_reset(&arena);
+    TEST_ASSERT_EQUAL(0, bm_tinyml_tensor_alloc_i8(&arena, &tensors[0],
+                                                   small_dims, 2u, &quant));
+    TEST_ASSERT_EQUAL(0, bm_tinyml_tensor_alloc_i8(&arena, &tensors[1],
+                                                   flat_dims, 2u, &quant));
+
+    /* 人为构造 dims 乘积溢出：65536^4 远超 UINT32_MAX */
+    tensors[0].ndim = 4u;
+    tensors[0].dims[0] = 65536u;
+    tensors[0].dims[1] = 65536u;
+    tensors[0].dims[2] = 65536u;
+    tensors[0].dims[3] = 65536u;
+
+    nodes[0].op = BM_TINYML_OP_FLATTEN;
+    nodes[0].input_tensor = 0u;
+    nodes[0].input_tensor_b = 0u;
+    nodes[0].output_tensor = 1u;
+    nodes[0].fc_weights = NULL;
+    nodes[0].fc_in_dim = 0u;
+    nodes[0].fc_out_dim = 0u;
+
+    graph.nodes = nodes;
+    graph.node_count = 1u;
+    graph.arena = &arena;
+    graph.tensors = tensors;
+    graph.tensor_count = 2u;
+
+    TEST_ASSERT_NOT_EQUAL(0, bm_tinyml_graph_run(&graph, NULL, 0u, NULL, 0u));
+}
+
 void test_tinyml_tflm_runtime_stub_register_invoke(void) {
     bm_tinyml_tflm_runtime_t runtime;
 
@@ -944,6 +990,7 @@ int main(void) {
     RUN_TEST(test_tinyml_graph_relu_rejects_undersized_output);
     RUN_TEST(test_tinyml_graph_softmax_flatten_chain);
     RUN_TEST(test_tinyml_graph_softmax_rejects_undersized_output);
+    RUN_TEST(test_tinyml_graph_flatten_rejects_dim_overflow);
     RUN_TEST(test_tinyml_arena_alloc_rejects_size_overflow);
     RUN_TEST(test_tinyml_graph_quantize_validates_against_output_tensor);
     RUN_TEST(test_tinyml_graph_add_node);

@@ -87,8 +87,10 @@ bm_cortexa_secondary_startup:
     add     sp, r2, r3
     msr     cpsr_c, r1
     ldr     r1, =_secondary_stack
-    ldr     r2, =_secondary_stack_size
-    add     sp, r1, r2
+    ldr     r2, =_secondary_stack_size_per_cpu
+    mul     r3, r0, r2
+    add     r3, r3, r2
+    add     sp, r1, r3
     bl      bm_cortexa_secondary_entry_c
 3:
     wfi

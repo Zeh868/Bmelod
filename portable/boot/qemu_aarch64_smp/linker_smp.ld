@@ -6,7 +6,8 @@ MEMORY {
 }
 
 _estack = ORIGIN(RAM) + LENGTH(RAM);
-_secondary_stack_size = 0x4000;
+_secondary_stack_size_per_cpu = 0x4000;
+_secondary_stack_max_cpus = 8;
 
 SECTIONS {
     .text : {
@@ -33,7 +34,7 @@ SECTIONS {
         . = ALIGN(16);
         _ebss = .;
         _secondary_stack = .;
-        . += _secondary_stack_size;
+        . += _secondary_stack_size_per_cpu * _secondary_stack_max_cpus;
         . = ALIGN(16);
     } > RAM
 }

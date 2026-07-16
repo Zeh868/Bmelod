@@ -27,8 +27,8 @@
  * 域·预算账（无硬时间格语义，逐行列 wcet_us + 建议 run_pending budget）。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.11
- * @date 2026-07-13
+ * @version 1.12
+ * @date 2026-07-16
  *
  * @par 修改日志:
  *
@@ -58,6 +58,7 @@
  *                                                 空指针崩溃）；补 input/output elem_size 与所绑
  *                                                 bus 存储 elem_size 一致性校验（不匹配即静默
  *                                                 写穿快照区/bus 数据区）
+ * 2026-07-16       1.12           zeh            默认保质期 2×period_us 补 u32 溢出饱和
  *
  */
 #include "bm_tt_schedule.h"
@@ -115,15 +116,23 @@ static void tt_freeze_inputs(bm_tt_schedule_t *s, bm_tt_activity_t *a) {
      */
     uint32_t miss_saturated = (period_us == 0u) ? BM_LET_AGE_SATURATED
                                                 : (BM_LET_AGE_SATURATED / period_us);
+    uint32_t max_age;
 
     for (uint8_t i = 0u; i < a->input_count; ++i) {
         const bm_let_input_t *in = &a->inputs[i];
         uint8_t *snap = (uint8_t *)a->snapshot + off;
         uint32_t seq = 0u;
         int rc = bm_bus_latest_read_seq(in->bus, snap, &seq);
-        uint32_t max_age = (in->max_age_us == BM_LET_AGE_DEFAULT)
-                                ? (BM_LET_AGE_DEFAULT_PERIODS * period_us)
-                                : in->max_age_us;
+
+        if (in->max_age_us == BM_LET_AGE_DEFAULT) {
+            uint64_t default_age64 = (uint64_t)BM_LET_AGE_DEFAULT_PERIODS *
+                                     (uint64_t)period_us;
+            max_age = (default_age64 > BM_LET_AGE_SATURATED)
+                          ? BM_LET_AGE_SATURATED
+                          : (uint32_t)default_age64;
+        } else {
+            max_age = in->max_age_us;
+        }
 
         if (rc != BM_OK) {
             (void)memcpy(snap, in->safe_default, in->elem_size);
