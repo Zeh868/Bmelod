@@ -5,13 +5,14 @@
  *
  * 从核由 startup 汇编唤醒后经 qemu_rv64_smp_secondary_start 跳入框架入口。
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-15
+ * @version 1.1
+ * @date 2026-07-15
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-15       1.0            zeh            正式发布
+ * 2026-07-15       1.1            zeh            fence rw,rw 从 flag 写之后挪到之前，BSS 清零先于 flag 对从核可见
  *
  */
 #include "bm_config.h"

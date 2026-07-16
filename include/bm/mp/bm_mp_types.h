@@ -6,13 +6,17 @@
  * 定义 `BM_MP_*` 剖面枚举、`BM_CONFIG_CPU_COUNT` 与 `BM_MP_MULTICORE` 推导宏。
  * 单核产品保持 `CPU_COUNT==1`，与历史 `BM_MP_SINGLE` 行为等价。
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-14
+ * @version 1.1
+ * @date 2026-07-15
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
+ * 2026-07-15       1.1            zeh            BM_MP_MULTICORE 补单核兜底（=0）：
+ *                                                bm_mp 源以运行期 if 引用本宏，
+ *                                                修复独立库形态（无 Demo 配置头）
+ *                                                CPU_COUNT==1 时编译失败
  *
  */
 #ifndef BM_MP_TYPES_H
@@ -103,6 +107,15 @@
 #ifndef BM_MP_MULTICORE
 #define BM_MP_MULTICORE  BM_CPU_LOCAL_ENABLE_ROUTE
 #endif
+#endif
+
+/*
+ * CPU_COUNT==1（或未由应用显式定义）时的兜底：bm_mp 源文件以运行期
+ * `if (BM_MP_MULTICORE)` 引用本宏（非 #if），未定义即编译失败；
+ * 单核路径恒为 0，与历史 BM_MP_SINGLE 行为等价。
+ */
+#ifndef BM_MP_MULTICORE
+#define BM_MP_MULTICORE  0
 #endif
 
 #if BM_CONFIG_TOPOLOGY == BM_MP_RTD

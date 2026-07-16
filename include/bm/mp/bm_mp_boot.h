@@ -7,18 +7,30 @@
  * 在 `BM_MP_BOOT_IRQ_RELEASE` 之前，`bm_hrt_start()` 与外设 IRQ 须返回
  * `BM_ERR_NOT_INIT`。
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-14
+ * @version 1.1
+ * @date 2026-07-15
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
+ * 2026-07-15       1.1            zeh            barrier 超时宏别名桥接移到 include 之后，
+ *                                                修独立库形态下 MP↔非MP 宏循环引用致
+ *                                                使用点 undeclared
  *
  */
 #ifndef BM_MP_BOOT_H
 #define BM_MP_BOOT_H
 
+#include "bm/mp/bm_mp_types.h"
+#include "bm/common/bm_types.h"
+
+/*
+ * MP/非 MP 命名别名桥接。必须先 include bm_config.h（经 bm_mp_types.h）再
+ * 做桥接：若在本头文件顶部先行互相 #define，两个宏会在 bm_config.h 默认值
+ * 落地前结成循环引用对（MP→非MP→MP），使用点报 undeclared——这正是独立库
+ * 形态（无 Demo 配置头，bm_mp_boot.h 被首先包含）下曾触发的配置管道缺口。
+ */
 #ifndef BM_CONFIG_MP_BOOT_BARRIER_TIMEOUT_US
 #define BM_CONFIG_MP_BOOT_BARRIER_TIMEOUT_US  BM_CONFIG_BOOT_BARRIER_TIMEOUT_US
 #endif
@@ -27,9 +39,6 @@
     !defined(BM_CONFIG_BOOT_BARRIER_TIMEOUT_US)
 #define BM_CONFIG_BOOT_BARRIER_TIMEOUT_US  BM_CONFIG_MP_BOOT_BARRIER_TIMEOUT_US
 #endif
-
-#include "bm/mp/bm_mp_types.h"
-#include "bm/common/bm_types.h"
 
 /** PERCPU 启动阶段（与共享区 boot_phase 原子字一致） */
 typedef enum {

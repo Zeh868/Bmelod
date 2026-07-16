@@ -148,6 +148,7 @@
 #define BM_CONFIG_LOG_RING                   0   /* 是否启用日志环形缓冲 */
 #define BM_CONFIG_LOG_DRAIN_BUDGET           2u  /* 主循环单次日志排空预算 */
 #define BM_CONFIG_LOG_DRAIN_WCET_PER_MSG_US  100u /* 单条日志排空 WCET（微秒） */
+#define BM_CONFIG_IPC_DRAIN_WCET_PER_MSG_US  8u  /* MP IPC drain 单条 payload 消息 WCET（微秒） */
 #define BM_CONFIG_RTA_MAX_ITERATIONS         128u /* RTA（响应时间分析）最大迭代数 */
 #define BM_CONFIG_ATOMIC_MAX_RETRIES         8u  /* 原子 CAS 重试上界（须 >= 1） */
 #define BM_CONFIG_BUS_LATEST_MAX_RETRIES     8u  /* bm_bus LATEST 读路径 spin 重试上界（须 >= 1） */

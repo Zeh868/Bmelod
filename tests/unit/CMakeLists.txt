@@ -659,6 +659,9 @@ if(BM_BUILD_TESTS)
         add_test(NAME check_esp32_backend_configure
             COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_SOURCE_DIR}/tests/cmake/check_esp32_backend_configure.py)
+        add_test(NAME check_config_template
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tools/check_config_template.py)
     endif()
 endif()
 

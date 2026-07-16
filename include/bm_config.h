@@ -6,8 +6,8 @@
  * 各子模块容量、可选组件开关及混合域参数均在此集中定义。
  * 应用可通过项目级 bm_config.h 覆盖默认值。
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-07-04
+ * @version 1.2
+ * @date 2026-07-15
  *
  * @par 修改日志:
  *
@@ -15,6 +15,9 @@
  * 2026-06-10       1.0            zeh            正式发布
  * 2026-07-04       1.1            zeh            Task 4：补 BM_CONFIG_SM_INTERFERENCE_SRC
  *                                                 注释性示例（与 DVFS 同惯例，只注释不 #define）
+ * 2026-07-15       1.2            zeh            补 BM_CONFIG_IPC_DRAIN_WCET_PER_MSG_US
+ *                                                 缺省值（此前仅 Demo 配置头定义，独立库
+ *                                                 形态 SMP 构建缺之即失败）
  *
  */
 #ifndef BM_CONFIG_H
@@ -443,6 +446,11 @@
 
 #ifndef BM_CONFIG_LOG_DRAIN_WCET_PER_MSG_US
 #define BM_CONFIG_LOG_DRAIN_WCET_PER_MSG_US      100u
+#endif
+
+/** @brief MP IPC drain 每条 payload 消息计入预算的 WCET（微秒） */
+#ifndef BM_CONFIG_IPC_DRAIN_WCET_PER_MSG_US
+#define BM_CONFIG_IPC_DRAIN_WCET_PER_MSG_US      8u
 #endif
 
 #ifndef BM_CONFIG_RTA_MAX_ITERATIONS

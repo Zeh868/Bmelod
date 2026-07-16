@@ -25,8 +25,8 @@
  *       待硬件：若日后迁移到 IDF FreeRTOS 应用路径，可切换为 esp_task_wdt_init。
  *
  * @author zeh (china_qzh@163.com)
- * @version 3.5
- * @date 2026-07-12
+ * @version 3.7
+ * @date 2026-07-15
  *
  * @par 修改日志:
  *
@@ -52,6 +52,10 @@
  *                                                破坏寄存器窗口/FPU 上下文 LoadProhibited
  *                                                崩溃（真机 addr2line 实证）；降至与 TEZ 同级
  *                                                消除嵌套，三请求正好占满 3 条 LEVEL2 线
+ * 2026-07-15       3.7            zeh            esp_intr_alloc_intrstatus 接住 esp_err_t，
+ *                                                失败 esp_rom_printf 并 return BM_ERR_IO
+ *                                                fail-fast（tick 分配失败=系统无节拍，
+ *                                                静默继续比崩溃更危险）
  *
  */
 #include "bm_drv_timer.h"

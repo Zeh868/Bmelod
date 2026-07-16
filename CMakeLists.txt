@@ -127,6 +127,11 @@ if(BM_CONFIG_SMP)
     set(BM_ENABLE_STREAM  ON CACHE BOOL "" FORCE)
     set(BM_ENABLE_WDG     ON CACHE BOOL "" FORCE)
     set(BM_HAL_USE_CPU_STUB OFF CACHE BOOL "" FORCE)
+    # bmp_algo（BM_SMP_ENABLE_ALGO 默认 ON）依赖 bm_algorithm，随库模式拉齐；
+    # 该 option 在下方 SMP 段才声明，此处对未定义（首轮 configure）按默认 ON 处理
+    if(NOT DEFINED BM_SMP_ENABLE_ALGO OR BM_SMP_ENABLE_ALGO)
+        set(BM_ENABLE_ALGORITHM ON CACHE BOOL "" FORCE)
+    endif()
     if(BM_BUILD_TESTS AND NOT BM_BACKEND)
         set(BM_BACKEND "native_sim_mp" CACHE STRING "" FORCE)
     endif()
