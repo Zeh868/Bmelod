@@ -584,13 +584,13 @@ extern void (*bm_bus_test_latest_read_hook)(bm_bus_storage_t *st);
 extern void (*bm_bus_test_latest_multi_read_hook)(bm_bus_storage_t *st);
 #endif
 
-#ifdef BM_BUS_ALLOW_INTERNAL
 /**
- * @brief LATEST 拷出并回传本次 seqlock 校验通过的稳定序号（内部只读 seq 访问器，仅门面库可见，公共 API 零增长）
+ * @brief LATEST 拷出并回传本次 seqlock 校验通过的稳定序号
  *
  * 与 bm_bus_latest_read 同一 seqlock 循环，额外经 out_seq 回传 seq2==seq1 的稳定序号；
- * seq 与拷到的值来自同一次校验，无 TOCTOU。供 bm_tt_schedule seq-delta 判龄使用。
- * 仅在定义 BM_BUS_ALLOW_INTERNAL 的翻译单元可见（照 BM_ENABLE_BUS_TEST_HOOK 弱强制模式）。
+ * seq 与拷到的值来自同一次校验，无 TOCTOU。供 bm_tt_schedule seq-delta 判龄使用；
+ * 2026-07-16 起转为公共 API（Hoverboard_Deng 审查修复：电流档 iq_ref 新鲜度守卫
+ * 需要以"seq 是否前进"区分"生产者在按节拍发布"与"生产者已停发、残留旧值"）。
  *
  * @param h        bus 句柄（LATEST 模式）
  * @param dst      目标缓冲，大小须 >= elem_size
@@ -598,6 +598,5 @@ extern void (*bm_bus_test_latest_multi_read_hook)(bm_bus_storage_t *st);
  * @return 同 bm_bus_latest_read
  */
 int bm_bus_latest_read_seq(const bm_bus_t *h, void *dst, uint32_t *out_seq);
-#endif /* BM_BUS_ALLOW_INTERNAL */
 
 #endif /* BM_BUS_H */

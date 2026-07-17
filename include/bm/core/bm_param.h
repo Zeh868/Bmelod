@@ -87,6 +87,14 @@ typedef void (*bm_param_apply_fn_t)(float val, void *user);
 typedef int (*bm_param_reset_guard_fn_t)(void);
 
 /**
+ * @brief save 守卫回调（语义同 reset guard）
+ *
+ * @return 非 0 表示拒绝本次 save（例如施力运行中不允许触发 NVS 落盘——
+ *         flash 页擦除可达数十 ms，可能阻塞同核实时采样/控制路径）
+ */
+typedef int (*bm_param_save_guard_fn_t)(void);
+
+/**
  * @brief 单条参数描述符（应用静态只读表，生存期覆盖整个运行期）
  */
 typedef struct {
@@ -163,11 +171,13 @@ int bm_param_get(const char *name, float *out);
 /**
  * @brief 将全表当前镜像中带 pkey 的项写入 persist 并落盘
  *
- * 逐项 pkey 非 NULL 者调用 bm_persist_set，任一失败立即返回该错误码；
- * 全部成功后调用 bm_persist_commit（失败返回其错误码）。全表无 pkey
- * 项时直接返回 0，不触碰 persist（允许 persist 未 init 的纯 RAM 用法）。
+ * save guard 非 NULL 且返回非 0 时拒绝执行（不触碰 persist），返回
+ * BM_ERR_BUSY。否则逐项 pkey 非 NULL 者调用 bm_persist_set，任一失败
+ * 立即返回该错误码；全部成功后调用 bm_persist_commit（失败返回其错误码）。
+ * 全表无 pkey 项时直接返回 0，不触碰 persist（允许 persist 未 init 的
+ * 纯 RAM 用法）。
  *
- * @return 落盘条数（>=0）或负错误码
+ * @return 落盘条数（>=0）或负错误码；BM_ERR_BUSY guard 拒绝
  */
 int bm_param_save(void);
 
@@ -190,6 +200,13 @@ int bm_param_reset(void);
  * @param guard 守卫回调；NULL 表示不拦截
  */
 void bm_param_set_reset_guard(bm_param_reset_guard_fn_t guard);
+
+/**
+ * @brief 设置/清除 save 守卫回调
+ *
+ * @param guard 守卫回调；NULL 表示不拦截
+ */
+void bm_param_set_save_guard(bm_param_save_guard_fn_t guard);
 
 /**
  * @brief 获取当前登记的参数条数

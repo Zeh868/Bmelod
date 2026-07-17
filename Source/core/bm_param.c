@@ -40,6 +40,8 @@ static uint16_t s_count;
 static float s_vals[BM_CONFIG_PARAM_MAX];
 /** @brief reset 守卫；NULL = 不拦。 */
 static bm_param_reset_guard_fn_t s_guard;
+/** @brief save 守卫；NULL = 不拦。 */
+static bm_param_save_guard_fn_t s_save_guard;
 
 /**
  * @brief 按名查表。
@@ -205,6 +207,9 @@ int bm_param_save(void)
     if (s_count == 0u) {
         return BM_ERR_NOT_INIT;
     }
+    if (s_save_guard != NULL && s_save_guard() != 0) {
+        return BM_ERR_BUSY;
+    }
     for (i = 0u; i < s_count; ++i) {
         int rc;
 
@@ -301,6 +306,11 @@ rollback:
 void bm_param_set_reset_guard(bm_param_reset_guard_fn_t guard)
 {
     s_guard = guard;
+}
+
+void bm_param_set_save_guard(bm_param_save_guard_fn_t guard)
+{
+    s_save_guard = guard;
 }
 
 uint16_t bm_param_count(void)
