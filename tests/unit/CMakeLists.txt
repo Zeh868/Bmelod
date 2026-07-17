@@ -64,7 +64,6 @@ if(BM_ENABLE_BUS)
         bm_add_test(test_bus test_bus.c bm_core)
     endif()
     target_compile_definitions(test_bus PRIVATE BM_ENABLE_BUS_TEST_HOOK=1)
-    target_compile_definitions(test_bus PRIVATE BM_BUS_ALLOW_INTERNAL=1)
 
     # 确定性 L1 C1：bus retry-bound（DET-01）+ 非阻塞已由 test_bus 证明，纳入 determinism 标签
     set_tests_properties(test_bus PROPERTIES LABELS "determinism")
@@ -157,10 +156,9 @@ endif()
 
 if(BM_ENABLE_TT_SCHEDULE)
     # Task 3：输入冻结 + seq-delta 判龄；走门面 API + 公共 bus API，
-    # 但测试内直接调用 bm_bus_latest_read_seq 验证 seq 语义，
-    # 该内部访问器原型受 BM_BUS_ALLOW_INTERNAL 门控，需 PRIVATE 定义（照 test_bus）。
+    # 测试内直接调用 bm_bus_latest_read_seq 验证 seq 语义
+    #（2026-07-16 该访问器已转公共 API，原 BM_BUS_ALLOW_INTERNAL 门控删除）。
     bm_add_test(test_tt_schedule test_tt_schedule.c bm_tt_schedule)
-    target_compile_definitions(test_tt_schedule PRIVATE BM_BUS_ALLOW_INTERNAL=1)
 
     # Task 2 (schedule-map v2): bm_tt_schedule_report_json machine-readable export (schema v1).
     bm_add_test(test_tt_schedule_json test_tt_schedule_json.c bm_tt_schedule)
