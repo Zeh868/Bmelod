@@ -5,9 +5,13 @@
  *
  * 支持字符流喂入、命令注册与 Console CLI 轮询，适用于裸机调试。
  *
- * @par 交互能力（v1.2）
+ * @par 交互能力（v1.3）
  *   - **Tab 补全**：行首命令词前缀匹配——唯一匹配补全余下字符并回显；
  *     多个匹配换行列出候选后重绘提示符与已输入前缀；无匹配响铃 \\a。
+ *     参数区 Tab：命令若经 bm_shell_set_completer() 登记了补全器，按
+ *     （参数序号，当前词前缀）取候选，复用同一套"唯一匹配自动补全 /
+ *     多候选列出 / 无匹配响铃"逻辑；未登记补全器的命令保持响铃（向后
+ *     兼容，v1.2 及之前行为不变）。
  *   - **内建 help**：用户未注册同名命令时，`help` 由框架兜底实现——
  *     遍历命令表打印「名字 + 帮助文本」；用户注册的 help 命令优先。
  *   - **前台模态命令**：命令 handler 调 bm_shell_modal_enter() 进入模态，
@@ -18,8 +22,8 @@
  *     序列静默吞掉）。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.2
- * @date 2026-07-11
+ * @version 1.3
+ * @date 2026-07-18
  *
  * @par 修改日志:
  *
@@ -27,6 +31,11 @@
  * 2026-06-10       1.0            zeh            正式发布
  * 2026-07-11       1.1            zeh            shell 交互批①：前台模态命令（Ctrl+C 退出）+ Tab 补全 + 内建 help 兜底
  * 2026-07-11       1.2            zeh            shell 交互批②：行历史（↑/↓ 回翻）+ ESC 序列吞噬（修箭头键注入垃圾字符）
+ * 2026-07-18       1.3            zeh            shell 交互批③：参数区 Tab 补全——新增
+ *                                                 bm_shell_set_completer() 可选登记 API，
+ *                                                 命令级补全回调（参数序号+前缀→候选），
+ *                                                 复用命令词补全的自动补全/列表/响铃骨架；
+ *                                                 未登记命令行为不变，零 malloc 有界收集
  *
  */
 #ifndef BM_SHELL_H
@@ -62,6 +71,15 @@
 
 #if BM_CONFIG_SHELL_HISTORY_DEPTH < 0 || BM_CONFIG_SHELL_HISTORY_DEPTH > 32
 #error "BM_CONFIG_SHELL_HISTORY_DEPTH 须在 0..32 范围内（0=编译裁剪历史功能）"
+#endif
+
+/** 参数区 Tab 补全单次候选上限（零 malloc，栈上定长收集，见 _tab_complete_args） */
+#ifndef BM_CONFIG_SHELL_MAX_COMPLETIONS
+#define BM_CONFIG_SHELL_MAX_COMPLETIONS 24
+#endif
+
+#if BM_CONFIG_SHELL_MAX_COMPLETIONS < 1 || BM_CONFIG_SHELL_MAX_COMPLETIONS > 64
+#error "BM_CONFIG_SHELL_MAX_COMPLETIONS 须在 1..64 范围内"
 #endif
 
 #if BM_CONFIG_SHELL_BUF_SIZE < 2 || BM_CONFIG_SHELL_BUF_SIZE > 256
@@ -100,11 +118,49 @@ typedef void (*bm_shell_modal_tick_fn_t)(void *ctx);
  */
 typedef void (*bm_shell_modal_stop_fn_t)(void *ctx);
 
+/**
+ * @brief 参数区 Tab 补全候选发射回调：completer 对每个匹配前缀的候选词调一次。
+ *
+ * 由 _tab_complete_args 内部实现并传给 completer，completer 只管转手调用，
+ * 不关心其内部收集实现（零 malloc、有界，见 BM_CONFIG_SHELL_MAX_COMPLETIONS）。
+ *
+ * @param emit_ctx  透传的收集器上下文（框架内部状态，completer 原样转手）。
+ * @param candidate 候选词（NUL 结尾，长度受 BM_CONFIG_SHELL_MAX_NAME_LEN 约束）。
+ */
+typedef void (*bm_shell_complete_emit_fn_t)(void *emit_ctx, const char *candidate);
+
+/**
+ * @brief 命令参数区 Tab 补全回调（可选能力，见 bm_shell_set_completer）。
+ *
+ * Tab 落在参数区（命令词之后）且该命令已登记补全器时被调用一次；须在
+ * shell 的 poll（同步）调用上下文内跑完，不得引入任何异步/延迟——裸机
+ * 零调度架构约束。候选经 emit 逐个吐出后交由 _tab_complete 复用命令词
+ * 补全同一套"唯一匹配自动补全 / 多候选列出 / 无匹配响铃"逻辑处理，
+ * completer 本身不做任何展示；**须自行按前缀过滤**（只 emit 满足
+ * prefix 的候选，约定同命令词补全的 _starts_with 语义）。
+ *
+ * @param argv_idx   当前词在命令行中的参数序号（0=命令词本身，1=第一个
+ *                   参数，以此类推，即 bm_shell_exec 分词后的 argv 下标）。
+ * @param prefix     当前词已输入前缀（NUL 结尾，不含空白，可为空串）。
+ * @param prefix_len 前缀长度（== strlen(prefix)）。
+ * @param emit       候选发射回调；每个匹配前缀的候选调一次。
+ * @param emit_ctx   透传给 emit 的收集器上下文，原样转交。
+ * @param user_ctx   bm_shell_set_completer() 登记时提供的用户上下文。
+ */
+typedef void (*bm_shell_completer_fn_t)(uint8_t argv_idx, const char *prefix,
+                                        uint8_t prefix_len,
+                                        bm_shell_complete_emit_fn_t emit,
+                                        void *emit_ctx, void *user_ctx);
+
 /** 命令注册条目 */
 typedef struct {
     const char       *name;
     bm_shell_cmd_fn_t fn;
     const char       *help;
+    /** 参数区补全回调；NULL = 未登记（参数区 Tab 保持响铃，向后兼容） */
+    bm_shell_completer_fn_t completer;
+    /** 透传给 completer 的用户上下文（completer 为 NULL 时无意义） */
+    void                    *completer_ctx;
 } bm_shell_cmd_t;
 
 /** Shell 实例状态 */
@@ -162,6 +218,22 @@ void bm_shell_init(bm_shell_t *shell);
  */
 int bm_shell_register(bm_shell_t *shell, const char *name,
                       bm_shell_cmd_fn_t fn, const char *help);
+
+/**
+ * @brief 登记/更新命令的参数区 Tab 补全回调（可选能力，独立于 bm_shell_register）。
+ *
+ * 命令若从未调用本函数，其参数区 Tab 行为不变（响铃退出），完全向后兼容。
+ * 须在目标命令已通过 bm_shell_register 注册之后调用；可重复调用覆盖此前
+ * 登记；completer 传 NULL 等价于清除（恢复响铃）。
+ *
+ * @param shell     Shell 实例指针
+ * @param name      目标命令名（须已通过 bm_shell_register 注册）
+ * @param completer 补全回调；NULL 清除已登记的补全器
+ * @param user_ctx  透传给 completer 的用户上下文（可为 NULL）
+ * @return BM_OK 成功；BM_ERR_INVALID shell/name 为空；BM_ERR_NOT_FOUND 命令未注册
+ */
+int bm_shell_set_completer(bm_shell_t *shell, const char *name,
+                           bm_shell_completer_fn_t completer, void *user_ctx);
 
 /**
  * @brief 喂入单个字符，完整行到达时立即执行
