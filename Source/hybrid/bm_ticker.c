@@ -5,8 +5,8 @@
  *
  * 主循环轮询到期槽，向事件总线发布空载荷事件；统计丢弃次数。
  * @author zeh (china_qzh@163.com)
- * @version 1.7
- * @date 2026-06-26
+ * @version 1.10
+ * @date 2026-07-13
  *
  * @par 修改日志:
  *
@@ -19,6 +19,15 @@
  * 2026-06-15       1.5            zeh            poll 热路径移除格式化日志
  * 2026-06-26       1.6            zeh            #9-2b 时间基迁 bm_uptime_us（µs 域，64 位）
  * 2026-06-26       1.7            zeh            新增 bm_ticker_get_dropped_total（全槽丢弃计数求和）
+ * 2026-07-02       1.8            zeh            QD-6：cache-line 补齐改用 union，
+ *                                                消除 MSVC C2233
+ * 2026-07-09       1.9            zeh            修复非 OVERFLOW 发布失败导致 poll
+ *                                                提前 return、槽永久停发（H1）；
+ *                                                catchup 预算耗尽 resync 时补计
+ *                                                被跳过周期数入 dropped（H2）
+ * 2026-07-13       1.10           zeh            get_dropped 注释口径与 H1/H2 新语义
+ *                                                对齐（含全部发布失败与 resync 补记，
+ *                                                不再只写"队列满"）
  *
  */
 #include "bm_ticker.h"
@@ -46,13 +55,8 @@ typedef struct {
     int                        initialized;
 } bm_ticker_cpu_state_t;
 
-typedef struct {
-    bm_ticker_cpu_state_t state;
-    uint8_t padding[(sizeof(bm_ticker_cpu_state_t) % BM_CONFIG_CACHE_LINE)
-        ? (BM_CONFIG_CACHE_LINE - (sizeof(bm_ticker_cpu_state_t) %
-                                   BM_CONFIG_CACHE_LINE))
-        : 0];
-} bm_ticker_cpu_storage_t;
+typedef BM_CACHE_LINE_PADDED_UNION(bm_ticker_cpu_state_t, state,
+                                   BM_CONFIG_CACHE_LINE) bm_ticker_cpu_storage_t;
 
 static BM_CACHE_ALIGNAS(BM_CONFIG_CACHE_LINE)
 bm_ticker_cpu_storage_t g_ticker_cpu[BM_CONFIG_CPU_COUNT];
@@ -184,14 +188,19 @@ int bm_ticker_poll(void) {
                 int rc = bm_event_publish_copy(slot->pub.event_type,
                                                slot->pub.priority,
                                                NULL, 0u);
-                if (rc == BM_ERR_OVERFLOW) {
+                if (rc != BM_OK) {
+                    /*
+                     * 队列满（BM_ERR_OVERFLOW）与其它发布失败（如事件类型
+                     * 未注册 BM_ERR_NOT_INIT、多核转发失败）统一按丢弃处理：
+                     * 计入 dropped、推进本槽 next_us、break 出内层循环去
+                     * 处理下一槽。绝不 return 中断整轮槽循环——否则本槽
+                     * next_us 未推进，下次 poll 立即在同一槽复现同一错误，
+                     * 且本轮后续槽全部被跳过（H1）。
+                     */
                     slot->dropped = bm_u32_saturating_inc(slot->dropped);
                     slot->next_us = ticker_deadline_from(
                         slot->next_us, slot->period_us);
                     break;
-                }
-                if (rc != BM_OK) {
-                    return rc;
                 }
                 published++;
                 catchup++;
@@ -199,6 +208,20 @@ int bm_ticker_poll(void) {
                     slot->next_us, slot->period_us);
             }
             if (now >= slot->next_us) {
+                /*
+                 * catchup 预算耗尽（或上面因发布失败 break）后仍落后：
+                 * resync 前把被静默跳过的周期数计入 dropped，口径与上面
+                 * 发布失败路径一致（H2），否则该段统计会比 OVERFLOW 路径
+                 * 更乐观、掩盖真实落后程度。
+                 */
+                uint64_t behind_us = now - slot->next_us;
+                uint64_t skipped = 1u + behind_us / slot->period_us;
+                uint32_t skipped_u32 = (skipped > (uint64_t)UINT32_MAX)
+                                            ? UINT32_MAX
+                                            : (uint32_t)skipped;
+
+                slot->dropped =
+                    bm_u32_saturating_add(slot->dropped, skipped_u32);
                 slot->next_us =
                     ticker_deadline_from(now, slot->period_us);
             }
@@ -209,7 +232,11 @@ int bm_ticker_poll(void) {
 }
 
 /**
- * @brief 查询指定槽因队列满而丢弃的事件次数
+ * @brief 查询指定槽的累计丢弃计数
+ *
+ * 口径与 bm_ticker_poll 一致（H1/H2 之后）：含所有发布失败（队列满
+ * BM_ERR_OVERFLOW、事件类型未注册、多核转发失败等）与 catchup 预算耗尽
+ * resync 时补记的静默跳过周期数。
  *
  * @param slot_index 槽索引
  * @return 丢弃次数；索引无效返回 0

@@ -4,13 +4,14 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-13
+ * @version 1.1
+ * @date 2026-06-23
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
+ * 2026-06-23       1.1            zeh            stable_count 自增前加饱和保护，防止 uint32_t 绕回导致误复位
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -58,6 +59,7 @@ typedef struct {
 #define BM_ALGO_FAULT_RATE         (1u << 2)
 #define BM_ALGO_FAULT_FROZEN              (1u << 3)
 #define BM_ALGO_FAULT_REDUNDANT_MISMATCH  (1u << 4)
+#define BM_ALGO_FAULT_RANGE_NAN           (1u << 5)
 
 void bm_algo_range_monitor_reset(bm_algo_range_monitor_state_t *state, float v);
 uint32_t bm_algo_range_monitor_step(bm_algo_range_monitor_state_t *state,

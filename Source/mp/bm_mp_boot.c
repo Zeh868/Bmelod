@@ -5,13 +5,17 @@
  *
  * native_sim 单核路径简化为本地状态机；多核时通过共享矩阵 boot_phase 同步。
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-14
+ * @version 1.2
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
+ * 2026-07-02       1.1            zeh            QD-6：cache-line 补齐改用 union，
+ *                                                消除 MSVC C2233
+ * 2026-07-09       1.2            zeh            boot_epoch 自增补回绕哨兵（回绕到 0
+ *                                                则重置为 1），避免与"未初始化"哨兵冲突
  *
  */
 #include "bm/mp/bm_mp_boot.h"
@@ -44,13 +48,8 @@ typedef struct {
 } bm_mp_boot_cpu_state_t;
 
 /** per-CPU 缓存行对齐存储，避免伪共享 */
-typedef struct {
-    bm_mp_boot_cpu_state_t state;
-    uint8_t padding[(sizeof(bm_mp_boot_cpu_state_t) % BM_CONFIG_CACHE_LINE)
-        ? (BM_CONFIG_CACHE_LINE - (sizeof(bm_mp_boot_cpu_state_t) %
-                                   BM_CONFIG_CACHE_LINE))
-        : 0];
-} bm_mp_boot_cpu_storage_t;
+typedef BM_CACHE_LINE_PADDED_UNION(bm_mp_boot_cpu_state_t, state,
+                                   BM_CONFIG_CACHE_LINE) bm_mp_boot_cpu_storage_t;
 
 /** 各逻辑 CPU 的本地启动状态（cache-line 隔离） */
 static BM_CACHE_ALIGNAS(BM_CONFIG_CACHE_LINE)
@@ -117,8 +116,18 @@ int bm_mp_boot_bootstrap_sequence(void) {
             const bm_mp_partition_t *part = bm_mp_partition();
             bm_mp_boot_cpu_state_t *local = boot_this_cpu();
             if (local) {
-                local->boot_epoch =
-                    bm_atomic_ipc_inc_u32(&matrix->boot_epoch);
+                /*
+                 * 回绕哨兵：0 在 bm_mp_boot_cpu_attach_and_init() 中被当作
+                 * "未初始化/CRC 不一致"哨兵值，故 boot_epoch 自增回绕到 0
+                 * 时须重置为 1，避免合法 epoch 被误判为未初始化（参照
+                 * bm_mp_profile.c 中 s_profile_epoch 的回绕范式）。
+                 */
+                uint32_t epoch = bm_atomic_ipc_inc_u32(&matrix->boot_epoch);
+                if (epoch == 0u) {
+                    bm_atomic_ipc_store_u32(&matrix->boot_epoch, 1u);
+                    epoch = 1u;
+                }
+                local->boot_epoch = epoch;
             }
             /*
              * partition_crc 写入 happens-before 下方 boot_phase 的 release-store；

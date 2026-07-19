@@ -3,8 +3,8 @@
  * @brief 音频数学核实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.4
- * @date 2026-06-13
+ * @version 1.5
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
@@ -15,6 +15,10 @@
  * 2026-06-17       1.3            zeh            delay-and-sum 波束成形
  * 2026-06-17       1.4            zeh            对角加载 MVDR
  * 2026-06-23       1.4            zeh            补齐 Doxygen 注释
+ * 2026-07-09       1.5            zeh            Medium-1：PDM CIC 积分器
+ *                                                改用饱和加法，避免长时间
+ *                                                偏置输入下 int32_t 有符号
+ *                                                溢出 UB
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -119,7 +123,10 @@ void bm_algo_agc_process(bm_algo_agc_state_t *state,
     if (!bm_algo_is_finite_f(state->gain)) {
         state->gain = min_gain;
     }
-    if (level >= silence_threshold && bm_algo_is_finite_f(level)) {
+    if (level >= silence_threshold && bm_algo_is_finite_f(level) &&
+        bm_algo_is_finite_f(config->target_level) &&
+        bm_algo_is_finite_f(config->attack_coeff) &&
+        bm_algo_is_finite_f(config->release_coeff)) {
         err = config->target_level - level * state->gain;
         coeff = (err > 0.0f) ? config->attack_coeff : config->release_coeff;
         coeff = bm_algo_clamp_f(coeff, 0.0f, 1.0f);
@@ -155,7 +162,17 @@ void bm_algo_vad_process(bm_algo_vad_state_t *state,
     }
     e /= (float)n;
 
-    state->energy += config->alpha * (e - state->energy);
+    if (bm_algo_is_finite_f(e)) {
+        float alpha = config->alpha;
+
+        /* Batch-3：alpha 非有限或越界会永久污染 energy 状态 */
+        if (!bm_algo_is_finite_f(alpha) || alpha < 0.0f) {
+            alpha = 0.0f;
+        } else if (alpha > 1.0f) {
+            alpha = 1.0f;
+        }
+        state->energy += alpha * (e - state->energy);
+    }
     state->voice_active = (state->energy > config->energy_threshold) ? 1 : 0;
 }
 
@@ -264,7 +281,7 @@ void bm_algo_compressor_process(bm_algo_compressor_state_t *state,
 
     for (i = 0u; i < n; ++i) {
         float x = in[i];
-        float ax = fabsf(x);
+        float ax = bm_algo_is_finite_f(x) ? fabsf(x) : state->envelope;
         float gain;
         float coeff;
 
@@ -315,7 +332,7 @@ void bm_algo_noise_gate_process(bm_algo_noise_gate_state_t *state,
 
     for (i = 0u; i < n; ++i) {
         float x = in[i];
-        float ax = fabsf(x);
+        float ax = bm_algo_is_finite_f(x) ? fabsf(x) : state->envelope;
         float target;
         float coeff;
 
@@ -424,8 +441,10 @@ static void gcc_phat_fill_time(float *ri, uint32_t fft_n, const float *src,
 /**
  * @brief 原址计算归一化互功率谱（PHAT 加权）
  *
- * PHAT 加权公式：R(k) = X_ref(k) * conj(X_sig(k)) / |X_ref(k) * conj(X_sig(k))|
+ * PHAT 加权公式：R(k) = conj(X_ref(k)) * X_sig(k) / |conj(X_ref(k)) * X_sig(k)|
  * 归一化使所有频率分量幅值为 1，增强时延估计对宽带噪声的鲁棒性。
+ * 注：此约定使 bm_algo_gcc_phat_delay 的正值表示 sig 落后 ref（见头文件契约），
+ * 与下方 cr/ci 的实现（cr=rr*sr+ri*si, ci=rr*si-ri*sr）一致。
  * 幅值低于 1e-12 时将该频率箱置零以防止除零。
  *
  * @param ref_spec 参考信号频谱（原址修改为归一化互功率谱），长度 2*fft_n
@@ -546,6 +565,30 @@ int32_t bm_algo_gcc_phat_delay(const float *ref,
     return best_lag;
 }
 
+/**
+ * @brief int32 饱和加法：a + b 用 int64 中间值计算后钳位到 int32 范围
+ *
+ * PDM 二阶 CIC 积分器（integrator1/integrator2）在整个数据流生命周期内
+ * 持续累加、从不清零；若输入长时间存在直流偏置（如 PDM 全 1 或全 -1
+ * 比特流），int32_t 的 `+=` 会在有限样本数内发生有符号溢出 UB（Medium-1）。
+ * 用本函数替换直接相加，将溢出转为饱和钳位，消除 UB。
+ *
+ * @param a 被加数
+ * @param b 加数
+ * @return 饱和后的 int32_t 和
+ */
+static int32_t bm_algo_audio_sat_add_i32(int32_t a, int32_t b) {
+    int64_t sum = (int64_t)a + (int64_t)b;
+
+    if (sum > (int64_t)INT32_MAX) {
+        return INT32_MAX;
+    }
+    if (sum < (int64_t)INT32_MIN) {
+        return INT32_MIN;
+    }
+    return (int32_t)sum;
+}
+
 void bm_algo_pdm_decimate_reset(bm_algo_pdm_decimate_state_t *state) {
     if (state != NULL) {
         state->integrator1 = 0;
@@ -581,8 +624,10 @@ uint32_t bm_algo_pdm_decimate_block(bm_algo_pdm_decimate_state_t *state,
         int32_t diff2;
         int32_t diff1;
 
-        state->integrator1 += bit;
-        state->integrator2 += state->integrator1;
+        /* Medium-1：饱和加法替换直接 += 避免长时间偏置输入下的有符号溢出 UB */
+        state->integrator1 = bm_algo_audio_sat_add_i32(state->integrator1, bit);
+        state->integrator2 = bm_algo_audio_sat_add_i32(state->integrator2,
+                                                        state->integrator1);
 
         state->phase++;
         if (state->phase < R) {
@@ -699,10 +744,13 @@ void bm_algo_mvdr_beamform(const float * const *channels,
         phase = 6.283185307f * MVDR_REF_FREQ_HZ * (float)delay / sample_hz;
         steer = cosf(phase);
         weight[ch] = (steer * steer) / var[ch];
+        if (!bm_algo_is_finite_f(weight[ch])) {
+            weight[ch] = 0.0f;
+        }
         denom += weight[ch];
     }
 
-    if (denom < 1e-12f) {
+    if (!bm_algo_is_finite_f(denom) || denom < 1e-12f) {
         bm_algo_delay_and_sum(channels, delay_samples, num_channels, n, out);
         return;
     }

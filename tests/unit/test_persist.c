@@ -110,6 +110,44 @@ void test_persist_erase_nonexistent_key(void) {
 }
 
 /**
+ * @brief H4 回归：已存 key 恰为 KEY_MAX 长度时，get 传入前缀相同但更长
+ *        的 key 不应误匹配（strncmp 若只比较 KEY_MAX 字节会漏看超出
+ *        部分，导致假阳性命中）。
+ */
+void test_persist_get_key_max_len_prefix_no_false_match(void) {
+    /* BM_CONFIG_PERSIST_KEY_MAX_LEN 默认 15：恰好 15 字符键名 */
+    const char exact_key[]  = "123456789012345";      /* 15 chars */
+    const char longer_key[] = "123456789012345X";     /* 16 chars，前 15 同前缀 */
+    uint8_t val = 7u;
+    uint8_t buf = 0u;
+    uint16_t len = 0u;
+
+    TEST_ASSERT_EQUAL(0, bm_persist_set(exact_key, &val, sizeof(val)));
+    TEST_ASSERT_EQUAL(BM_ERR_NOT_FOUND,
+        bm_persist_get(longer_key, &buf, sizeof(buf), &len));
+    /* 精确匹配仍应正常读回 */
+    TEST_ASSERT_EQUAL(0, bm_persist_get(exact_key, &buf, sizeof(buf), &len));
+    TEST_ASSERT_EQUAL_UINT8(val, buf);
+}
+
+/**
+ * @brief H4 回归：erase 同样不应因 strncmp 截断比较而误匹配更长前缀 key
+ */
+void test_persist_erase_key_max_len_prefix_no_false_match(void) {
+    const char exact_key[]  = "123456789012345";      /* 15 chars */
+    const char longer_key[] = "123456789012345X";     /* 16 chars */
+    uint8_t val = 7u;
+    uint8_t buf = 0u;
+    uint16_t len = 0u;
+
+    TEST_ASSERT_EQUAL(0, bm_persist_set(exact_key, &val, sizeof(val)));
+    TEST_ASSERT_EQUAL(BM_ERR_NOT_FOUND, bm_persist_erase(longer_key));
+    /* 未被误删，精确 key 仍能读回 */
+    TEST_ASSERT_EQUAL(0, bm_persist_get(exact_key, &buf, sizeof(buf), &len));
+    TEST_ASSERT_EQUAL_UINT8(val, buf);
+}
+
+/**
  * @brief get 缓冲区不足时返回 BM_ERR_OVERFLOW
  */
 void test_persist_get_overflow_cap(void) {
@@ -388,6 +426,8 @@ int main(void) {
     RUN_TEST(test_persist_overwrite_same_key);
     RUN_TEST(test_persist_erase_then_get_not_found);
     RUN_TEST(test_persist_erase_nonexistent_key);
+    RUN_TEST(test_persist_get_key_max_len_prefix_no_false_match);
+    RUN_TEST(test_persist_erase_key_max_len_prefix_no_false_match);
     RUN_TEST(test_persist_get_overflow_cap);
     RUN_TEST(test_persist_set_key_too_long);
     RUN_TEST(test_persist_set_val_too_long);

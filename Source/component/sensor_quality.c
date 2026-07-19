@@ -82,6 +82,18 @@ void bm_sensor_quality_step(bm_sensor_quality_axis_t *axis) {
         return;
     }
 
+    /* NaN/Inf 输入不可作为有效样本发布，否则质量监控对非有限值失明 */
+    if (!bm_algo_is_finite_f(sample)) {
+        st->fault_flags = BM_ALGO_FAULT_RANGE_NAN;
+        st->step_count++;
+        st->telemetry.sequence = st->step_count;
+        st->telemetry.status = BM_SENSOR_QUALITY_TEL_STALE;
+        st->telemetry.value = st->last_value;
+        st->telemetry.fault_flags = st->fault_flags;
+        BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
+        return;
+    }
+
     flags = bm_algo_range_monitor_step(&st->monitor, &cfg->monitor,
                                        sample, cfg->dt_s);
 

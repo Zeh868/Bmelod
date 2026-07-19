@@ -49,6 +49,15 @@ typedef int (*bm_event_forwarder_t)(uint8_t target_cpu,
                                     const void *data,
                                     size_t len);
 
+/**
+ * @brief 设置事件路由钩子（owner 解析器 + 跨核转发器）
+ *
+ * @note 单核契约：须在次核 boot 前的单核 init 期调用；首次设置后闩锁
+ * 禁止改写，不支持运行期动态切换路由钩子（实现见 bm_event.c）。
+ *
+ * @param owner_resolver 事件类型→归属 CPU 解析器
+ * @param forwarder 跨核转发函数
+ */
 void bm_event_set_route_hooks(bm_event_owner_resolver_t owner_resolver,
                               bm_event_forwarder_t forwarder);
 

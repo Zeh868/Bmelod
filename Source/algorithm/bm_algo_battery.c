@@ -3,8 +3,8 @@
  * @brief 电池算法实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-13
+ * @version 1.2
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
@@ -13,6 +13,9 @@
  * 2026-06-23       1.1            zeh            修复 bm_algo_soh_update 小段放电虚报问题：
  *                                                添加有效循环阈值判定，并对学习容量做指数平滑；
  *                                                在 charge_ah 赋值处补充语义注释
+ * 2026-07-09       1.2            zeh            H9：coulomb_step 补 NaN/Inf
+ *                                                输入护栏，避免一次毛刺永久
+ *                                                污染 charge_ah/soc 持久状态
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -22,7 +25,9 @@
 
 void bm_algo_coulomb_reset(bm_algo_coulomb_state_t *state, float soc_init) {
     if (state != NULL) {
-        state->soc = soc_init;
+        state->soc = bm_algo_is_finite_f(soc_init)
+                         ? bm_algo_clamp_f(soc_init, 0.0f, 1.0f)
+                         : 0.0f;
         state->charge_ah = 0.0f;
     }
 }
@@ -34,7 +39,12 @@ float bm_algo_coulomb_step(bm_algo_coulomb_state_t *state,
     float delta_soc;
     float cap;
 
+    /* H9：current_a/dt_s 非有限（NaN/Inf）会先污染 charge_ah 再污染 soc，
+     * 而 bm_algo_clamp_f 对 NaN 不钳位，一次毛刺即可永久损坏持久状态；
+     * 入口拒绝更新，保持旧 soc 不变。 */
     if (state == NULL || config == NULL || dt_s <= 0.0f ||
+        !bm_algo_is_finite_f(dt_s) || !bm_algo_is_finite_f(current_a) ||
+        !bm_algo_is_finite_f(config->nominal_capacity_ah) ||
         config->nominal_capacity_ah <= 0.0f) {
         return state != NULL ? state->soc : 0.0f;
     }
@@ -104,7 +114,10 @@ float bm_algo_soc_fusion_step(float soc_coulomb,
     }
 
     w = bm_algo_clamp_f(config->ocv_weight, 0.0f, 1.0f);
-    return (1.0f - w) * soc_coulomb + w * soc_ocv;
+    /* soc_coulomb/soc_ocv 若已越界（如库仑计漂移或 OCV 查表外插），加权和
+     * 仍可能落在 [0,1] 之外；这是下游 telemetry.soc 越界的根因，此处钳位
+     * 比在赋值处补救更靠近源头 */
+    return bm_algo_clamp_f((1.0f - w) * soc_coulomb + w * soc_ocv, 0.0f, 1.0f);
 }
 
 void bm_algo_soh_reset(bm_algo_soh_state_t *state,
@@ -154,7 +167,7 @@ float bm_algo_soh_update(bm_algo_soh_state_t *state,
     threshold_ah = config->initial_capacity_ah * threshold_ratio;
 
     /* 仅当本次放电量达到有效循环阈值时才更新学习容量与计数 */
-    if (discharged_ah >= threshold_ah) {
+    if (bm_algo_is_finite_f(discharged_ah) && discharged_ah >= threshold_ah) {
         /* 指数平滑：抑制单次噪声对历史估计的冲击 */
         state->learned_capacity_ah =
             (1.0f - alpha) * state->learned_capacity_ah + alpha * discharged_ah;
@@ -170,12 +183,13 @@ float bm_algo_battery_temp_capacity_ah(float nominal_capacity_ah,
                                        const bm_algo_battery_temp_config_t *config) {
     float factor;
 
-    if (config == NULL || nominal_capacity_ah <= 0.0f) {
+    if (config == NULL || !bm_algo_is_finite_f(nominal_capacity_ah) ||
+        nominal_capacity_ah <= 0.0f) {
         return nominal_capacity_ah;
     }
 
     factor = 1.0f + config->capacity_coeff_per_c * (temp_c - config->ref_temp_c);
-    if (factor < 0.1f) {
+    if (!bm_algo_is_finite_f(factor) || factor < 0.1f) {
         factor = 0.1f;
     }
     return nominal_capacity_ah * factor;

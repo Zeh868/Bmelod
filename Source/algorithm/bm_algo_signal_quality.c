@@ -15,6 +15,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_signal_quality.h"
+#include "bm/algorithm/bm_algo_common.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -77,22 +78,26 @@ uint32_t bm_algo_range_monitor_step(bm_algo_range_monitor_state_t *state,
         return 0u;
     }
 
-    if (sample < config->min_v) {
-        flags |= BM_ALGO_FAULT_UNDER_RANGE;
-    }
-    if (sample > config->max_v) {
-        flags |= BM_ALGO_FAULT_OVER_RANGE;
-    }
-
-    if (dt_s > 0.0f) {
-        rate = fabsf(sample - state->prev) / dt_s;
-        if (rate > config->max_rate_per_s) {
-            flags |= BM_ALGO_FAULT_RATE;
+    if (!bm_algo_is_finite_f(sample)) {
+        flags |= BM_ALGO_FAULT_RANGE_NAN;
+    } else {
+        if (sample < config->min_v) {
+            flags |= BM_ALGO_FAULT_UNDER_RANGE;
         }
-    }
+        if (sample > config->max_v) {
+            flags |= BM_ALGO_FAULT_OVER_RANGE;
+        }
 
-    if (sample == state->prev) {
-        flags |= BM_ALGO_FAULT_FROZEN;
+        if (dt_s > 0.0f) {
+            rate = fabsf(sample - state->prev) / dt_s;
+            if (rate > config->max_rate_per_s) {
+                flags |= BM_ALGO_FAULT_RATE;
+            }
+        }
+
+        if (sample == state->prev) {
+            flags |= BM_ALGO_FAULT_FROZEN;
+        }
     }
 
     state->prev = sample;
@@ -106,6 +111,12 @@ uint32_t bm_algo_redundant_pair_step(float a,
     float diff;
     float tol;
     float ref;
+
+    /* a/b 任一非有限（NaN/Inf）时 diff 会是 NaN，后续 diff>tol 比较恒为
+     * false，会被误判为"一致"；此处显式判非有限并直接报不匹配 */
+    if (!bm_algo_is_finite_f(a) || !bm_algo_is_finite_f(b)) {
+        return BM_ALGO_FAULT_REDUNDANT_MISMATCH;
+    }
 
     diff = fabsf(a - b);
     if (config == NULL) {

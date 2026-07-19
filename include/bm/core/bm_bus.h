@@ -9,8 +9,8 @@
  * 依赖方向保持 hybrid→core，bus 核心不引用任何 hybrid 类型。
  * 编译期用 BM_BUS_DEFINE 静态分配存储，零动态分配。
  * @author zeh (china_qzh@163.com)
- * @version 0.6
- * @date 2026-06-27
+ * @version 0.7
+ * @date 2026-07-13
  *
  * @par 修改日志:
  *
@@ -21,6 +21,9 @@
  * 2026-06-26       0.4            zeh            新增 bm_bus_reset()：freeze 对称解冻/复位，与 bm_event_reset() 语义对称
  * 2026-06-26       0.5            zeh            seqlock 多读者 LATEST 读：新增 latest_seq + bm_bus_latest_read（增量并存方案）
  * 2026-06-27       0.6            zeh            BM_BUS_IPC 控制反转：bm_bus_bind_ipc_backend + 五入口 IPC 分流
+ * 2026-07-13       0.7            zeh            C7：bm_bus_reader_t 新增 borrowed 借出标记，
+ *                                                 QUEUE/SIGNAL 未 acquire 先 release 拒绝为
+ *                                                 BM_ERR_INVALID（与写侧 write_in_progress 对称）
  *
  */
 #ifndef BM_BUS_H
@@ -121,6 +124,10 @@ typedef struct {
 typedef struct {
     bm_bus_storage_t *storage;
     uint32_t          slot_idx;   /**< readers[] 数组下标；LATEST 时无效（设 UINT32_MAX） */
+    uint8_t           borrowed;   /**< QUEUE/SIGNAL：1=已 acquire 未 release（借出中）。
+                                       与写侧 write_in_progress 对称，防未借先还使
+                                       read_cur 越过 write_cur 永久毒化游标（C7）。
+                                       仅读者自身上下文读写，无需同步。 */
 } bm_bus_reader_t;
 
 /**
@@ -577,13 +584,13 @@ extern void (*bm_bus_test_latest_read_hook)(bm_bus_storage_t *st);
 extern void (*bm_bus_test_latest_multi_read_hook)(bm_bus_storage_t *st);
 #endif
 
-#ifdef BM_BUS_ALLOW_INTERNAL
 /**
- * @brief LATEST 拷出并回传本次 seqlock 校验通过的稳定序号（内部只读 seq 访问器，仅门面库可见，公共 API 零增长）
+ * @brief LATEST 拷出并回传本次 seqlock 校验通过的稳定序号
  *
  * 与 bm_bus_latest_read 同一 seqlock 循环，额外经 out_seq 回传 seq2==seq1 的稳定序号；
- * seq 与拷到的值来自同一次校验，无 TOCTOU。供 bm_tt_schedule seq-delta 判龄使用。
- * 仅在定义 BM_BUS_ALLOW_INTERNAL 的翻译单元可见（照 BM_ENABLE_BUS_TEST_HOOK 弱强制模式）。
+ * seq 与拷到的值来自同一次校验，无 TOCTOU。供 bm_tt_schedule seq-delta 判龄使用；
+ * 2026-07-16 起转为公共 API（Hoverboard_Deng 审查修复：电流档 iq_ref 新鲜度守卫
+ * 需要以"seq 是否前进"区分"生产者在按节拍发布"与"生产者已停发、残留旧值"）。
  *
  * @param h        bus 句柄（LATEST 模式）
  * @param dst      目标缓冲，大小须 >= elem_size
@@ -591,6 +598,5 @@ extern void (*bm_bus_test_latest_multi_read_hook)(bm_bus_storage_t *st);
  * @return 同 bm_bus_latest_read
  */
 int bm_bus_latest_read_seq(const bm_bus_t *h, void *dst, uint32_t *out_seq);
-#endif /* BM_BUS_ALLOW_INTERNAL */
 
 #endif /* BM_BUS_H */

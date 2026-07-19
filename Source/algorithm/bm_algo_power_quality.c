@@ -17,6 +17,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_power_quality.h"
+#include "bm/algorithm/bm_algo_common.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -77,7 +78,9 @@ void bm_algo_energy_wh_reset(bm_algo_energy_wh_state_t *state) {
 float bm_algo_energy_wh_integrator_step(bm_algo_energy_wh_state_t *state,
                                         float p_watts,
                                         float dt_s) {
-    if (state == NULL || dt_s <= 0.0f) {
+    if (state == NULL ||
+        !bm_algo_is_finite_f(dt_s) || dt_s <= 0.0f ||
+        !bm_algo_is_finite_f(p_watts)) {
         return (state != NULL) ? state->accumulated_wh : 0.0f;
     }
 

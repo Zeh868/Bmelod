@@ -3,13 +3,22 @@
  * @brief 算法公共工具实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-13
+ * @version 1.2
+ * @date 2026-07-14
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
+ * 2026-07-09       1.1            zeh            Medium-6：bm_algo_rate_limit_step
+ *                                                补 target 有限性护栏；
+ *                                                bm_algo_clamp_f 对 NaN 不
+ *                                                钳位，一次非有限输入即可
+ *                                                永久污染 state->output
+ * 2026-07-14       1.2            zeh            Medium-6 修复：bm_algo_clamp_f
+ *                                                对 NaN/Inf 回退到区间内最
+ *                                                靠近 0 的安全值，避免污染
+ *                                                下游持久状态
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -25,12 +34,25 @@
 /**
  * @brief 将浮点值钳位到指定区间 [min_v, max_v]
  *
+ * 非有限输入（NaN/Inf）回退到区间内最靠近 0 的安全值，避免一次毛刺永久污染
+ * 调用方的持久状态。
+ *
  * @param value 输入值
  * @param min_v 下限
  * @param max_v 上限
  * @return 钳位后的值
  */
 float bm_algo_clamp_f(float value, float min_v, float max_v) {
+    /* NaN/Inf 比较恒为 false，会原样穿透；强制回到区间内有限安全值 */
+    if (!bm_algo_is_finite_f(value)) {
+        if (min_v > 0.0f) {
+            return min_v;
+        }
+        if (max_v < 0.0f) {
+            return max_v;
+        }
+        return 0.0f;
+    }
     if (value < min_v) {
         return min_v;
     }
@@ -59,6 +81,10 @@ float bm_algo_saturate_f(float value, float limit) {
  * @return 死区处理后的值
  */
 float bm_algo_deadband_f(float value, float width) {
+    /* Batch-3：NaN 输入会静默洗白为 0；透传 NaN 让调用方感知异常 */
+    if (!bm_algo_is_finite_f(value)) {
+        return value;
+    }
     if (width <= 0.0f) {
         return value;
     }
@@ -99,6 +125,11 @@ float bm_algo_hysteresis_step(bm_algo_hysteresis_state_t *state,
                               float value) {
     if (state == NULL || config == NULL) {
         return value;
+    }
+    /* 阈值非有限时比较恒为 false，latch 将永久锁死；拒绝非法配置并保持当前输出 */
+    if (!bm_algo_is_finite_f(config->low_threshold) ||
+        !bm_algo_is_finite_f(config->high_threshold)) {
+        return state->latch ? 1.0f : 0.0f;
     }
     if (state->latch) {
         if (value < config->low_threshold) {
@@ -144,8 +175,19 @@ float bm_algo_rate_limit_step(bm_algo_rate_limit_state_t *state,
     float max_up;
     float max_down;
 
+    /* Medium-6：bm_algo_clamp_f 对 NaN 比较恒为 false，不会钳位；target
+     * 为 NaN/Inf 时会直接污染 state->output 持久状态。入口拒绝非有限
+     * target，返回旧输出、保持状态不变（H9 同款护栏范式）。 */
     if (state == NULL || config == NULL || dt_s <= 0.0f) {
         return target;
+    }
+    if (!bm_algo_is_finite_f(target)) {
+        return state->output;
+    }
+    /* 速率限制阈值非有限时会污染 output 持久状态；保持旧输出不变 */
+    if (!bm_algo_is_finite_f(config->max_rise_per_s) ||
+        !bm_algo_is_finite_f(config->max_fall_per_s)) {
+        return state->output;
     }
 
     delta = target - state->output;
@@ -199,6 +241,9 @@ float bm_algo_angle_wrap_0_2pi_rad(float angle_rad) {
     angle_rad = fmodf(angle_rad, two_pi);
     if (angle_rad < 0.0f) {
         angle_rad += two_pi;
+    }
+    if (angle_rad >= two_pi) {
+        angle_rad -= two_pi;
     }
     return angle_rad;
 }

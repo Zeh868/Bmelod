@@ -115,6 +115,9 @@ void bm_solar_control_step(bm_solar_control_axis_t *axis) {
         return;
     }
 
+    /* TODO: 本组件缺少运行/故障状态机；后续应在配置或命令层增加 enable/fault
+     * 标志，未使能或故障时停止 MPPT 并将 v_ref 限制到安全范围。 */
+
     cfg = &axis->config;
     st = &axis->state;
 

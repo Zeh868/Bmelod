@@ -15,8 +15,8 @@
  * @core_affinity 本核（per-CPU）
  * 调度表实例、rt 状态均为静态分配，跨核使用需各核独立实例。
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-07-01
+ * @version 1.5
+ * @date 2026-07-13
  *
  * @par 修改日志:
  *
@@ -25,6 +25,18 @@
  * 2026-07-01       1.1            zeh            `BM_LET_DEFINE` 拆分为 `BM_LET_DEFINE_ISR`/
  *                                                 `BM_LET_DEFINE_MAINLOOP`（内部通用形式
  *                                                 `BM_LET_DEFINE_EX`），domain 由宏名显式区分
+ * 2026-07-03       1.2            zeh            Task 2：新增 `bm_tt_schedule_report_json` 机器可读
+ *                                                 JSON 导出（schema v1）+ meta 结构体
+ * 2026-07-03       1.3            zeh            Task 7：在 `BM_LET_DEFINE_EX` 中新增编译期
+ *                                                 `_Static_assert` 硬门（every >= 1 / at < every），
+ *                                                 使非法相位组装在构建期而非运行期失败
+ * 2026-07-04       1.4            zeh            Task 5：新增 `bm_tt_sched_intf_src_t` 干扰源类型，
+ *                                                 `bm_tt_schedule_json_meta_t` 追加
+ *                                                 interference/interference_count，供
+ *                                                 report_json 导出 interference_sources
+ * 2026-07-13       1.5            zeh            C3/C8：注明 input/output elem_size 须与所绑
+ *                                                 bus 存储一致（init 运行期校验，与 safe_default
+ *                                                 非空校验一并在 bm_tt_schedule_init 落地）
  *
  */
 #ifndef BM_TT_SCHEDULE_H
@@ -55,15 +67,15 @@ typedef enum {
 typedef struct {
     const bm_bus_t *bus;          /**< 核内 LATEST 源 */
     uint32_t        max_age_us;   /**< 0=显式不检龄；BM_LET_AGE_DEFAULT=2×任务周期 */
-    uint32_t        elem_size;    /**< 快照/拷出字节数 */
-    const void     *safe_default; /**< 冻结失败时填充（非 NULL，编译期由宏强制） */
+    uint32_t        elem_size;    /**< 快照/拷出字节数（须与所绑 bus 存储 elem_size 一致，init 校验） */
+    const void     *safe_default; /**< 冻结失败时填充（非 NULL，由 bm_tt_schedule_init 运行期校验） */
 } bm_let_input_t;
 
 /** 输出绑定：目标 LATEST bus + 安全值 */
 typedef struct {
     bm_bus_t       *bus;
-    uint32_t        elem_size;
-    const void     *safe_default; /**< 非 NULL，编译期强制 */
+    uint32_t        elem_size;    /**< 须与目标 bus 存储 elem_size 一致，init 校验 */
+    const void     *safe_default; /**< 非 NULL，由 bm_tt_schedule_init 运行期强制 */
 } bm_let_output_t;
 
 /** step 上下文（不透明，仅经访问器读写） */
@@ -193,6 +205,61 @@ void bm_tt_schedule_report(const bm_tt_schedule_t *sched,
                            void (*emit)(const char *line, void *u), void *u);
 
 /**
+ * @brief 干扰源描述（HRT 抢占干扰来源，供 schedule-map 消费方合并分析）
+ *
+ * @details 一个干扰源代表调度表之外、会抢占/挤占本表时间格的一路周期性
+ * 活动：`tier` 区分其来源层级——0（hardware）为硬件中断（不受本调度表
+ * 节拍约束，可能任意相位抢占）、1（scheduled）为已被纳入某调度表节拍的
+ * 活动（相位/周期已知，可做更精确的 RTA 合并）。本类型仅描述、不参与
+ * 框架运行期调度，由 app/注册单元在装配 `bm_tt_schedule_json_meta_t` 时
+ * 提供，`bm_tt_schedule_report_json` 只读遍历并导出。
+ */
+typedef struct {
+    const char *name;      /**< 干扰源标识（建议合法 C 标识符，导出时不转义） */
+    uint32_t    period_us; /**< 周期（微秒） */
+    uint32_t    wcet_us;   /**< 最坏执行时间/占用时长（微秒） */
+    uint8_t     tier;      /**< 来源层级：0=hardware（硬件中断），1=scheduled（已调度） */
+} bm_tt_sched_intf_src_t;
+
+/**
+ * @brief JSON 导出元数据（由 app/注册单元提供；NULL 视为全零默认值）
+ */
+typedef struct {
+    uint8_t         cpu;                    /**< 该表所属 CPU；单核填 0 */
+    uint32_t        ref_clk_hz;             /**< 声明 wcet 所基于的参考时钟；0=未声明 */
+    const uint32_t *operating_points_hz;    /**< 工作点频率数组，可为 NULL */
+    uint8_t         operating_point_count;  /**< 工作点个数 */
+    const bm_tt_sched_intf_src_t *interference;      /**< 干扰源数组，可为 NULL */
+    uint8_t                       interference_count; /**< 干扰源个数 */
+} bm_tt_schedule_json_meta_t;
+
+/**
+ * @brief 输出调度表的机器可读 JSON 报告（schema v1）
+ *
+ * @details 经 @p emit 逐行输出一个 JSON 对象，涵盖：调度表身份信息
+ * （name/minor_us/n_frames/hyperperiod_us）、框架开销
+ * （`BM_CONFIG_TT_SCHED_OVERHEAD_US` / `BM_CONFIG_TT_SCHED_OVERHEAD_CALIBRATED`）、
+ * 调用方传入的 meta（cpu/ref_clk_hz/operating_points_hz）、一个 `tasks` 数组
+ * （每个 activity 一条，按 `entries` 顺序；`name` 取自声明宏的 `#id` 字符串化，
+ * 恒为合法 C 标识符，因此无需 JSON 转义）、一个 `frames` 数组（每个 minor
+ * frame 一条，t 升序排列，`isr_load_us` 含 `BM_CONFIG_TT_SCHED_OVERHEAD_US`，
+ * `mainloop_pending_us` 为该拍命中的 MAINLOOP 域 activity 的 wcet_us 之和），
+ * 一个 `interference_sources` 数组（由 meta 的 `interference`/
+ * `interference_count` 提供，逐源一行，`tier` 导出为 "hardware"/
+ * "scheduled" 字符串；`interference_count` 为 0 或 meta 为 NULL 时导出空
+ * 数组 `[]`），以及一个预留的空 `edges` 数组（由后续任务填充）。输出是
+ * 确定性的：相同的调度表状态恒产出逐字节相同的输出。
+ *
+ * @param sched 调度表实例（只读）
+ * @param meta 导出元数据；NULL 时退化为全零默认值
+ * @param emit 逐行输出回调
+ * @param u emit 回调透传上下文
+ */
+void bm_tt_schedule_report_json(const bm_tt_schedule_t *sched,
+                                const bm_tt_schedule_json_meta_t *meta,
+                                void (*emit)(const char *line, void *u), void *u);
+
+/**
  * @brief 查询调度表可导出的 RTA slot 数量
  *
  * @param sched 调度表实例（只读）
@@ -238,16 +305,24 @@ int bm_tt_schedule_rt_slot_at(const bm_tt_schedule_t *sched, uint32_t idx,
  *
  * @note 实现细节：连续输出双缓冲按最大元素上界 BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE
  *       × 输出数分配（略有余量、换零动态分配与实现简单）。
+ * @note 编译期硬门：`every_`、`at_` 须为满足 `every >= 1` 且 `at < every` 的
+ *       常量表达式；违反者经 `_Static_assert` 在构建期直接失败，而非留到
+ *       运行期才被（或未被）捕获。
  */
+/* 辅助：避免空输入/输出表生成零长数组（C11 约束违规），同时保持 count 为 0。 */
+#define _BM_LET_ARRAY_PAD1(count_) ((count_) > 0u ? (count_) : 1u)
+
 #define BM_LET_DEFINE_EX(id, domain_, every_, at_, wcet_, step_, state_, inputs_, outputs_)     \
+    _Static_assert((every_) >= 1u, "BM_LET_DEFINE: every must be >= 1");                         \
+    _Static_assert((at_) < (every_), "BM_LET_DEFINE: at must be < every");                       \
     static uint8_t  id##_snap[BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE *                                \
-                              (sizeof(inputs_) / sizeof((inputs_)[0]))];                        \
+                              _BM_LET_ARRAY_PAD1(sizeof(inputs_) / sizeof((inputs_)[0]))];      \
     static uint8_t  id##_out2[2u * BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE *                           \
-                              (sizeof(outputs_) / sizeof((outputs_)[0]))];                      \
-    static uint32_t id##_baseseq[(sizeof(inputs_) / sizeof((inputs_)[0]))];                     \
-    static uint32_t id##_miss[(sizeof(inputs_) / sizeof((inputs_)[0]))];                        \
-    static int      id##_stale[(sizeof(inputs_) / sizeof((inputs_)[0]))];                       \
-    static uint32_t id##_age[(sizeof(inputs_) / sizeof((inputs_)[0]))];                         \
+                              _BM_LET_ARRAY_PAD1(sizeof(outputs_) / sizeof((outputs_)[0]))];    \
+    static uint32_t id##_baseseq[_BM_LET_ARRAY_PAD1(sizeof(inputs_) / sizeof((inputs_)[0]))];   \
+    static uint32_t id##_miss[_BM_LET_ARRAY_PAD1(sizeof(inputs_) / sizeof((inputs_)[0]))];      \
+    static int      id##_stale[_BM_LET_ARRAY_PAD1(sizeof(inputs_) / sizeof((inputs_)[0]))];     \
+    static uint32_t id##_age[_BM_LET_ARRAY_PAD1(sizeof(inputs_) / sizeof((inputs_)[0]))];       \
     static bm_let_task_rt_t id##_rt = { 0u, 0u, 0u, 0u, 0u,                                     \
         id##_baseseq, id##_miss, id##_stale, id##_age };                                        \
     bm_tt_activity_t id = {                                                                     \

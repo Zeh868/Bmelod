@@ -9,13 +9,30 @@ else()
     set(_BM_HOST_EXE "")
 endif()
 
-if(DEFINED ZEPHYR_SDK_INSTALL_DIR AND EXISTS
-   "${ZEPHYR_SDK_INSTALL_DIR}/riscv64-zephyr-elf/bin/riscv64-zephyr-elf-gcc${_BM_HOST_EXE}")
-    set(_pfx "${ZEPHYR_SDK_INSTALL_DIR}/riscv64-zephyr-elf/bin/riscv64-zephyr-elf")
-    set(CMAKE_C_COMPILER   "${_pfx}-gcc${_BM_HOST_EXE}")
-    set(CMAKE_ASM_COMPILER "${_pfx}-gcc${_BM_HOST_EXE}")
-    set(CMAKE_OBJCOPY      "${_pfx}-objcopy${_BM_HOST_EXE}")
-else()
+if(DEFINED ZEPHYR_SDK_INSTALL_DIR)
+    set(_BM_ZEPHYR_SDK_ROOT "${ZEPHYR_SDK_INSTALL_DIR}")
+elseif(DEFINED ENV{ZEPHYR_SDK_INSTALL_DIR})
+    set(_BM_ZEPHYR_SDK_ROOT "$ENV{ZEPHYR_SDK_INSTALL_DIR}")
+endif()
+
+set(_BM_RISCV64_TOOLCHAIN_FOUND OFF)
+if(DEFINED _BM_ZEPHYR_SDK_ROOT)
+    # Zephyr SDK 旧布局：$ZEPHYR_SDK_INSTALL_DIR/<triplet>/bin/
+    set(_BM_ZEPHYR_TOOLCHAIN_PREFIX "${_BM_ZEPHYR_SDK_ROOT}/riscv64-zephyr-elf/bin")
+    # Zephyr SDK ≥ 0.16 新布局：$_BM_ZEPHYR_SDK_ROOT/gnu/<triplet>/bin/
+    if(NOT EXISTS "${_BM_ZEPHYR_TOOLCHAIN_PREFIX}/riscv64-zephyr-elf-gcc${_BM_HOST_EXE}")
+        set(_BM_ZEPHYR_TOOLCHAIN_PREFIX "${_BM_ZEPHYR_SDK_ROOT}/gnu/riscv64-zephyr-elf/bin")
+    endif()
+    if(EXISTS "${_BM_ZEPHYR_TOOLCHAIN_PREFIX}/riscv64-zephyr-elf-gcc${_BM_HOST_EXE}")
+        set(_pfx "${_BM_ZEPHYR_TOOLCHAIN_PREFIX}/riscv64-zephyr-elf")
+        set(CMAKE_C_COMPILER   "${_pfx}-gcc${_BM_HOST_EXE}")
+        set(CMAKE_ASM_COMPILER "${_pfx}-gcc${_BM_HOST_EXE}")
+        set(CMAKE_OBJCOPY      "${_pfx}-objcopy${_BM_HOST_EXE}")
+        set(_BM_RISCV64_TOOLCHAIN_FOUND ON)
+    endif()
+endif()
+
+if(NOT _BM_RISCV64_TOOLCHAIN_FOUND)
     find_program(_BM_RISCV64_GCC
         NAMES riscv64-zephyr-elf-gcc riscv64-unknown-elf-gcc riscv64-none-elf-gcc)
     if(NOT _BM_RISCV64_GCC)

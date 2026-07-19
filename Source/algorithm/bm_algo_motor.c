@@ -3,14 +3,18 @@
  * @brief 电机数学核：Clarke/Park 与 SVPWM 实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.2
- * @date 2026-06-23
+ * @version 1.3
+ * @date 2026-07-16
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-23       1.2            zeh            磁链观测器纯积分改为带衰减积分，消除低速/静止时 DC 漂移
+ * 2026-07-16       1.3            zeh            norm_deg_f 补非有限输入护栏：
+ *                                                ±Inf 时 while 归一化死循环
+ *                                                （公共 API bm_algo_pwm_sample_window_valid
+ *                                                可达），非有限输入返回 0.0f
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -271,8 +275,15 @@ float bm_algo_flux_observer_step(bm_algo_flux_observer_state_t *state,
     float theta_meas;
     float pll_error;
 
-    if (state == NULL || config == NULL || dt_s <= 0.0f) {
-        return 0.0f;
+    if (state == NULL || config == NULL ||
+        !bm_algo_is_finite_f(dt_s) || dt_s <= 0.0f ||
+        !bm_algo_is_finite_f(v_alpha) || !bm_algo_is_finite_f(v_beta) ||
+        !bm_algo_is_finite_f(i_alpha) || !bm_algo_is_finite_f(i_beta) ||
+        !bm_algo_is_finite_f(config->rs_ohm) ||
+        !bm_algo_is_finite_f(config->pll_kp) ||
+        !bm_algo_is_finite_f(config->pll_ki) ||
+        !bm_algo_is_finite_f(config->ls_h)) {
+        return (state != NULL) ? state->theta_rad : 0.0f;
     }
 
     v_alpha_emf = v_alpha - config->rs_ohm * i_alpha;
@@ -289,6 +300,9 @@ float bm_algo_flux_observer_step(bm_algo_flux_observer_state_t *state,
             wc = 0.0f;
         }
         decay = wc * dt_s;
+        /* decay 未钳位时，wc*dt_s > 1 会使 (1-decay) 变负，衰减项变为
+         * 符号翻转的正反馈，导致 flux 状态发散；钳到 [0,1] 保证稳定 */
+        decay = bm_algo_clamp_f(decay, 0.0f, 1.0f);
         state->flux_alpha = state->flux_alpha * (1.0f - decay) + v_alpha_emf * dt_s;
         state->flux_beta  = state->flux_beta  * (1.0f - decay) + v_beta_emf  * dt_s;
     }
@@ -337,6 +351,11 @@ float bm_algo_fw_id_adjust(float id_ref_a, float vd, float vq, float v_max_pu) {
 }
 
 static float norm_deg_f(float deg) {
+    /* 非有限输入护栏：±Inf 会让下方 while 归一化永不收敛（死循环）；
+     * 返回 0.0f 安全值（处于合法角度域内），调用方按常规角度处理。 */
+    if (!bm_algo_is_finite_f(deg)) {
+        return 0.0f;
+    }
     while (deg < 0.0f) {
         deg += 360.0f;
     }

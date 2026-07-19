@@ -20,6 +20,7 @@
  * 2026-06-17       1.6            zeh            CONV2D 1x1 NCHW 测试
  * 2026-06-17       1.7            zeh            tflm_runtime stub 空回调注册测试
  * 2026-06-23       1.8            zeh            通用 CONV2D 多配置测试
+ * 2026-07-16       1.9            zeh            补 FLATTEN dims 溢出负样本
  */
 #include "unity.h"
 #include "bm/component/tinyml_adapter.h"
@@ -353,6 +354,54 @@ void test_tinyml_graph_maxpool_2x2_node(void) {
     TEST_ASSERT_EQUAL_INT8(expected[1], tensors[1].data[1]);
     TEST_ASSERT_EQUAL_INT8(expected[2], tensors[1].data[2]);
     TEST_ASSERT_EQUAL_INT8(expected[3], tensors[1].data[3]);
+}
+
+void test_tinyml_graph_maxpool_2x2_rejects_undersized_output(void) {
+    bm_tinyml_arena_t arena;
+    bm_tinyml_tensor_t tensors[2];
+    uint32_t in_dims[2] = { 4u, 4u };
+    bm_tinyml_quant_params_t quant = { .scale = 1.0f, .zero_point = 0 };
+    bm_tinyml_graph_node_t nodes[1];
+    bm_tinyml_graph_t graph;
+    /* 4x4 输入 2x2 池化应产出 2x2=4 字节，但 out_tensor 只声明容量 2，
+     * out_region[2]/[3] 是越界哨兵，不应被写入。 */
+    int8_t out_region[4];
+    uint32_t i;
+
+    bm_tinyml_arena_reset(&arena);
+    TEST_ASSERT_EQUAL(0, bm_tinyml_tensor_alloc_i8(&arena, &tensors[0],
+                                                   in_dims, 2u, &quant));
+    for (i = 0u; i < 16u; ++i) {
+        tensors[0].data[i] = (int8_t)(i + 1);
+    }
+
+    memset(&tensors[1], 0, sizeof(tensors[1]));
+    tensors[1].data = out_region;
+    tensors[1].byte_count = 2u;
+    tensors[1].ndim = 2u;
+    tensors[1].dims[0] = 2u;
+    tensors[1].dims[1] = 2u;
+    tensors[1].scale = 1.0f;
+    out_region[2] = (int8_t)111;
+    out_region[3] = (int8_t)111;
+
+    nodes[0].op = BM_TINYML_OP_MAXPOOL_2X2;
+    nodes[0].input_tensor = 0u;
+    nodes[0].input_tensor_b = 0u;
+    nodes[0].output_tensor = 1u;
+    nodes[0].fc_weights = NULL;
+    nodes[0].fc_in_dim = 0u;
+    nodes[0].fc_out_dim = 0u;
+
+    graph.nodes = nodes;
+    graph.node_count = 1u;
+    graph.arena = &arena;
+    graph.tensors = tensors;
+    graph.tensor_count = 2u;
+
+    TEST_ASSERT_NOT_EQUAL(0, bm_tinyml_graph_run(&graph, NULL, 0u, NULL, 0u));
+    TEST_ASSERT_EQUAL_INT8(111, out_region[2]);
+    TEST_ASSERT_EQUAL_INT8(111, out_region[3]);
 }
 
 static void test_tinyml_graph_depthwise_conv2d_node(void) {
@@ -719,6 +768,212 @@ static void test_tinyml_conv2d_multichannel_with_bias(void) {
     TEST_ASSERT_EQUAL_INT8(2, tensors[1].data[1]);
 }
 
+/**
+ * @brief 非原地 RELU：out_tensor 容量不足或 data 为 NULL 时应拒绝，不越界写
+ *
+ * out_region 只声明容量 2，但 in_tensor byte_count=4；越界哨兵 out_region[2]/[3]
+ * 不应被写入。
+ */
+void test_tinyml_graph_relu_rejects_undersized_output(void) {
+    bm_tinyml_arena_t arena;
+    bm_tinyml_tensor_t tensors[2];
+    uint32_t in_dims[1] = { 4u };
+    bm_tinyml_quant_params_t quant = { .scale = 1.0f, .zero_point = 0 };
+    bm_tinyml_graph_node_t nodes[1];
+    bm_tinyml_graph_t graph;
+    int8_t out_region[4];
+
+    bm_tinyml_arena_reset(&arena);
+    TEST_ASSERT_EQUAL(0, bm_tinyml_tensor_alloc_i8(&arena, &tensors[0],
+                                                   in_dims, 1u, &quant));
+    tensors[0].data[0] = (int8_t)-5;
+    tensors[0].data[1] = (int8_t)3;
+    tensors[0].data[2] = (int8_t)-1;
+    tensors[0].data[3] = (int8_t)7;
+
+    memset(&tensors[1], 0, sizeof(tensors[1]));
+    tensors[1].data = out_region;
+    tensors[1].byte_count = 2u;
+    tensors[1].ndim = 1u;
+    tensors[1].dims[0] = 2u;
+    tensors[1].scale = 1.0f;
+    out_region[2] = (int8_t)111;
+    out_region[3] = (int8_t)111;
+
+    nodes[0].op = BM_TINYML_OP_RELU;
+    nodes[0].input_tensor = 0u;
+    nodes[0].input_tensor_b = 0u;
+    nodes[0].output_tensor = 1u;
+    nodes[0].fc_weights = NULL;
+    nodes[0].fc_in_dim = 0u;
+    nodes[0].fc_out_dim = 0u;
+
+    graph.nodes = nodes;
+    graph.node_count = 1u;
+    graph.arena = &arena;
+    graph.tensors = tensors;
+    graph.tensor_count = 2u;
+
+    TEST_ASSERT_NOT_EQUAL(0, bm_tinyml_graph_run(&graph, NULL, 0u, NULL, 0u));
+    TEST_ASSERT_EQUAL_INT8(111, out_region[2]);
+    TEST_ASSERT_EQUAL_INT8(111, out_region[3]);
+}
+
+/**
+ * @brief 非原地 SOFTMAX：out_tensor 容量不足时应拒绝，不越界写
+ */
+void test_tinyml_graph_softmax_rejects_undersized_output(void) {
+    bm_tinyml_arena_t arena;
+    bm_tinyml_tensor_t tensors[2];
+    uint32_t in_dims[1] = { 4u };
+    bm_tinyml_quant_params_t quant = { .scale = 1.0f, .zero_point = 0 };
+    bm_tinyml_graph_node_t nodes[1];
+    bm_tinyml_graph_t graph;
+    int8_t out_region[4];
+
+    bm_tinyml_arena_reset(&arena);
+    TEST_ASSERT_EQUAL(0, bm_tinyml_tensor_alloc_i8(&arena, &tensors[0],
+                                                   in_dims, 1u, &quant));
+    tensors[0].data[0] = (int8_t)1;
+    tensors[0].data[1] = (int8_t)2;
+    tensors[0].data[2] = (int8_t)3;
+    tensors[0].data[3] = (int8_t)4;
+
+    memset(&tensors[1], 0, sizeof(tensors[1]));
+    tensors[1].data = out_region;
+    tensors[1].byte_count = 2u;
+    tensors[1].ndim = 1u;
+    tensors[1].dims[0] = 2u;
+    tensors[1].scale = 1.0f;
+    out_region[2] = (int8_t)111;
+    out_region[3] = (int8_t)111;
+
+    nodes[0].op = BM_TINYML_OP_SOFTMAX;
+    nodes[0].input_tensor = 0u;
+    nodes[0].input_tensor_b = 0u;
+    nodes[0].output_tensor = 1u;
+    nodes[0].fc_weights = NULL;
+    nodes[0].fc_in_dim = 0u;
+    nodes[0].fc_out_dim = 0u;
+
+    graph.nodes = nodes;
+    graph.node_count = 1u;
+    graph.arena = &arena;
+    graph.tensors = tensors;
+    graph.tensor_count = 2u;
+
+    TEST_ASSERT_NOT_EQUAL(0, bm_tinyml_graph_run(&graph, NULL, 0u, NULL, 0u));
+    TEST_ASSERT_EQUAL_INT8(111, out_region[2]);
+    TEST_ASSERT_EQUAL_INT8(111, out_region[3]);
+}
+
+/**
+ * @brief arena_alloc：size 接近 UINT32_MAX 时 start+size 整数环绕须被拒绝
+ *
+ * 先分配 1 字节使 offset=1（start 非 0），再以 size=UINT32_MAX 申请：
+ * start+size 在 32 位无符号运算下环绕为 0，若无溢出保护会误判「空间足够」
+ * 并返回非 NULL 指针（对应一次几乎无限大的越界分配）。
+ */
+void test_tinyml_arena_alloc_rejects_size_overflow(void) {
+    bm_tinyml_arena_t arena;
+    void *p1;
+    void *p2;
+
+    bm_tinyml_arena_reset(&arena);
+    p1 = bm_tinyml_arena_alloc(&arena, 1u, 1u);
+    TEST_ASSERT_NOT_NULL(p1);
+
+    p2 = bm_tinyml_arena_alloc(&arena, UINT32_MAX, 1u);
+    TEST_ASSERT_NULL(p2);
+}
+
+/**
+ * @brief QUANTIZE：float_input_count 校验须对齐真正被读取的量（out_tensor
+ *        byte_count），而非 input_tensor 的 byte_count
+ *
+ * input_tensor byte_count=1（仅占位，不参与实际读写），output_tensor
+ * byte_count=8；float_input_count=1 满足 in_tensor 但不足以覆盖
+ * out_tensor 所需的 8 个 float，图执行应拒绝，不越界读 float_inputs。
+ */
+void test_tinyml_graph_quantize_validates_against_output_tensor(void) {
+    bm_tinyml_arena_t arena;
+    bm_tinyml_tensor_t tensors[2];
+    uint32_t small_dims[1] = { 1u };
+    uint32_t big_dims[1] = { 8u };
+    bm_tinyml_quant_params_t quant = { .scale = 1.0f, .zero_point = 0 };
+    bm_tinyml_graph_node_t nodes[1];
+    bm_tinyml_graph_t graph;
+    float inputs[1] = { 1.0f };
+
+    bm_tinyml_arena_reset(&arena);
+    TEST_ASSERT_EQUAL(0, bm_tinyml_tensor_alloc_i8(&arena, &tensors[0],
+                                                   small_dims, 1u, &quant));
+    TEST_ASSERT_EQUAL(0, bm_tinyml_tensor_alloc_i8(&arena, &tensors[1],
+                                                   big_dims, 1u, &quant));
+
+    nodes[0].op = BM_TINYML_OP_QUANTIZE;
+    nodes[0].input_tensor = 0u;
+    nodes[0].input_tensor_b = 0u;
+    nodes[0].output_tensor = 1u;
+    nodes[0].fc_weights = NULL;
+    nodes[0].fc_in_dim = 0u;
+    nodes[0].fc_out_dim = 0u;
+
+    graph.nodes = nodes;
+    graph.node_count = 1u;
+    graph.arena = &arena;
+    graph.tensors = tensors;
+    graph.tensor_count = 2u;
+
+    TEST_ASSERT_NOT_EQUAL(0, bm_tinyml_graph_run(&graph, inputs, 1u,
+                                                 NULL, 0u));
+}
+
+/**
+ * @brief FLATTEN：输入 dims 乘积溢出时须拒绝，而非回绕后污染元数据
+ *
+ * 先正常分配小 tensor，再人为把 dims 改大成乘积极易溢出的值；
+ * run_flatten_node 内部应通过 mul_u32_checked 检出并返回错误。
+ */
+void test_tinyml_graph_flatten_rejects_dim_overflow(void) {
+    bm_tinyml_arena_t arena;
+    bm_tinyml_tensor_t tensors[2];
+    uint32_t small_dims[2] = { 2u, 2u };
+    uint32_t flat_dims[2] = { 1u, 4u };
+    bm_tinyml_quant_params_t quant = { .scale = 1.0f, .zero_point = 0 };
+    bm_tinyml_graph_node_t nodes[1];
+    bm_tinyml_graph_t graph;
+
+    bm_tinyml_arena_reset(&arena);
+    TEST_ASSERT_EQUAL(0, bm_tinyml_tensor_alloc_i8(&arena, &tensors[0],
+                                                   small_dims, 2u, &quant));
+    TEST_ASSERT_EQUAL(0, bm_tinyml_tensor_alloc_i8(&arena, &tensors[1],
+                                                   flat_dims, 2u, &quant));
+
+    /* 人为构造 dims 乘积溢出：65536^4 远超 UINT32_MAX */
+    tensors[0].ndim = 4u;
+    tensors[0].dims[0] = 65536u;
+    tensors[0].dims[1] = 65536u;
+    tensors[0].dims[2] = 65536u;
+    tensors[0].dims[3] = 65536u;
+
+    nodes[0].op = BM_TINYML_OP_FLATTEN;
+    nodes[0].input_tensor = 0u;
+    nodes[0].input_tensor_b = 0u;
+    nodes[0].output_tensor = 1u;
+    nodes[0].fc_weights = NULL;
+    nodes[0].fc_in_dim = 0u;
+    nodes[0].fc_out_dim = 0u;
+
+    graph.nodes = nodes;
+    graph.node_count = 1u;
+    graph.arena = &arena;
+    graph.tensors = tensors;
+    graph.tensor_count = 2u;
+
+    TEST_ASSERT_NOT_EQUAL(0, bm_tinyml_graph_run(&graph, NULL, 0u, NULL, 0u));
+}
+
 void test_tinyml_tflm_runtime_stub_register_invoke(void) {
     bm_tinyml_tflm_runtime_t runtime;
 
@@ -732,10 +987,16 @@ int main(void) {
     RUN_TEST(test_tinyml_arena_tensor_quantize);
     RUN_TEST(test_tinyml_graph_quantize_fc_run);
     RUN_TEST(test_tinyml_graph_relu_node);
+    RUN_TEST(test_tinyml_graph_relu_rejects_undersized_output);
     RUN_TEST(test_tinyml_graph_softmax_flatten_chain);
+    RUN_TEST(test_tinyml_graph_softmax_rejects_undersized_output);
+    RUN_TEST(test_tinyml_graph_flatten_rejects_dim_overflow);
+    RUN_TEST(test_tinyml_arena_alloc_rejects_size_overflow);
+    RUN_TEST(test_tinyml_graph_quantize_validates_against_output_tensor);
     RUN_TEST(test_tinyml_graph_add_node);
     RUN_TEST(test_tinyml_graph_mul_node);
     RUN_TEST(test_tinyml_graph_maxpool_2x2_node);
+    RUN_TEST(test_tinyml_graph_maxpool_2x2_rejects_undersized_output);
     RUN_TEST(test_tinyml_graph_depthwise_conv2d_node);
     RUN_TEST(test_tinyml_graph_conv2d_1x1_node);
     RUN_TEST(test_tinyml_conv2d_1x1_degenerate);

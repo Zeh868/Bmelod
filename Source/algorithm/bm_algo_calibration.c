@@ -14,6 +14,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_calibration.h"
+#include "bm/algorithm/bm_algo_common.h"
 #include <stddef.h>
 
 /**
@@ -22,7 +23,8 @@
  * 算法：遍历节点找到包含 x 的区间 [x[i], x[i+1]]，
  * 计算归一化参数 t = (x - x[i]) / (x[i+1] - x[i])，
  * 返回 y[i] + t * (y[i+1] - y[i])。
- * 超出区间时饱和（取端点值）；区间跨度为零时取左端点。
+ * 超出区间时饱和（取端点值）；非单调（跨度≤0）区间跳过并继续向后查找，
+ * 无合法区间时返回末端 y 值。
  *
  * @param lut 查找表描述符指针
  * @param x   查询自变量值
@@ -34,6 +36,12 @@ float bm_algo_lut1d_interp(const bm_algo_lut1d_t *lut, float x) {
     if (lut == NULL || lut->x == NULL || lut->y == NULL ||
         lut->point_count == 0u) {
         return 0.0f;
+    }
+
+    /* Batch-3：NaN 输入若饱和到末端值，会比传播 NaN 更危险（静默错误满量程输出）；
+     * 非有限输入直接透传，让下游可见异常。 */
+    if (!bm_algo_is_finite_f(x)) {
+        return x;
     }
 
     if (x <= lut->x[0]) {
@@ -48,8 +56,9 @@ float bm_algo_lut1d_interp(const bm_algo_lut1d_t *lut, float x) {
             float span = lut->x[i + 1u] - lut->x[i];
             float t;
 
+            /* Batch-3：非单调区间跳过而非立即返回左端点，继续向后查找合法区间 */
             if (span <= 0.0f) {
-                return lut->y[i];
+                continue;
             }
             t = (x - lut->x[i]) / span;
             return lut->y[i] + t * (lut->y[i + 1u] - lut->y[i]);

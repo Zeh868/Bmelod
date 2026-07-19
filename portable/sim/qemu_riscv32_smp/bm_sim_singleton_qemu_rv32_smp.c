@@ -6,13 +6,15 @@
  * 临界区与内存屏障由 `bm_port_arch_riscv32` 提供；M-mode trap 由 boot 层 `_trap_entry` 分发。
  * CLINT mtime/mtimecmp 为 64 位，RV32 上通过两次 32 位访问读写。
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-15
+ * @version 1.2
+ * @date 2026-07-16
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-15       1.0            zeh            正式发布
+ * 2026-07-11       1.1            zeh            tick 回调派发接入 arch 层 FPU 守卫（bm_arch_isr_fpu.h，riscv32 IMAC 无 FPU 恒 no-op）
+ * 2026-07-16       1.2            zeh            timer_arm 补 csrs mie,MTIE（此前只开 mstatus.MIE，定时器中断永不触发）；配套 boot 层 _trap_entry 补全寄存器保存与 mcause 清零
  *
  */
 #include "bm_drv_timer.h"
@@ -21,6 +23,7 @@
 #include "bm_log.h"
 #include "bm_types.h"
 #include "hal/bm_hal_cpu.h"
+#include "riscv32/bm_arch_isr_fpu.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -94,6 +97,12 @@ static void rv32_smp_timer_arm(uint32_t cpu) {
 
     clint_set_mtimecmp(cpu, now + g_timer_interval[cpu]);
     g_timer_armed[cpu] = 1;
+    /* MTIE(bit7) + MIE：M-mode 机器定时器中断（对齐 RV64 SMP 实现，
+       此前只开 mstatus.MIE 不设 mie.MTIE，定时器中断永远不触发） */
+    {
+        uintptr_t mtie = 0x80u;
+        __asm volatile ("csrs mie, %0" :: "r"(mtie) : "memory");
+    }
     __asm volatile ("csrsi mstatus, 8" ::: "memory");
 }
 
@@ -140,22 +149,32 @@ const struct bm_timer_driver_api bm_drv_timer_api = {
     rv32_smp_timer_set_callback,
 };
 
+/** @brief tick ISR 内 FPU 现场保存区（riscv32 IMAC 无 FPU，恒 no-op，接线预留）。 */
+static uint8_t g_tick_cp0_sa[BM_ARCH_ISR_FPU_SA_SIZE] __attribute__((aligned(16)));
+
 /**
  * @brief M-mode 机器定时器中断（由 startup trap 向量调用）
+ *
+ * g_tick_cb 派发经 bm_arch_isr_fpu_enter/exit
+ * （portable/arch/riscv32/bm_arch_isr_fpu.h）包裹；riscv32 为 IMAC（无 F/D
+ * 扩展）恒 no-op，此处接线只为统一调用点，行为不变。
  */
 void qemu_rv32_smp_on_timer_irq(void) {
     uint32_t cpu = rv32_smp_cpu_index();
     void (*cb)(void);
+    unsigned cp_prev;
 
     if (!g_timer_armed[cpu]) {
         return;
     }
     clint_set_mtimecmp(cpu, clint_get_mtime() + g_timer_interval[cpu]);
     g_ticks[cpu]++;
+    cp_prev = bm_arch_isr_fpu_enter(g_tick_cp0_sa);
     cb = g_tick_cb[cpu];
     if (cb) {
         cb();
     }
+    bm_arch_isr_fpu_exit(g_tick_cp0_sa, cp_prev);
 }
 
 /**

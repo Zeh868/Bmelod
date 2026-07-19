@@ -2,14 +2,17 @@
  * @file power_converter.c
  * @brief Buck 峰值电流模式组件实现
  * @author zeh (china_qzh@163.com)
- * @version 0.2
- * @date 2026-06-13
+ * @version 0.3
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补全 Doxygen 中文注释；添加 SPDX 头
+ * 2026-07-09       0.3            zeh            缺口 16：current_step 禁用分支补发
+ *                                                遥测并检查 write_duty 结果（失败锁
+ *                                                存故障），不再静默丢弃/不发遥测
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -86,6 +89,11 @@ int bm_power_converter_validate_config(const bm_power_converter_config_t *config
         return BM_ERR_INVALID;
     }
     if (config->duty_max <= config->duty_min) {
+        return BM_ERR_INVALID;
+    }
+    /* duty 需落在物理可实现范围 [0,1] 内，此前仅校验 max>min，
+     * 未限制越界（如 duty_min<0 或 duty_max>1）会传导到占空比输出 */
+    if (config->duty_min < 0.0f || config->duty_max > 1.0f) {
         return BM_ERR_INVALID;
     }
     return BM_OK;
@@ -190,11 +198,34 @@ void bm_power_converter_current_step(bm_power_converter_axis_t *axis) {
     if ((st->cmd.status & BM_PWR_CONV_CMD_ENABLED) == 0u) {
         st->i_ref_a = 0.0f;
         bm_algo_ramp_reset(&st->i_ramp, 0.0f);
+        /* 未使能/故障态统一复位电流环积分器，避免残留积分量造成重启冲击 */
+        bm_algo_pi_reset(&st->pi_current, 0.0f);
         st->duty = cfg->duty_min;
-        if (axis->resources.write_duty != NULL) {
-            (void)axis->resources.write_duty(axis->resources.write_duty_user,
-                                             st->duty);
+        if (axis->resources.write_duty != NULL &&
+            axis->resources.write_duty(axis->resources.write_duty_user,
+                                       st->duty) != 0) {
+            /* 缺口 16：write_duty 结果此前被丢弃，写失败既不会锁存故障，
+             * 也不会像启用分支那样发遥测——照启用分支（201-213 行）写法对齐。 */
+            latch_fault(axis);
+            st->telemetry.sequence = st->current_loops;
+            st->telemetry.status = BM_PWR_CONV_TEL_FAULT;
+            st->telemetry.i_set_a = st->cmd.i_set_a;
+            st->telemetry.i_ref_a = st->i_ref_a;
+            st->telemetry.i_out_a = 0.0f;
+            st->telemetry.duty = st->duty;
+            publish_pwr_conv_telemetry(axis);
+            return;
         }
+        /* 缺口 16：禁用分支此前完全不发遥测，导致上层继续读到停用前
+         * （可能是 VALID 且带旧 i_out）的陈旧快照。照第 12/14 条思路补发，
+         * 反映当前安全占空比状态。 */
+        st->telemetry.sequence = st->current_loops;
+        st->telemetry.status = BM_PWR_CONV_TEL_VALID;
+        st->telemetry.i_set_a = st->cmd.i_set_a;
+        st->telemetry.i_ref_a = st->i_ref_a;
+        st->telemetry.i_out_a = 0.0f;
+        st->telemetry.duty = st->duty;
+        publish_pwr_conv_telemetry(axis);
         return;
     }
 

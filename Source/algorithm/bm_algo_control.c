@@ -3,8 +3,8 @@
  * @brief 控制算法：积分器、微分器、PI/PID、PR 与补偿器实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.2
- * @date 2026-06-23
+ * @version 1.4
+ * @date 2026-07-14
  *
  * @par 修改日志:
  *
@@ -12,6 +12,14 @@
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-13       1.1            zeh            增加 Smith 预估器
  * 2026-06-23       1.2            zeh            bm_algo_pr_init 补 Doxygen 设计契约注释，清理 (void) 死代码，变量改名使意图清晰
+ * 2026-07-09       1.3            zeh            Medium-2：bm_algo_lead_lag_init
+ *                                                补 k+p==0 保护，避免双线性
+ *                                                变换分母为 0 产生 Inf/NaN
+ *                                                却返回成功
+ * 2026-07-14       1.4            zeh            Medium-6 修复：integrator/
+ *                                                differentiator/pr/lead_lag
+ *                                                step 补输入/系数有限性护栏，
+ *                                                与 pi/pid/pid2 对齐
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -34,6 +42,10 @@ float bm_algo_integrator_step(bm_algo_integrator_state_t *state,
                               float dt_s) {
     if (state == NULL || config == NULL || dt_s <= 0.0f) {
         return input;
+    }
+    /* 非有限输入会污染持久积分状态；保持旧输出不变 */
+    if (!bm_algo_is_finite_f(input)) {
+        return state->integrator;
     }
 
     state->integrator += input * dt_s;
@@ -60,6 +72,10 @@ float bm_algo_differentiator_step(bm_algo_differentiator_state_t *state,
     if (state == NULL || config == NULL || dt_s <= 0.0f) {
         return 0.0f;
     }
+    /* 非有限输入会污染 prev_input 历史状态；保持旧微分值不变 */
+    if (!bm_algo_is_finite_f(input)) {
+        return state->derivative;
+    }
 
     raw_d = (input - state->prev_input) / dt_s;
     state->prev_input = input;
@@ -71,6 +87,10 @@ float bm_algo_differentiator_step(bm_algo_differentiator_state_t *state,
 
 int bm_algo_pi_validate_config(const bm_algo_pi_config_t *config) {
     if (config == NULL) {
+        return BM_ALGO_ERR_INVALID;
+    }
+    /* 配置增益非有限（NaN/Inf）会污染 step 中的每一次乘加，此前无校验 */
+    if (!bm_algo_is_finite_f(config->kp) || !bm_algo_is_finite_f(config->ki)) {
         return BM_ALGO_ERR_INVALID;
     }
     if (config->out_min > config->out_max) {
@@ -98,7 +118,8 @@ void bm_algo_pi_bumpless_reset(bm_algo_pi_state_t *state,
 
     output = bm_algo_clamp_f(output, config->out_min, config->out_max);
 
-    if (config->ki != 0.0f) {
+    /* Batch-3：ki 非有限或为零时，反算积分器会种入 NaN/Inf；直接清零积分器 */
+    if (bm_algo_is_finite_f(config->ki) && config->ki != 0.0f) {
         state->integrator = output / config->ki;
         state->integrator = bm_algo_clamp_f(state->integrator,
                                             config->integrator_min,
@@ -149,6 +170,11 @@ float bm_algo_pi_step(bm_algo_pi_state_t *state,
 
 int bm_algo_pid_validate_config(const bm_algo_pid_config_t *config) {
     if (config == NULL) {
+        return BM_ALGO_ERR_INVALID;
+    }
+    /* 配置增益非有限（NaN/Inf）会污染 step 中的每一次乘加，此前无校验 */
+    if (!bm_algo_is_finite_f(config->kp) || !bm_algo_is_finite_f(config->ki) ||
+        !bm_algo_is_finite_f(config->kd)) {
         return BM_ALGO_ERR_INVALID;
     }
     if (config->out_min > config->out_max) {
@@ -229,6 +255,14 @@ int bm_algo_pr_compute_coeffs(const bm_algo_pr_config_t *config,
         return BM_ALGO_ERR_INVALID;
     }
 
+    /* 配置增益/频率非有限（NaN/Inf）会污染双线性变换的每一步计算，此前无校验 */
+    if (!bm_algo_is_finite_f(config->kp) ||
+        !bm_algo_is_finite_f(config->omega_rad_s) ||
+        !bm_algo_is_finite_f(config->bandwidth_rad_s) ||
+        !bm_algo_is_finite_f(config->kr)) {
+        return BM_ALGO_ERR_INVALID;
+    }
+
     w0 = config->omega_rad_s;
     wc = config->bandwidth_rad_s;
     k = 2.0f / sample_period_s;
@@ -299,6 +333,13 @@ float bm_algo_pr_step(bm_algo_pr_state_t *state,
     if (state == NULL || config == NULL) {
         return 0.0f;
     }
+    /* 非有限输入或系数会污染 x1/x2/y1/y2 持久状态；保持旧输出不变 */
+    if (!bm_algo_is_finite_f(error) ||
+        !bm_algo_is_finite_f(b0) || !bm_algo_is_finite_f(b1) ||
+        !bm_algo_is_finite_f(b2) || !bm_algo_is_finite_f(a1) ||
+        !bm_algo_is_finite_f(a2)) {
+        return state->output;
+    }
 
     y = b0 * error + b1 * state->x1 + b2 * state->x2
         - a1 * state->y1 - a2 * state->y2;
@@ -330,6 +371,12 @@ int bm_algo_lead_lag_init(bm_algo_lead_lag_state_t *state,
     z = config->zero_rad_s;
     p = config->pole_rad_s;
 
+    /* Medium-2：k+p==0（pole_rad_s == -2/T）会使双线性变换分母为 0，
+     * 产生 Inf/NaN 却仍返回成功；拦截并返回错误码，拒绝写入非法系数。 */
+    if (k + p == 0.0f) {
+        return BM_ALGO_ERR_INVALID;
+    }
+
     state->b0 = config->gain * (k + z) / (k + p);
     state->b1 = config->gain * (z - k) / (k + p);
     state->a1 = (p - k) / (k + p);
@@ -350,6 +397,10 @@ float bm_algo_lead_lag_step(bm_algo_lead_lag_state_t *state, float input) {
     if (state == NULL) {
         return input;
     }
+    /* 非有限输入会污染 x1/y1 持久状态；保持旧输出不变 */
+    if (!bm_algo_is_finite_f(input)) {
+        return state->y1;
+    }
 
     y = state->b0 * input + state->b1 * state->x1 - state->a1 * state->y1;
     state->x1 = input;
@@ -359,6 +410,35 @@ float bm_algo_lead_lag_step(bm_algo_lead_lag_state_t *state, float input) {
 
 float bm_algo_feedforward_step(float reference, float gain, float bias) {
     return reference * gain + bias;
+}
+
+/**
+ * @brief 校验 2DOF PID 配置参数
+ *
+ * 疑似-8：pid2 家族此前缺该校验函数，与已有 bm_algo_pi_validate_config/
+ * bm_algo_pid_validate_config 不对齐；out_min>out_max 或
+ * integrator_min>integrator_max 时 bm_algo_clamp_f 内部区间为空，
+ * 会静默返回意义不明的钳位结果而不报错。
+ *
+ * @param config 待校验配置指针
+ * @return 0 合法；BM_ALGO_ERR_INVALID 参数无效
+ */
+int bm_algo_pid2_validate_config(const bm_algo_pid2_config_t *config) {
+    if (config == NULL) {
+        return BM_ALGO_ERR_INVALID;
+    }
+    /* 配置增益非有限（NaN/Inf）会污染 step 中的每一次乘加，此前无校验 */
+    if (!bm_algo_is_finite_f(config->kp) || !bm_algo_is_finite_f(config->ki) ||
+        !bm_algo_is_finite_f(config->kd)) {
+        return BM_ALGO_ERR_INVALID;
+    }
+    if (config->out_min > config->out_max) {
+        return BM_ALGO_ERR_INVALID;
+    }
+    if (config->integrator_min > config->integrator_max) {
+        return BM_ALGO_ERR_INVALID;
+    }
+    return 0;
 }
 
 void bm_algo_pid2_reset(bm_algo_pid2_state_t *state, float output) {
@@ -385,6 +465,12 @@ float bm_algo_pid2_step(bm_algo_pid2_state_t *state,
 
     if (state == NULL || config == NULL || dt_s <= 0.0f) {
         return 0.0f;
+    }
+
+    /* reference/measurement 非有限（NaN/Inf）时保持旧输出不变，避免污染
+     * integrator/d_filtered 状态；此前 PID2 家族缺该护栏 */
+    if (!bm_algo_is_finite_f(reference) || !bm_algo_is_finite_f(measurement)) {
+        return state->output;
     }
 
     error_i = reference - measurement;
@@ -474,7 +560,13 @@ float bm_algo_smith_predictor_step(bm_algo_smith_predictor_state_t *state,
     state->y_delayed = config->model_gain * u_delayed;
     y_predicted = y_nd + measurement - state->y_delayed;
 
-    state->u_delay_line[state->head] = u_controller;
+    /* Batch-3：NaN 控制量入延迟线会在 delay_steps 拍后复发一次；
+     * 非有限输入不入线，改用 0 占位保持 head 前进。 */
+    if (!bm_algo_is_finite_f(u_controller)) {
+        state->u_delay_line[state->head] = 0.0f;
+    } else {
+        state->u_delay_line[state->head] = u_controller;
+    }
     state->head = (state->head + 1u) % config->delay_steps;
     state->y_model = y_nd;
 

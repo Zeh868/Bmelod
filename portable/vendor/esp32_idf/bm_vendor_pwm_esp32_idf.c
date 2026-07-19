@@ -16,8 +16,8 @@
  *       性能为待硬件验证项。
  *
  * @author zeh (china_qzh@163.com)
- * @version 3.2
- * @date 2026-06-22
+ * @version 3.7
+ * @date 2026-07-16
  *
  * @par 修改日志:
  *
@@ -33,11 +33,50 @@
  * 2026-06-22       3.0            zeh            FOC 混合架构：新增 bm_vendor_pwm_hw_init_isr_only（仅挂 ISR）
  * 2026-06-22       3.1            zeh            清 B2 诊断埋点（DIAG_ISR 计时/diag_read_clear/diag_get_duty）
  * 2026-06-22       3.2            zeh            ISR 分频：新增 isr_decimate/isr_div_count 字段与 set_isr_decimate API，ADC+回调按 N 抽稀降 CPU 负载
+ * 2026-07-11       3.3            zeh            FPU 守卫下沉为 arch 层原语（bm_arch_isr_fpu.h），替换 vendor 私有头
+ * 2026-07-12       3.4            zeh            TEZ 中断注册（两处 esp_intr_alloc）去掉
+ *                                                ESP_INTR_FLAG_IRAM：update_binding/
+ *                                                adc_complete_binding 回调链落 flash，
+ *                                                flash 写窗口（WiFi PHY 校准/NVS commit，
+ *                                                cache 关闭）内触发即 cache panic 循环重启
+ *                                                （真机实证，PC 落在 flash 映射区）；与
+ *                                                tick ISR 同款根因，同款修法（commit
+ *                                                1c3a859）：改为窗口内自动延迟，丢拍由
+ *                                                LET/wcet 账目如实体现
+ * 2026-07-12       3.5            zeh            TEZ 中断注册（两处 esp_intr_alloc）级别从
+ *                                                ESP_INTR_FLAG_LEVEL3 降为 LEVEL2：Plan B
+ *                                                Task4 真机诊断坐实 core0 上 LEVEL3 非共享
+ *                                                通用线仅 2 条（intno 23/27），PWM0+PWM1+
+ *                                                tick/HRT(TG0_T0) 三者抢 2 条线致
+ *                                                esp_intr_alloc 分配失败、`No free interrupt
+ *                                                inputs for TG0_T0_LEVEL`、控制环 LET 全
+ *                                                run=0（诊断详见 .superpowers/sdd/
+ *                                                task-4c-intr-contention-diag.md 方案(c)）；
+ *                                                LEVEL2 通用线有 3 条（19/20/21），可容纳两
+ *                                                个 PWM TEZ 请求，tick 独占 LEVEL3 后不再
+ *                                                竞争。IRAM 标志与本次容量竞争无关（已用
+ *                                                源码证伪），保持去掉状态不回退。新增风险
+ *                                                窗口：tick(LEVEL3) 可抢占正在跑的 PWM
+ *                                                ISR(LEVEL2)，PWM ISR 职责轻（清中断+分频
+ *                                                判断+ADC 触发），真机验证判据见诊断文档
+ *                                                §5 实验 C
+ * 2026-07-13       3.6            zeh            v3.5 接受的"tick(LEVEL3) 抢占 PWM ISR
+ *                                                (LEVEL2)"风险在 Plan B 把 FOC 电流环 bind
+ *                                                到本 TEZ ISR 后失效——该 ISR 不再职责轻而
+ *                                                跑满 FPU（sqrtf/foc step），LEVEL3 tick 嵌套
+ *                                                抢占之破坏寄存器窗口/FPU 上下文致真机
+ *                                                LoadProhibited 崩溃（addr2line 实证）。已在
+ *                                                bm_vendor_singleton_esp32_idf.c 把 tick 降至
+ *                                                LEVEL2 与本 TEZ 同级消除嵌套（本文件 TEZ
+ *                                                级别不变，仍 LEVEL2）
+ * 2026-07-16       3.7            zeh            BM_VENDOR_PWM_TIMER_PRESCALE 由 B2 诊断值
+ *                                                20 恢复为正常工作值 4（载波回 20 kHz），
+ *                                                同步清理诊断注释
  *
  */
 #include "bm_vendor_pwm_esp32_idf.h"
 #include "bm_vendor_esp32_idf_compat.h"
-#include "bm_vendor_esp32_isr_fpu.h"
+#include "xtensa/bm_arch_isr_fpu.h"
 #include "bm_hal_instances_esp32wroom32e.h"
 #include "bm_types.h"
 
@@ -76,10 +115,15 @@
  * => timer_prescale = 160M / (2 * 1000 * 20000) = 4。
  */
 #define BM_VENDOR_PWM_GROUP_PRESCALE  1
-/* B2 诊断①：临时降载波 20kHz→4kHz（prescale 4→20），把低边导通窗口拉宽到
- * ~125µs ≫ ADC 28µs 采样，验证"高频下采样窗口太窄→采不到相电流"假设。
- * 若降频后 ib raw 出现偏移/iq 跟上 → 根因坐实，进②重构采样；验证后恢复 4。 */
-#define BM_VENDOR_PWM_TIMER_PRESCALE  20u
+/** @brief timer 分频正常工作值 4（对应载波 20 kHz，推导见上方时钟公式注释）。
+ *
+ * @warning 真机回归注意：20 kHz 下 TEZ 谷底低边采样窗口约 18µs，小于
+ *       双通道 ADC oneshot 采样约 24µs（见 bm_vendor_adc_esp32_idf.c 的
+ *       B2 诊断②注释）。B3 采样重构（ADC 移出 ISR / 硬件触发）落地前，
+ *       若复现"采不到相电流"（iq 反馈恒≈0、vq 积分 windup），临时回退
+ *       为 20u（载波 4 kHz，窗口约 93µs）即可，属单行改动。
+ */
+#define BM_VENDOR_PWM_TIMER_PRESCALE  4u
 /** @brief up-down 中心对齐 peak 值（与 BOARD_FOC_PWM_MAX 对齐）。 */
 #define BM_VENDOR_PWM_PEAK            BOARD_FOC_PWM_MAX
 
@@ -104,11 +148,12 @@ typedef struct {
     /**
      * @brief ISR 内 FPU(CP0) 现场保存区（per-context 各一份，16 字节对齐）。
      *
-     * 供 bm_vendor_esp32_isr_fpu_enter/exit 保存/恢复被打断代码的浮点现场，
-     * 让本 ISR 回调内的浮点运算安全。每 MCPWM unit 独立持有，避免共享/嵌套。
-     * 无 FPU 芯片上 BM_VENDOR_ESP32_ISR_FPU_SA_SIZE=1，仅占位、守卫为 no-op。
+     * 供 bm_arch_isr_fpu_enter/exit（portable/arch/xtensa/bm_arch_isr_fpu.h）
+     * 保存/恢复被打断代码的浮点现场，让本 ISR 回调内的浮点运算安全。每
+     * MCPWM unit 独立持有，避免共享/嵌套。无 FPU 芯片或非 ESP_PLATFORM 路径
+     * 上 BM_ARCH_ISR_FPU_SA_SIZE=1，仅占位、守卫为 no-op。
      */
-    uint8_t cp0_sa[BM_VENDOR_ESP32_ISR_FPU_SA_SIZE] __attribute__((aligned(16)));
+    uint8_t cp0_sa[BM_ARCH_ISR_FPU_SA_SIZE] __attribute__((aligned(16)));
     /**
      * @brief ISR ADC 采样+回调的分频因子（CPU 预算调节）。
      *
@@ -416,7 +461,7 @@ static void IRAM_ATTR bm_vendor_pwm_isr(void *arg)
      * 守卫顺序铁律：开 CP0 → 存现场 → 跑浮点 → 复现场 → 还原 CPENABLE。
      */
     {
-        unsigned cp_prev = bm_vendor_esp32_isr_fpu_enter(ctx->cp0_sa);
+        unsigned cp_prev = bm_arch_isr_fpu_enter(ctx->cp0_sa);
 
         /* ADC 完成回调（由 ADC 模块注册） */
         if (ctx->adc_complete_binding.callback != NULL) {
@@ -428,7 +473,7 @@ static void IRAM_ATTR bm_vendor_pwm_isr(void *arg)
             ctx->update_binding.callback(ctx->update_binding.context);
         }
 
-        bm_vendor_esp32_isr_fpu_exit(ctx->cp0_sa, cp_prev);
+        bm_arch_isr_fpu_exit(ctx->cp0_sa, cp_prev);
     }
 }
 
@@ -494,9 +539,19 @@ static int bm_vendor_pwm_hw_init(bm_vendor_pwm_context_t *ctx)
      * 重入窗口——避免在 hw 尚未完成、ctx->initialized 仍为 0 时被 TEZ ISR
      * 抢入而重入 hw_init / esp_intr_alloc。
      */
+    /*
+     * 刻意不带 ESP_INTR_FLAG_IRAM：update_binding/adc_complete_binding
+     * 回调链（FOC current_step 等用户回调）位于 flash，若以 IRAM-safe
+     * 注册，flash 写入窗口（WiFi PHY 校准/NVS commit 等，cache 关闭）内
+     * 中断照常触发会跳入 flash 地址，触发 "Cache disabled but cached
+     * memory region accessed" panic（同 tick ISR 根因，见 commit
+     * 1c3a859）。去掉该标志后 flash 操作期间本中断被 IDF 自动延迟、窗口
+     * 结束恢复——控制环丢拍由 LET staleness/wcet deadline-miss 账目如实
+     * 体现。
+     */
     intr_src = (motor_id == 0u) ? ETS_PWM0_INTR_SOURCE : ETS_PWM1_INTR_SOURCE;
     ret = esp_intr_alloc(intr_src,
-                         ESP_INTR_FLAG_LEVEL3 | ESP_INTR_FLAG_IRAM |
+                         ESP_INTR_FLAG_LEVEL2 |
                              ESP_INTR_FLAG_INTRDISABLED,
                          bm_vendor_pwm_isr,
                          ctx,
@@ -811,9 +866,14 @@ int bm_vendor_pwm_hw_init_isr_only(uint32_t motor_id)
      * 注册 TEZ ISR，以 ESP_INTR_FLAG_INTRDISABLED 装入：alloc 后中断处于
      * 禁用态，配合最后 esp_intr_enable 消除 init 期重入窗口。
      */
+    /*
+     * 刻意不带 ESP_INTR_FLAG_IRAM：理由同 bm_vendor_pwm_hw_init（同文件
+     * 上方），update_binding 回调链落 flash，flash 写窗口内触发会 cache
+     * panic（同 tick ISR 根因，commit 1c3a859 同款修法）。
+     */
     intr_src = (motor_id == 0u) ? ETS_PWM0_INTR_SOURCE : ETS_PWM1_INTR_SOURCE;
     ret = esp_intr_alloc(intr_src,
-                         ESP_INTR_FLAG_LEVEL3 | ESP_INTR_FLAG_IRAM |
+                         ESP_INTR_FLAG_LEVEL2 |
                              ESP_INTR_FLAG_INTRDISABLED,
                          bm_vendor_pwm_isr,
                          ctx,

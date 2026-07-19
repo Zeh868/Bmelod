@@ -17,6 +17,7 @@
  */
 #include "bm/algorithm/bm_algo_detection.h"
 #include "bm/algorithm/bm_algo_errors.h"
+#include "bm/algorithm/bm_algo_common.h"
 #include <stddef.h>
 
 #include <float.h>
@@ -42,8 +43,24 @@ float bm_algo_matched_filter(const float *signal,
     for (i = 0u; i + template_len <= signal_len; ++i) {
         uint32_t k;
         float corr = 0.0f;
+        int corr_finite = 1;
+
         for (k = 0u; k < template_len; ++k) {
-            corr += signal[i + k] * template[k];
+            float s = signal[i + k];
+            float t = template[k];
+
+            /* Batch-3：模板含 NaN 时会返回看似合法的极差匹配；传播 NaN */
+            if (!bm_algo_is_finite_f(s) || !bm_algo_is_finite_f(t)) {
+                corr_finite = 0;
+                break;
+            }
+            corr += s * t;
+        }
+        if (!corr_finite) {
+            if (best_index != NULL) {
+                *best_index = 0u;
+            }
+            return NAN;
         }
         if (corr > best) {
             best = corr;
@@ -77,10 +94,21 @@ void bm_algo_sync_demod_feed(bm_algo_sync_demod_state_t *state,
         return;
     }
 
-    i_inst = sample * ref_cos;
-    q_inst = sample * ref_sin;
-    state->i_accum += state->alpha * (i_inst - state->i_accum);
-    state->q_accum += state->alpha * (q_inst - state->q_accum);
+    {
+        float alpha = state->alpha;
+
+        /* Batch-3：alpha 契约为 [0,1] 一阶平滑系数；越界/非有限会失控 */
+        if (!bm_algo_is_finite_f(alpha) || alpha < 0.0f) {
+            alpha = 0.0f;
+        } else if (alpha > 1.0f) {
+            alpha = 1.0f;
+        }
+
+        i_inst = sample * ref_cos;
+        q_inst = sample * ref_sin;
+        state->i_accum += alpha * (i_inst - state->i_accum);
+        state->q_accum += alpha * (q_inst - state->q_accum);
+    }
     state->count++;
 }
 

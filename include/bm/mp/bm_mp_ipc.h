@@ -7,8 +7,8 @@
  * 目标核 `endpoint[target]`，禁止函数级 static `last_seq`。
  * 阶段 2 新增 N×N cmd_ring（FIFO）与 tel_channel（seqlock 最新值）payload 通道。
  * @author zeh (china_qzh@163.com)
- * @version 1.2
- * @date 2026-06-27
+ * @version 1.3
+ * @date 2026-07-02
  *
  * @par 修改日志:
  *
@@ -16,6 +16,8 @@
  * 2026-06-14       1.0            zeh            正式发布
  * 2026-06-15       1.1            zeh            事件环增加序列异常与 drain 阻塞计数
  * 2026-06-27       1.2            zeh            新增 cmd_ring/tel_channel N×N payload 通道；layout 版本 5→6
+ * 2026-07-02       1.3            zeh            QD-6：cursor 补齐改用 union，与其余
+ *                                                cache-line storage 站点写法统一
  *
  */
 #ifndef BM_MP_IPC_H
@@ -106,11 +108,8 @@ typedef struct {
     uint32_t             source_seq;
 } bm_mp_ipc_event_slot_t;
 
-typedef struct {
-    bm_atomic_ipc_u32_t value;
-    uint8_t padding[BM_CONFIG_CACHE_LINE -
-                    (sizeof(bm_atomic_ipc_u32_t) % BM_CONFIG_CACHE_LINE)];
-} bm_mp_ipc_cursor_t;
+typedef BM_CACHE_LINE_PADDED_UNION(bm_atomic_ipc_u32_t, value,
+                                   BM_CONFIG_CACHE_LINE) bm_mp_ipc_cursor_t;
 
 /** 单向 SPSC 事件环（source != target） */
 typedef struct BM_CACHE_ALIGNAS(BM_CONFIG_CACHE_LINE) {

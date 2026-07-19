@@ -13,15 +13,15 @@
 #
 # 用法：
 #   cmake -DTOOL_ID=MSVC -DDUMPBIN_EXE=<dumpbin路径> -DLIB_PATH=<产物路径> \
-#         -P check_no_alloc_symbols.cmake
+#         -DTARGET_NAME=<目标名> -P check_no_alloc_symbols.cmake
 #   cmake -DTOOL_ID=GNU  -DNM_EXE=<nm路径>            -DLIB_PATH=<产物路径> \
-#         -P check_no_alloc_symbols.cmake
+#         -DTARGET_NAME=<目标名> -P check_no_alloc_symbols.cmake
 #
 # @author zeh (china_qzh@163.com)
 # @date 2026-07-01
 
-if(NOT DEFINED TOOL_ID OR NOT DEFINED LIB_PATH)
-    message(FATAL_ERROR "check_no_alloc_symbols.cmake 需要 -DTOOL_ID=... -DLIB_PATH=...")
+if(NOT DEFINED TOOL_ID OR NOT DEFINED LIB_PATH OR NOT DEFINED TARGET_NAME)
+    message(FATAL_ERROR "check_no_alloc_symbols.cmake 需要 -DTOOL_ID=... -DLIB_PATH=... -DTARGET_NAME=...")
 endif()
 
 if(TOOL_ID STREQUAL "MSVC")
@@ -80,7 +80,7 @@ endforeach()
 if(_hits)
     string(REPLACE ";" "\n  " _hits_str "${_hits}")
     message(FATAL_ERROR
-        "检测到 bm_tt_schedule 产物引用动态分配符号（违反零分配设计）：\n  ${_hits_str}")
+        "检测到 ${TARGET_NAME} 产物引用动态分配符号（违反零分配设计）：\n  ${_hits_str}")
 endif()
 
-message(STATUS "bm_tt_schedule 符号表零分配检查通过：${LIB_PATH}")
+message(STATUS "${TARGET_NAME} 符号表零分配检查通过：${LIB_PATH}")

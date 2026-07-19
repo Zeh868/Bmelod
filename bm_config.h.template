@@ -27,6 +27,7 @@
 #define BM_CONFIG_ENABLE_PIPELINE            0   /* Pipeline 组件 */
 #define BM_CONFIG_ENABLE_ALGORITHM           0   /* 算法库（Source/algorithm） */
 #define BM_CONFIG_ENABLE_TT_SCHED            0   /* 时间触发调度门面（bm_tt_schedule） */
+#define BM_CONFIG_ENABLE_WCET_MON            0   /* 运行时 deadline/WCET 监控（SAFE-2，bm_wcet_mon） */
 
 /* ---- 流式域（Block/Frame RT） ---- */
 #define BM_CONFIG_STREAM_MAX_BLOCKS          4u  /* 流缓冲块数上限，取值须在 [2,32] */
@@ -82,6 +83,11 @@
 #define BM_CONFIG_TT_SCHED_MAX_FRAMES        256u /* LCM 帧数护栏，防止周期组合爆炸 */
 #define BM_CONFIG_TT_SCHED_MAX_ELEM_SIZE     64u /* 单条目数据元素字节数上限 */
 #define BM_CONFIG_TT_SCHED_MAX_INPUTS        8u  /* 单任务输入数上界（init 期校验） */
+#define BM_CONFIG_TT_SCHED_OVERHEAD_US       0u  /* 每 minor 格框架派发开销(µs)，真机标定后回填 */
+#define BM_CONFIG_TT_SCHED_OVERHEAD_CALIBRATED 0 /* 0=未标定占位 1=已实测标定 */
+
+/* ---- bm_wcet_mon（SAFE-2 运行时 deadline/WCET 监控） ---- */
+#define BM_CONFIG_WCET_MON_MAX_SPANS         16u /* 监控 span 上限 */
 
 #define BM_CONFIG_TICKER_MAX_SLOTS           8   /* 软实时节拍器槽位上限 */
 #define BM_CONFIG_TICKER_MAX_CATCHUP         4   /* 节拍器单次追赶上限 */
@@ -93,6 +99,21 @@
 
 /* ---- 单核运行与 cache-line 默认值 ---- */
 #define BM_CONFIG_CPU_COUNT                  1u  /* 核数，单核默认 1 */
+/* CPU 标称/锚点主频(Hz)，schedule-map wcet 声明所基于的频率；0=未声明。
+ * 若存在 DVFS 多档主频，可额外定义 BM_CONFIG_CPU_DVFS_POINTS_HZ 为花括号
+ * 初始化列表，例如：
+ *   #define BM_CONFIG_CPU_DVFS_POINTS_HZ { 80000000u, 160000000u, 240000000u }
+ * 该宏框架不提供缺省值，不定义即视为没有 DVFS。
+ * 锚点语义：本宏须为 DVFS 点集之一（wcet 就是在这个工作点测的）；
+ * 声明了 DVFS 点集就必须声明本宏，否则无法频率缩放。 */
+#define BM_CONFIG_CPU_FREQ_HZ                 0u
+/* 调度分析干扰源声明（可选，分析专用与运行时解耦）：定义
+ * BM_CONFIG_SM_INTERFERENCE_SRC 为 bm_schedule_map_interference_t 初始化列表，
+ * schedule-map 出表即计入 HRT 抢占干扰，例如：
+ *   #define BM_CONFIG_SM_INTERFERENCE_SRC \
+ *       { { { "curr_10kHz", 100u, 10u, 1u }, 0u } }
+ * 元素 {{name,period_us,wcet_us,tier},cpu}，tier: 0=hardware、1=scheduled；
+ * wcet 在 BM_CONFIG_CPU_FREQ_HZ 锚点下声明、须上板实测回填。未定义即不计入。 */
 #define BM_CONFIG_CACHE_LINE                 64  /* cache-line 字节数，用于对齐 */
 #define BM_CONFIG_EVENT_PROCESS_BUDGET       16u /* 主循环单次事件处理预算 */
 #define BM_CONFIG_STREAM_DRAIN_BUDGET        4u  /* 主循环单次流式块排空预算 */
@@ -127,6 +148,7 @@
 #define BM_CONFIG_LOG_RING                   0   /* 是否启用日志环形缓冲 */
 #define BM_CONFIG_LOG_DRAIN_BUDGET           2u  /* 主循环单次日志排空预算 */
 #define BM_CONFIG_LOG_DRAIN_WCET_PER_MSG_US  100u /* 单条日志排空 WCET（微秒） */
+#define BM_CONFIG_IPC_DRAIN_WCET_PER_MSG_US  8u  /* MP IPC drain 单条 payload 消息 WCET（微秒） */
 #define BM_CONFIG_RTA_MAX_ITERATIONS         128u /* RTA（响应时间分析）最大迭代数 */
 #define BM_CONFIG_ATOMIC_MAX_RETRIES         8u  /* 原子 CAS 重试上界（须 >= 1） */
 #define BM_CONFIG_BUS_LATEST_MAX_RETRIES     8u  /* bm_bus LATEST 读路径 spin 重试上界（须 >= 1） */

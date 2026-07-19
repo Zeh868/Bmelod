@@ -6,8 +6,8 @@
  * 运行统计计数。单生产者单消费者，零堆、零拷贝交接。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.4
- * @date 2026-06-15
+ * @version 1.5
+ * @date 2026-07-15
  *
  * @par 修改日志:
  *
@@ -17,6 +17,7 @@
  * 2026-06-14       1.2            zeh            commit/drain 解耦
  * 2026-06-14       1.2            zeh            按 CPU 约束 on_ready/drain 同步路径
  * 2026-06-15       1.4            zeh            默认禁用 ready 回调并清理旧时间戳
+ * 2026-07-15       1.5            zeh            drain 无 handler 分支的 pending_drain 清零收进临界区，消除与 ISR commit 竞态
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -175,6 +176,8 @@ int bm_stream_init(bm_stream_t *stream,
     stream->block_count = block_count;
     stream->block_capacity = descriptor_capacity;
     stream->next_sequence = 0u;
+    stream->pending_drain = 0u;
+    memset(&stream->stats, 0, sizeof(stream->stats));
     stream->initialized = 1;
     return BM_OK;
 }
@@ -409,11 +412,17 @@ int bm_stream_drain(bm_stream_t *stream, uint32_t budget) {
         return 0;
     }
 
-    handler = stream->on_ready;
-    handler_context = stream->on_ready_context;
-    if (!handler) {
-        stream->pending_drain = 0u;
-        return 0;
+    {
+        bm_irq_state_t irq = BM_STREAM_CRITICAL_ENTER();
+        handler = stream->on_ready;
+        handler_context = stream->on_ready_context;
+        if (!handler) {
+            /* pending_drain 与 ISR commit 竞态，必须在临界区内清零。 */
+            stream->pending_drain = 0u;
+            BM_STREAM_CRITICAL_EXIT(irq);
+            return 0;
+        }
+        BM_STREAM_CRITICAL_EXIT(irq);
     }
 
     while (notified < budget) {

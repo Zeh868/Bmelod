@@ -17,6 +17,7 @@
 #ifndef BM_CRC32_H
 #define BM_CRC32_H
 
+#include <stddef.h> /* NULL（bm_crc32 空指针防御分支使用） */
 #include <stdint.h>
 
 /**
@@ -29,6 +30,11 @@
 static inline uint32_t bm_crc32(const uint8_t *data, uint32_t len) {
     uint32_t crc = 0xFFFFFFFFu;
     uint32_t i;
+
+    /* data 为 NULL 时按 len==0 语义处理，避免调用方传入空指针触发解引用 */
+    if (data == NULL) {
+        return 0u;
+    }
 
     for (i = 0u; i < len; i++) {
         crc ^= data[i];

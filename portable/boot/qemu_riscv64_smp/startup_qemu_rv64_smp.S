@@ -52,7 +52,7 @@ secondary_park:
     .type _trap_entry, @function
     .align 4
 _trap_entry:
-    addi    sp, sp, -112
+    addi    sp, sp, -128
     sd      ra, 0(sp)
     sd      t0, 8(sp)
     sd      t1, 16(sp)
@@ -65,6 +65,10 @@ _trap_entry:
     sd      a5, 72(sp)
     sd      a6, 80(sp)
     sd      a7, 88(sp)
+    sd      t3, 96(sp)
+    sd      t4, 104(sp)
+    sd      t5, 112(sp)
+    sd      t6, 120(sp)
     csrr    t0, mcause
     srli    t1, t0, 63
     beqz    t1, _trap_restore
@@ -84,6 +88,12 @@ _trap_software:
     j       _trap_restore
 
 _trap_restore:
+    /* mret 前清 mcause：否则符号位残留使 bm_arch_riscv_in_isr() 线程态永久误报 1 */
+    csrw    mcause, zero
+    ld      t6, 120(sp)
+    ld      t5, 112(sp)
+    ld      t4, 104(sp)
+    ld      t3, 96(sp)
     ld      a7, 88(sp)
     ld      a6, 80(sp)
     ld      a5, 72(sp)
@@ -96,5 +106,5 @@ _trap_restore:
     ld      t1, 16(sp)
     ld      t0, 8(sp)
     ld      ra, 0(sp)
-    addi    sp, sp, 112
+    addi    sp, sp, 128
     mret

@@ -127,6 +127,11 @@ if(BM_CONFIG_SMP)
     set(BM_ENABLE_STREAM  ON CACHE BOOL "" FORCE)
     set(BM_ENABLE_WDG     ON CACHE BOOL "" FORCE)
     set(BM_HAL_USE_CPU_STUB OFF CACHE BOOL "" FORCE)
+    # bmp_algo（BM_SMP_ENABLE_ALGO 默认 ON）依赖 bm_algorithm，随库模式拉齐；
+    # 该 option 在下方 SMP 段才声明，此处对未定义（首轮 configure）按默认 ON 处理
+    if(NOT DEFINED BM_SMP_ENABLE_ALGO OR BM_SMP_ENABLE_ALGO)
+        set(BM_ENABLE_ALGORITHM ON CACHE BOOL "" FORCE)
+    endif()
     if(BM_BUILD_TESTS AND NOT BM_BACKEND)
         set(BM_BACKEND "native_sim_mp" CACHE STRING "" FORCE)
     endif()
@@ -168,6 +173,7 @@ add_library(bm_hal STATIC
     Source/hal/bm_hal_dma_stream.c
     Source/hal/bm_hal_uptime.c
     Source/hal/bm_persist.c          # #10 持久化 KV 层
+    Source/hal/bm_hal_cpu_freq.c     # CPU 主频开机对账
 )
 option(BM_HAL_USE_CPU_STUB "Link bm_hal_cpu_stub.c into bm_hal" ON)
 if(BM_HAL_USE_CPU_STUB)
@@ -225,11 +231,26 @@ if(BM_ENABLE_BUS)
     target_compile_definitions(bm_core PUBLIC BM_ENABLE_BUS=1)
 endif()
 
+option(BM_ENABLE_PARAM "Enable bm_param runtime parameter registry" ON)
+if(BM_ENABLE_PARAM)
+    add_library(bm_param STATIC Source/core/bm_param.c)
+    target_link_libraries(bm_param PUBLIC bm_core bm_hal)  # persist 在 bm_hal
+    bm_target_internal_includes(bm_param)
+    target_link_libraries(bm_framework INTERFACE bm_param)
+endif()
+
 if(BM_ENABLE_SHELL)
     add_library(bm_shell STATIC Source/core/bm_shell.c)
     target_link_libraries(bm_shell PUBLIC bm_core)
     bm_target_internal_includes(bm_shell)
     target_link_libraries(bm_framework INTERFACE bm_shell)
+
+    if(BM_ENABLE_PARAM)
+        # 批 P：框架内建命令组（param/log/ver/uptime），app 经
+        # bm_shell_register_builtins() 一把注册（命令面控制权仍在 app）
+        target_sources(bm_shell PRIVATE Source/core/bm_shell_builtins.c)
+        target_link_libraries(bm_shell PUBLIC bm_param)
+    endif()
 endif()
 
 if(BM_ENABLE_WDG)

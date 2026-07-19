@@ -295,6 +295,30 @@ static void test_p1_k0_and_fixed_extensions(void) {
     TEST_ASSERT_EQUAL(BM_ALGO_FAULT_REDUNDANT_MISMATCH,
                       bm_algo_redundant_pair_step(1.0f, 2.0f, &rp_cfg));
 
+    /* RANGE_NAN 新语义：NaN/Inf 样本必须报 RANGE_NAN，而不是被洗白为 0 */
+    {
+        bm_algo_range_monitor_config_t rm_cfg = {
+            .min_v = 0.0f,
+            .max_v = 10.0f,
+            .max_rate_per_s = 100.0f
+        };
+        bm_algo_range_monitor_state_t rm_st;
+        uint32_t flags;
+
+        bm_algo_range_monitor_reset(&rm_st, 5.0f);
+        flags = bm_algo_range_monitor_step(&rm_st, &rm_cfg, NAN, 0.01f);
+        TEST_ASSERT_TRUE((flags & BM_ALGO_FAULT_RANGE_NAN) != 0u);
+        TEST_ASSERT_TRUE((flags & (BM_ALGO_FAULT_UNDER_RANGE |
+                                   BM_ALGO_FAULT_OVER_RANGE |
+                                   BM_ALGO_FAULT_RATE |
+                                   BM_ALGO_FAULT_FROZEN)) == 0u);
+
+        bm_algo_range_monitor_reset(&rm_st, 5.0f);
+        flags = bm_algo_range_monitor_step(&rm_st, &rm_cfg,
+                                           INFINITY, 0.01f);
+        TEST_ASSERT_TRUE((flags & BM_ALGO_FAULT_RANGE_NAN) != 0u);
+    }
+
     bm_algo_dob_reset(&dob);
     (void)bm_algo_dob_step(&dob, &dob_cfg, 1.0f, 2.5f, &disturbance);
     TEST_ASSERT_TRUE(fabsf(disturbance) > 0.0f);
@@ -423,6 +447,173 @@ static void test_review_fixes(void) {
     TEST_ASSERT_EQUAL_INT16(0, gy[8]);
 }
 
+/**
+ * @brief H9 回归：coulomb_step 与 soc_ekf_predict/update_voltage 注入一次
+ *        NaN 输入后，持久状态须保持有限且不变（不得被永久污染）——
+ *        bm_algo_clamp_f 本身对 NaN 不钳位，故须在函数入口拦截。
+ */
+static void test_h9_nan_guard_rejects_and_preserves_state(void) {
+    bm_algo_coulomb_config_t coulomb_cfg = {
+        .nominal_capacity_ah = 10.0f,
+        .coulomb_efficiency = 1.0f,
+        .soc_min = 0.0f,
+        .soc_max = 1.0f
+    };
+    bm_algo_coulomb_state_t coulomb_st;
+    float nan_val = NAN;
+    float soc_after;
+    bm_algo_soc_ekf_config_t ekf_cfg = {
+        .q_soc = 1e-6f,
+        .q_bias = 1e-8f,
+        .r_v = 0.01f,
+        .coulomb_efficiency = 1.0f,
+        .nominal_capacity_ah = 10.0f,
+        .ocv_slope_v_per_soc = 0.5f
+    };
+    bm_algo_soc_ekf_state_t ekf;
+
+    /* coulomb_step：注入一次 NaN 电流，soc 应保持旧值且有限 */
+    bm_algo_coulomb_reset(&coulomb_st, 0.5f);
+    soc_after = bm_algo_coulomb_step(&coulomb_st, &coulomb_cfg, nan_val, 1.0f);
+    TEST_ASSERT_TRUE(isfinite(soc_after));
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.5f, soc_after);
+    /* 后续正常调用应仍能正常积分，证明状态未被永久污染 */
+    soc_after = bm_algo_coulomb_step(&coulomb_st, &coulomb_cfg, 1.0f, 3600.0f);
+    TEST_ASSERT_TRUE(isfinite(soc_after));
+
+    /* soc_ekf_predict：注入一次 NaN 电流 */
+    bm_algo_soc_ekf_reset(&ekf, 0.5f);
+    bm_algo_soc_ekf_predict(&ekf, &ekf_cfg, nan_val, 1.0f);
+    TEST_ASSERT_TRUE(isfinite(ekf.soc) && isfinite(ekf.p00) && isfinite(ekf.p11));
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.5f, ekf.soc);
+
+    /* soc_ekf_update_voltage：注入一次 NaN 电压 */
+    bm_algo_soc_ekf_reset(&ekf, 0.5f);
+    bm_algo_soc_ekf_update_voltage(&ekf, &ekf_cfg, nan_val, 3.7f);
+    TEST_ASSERT_TRUE(isfinite(ekf.soc) && isfinite(ekf.bias_a));
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.5f, ekf.soc);
+}
+
+/**
+ * @brief Medium-1 回归：PDM CIC 积分器长时间偏置输入应饱和而非有符号溢出
+ *        UB。直接构造 integrator1 已处于 INT32_MAX 边界的状态，喂入一个
+ *        正向 PDM 比特，integrator1 须钳位在 INT32_MAX，不得回绕为负数。
+ */
+static void test_medium1_pdm_cic_saturates_instead_of_overflow(void) {
+    bm_algo_pdm_decimate_config_t cfg = { .decimation_factor = 2u, .gain = 1.0f };
+    bm_algo_pdm_decimate_state_t st;
+    int8_t pdm_in[1] = { 1 };
+    float pcm_out[1];
+
+    bm_algo_pdm_decimate_reset(&st);
+    st.integrator1 = INT32_MAX;
+    st.integrator2 = INT32_MAX;
+
+    (void)bm_algo_pdm_decimate_block(&st, &cfg, pdm_in, pcm_out, 1u, 1u);
+
+    TEST_ASSERT_EQUAL_INT32(INT32_MAX, st.integrator1);
+    TEST_ASSERT_EQUAL_INT32(INT32_MAX, st.integrator2);
+}
+
+/**
+ * @brief Medium-2 回归：bm_algo_lead_lag_init 在 pole_rad_s == -2/T（k+p==0）
+ *        时须拒绝，返回 BM_ALGO_ERR_INVALID，而不是产出 Inf/NaN 系数却
+ *        返回成功。
+ */
+static void test_medium2_lead_lag_init_rejects_kp_zero_denominator(void) {
+    float dt = 0.01f;
+    float k = 2.0f / dt;
+    bm_algo_lead_lag_config_t cfg = {
+        .zero_rad_s = 10.0f,
+        .pole_rad_s = -k, /* 使 k + p == 0 */
+        .gain = 1.0f
+    };
+    bm_algo_lead_lag_state_t st;
+
+    TEST_ASSERT_EQUAL(BM_ALGO_ERR_INVALID,
+                      bm_algo_lead_lag_init(&st, &cfg, dt));
+}
+
+/**
+ * @brief Medium-4 回归：bm_algo_deadband_q31(INT32_MIN, width) 不得因窄化
+ *        取绝对值回绕为负数而被误判为落在死区内直接返回 0。
+ */
+static void test_medium4_deadband_q31_int32_min_not_misclassified(void) {
+    bm_algo_q31_t out = bm_algo_deadband_q31((bm_algo_q31_t)INT32_MIN,
+                                             bm_algo_float_to_q31(0.01f));
+
+    TEST_ASSERT_NOT_EQUAL(0, out);
+    TEST_ASSERT_TRUE(out < 0);
+}
+
+/**
+ * @brief Medium-6 回归：bm_algo_rate_limit_step 对非有限 target 须保持旧
+ *        输出不变，不得被 NaN 永久污染（bm_algo_clamp_f 对 NaN 恒不钳位）。
+ */
+static void test_medium6_rate_limit_step_rejects_nan_target(void) {
+    bm_algo_rate_limit_config_t cfg = {
+        .max_rise_per_s = 1.0f,
+        .max_fall_per_s = 1.0f
+    };
+    bm_algo_rate_limit_state_t st;
+    float out;
+
+    bm_algo_rate_limit_reset(&st, 5.0f);
+    out = bm_algo_rate_limit_step(&st, &cfg, NAN, 0.01f);
+
+    TEST_ASSERT_TRUE(isfinite(out));
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 5.0f, out);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 5.0f, st.output);
+}
+
+/**
+ * @brief Medium-7 回归：bm_algo_dob_step 对非有限 u/y 须保持旧扰动估计
+ *        不变，不得被 NaN 永久污染 y_hat/disturbance 持久状态。
+ */
+static void test_medium7_dob_step_rejects_nan_inputs(void) {
+    bm_algo_dob_config_t cfg = { .plant_gain = 2.0f, .lpf_alpha = 0.5f };
+    bm_algo_dob_state_t st;
+    float disturbance = -1.0f;
+    float out;
+
+    bm_algo_dob_reset(&st);
+    (void)bm_algo_dob_step(&st, &cfg, 1.0f, 2.5f, &disturbance);
+    TEST_ASSERT_TRUE(fabsf(disturbance) > 0.0f);
+
+    out = bm_algo_dob_step(&st, &cfg, NAN, 2.5f, &disturbance);
+    TEST_ASSERT_TRUE(isfinite(out));
+    TEST_ASSERT_TRUE(isfinite(disturbance));
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, out, disturbance);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, out, st.disturbance);
+}
+
+/**
+ * @brief 疑似-8 回归：bm_algo_pid2_validate_config 须与 pi/pid 家族对齐，
+ *        对 out_min>out_max、integrator_min>integrator_max 拒绝为
+ *        BM_ALGO_ERR_INVALID，对合法配置放行。
+ */
+static void test_suspect8_pid2_validate_config_rejects_min_greater_than_max(void) {
+    bm_algo_pid2_config_t ok_cfg = {
+        .kp = 1.0f, .ki = 0.0f, .kd = 0.0f, .b = 1.0f,
+        .out_min = -1.0f, .out_max = 1.0f,
+        .integrator_min = -1.0f, .integrator_max = 1.0f,
+        .d_filter_coeff = 0.5f
+    };
+    bm_algo_pid2_config_t bad_out_cfg = ok_cfg;
+    bm_algo_pid2_config_t bad_integrator_cfg = ok_cfg;
+
+    bad_out_cfg.out_min = 1.0f;
+    bad_out_cfg.out_max = -1.0f;
+    bad_integrator_cfg.integrator_min = 1.0f;
+    bad_integrator_cfg.integrator_max = -1.0f;
+
+    TEST_ASSERT_EQUAL(0, bm_algo_pid2_validate_config(&ok_cfg));
+    TEST_ASSERT_EQUAL(BM_ALGO_ERR_INVALID,
+                      bm_algo_pid2_validate_config(&bad_out_cfg));
+    TEST_ASSERT_EQUAL(BM_ALGO_ERR_INVALID,
+                      bm_algo_pid2_validate_config(&bad_integrator_cfg));
+}
+
 void test_algo_misc(void) {
     RUN_TEST(test_coulomb_soc);
     RUN_TEST(test_image_label_merges_connected_pixels);
@@ -438,6 +629,13 @@ void test_algo_misc(void) {
     RUN_TEST(test_detection_matched_and_ultrasonic);
     RUN_TEST(test_w2_audio_spectral_motion);
     RUN_TEST(test_review_fixes);
+    RUN_TEST(test_h9_nan_guard_rejects_and_preserves_state);
+    RUN_TEST(test_medium1_pdm_cic_saturates_instead_of_overflow);
+    RUN_TEST(test_medium2_lead_lag_init_rejects_kp_zero_denominator);
+    RUN_TEST(test_medium4_deadband_q31_int32_min_not_misclassified);
+    RUN_TEST(test_medium6_rate_limit_step_rejects_nan_target);
+    RUN_TEST(test_medium7_dob_step_rejects_nan_inputs);
+    RUN_TEST(test_suspect8_pid2_validate_config_rejects_min_greater_than_max);
 }
 
 int main(void) {

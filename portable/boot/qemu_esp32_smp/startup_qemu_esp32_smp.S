@@ -4,6 +4,13 @@
     .type _start, @function
     .align 4
 _start:
+    /* 复位置 PS=0x1F（EXCM=1 / INTLEVEL=0xF / WOE=0）：windowed ABI 的溢出/
+       下溢异常与全部中断均不可用，直接跑 C 必腐败。两核入口先落线程态
+       PS = PS_WOE(0x40000)|PS_UM(0x20)|INTLEVEL(0)，再设栈。 */
+    movi    a0, 0x40020
+    wsr     a0, ps
+    rsync
+
     /* PRO_CPU：设置栈指针 */
     movi    a1, _estack_cpu0
 
@@ -30,7 +37,10 @@ _start:
     .type bm_esp32_secondary_startup, @function
     .align 4
 bm_esp32_secondary_startup:
-    /* DPORT 释放 APP_CPU 后跳入此处 */
+    /* DPORT 释放 APP_CPU 后跳入此处；APP 核同样先落线程态 PS（复位 PS 同 PRO） */
+    movi    a0, 0x40020
+    wsr     a0, ps
+    rsync
     call0   qemu_esp32_smp_install_vectors
     movi    a1, _estack_cpu1
     call0   bm_esp32_secondary_entry_c

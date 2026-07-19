@@ -6,13 +6,18 @@
  * 各子模块容量、可选组件开关及混合域参数均在此集中定义。
  * 应用可通过项目级 bm_config.h 覆盖默认值。
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-10
+ * @version 1.2
+ * @date 2026-07-15
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
+ * 2026-07-04       1.1            zeh            Task 4：补 BM_CONFIG_SM_INTERFERENCE_SRC
+ *                                                 注释性示例（与 DVFS 同惯例，只注释不 #define）
+ * 2026-07-15       1.2            zeh            补 BM_CONFIG_IPC_DRAIN_WCET_PER_MSG_US
+ *                                                 缺省值（此前仅 Demo 配置头定义，独立库
+ *                                                 形态 SMP 构建缺之即失败）
  *
  */
 #ifndef BM_CONFIG_H
@@ -149,6 +154,15 @@
 #ifndef BM_CONFIG_EVENT_INLINE_DATA_SIZE
 #define BM_CONFIG_EVENT_INLINE_DATA_SIZE     8
 #endif
+/*
+ * bm_event_t.data_len 为 uint8_t：若内联数据容量超过 255，纯 event 编译
+ * 单元（不 include bm_mp_ipc.h 的场景）不会触发该上界检查，len 会被
+ * 静默截断。此处置于最根的配置头，覆盖所有 event 编译单元（B5）；
+ * 与 bm_mp_ipc.h 内已有的同义断言措辞一致，互不冲突。
+ */
+#if BM_CONFIG_EVENT_INLINE_DATA_SIZE > 255u
+#error "BM_CONFIG_EVENT_INLINE_DATA_SIZE must fit uint8_t bm_event_t.data_len"
+#endif
 #ifndef BM_CONFIG_EVENT_PRIORITY_BURST_MAX
 #define BM_CONFIG_EVENT_PRIORITY_BURST_MAX   8
 #endif
@@ -234,6 +248,12 @@
 #ifndef BM_CONFIG_TT_SCHED_MAX_INPUTS
 #define BM_CONFIG_TT_SCHED_MAX_INPUTS        8u      /* 单任务输入数理智上界（init 期校验，防误配） */
 #endif
+#ifndef BM_CONFIG_TT_SCHED_OVERHEAD_US
+#define BM_CONFIG_TT_SCHED_OVERHEAD_US       0u      /* 每 minor 格框架派发开销(µs)，真机标定后回填 */
+#endif
+#ifndef BM_CONFIG_TT_SCHED_OVERHEAD_CALIBRATED
+#define BM_CONFIG_TT_SCHED_OVERHEAD_CALIBRATED 0     /* 0=未标定占位 1=已实测标定 */
+#endif
 #if BM_CONFIG_TT_SCHED_MAX_FRAMES < 1u
 #error "BM_CONFIG_TT_SCHED_MAX_FRAMES must be at least 1"
 #endif
@@ -269,6 +289,40 @@
 #ifndef BM_CONFIG_CPU_COUNT
 #define BM_CONFIG_CPU_COUNT                  1u
 #endif
+/**
+ * @brief CPU 标称/锚点主频（Hz），schedule-map wcet 声明所基于的频率
+ *
+ * @details 0=未声明。应用在 bm_config_app.h 覆盖为真实主频；未覆盖时
+ * bm_add_schedule_map() 未显式传 REF_CLK_HZ 会读到 0，schedule-map 工具
+ * 判定"参考时钟未声明"并跳过频率缩放分析。
+ * 若应用还存在 DVFS 多档主频，额外覆盖定义 BM_CONFIG_CPU_DVFS_POINTS_HZ
+ * 为形如 `{ 80000000u, 160000000u, 240000000u }` 的花括号初始化列表（框架
+ * 不提供缺省值——不定义即视为没有 DVFS，只按 BM_CONFIG_CPU_FREQ_HZ 单频率
+ * 分析），schedule-map 工具会为每个频率各出一张理论换算表 + 一张对比总表。
+ *
+ * @note 锚点语义（务必遵守，否则频率缩放结果全错）：本宏是所有任务
+ * `wcet_us` 声明/实测时所在的锚点频率（ref_clk）——schedule-map 按
+ * `wcet(f) = ceil(wcet_ref × ref/f)` 从这个锚点外推其它频率的估算峰值。
+ * 由此派生两条强约束：
+ * (1) 本宏取值**须为** BM_CONFIG_CPU_DVFS_POINTS_HZ 点集之一（必须是
+ *     你实际测过 wcet 的那个工作点，不能是任意值）；
+ * (2) **声明了** BM_CONFIG_CPU_DVFS_POINTS_HZ **就必须声明**本宏——
+ *     有 DVFS 点集而无锚点，缩放换算找不到基准，schedule-map 工具会
+ *     退化为单表并给出明确告警。
+ * 对应的 port 层运行期开机对账见 bm_hal_cpu_freq_check_config()
+ * （`include/hal/bm_hal_cpu.h`）。
+ */
+#ifndef BM_CONFIG_CPU_FREQ_HZ
+#define BM_CONFIG_CPU_FREQ_HZ                 0u
+#endif
+/* 调度分析干扰源声明（可选，分析专用与运行时解耦）：
+ * 定义 BM_CONFIG_SM_INTERFERENCE_SRC 为 bm_schedule_map_interference_t 初始化列表，
+ * schedule-map 出表即计入 HRT 抢占干扰。元素 {{name,period_us,wcet_us,tier},cpu}，
+ * tier: 0=hardware(PWM/ADC/比较器IRQ)、1=scheduled(bm_hrt)。例：
+ *   #define BM_CONFIG_SM_INTERFERENCE_SRC \
+ *       { { { "curr_10kHz", 100u, 10u, 1u }, 0u } }
+ * period 由外设定时器决定不随频率变；wcet 在 BM_CONFIG_CPU_FREQ_HZ 锚点下声明、
+ * 须上板实测回填。未定义即不计入（与既有行为一致）。 */
 #ifndef BM_CONFIG_CACHE_LINE
 #define BM_CONFIG_CACHE_LINE                 64
 #endif
@@ -392,6 +446,11 @@
 
 #ifndef BM_CONFIG_LOG_DRAIN_WCET_PER_MSG_US
 #define BM_CONFIG_LOG_DRAIN_WCET_PER_MSG_US      100u
+#endif
+
+/** @brief MP IPC drain 每条 payload 消息计入预算的 WCET（微秒） */
+#ifndef BM_CONFIG_IPC_DRAIN_WCET_PER_MSG_US
+#define BM_CONFIG_IPC_DRAIN_WCET_PER_MSG_US      8u
 #endif
 
 #ifndef BM_CONFIG_RTA_MAX_ITERATIONS

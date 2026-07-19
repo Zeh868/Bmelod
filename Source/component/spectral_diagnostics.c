@@ -8,14 +8,17 @@
  * bm_spectral_diagnostics_validate_config 中执行。
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.2
- * @date 2026-06-13
+ * @version 0.3
+ * @date 2026-07-16
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            STFT frame_size FFT 合法尺寸校验；Doxygen；SPDX
+ * 2026-07-16       0.3            zeh            bm_algo_goertzel_feed 负返回值（错误码）
+ *                                                曾被当真值：NaN 样本触发半块算幅值+
+ *                                                标 VALID 发布；改按契约仅 >0 判就绪
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -118,7 +121,10 @@ void bm_spectral_diagnostics_step(bm_spectral_diagnostics_axis_t *axis,
     }
 
     goertzel_ready = bm_algo_goertzel_feed(&st->goertzel, &cfg->goertzel, sample);
-    if (goertzel_ready) {
+    /* 契约：1=块就绪，0=已吸收未满块，负值=错误（如非有限样本被拒）。
+     * 仅 >0 才按就绪处理，避免负错误码被当真值：NaN 样本会触发
+     * "半块数据算幅值 + 标 VALID 发布"。 */
+    if (goertzel_ready > 0) {
         st->goertzel_mag = bm_algo_goertzel_result(&st->goertzel, &cfg->goertzel);
         st->order = bm_algo_order_from_hz(cfg->goertzel.target_freq_hz,
                                           shaft_rpm, cfg->pole_pairs);
@@ -137,7 +143,7 @@ void bm_spectral_diagnostics_step(bm_spectral_diagnostics_axis_t *axis,
 
     st->step_count++;
     st->telemetry.sequence = st->step_count;
-    if (goertzel_ready) {
+    if (goertzel_ready > 0) {
         st->telemetry.status = BM_SPECTRAL_DIAG_TEL_VALID;
     } else {
         st->telemetry.status = BM_SPECTRAL_DIAG_TEL_ACCUMULATING;

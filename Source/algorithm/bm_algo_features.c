@@ -86,7 +86,14 @@ void bm_algo_log_mel_energy(const float *power_spectrum,
     for (m = 0u; m < mel_bins; ++m) {
         e = 0.0f;
         for (k = 0u; k < fft_bins; ++k) {
-            e += power_spectrum[k] * mel_weights[m * fft_bins + k];
+            float ps = power_spectrum[k];
+            float w = mel_weights[m * fft_bins + k];
+
+            /* Batch-3：单个非有限功率谱箱会污染整组 mel 能量；跳过坏样本 */
+            if (!bm_algo_is_finite_f(ps) || !bm_algo_is_finite_f(w)) {
+                continue;
+            }
+            e += ps * w;
         }
         mel_out[m] = logf(e + 1e-10f);
     }
@@ -113,11 +120,17 @@ void bm_algo_mfcc_compute(const bm_algo_mfcc_config_t *config,
 
         for (k = 0u; k < config->n_mels; ++k) {
             float lm = log_mel[k];
+            float dct = dct_matrix[m * config->n_mels + k];
 
+            /* Batch-3：NaN log_mel 会穿透 DCT 污染整组 MFCC；
+             * 非有限 dct 系数同样会污染输出 */
+            if (!bm_algo_is_finite_f(lm) || !bm_algo_is_finite_f(dct)) {
+                continue;
+            }
             if (lm < floor_v) {
                 lm = floor_v;
             }
-            sum += dct_matrix[m * config->n_mels + k] * lm;
+            sum += dct * lm;
         }
         mfcc_out[m] = sum;
     }

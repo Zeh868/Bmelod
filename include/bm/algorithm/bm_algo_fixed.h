@@ -15,8 +15,8 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 2.4
- * @date 2026-06-23
+ * @version 2.5
+ * @date 2026-07-16
  *
  * @par 修改日志:
  *
@@ -36,6 +36,9 @@
  * 2026-06-17       2.2            zeh            定点第十四批：全族 Q31/Q15 后缀 API 收口
  * 2026-06-23       2.3            zeh            缺陷修复：Mahony Q15/Q31 state 新增 Ki 积分持久化字段
  * 2026-06-23       2.4            zeh            磁链观测器 Q15/Q31 配置结构体新增 wc_rad_s 衰减截止频率字段；修正 BM_ALGO_SQRT3_Q31 为精确 Q30 值
+ * 2026-07-16       2.5            zeh            SOGI-PLL Q15/Q31 state 新增
+ *                                                d_alpha_prev/d_beta_prev Tustin
+ *                                                导数缓存持久化字段（与 float 版对齐）
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -1805,6 +1808,8 @@ typedef struct {
     float v_alpha;
     float v_beta;
     float integrator;
+    float d_alpha_prev;  /**< 前一拍 v_alpha 导数缓存（Tustin 梯形积分用，与 float 版对齐） */
+    float d_beta_prev;   /**< 前一拍 v_beta  导数缓存（Tustin 梯形积分用，与 float 版对齐） */
 } bm_algo_sogi_pll_q15_state_t;
 
 void bm_algo_sogi_pll_q15_reset(bm_algo_sogi_pll_q15_state_t *state,
@@ -1830,6 +1835,8 @@ typedef struct {
     float v_alpha;
     float v_beta;
     float integrator;
+    float d_alpha_prev;  /**< 前一拍 v_alpha 导数缓存（Tustin 梯形积分用，与 float 版对齐） */
+    float d_beta_prev;   /**< 前一拍 v_beta  导数缓存（Tustin 梯形积分用，与 float 版对齐） */
 } bm_algo_sogi_pll_q31_state_t;
 
 void bm_algo_sogi_pll_q31_reset(bm_algo_sogi_pll_q31_state_t *state,

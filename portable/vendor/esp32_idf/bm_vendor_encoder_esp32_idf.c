@@ -145,10 +145,11 @@ static int bm_vendor_encoder_port_init(const struct bm_hal_encoder *dev)
 }
 
 /**
- * @brief 读取编码器数值（有界事务，不做懒初始化）。
+ * @brief 读取编码器数值（有界事务）。
  *
- * 调用前须保证对应 I2C 端口已通过 bm_vendor_encoder_port_init 或
- * bm_vendor_bmi160_init（M0 共用总线）初始化；否则返回 BM_ERR_IO。
+ * 正常路径要求对应 I2C 端口已通过 bm_vendor_encoder_port_init 或
+ * bm_vendor_bmi160_init（M0 共用总线）初始化；端口未初始化时执行一次
+ * 幂等懒初始化兜底（与文件头 v2.3 口径一致），失败返回 BM_ERR_IO。
  */
 static int bm_vendor_encoder_read(const struct bm_hal_encoder *dev, int32_t *value) {
     bm_vendor_encoder_context_t *ctx;

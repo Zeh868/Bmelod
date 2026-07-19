@@ -13,13 +13,21 @@
 include_guard(GLOBAL)
 
 include(${CMAKE_CURRENT_LIST_DIR}/bmelod_profiles.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/bm_schedule_map.cmake)
 
 set(_BMELOD_BACKEND_ALIAS_native_sim bm_hal_native)
 set(_BMELOD_BACKEND_ALIAS_sdk_stm32g4 bm_hal_stm32g4)
 set(_BMELOD_BACKEND_ALIAS_sdk_esp32_idf bm_hal_esp32wroom32e)
-set(_BMELOD_BACKEND_ALIAS_register_ch32v003 bm_hal_ch32v003)
 set(_BMELOD_BACKEND_ALIAS_qemu_cortex_m0 bm_backend_qemu_cortex_m0)
 set(_BMELOD_BACKEND_ALIAS_qemu_riscv64 bm_hal_qemu_riscv64)
+set(_BMELOD_BACKEND_ALIAS_arch_stub bm_hal_arch_stub)
+# SMP/multicore backends (native_sim_mp reuses the bm_hal_native alias)
+set(_BMELOD_BACKEND_ALIAS_native_sim_mp bm_hal_native)
+set(_BMELOD_BACKEND_ALIAS_qemu_riscv64_smp bm_hal_qemu_riscv64_smp)
+set(_BMELOD_BACKEND_ALIAS_qemu_riscv32_smp bm_hal_qemu_riscv32_smp)
+set(_BMELOD_BACKEND_ALIAS_qemu_aarch64_smp bm_hal_qemu_aarch64_smp)
+set(_BMELOD_BACKEND_ALIAS_qemu_cortexa_smp bm_hal_qemu_cortexa_smp)
+set(_BMELOD_BACKEND_ALIAS_qemu_esp32_smp bm_hal_qemu_esp32_smp)
 
 function(bmelod_configure)
     set(options)

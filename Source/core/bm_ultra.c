@@ -6,8 +6,8 @@
  * 默认路径下全局单例队列 + 计数器；按 CPU 路由时采用分域数组，各域独立。
  * 两条编译路径共享同一套队列逻辑，仅存储布局与 ultra_this() 的实现不同。
  * @author zeh (china_qzh@163.com)
- * @version 1.2
- * @date 2026-06-14
+ * @version 1.3
+ * @date 2026-07-02
  *
  * @par 修改日志:
  *
@@ -15,6 +15,8 @@
  * 2026-06-10       1.0            zeh            正式发布
  * 2026-06-14       1.1            zeh            分域存储，路由启用时独立
  * 2026-07-02       1.2            zeh            两路径去重：统一 state 指针访问
+ * 2026-07-02       1.3            zeh            QD-6：cache-line 补齐改用 union，
+ *                                                消除 MSVC C2233
  *
  */
 #include "bm_ultra.h"
@@ -48,13 +50,8 @@ typedef struct {
 #if BM_CPU_LOCAL_ENABLE_ROUTE
 
 /** 每 CPU ultra 存储（cache-line 对齐，防伪共享） */
-typedef struct {
-    bm_ultra_cpu_state_t state;
-    uint8_t padding[(sizeof(bm_ultra_cpu_state_t) % BM_CONFIG_CACHE_LINE)
-        ? (BM_CONFIG_CACHE_LINE - (sizeof(bm_ultra_cpu_state_t) %
-                                   BM_CONFIG_CACHE_LINE))
-        : 0];
-} bm_ultra_cpu_storage_t;
+typedef BM_CACHE_LINE_PADDED_UNION(bm_ultra_cpu_state_t, state,
+                                   BM_CONFIG_CACHE_LINE) bm_ultra_cpu_storage_t;
 
 static BM_CACHE_ALIGNAS(BM_CONFIG_CACHE_LINE)
 bm_ultra_cpu_storage_t g_ultra_cpu[BM_CONFIG_CPU_COUNT];

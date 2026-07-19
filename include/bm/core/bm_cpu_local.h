@@ -8,13 +8,16 @@
  * `BM_CPU_LOCAL_ENABLE_ROUTE` 覆盖该推导。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-16
+ * @version 1.1
+ * @date 2026-07-02
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-16       1.0            zeh            新增 CPU 本地访问辅助宏
+ * 2026-07-02       1.1            zeh            QD-6：新增 BM_CACHE_LINE_PADDED_UNION，
+ *                                                以 union 取代条件 padding 数组消除
+ *                                                MSVC C2233（零长数组）
  */
 #ifndef BM_CPU_LOCAL_H
 #define BM_CPU_LOCAL_H
@@ -44,6 +47,34 @@
 #define BM_CACHE_ALIGNAS(n)
 #endif
 #endif
+
+/**
+ * @brief 生成"向上取整到整 cache-line 倍数"的 union 存储包装类型
+ *
+ * 按 CPU 分域的存储（bm_event/bm_module/bm_ultra/bm_exec/bm_hrt/bm_sync/
+ * bm_ticker/bm_mp_boot 等的 `*_cpu_storage_t`，以及 bm_mp_ipc 的游标类型）
+ * 历史上用 `struct { T member; uint8_t padding[cache_line - sizeof(T)%cache_line]; }`
+ * 补齐到整 cache-line，防止数组元素间伪共享。但当 `sizeof(T)` 恰为
+ * `cache_line` 整数倍时，三元式条件会取 0，产生 `uint8_t padding[0]`——
+ * GCC/Clang 靠扩展放行，MSVC 判定"含零长数组的对象数组非法"报 **C2233**。
+ *
+ * 本宏改用 union：`cache_line_span` 恒 `>= sizeof(T)`（除法向上取整），
+ * 故永不产生零长数组；union 总大小 = 向上取整到整 cache-line，
+ * 与旧版条件 padding struct 在任意 `sizeof(T)` 下的大小完全一致，
+ * 对齐、"无伪共享"语义不变。`member_name_` 保持调用点原有的成员访问方式
+ * （如 `.state` / `.value`）不变。
+ *
+ * @param member_type_  被包裹的状态/数据结构体类型名
+ * @param member_name_  包裹后 union 内该成员的访问名（如 state、value）
+ * @param cache_line_   cache line 字节数（通常为 BM_CONFIG_CACHE_LINE）
+ */
+#define BM_CACHE_LINE_PADDED_UNION(member_type_, member_name_, cache_line_) \
+    union { \
+        member_type_ member_name_; \
+        uint8_t cache_line_span[ \
+            ((sizeof(member_type_) + (cache_line_) - 1u) / (cache_line_)) * \
+            (cache_line_)]; \
+    }
 
 /** @brief 当前逻辑 CPU。 */
 #ifndef BM_CPU_THIS

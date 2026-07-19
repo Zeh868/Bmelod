@@ -19,6 +19,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/component/process_sequence.h"
+#include "bm/algorithm/bm_algo_common.h"
 #include "bm/common/bm_types.h"
 
 void bm_process_ton_reset(bm_process_ton_state_t *state, uint32_t preset_ticks) {
@@ -76,7 +77,8 @@ int bm_process_tof_step(bm_process_tof_state_t *state, int input) {
 }
 
 int bm_process_sequence_validate_config(const bm_process_sequence_config_t *config) {
-    if (config == NULL || config->dt_s <= 0.0f ||
+    if (config == NULL ||
+        !bm_algo_is_finite_f(config->dt_s) || config->dt_s <= 0.0f ||
         config->step_count == 0u ||
         config->step_count > BM_PROCESS_SEQ_MAX_STEPS) {
         return BM_ERR_INVALID;

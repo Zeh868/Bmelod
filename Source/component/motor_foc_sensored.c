@@ -2,8 +2,8 @@
  * @file motor_foc_sensored.c
  * @brief 有感 FOC 伺服轴领域组件实现
  * @author zeh (china_qzh@163.com)
- * @version 0.5
- * @date 2026-06-24
+ * @version 0.7
+ * @date 2026-07-13
  *
  * @par 修改日志:
  *
@@ -18,6 +18,12 @@
  *                                                （默认 0=旧行为），speed_step 超时才 latch
  * 2026-06-24       0.5            zeh            speed_step 加 opt-in speed_feedback_sign
  *                                                （<0 翻 speed_meas，修镜像轴正反馈跑飞）
+ * 2026-07-09       0.6            zeh            validate_config 补 iq_max_a>0 校验（与
+ *                                                sensorless 对齐）；current_step 禁用分支
+ *                                                补发遥测（清 VALID/SAT/FAULT 位），修陈旧 status
+ * 2026-07-13       0.7            zeh            C9：read_theta_elec 改由编码器单圈原始
+ *                                                计数求电角度（有界量、精度不随圈数
+ *                                                劣化），替代无界 position_rad×pole_pairs
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -30,16 +36,31 @@
 #include <math.h>
 #include <string.h>
 
+#ifndef BM_ALGO_PI_F
+#define BM_ALGO_PI_F 3.14159265358979323846f
+#endif
+
 static float read_theta_elec(const bm_motor_foc_sensored_axis_t *axis) {
     const bm_motor_foc_sensored_config_t *cfg = &axis->config;
     const bm_motor_foc_sensored_resources_t *res = &axis->resources;
+    float mech_single_turn_rad;
 
     if (res->sim_fb.theta_elec_rad != NULL) {
         return bm_algo_angle_wrap_rad(*res->sim_fb.theta_elec_rad);
     }
+    /* C9：电角度改由编码器单圈原始计数（encoder.prev_count，硬件回绕于
+     * counts_per_rev，恒落在 [0,cpr)，与 encoder_update 跨圈检测的既有
+     * 契约一致）直接求得，量值有界、float 精度恒满。原式用无界累计的
+     * position_rad × pole_pairs：turns×cpr 超 2^24 后 float 分辨率低于
+     * 编码器分辨率且随圈数线性劣化，连续旋转数分钟即出现可测电角度误差。
+     * 数学等价前提：pole_pairs 为整数（电机物理必然）——此时两式相差
+     * turns×2π×pole_pairs×direction 为 2π 整数倍，wrap 后一致。 */
+    mech_single_turn_rad =
+        (float)axis->state.speed.encoder.prev_count *
+        (2.0f * BM_ALGO_PI_F / (float)cfg->encoder.counts_per_rev);
     return bm_algo_angle_wrap_rad(
         cfg->encoder_direction *
-        axis->state.speed.encoder.position_rad * cfg->pole_pairs +
+        mech_single_turn_rad * cfg->pole_pairs +
         cfg->electrical_offset_rad);
 }
 
@@ -174,7 +195,10 @@ int bm_motor_foc_sensored_validate_config(
     if (config == NULL) {
         return BM_ERR_INVALID;
     }
-    if (config->pole_pairs <= 0.0f ||
+    /* Batch-3：pole_pairs 须为正整数（C9 电角度公式数学前提），
+     * 拒绝 3.5 类误配。 */
+    if (!bm_algo_is_finite_f(config->pole_pairs) || config->pole_pairs <= 0.0f ||
+        floorf(config->pole_pairs) != config->pole_pairs ||
         (config->encoder_direction != 1.0f &&
          config->encoder_direction != -1.0f) ||
         config->vbus_v <= 0.0f ||
@@ -185,6 +209,10 @@ int bm_motor_foc_sensored_validate_config(
         return BM_ERR_INVALID;
     }
     if (config->encoder.counts_per_rev == 0u) {
+        return BM_ERR_INVALID;
+    }
+    /* 缺口 9：sensored 版此前漏了 iq_max_a>0 校验，与 sensorless 版对齐补齐。 */
+    if (config->iq_max_a <= 0.0f) {
         return BM_ERR_INVALID;
     }
     /* MTPA 启用时，电机电感/磁链参数须有效（与 sensorless 校验逻辑对齐）。 */
@@ -210,6 +238,8 @@ void bm_motor_foc_sensored_reset(bm_motor_foc_sensored_axis_t *axis) {
     bm_algo_pi_reset(&axis->state.current.pi_q, 0.0f);
     bm_algo_pi_reset(&axis->state.speed.pi_speed, 0.0f);
     bm_algo_ramp_reset(&axis->state.speed.speed_ramp, 0.0f);
+    /* 编码器机械原点取 0：当前 encoder 配置无零点偏移字段，机械零点由安装
+     * 标定决定；电角度偏移由 electrical_offset_rad 在 read_theta_elec 中单独补偿。 */
     bm_algo_encoder_reset(&axis->state.speed.encoder, &cfg->encoder, 0);
 }
 
@@ -262,6 +292,12 @@ void bm_motor_foc_sensored_current_step(bm_motor_foc_sensored_axis_t *axis) {
             (void)bm_hal_pwm_set_duty(res->pwm, 1u, 0u);
             (void)bm_hal_pwm_set_duty(res->pwm, 2u, 0u);
         }
+        /* 缺口 14：禁用分支此前不更新遥测，导致发布出去的 status 仍是上一拍
+         * （可能是 VALID）的陈旧值。此处清空 VALID/SAT/FAULT 位并刷新
+         * sequence/iq_ref_a，使遥测如实反映当前禁用/安全态。 */
+        tel->sequence = st->current.loop_count;
+        tel->status = 0u;
+        tel->iq_ref_a = 0.0f;
         st->current.loop_count++;
         return;
     }

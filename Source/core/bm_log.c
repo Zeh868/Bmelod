@@ -7,7 +7,7 @@
  * ring 模式下 RT 路径仅入队，由 bootstrap 按预算 drain。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.3
+ * @version 1.4
  * @date 2026-06-15
  *
  * @par 修改日志:
@@ -17,11 +17,13 @@
  * 2026-06-14       1.1            zeh            per-CPU 有界 ring
  * 2026-06-15       1.2            zeh            hard RT 日志配置 fail-closed
  * 2026-06-15       1.3            zeh            hard RT 下裁剪格式化实现
+ * 2026-07-11       1.4            zeh            批 P：运行期级别阈值
  *
  */
 #include "bm_log.h"
 #include "bm_config.h"
 #include "bm/common/bm_atomic_ipc.h"
+#include "bm/common/bm_critical_wrap.h"
 #include "hal/bm_hal_cpu.h"
 #include "hal/bm_hal_critical.h"
 
@@ -41,6 +43,46 @@ static const char *const k_level_chars[] = {
     "E", "W", "I", "D", "T"
 };
 #endif
+
+/** 运行期日志级别阈值（初值 = 编译期级别；只能在其之下收紧，见 bm_log.h）。
+ *  原子单字：读热路径（每条日志含被过滤的）零临界区，写侧夹取后单字 store。 */
+static bm_atomic_ipc_u32_t s_runtime_level =
+    BM_ATOMIC_IPC_U32_INIT(BM_CONFIG_LOG_LEVEL);
+
+/**
+ * @brief 以 acquire load 读取运行期级别阈值（零临界区）。
+ */
+static int log_runtime_level(void) {
+    return (int)bm_atomic_ipc_load_u32(&s_runtime_level);
+}
+
+/**
+ * @brief 设置运行期日志级别阈值（越界夹取，见 bm_log.h 契约）
+ *
+ * 单字对齐 store 天然原子，clamp 逻辑保留在写侧，无需持锁。
+ *
+ * @param level 新阈值
+ */
+void bm_log_set_level(bm_log_level_t level) {
+    int v = (int)level;
+
+    if (v < (int)BM_LOG_ERROR) {
+        v = (int)BM_LOG_ERROR;
+    }
+    if (v > (int)BM_LOG_TRACE) {
+        v = (int)BM_LOG_TRACE;
+    }
+    bm_atomic_ipc_store_u32(&s_runtime_level, (uint32_t)v);
+}
+
+/**
+ * @brief 查询当前运行期日志级别阈值
+ *
+ * @return 当前阈值
+ */
+bm_log_level_t bm_log_get_level(void) {
+    return (bm_log_level_t)log_runtime_level();
+}
 
 #if BM_CONFIG_ENABLE_LOG && BM_CONFIG_LOG_RING
 
@@ -237,6 +279,9 @@ void bm_log(bm_log_level_t level, const char *tag, const char *fmt, ...) {
     if (level_index > (int)BM_LOG_TRACE) {
         level_index = (int)BM_LOG_TRACE;
     }
+    if (level_index > log_runtime_level()) {
+        return; /* 运行期阈值过滤：早退，不格式化不输出 */
+    }
     if (!tag) {
         tag = "bm";
     }
@@ -254,13 +299,23 @@ void bm_log(bm_log_level_t level, const char *tag, const char *fmt, ...) {
 
         va_end(ap);
         /*
-         * body_len < 0 为编码错误，无有效内容可输出，丢弃整条。
-         * body_len >= 剩余容量表示 vsnprintf 已就地截断（写满 cap-1 字节
-         * 并补 '\0'）：诊断路径宁可截断也不丢，故不再 return，
+         * body_len >= 剩余容量表示 C99 语义 vsnprintf 已就地截断（写满
+         * cap-1 字节并补 '\0'）：诊断路径宁可截断也不丢，故不再 return，
          * 下方 strlen(buf) 自然取到截断后的有效长度（min(ret, cap-1)）。
+         *
+         * body_len < 0 在不同运行库下含义不同：C99 语义仅表示编码错误；
+         * 而 MinGW/legacy MSVCRT 的 _vsnprintf 对"写不下"（截断）同样返回
+         * -1，且不保证补 '\0'。此前直接 return 会把这类超长日志整条静默
+         * 丢弃。前一次 snprintf（写前缀）成功时已在 buf[prefix_len] 处
+         * 补了 '\0'；若 vsnprintf 确实一个字符都没写入（真正编码错误），
+         * 该字节仍为 '\0'——据此区分两种情况：真正编码错误才丢弃，
+         * 否则视为遭遇截断，强制在缓冲区末尾补 NUL 后仍按正常路径输出。
          */
         if (body_len < 0) {
-            return;
+            if (buf[(size_t)prefix_len] == '\0') {
+                return;
+            }
+            buf[sizeof(buf) - 1u] = '\0';
         }
     }
 

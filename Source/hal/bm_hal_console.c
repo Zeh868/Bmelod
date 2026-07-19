@@ -17,6 +17,7 @@
 #include "hal/bm_hal_console.h"
 #include "bm_types.h"
 #include "hal/bm_hal_cpu.h"
+#include "bm/common/bm_critical_wrap.h"
 
 #if BM_CONFIG_HARD_RT_PROFILE && \
     (BM_CONFIG_CONSOLE_LOG_BACKEND == BM_CONSOLE_BACKEND_STDIO || \
@@ -40,8 +41,13 @@ int bm_console_rtt_init(void);
 int bm_console_rtt_write(const uint8_t *data, size_t len);
 size_t bm_console_rtt_read(uint8_t *data, size_t max_len);
 
-static int g_log_backend_inited;
-static int g_cli_backend_inited;
+/* 通道后端初始化状态：0=未初始化 1=初始化中 2=完成 */
+#define CONSOLE_STATE_IDLE  0
+#define CONSOLE_STATE_BUSY  1
+#define CONSOLE_STATE_DONE  2
+
+static volatile int g_log_backend_state;
+static volatile int g_cli_backend_state;
 
 /**
  * @brief 按后端 ID 初始化
@@ -117,27 +123,68 @@ static int console_cli_allowed_this_cpu(void) {
 #endif
 }
 
+/**
+ * @brief 初始化单个通道后端（三态标志，临界区只护标志）
+ *
+ * 慢速后端 init 在开中断下执行，避免关中断窗口随后端实现拉长；
+ * 失败回滚为 IDLE 可重试，并发第二调用者拿到 BM_ERR_BUSY。
+ *
+ * @param state   通道三态标志指针
+ * @param backend 后端 ID
+ * @return BM_OK 成功（含幂等命中 DONE）；BM_ERR_BUSY 他方正在初始化
+ */
+static int console_init_channel(volatile int *state, int backend) {
+    int rc;
+    bm_irq_state_t irq_state = BM_CRITICAL_ENTER();
+
+    if (*state == CONSOLE_STATE_DONE) {
+        BM_CRITICAL_EXIT(irq_state);
+        return BM_OK;
+    }
+    if (*state == CONSOLE_STATE_BUSY) {
+        BM_CRITICAL_EXIT(irq_state);
+        return BM_ERR_BUSY;
+    }
+    *state = CONSOLE_STATE_BUSY;
+    BM_CRITICAL_EXIT(irq_state);
+
+    rc = console_init_backend(backend); /* 慢操作在开中断下执行 */
+
+    irq_state = BM_CRITICAL_ENTER();
+    *state = (rc == BM_OK) ? CONSOLE_STATE_DONE : CONSOLE_STATE_IDLE;
+    BM_CRITICAL_EXIT(irq_state);
+    return rc;
+}
+
+/**
+ * @brief 初始化 console HAL（日志 + CLI 后端）
+ *
+ * @details 并发契约：本函数幂等且只执行一次真实后端初始化。多核/多任务
+ * 环境下调用须由调用方保证串行；临界区只保护三态标志的读改，真实后端
+ * 初始化在开中断下执行。并发第二调用者返回 BM_ERR_BUSY（符合启动期单一
+ * 上下文的实际用法），初始化失败可重试。
+ */
 int bm_hal_console_init(void) {
     int rc;
 
-    if (!g_log_backend_inited) {
-        rc = console_init_backend((int)BM_CONFIG_CONSOLE_LOG_BACKEND);
-        if (rc != BM_OK) {
-            return rc;
-        }
-        g_log_backend_inited = 1;
+    rc = console_init_channel(&g_log_backend_state,
+                              (int)BM_CONFIG_CONSOLE_LOG_BACKEND);
+    if (rc != BM_OK) {
+        return rc;
     }
-    if ((int)BM_CONFIG_CONSOLE_CLI_BACKEND !=
-        (int)BM_CONFIG_CONSOLE_LOG_BACKEND && !g_cli_backend_inited) {
-        rc = console_init_backend((int)BM_CONFIG_CONSOLE_CLI_BACKEND);
-        if (rc != BM_OK) {
-            return rc;
+
+    if ((int)BM_CONFIG_CONSOLE_CLI_BACKEND ==
+        (int)BM_CONFIG_CONSOLE_LOG_BACKEND) {
+        /* CLI 与 LOG 共用后端：随 log 通道一并就绪 */
+        bm_irq_state_t irq_state = BM_CRITICAL_ENTER();
+        if (g_cli_backend_state != CONSOLE_STATE_DONE) {
+            g_cli_backend_state = g_log_backend_state;
         }
-        g_cli_backend_inited = 1;
-    } else if (!g_cli_backend_inited) {
-        g_cli_backend_inited = g_log_backend_inited;
+        BM_CRITICAL_EXIT(irq_state);
+        return BM_OK;
     }
-    return BM_OK;
+    return console_init_channel(&g_cli_backend_state,
+                                (int)BM_CONFIG_CONSOLE_CLI_BACKEND);
 }
 
 int bm_hal_console_write(bm_console_ch_t ch, const uint8_t *data, size_t len) {

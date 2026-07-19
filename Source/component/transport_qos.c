@@ -6,14 +6,17 @@
  * 同时集成 token bucket 令牌桶对出队字节进行整形。
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.2
- * @date 2026-06-13
+ * @version 0.4
+ * @date 2026-07-15
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 SPDX 与函数级 Doxygen
+ * 2026-07-09       0.3            zeh            补 have_pending_tx，修复
+ *                                                 now_ms()==0 与挂起哨兵冲突（疑似-13）
+ * 2026-07-15       0.4            zeh            step 超时判定去除无效双重强转，语义不变
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -32,8 +35,11 @@
  * @return BM_OK 合法；BM_ERR_INVALID 参数无效（ema_alpha 超范围）
  */
 int bm_transport_qos_validate_config(const bm_transport_qos_config_t *config) {
-    if (config == NULL || config->ema_alpha <= 0.0f ||
-        config->ema_alpha > 1.0f) {
+    if (config == NULL ||
+        !bm_algo_is_finite_f(config->ema_alpha) ||
+        config->ema_alpha <= 0.0f ||
+        config->ema_alpha > 1.0f ||
+        !bm_algo_is_finite_f(config->token_rate_bytes_per_ms)) {
         return BM_ERR_INVALID;
     }
     return BM_OK;
@@ -57,6 +63,7 @@ void bm_transport_qos_reset(bm_transport_qos_axis_t *axis) {
     axis->state.last_token_ms = 0u;
     axis->state.have_token_time = 0;
     axis->state.have_prev = 0;
+    axis->state.have_pending_tx = 0;
     axis->state.step_count = 0u;
     memset(&axis->state.telemetry, 0, sizeof(axis->state.telemetry));
 }
@@ -90,6 +97,7 @@ void bm_transport_qos_on_tx(bm_transport_qos_axis_t *axis) {
     }
     axis->state.prev_tx_ms =
         axis->resources.now_ms(axis->resources.now_ms_user);
+    axis->state.have_pending_tx = 1;
 }
 
 /**
@@ -110,7 +118,11 @@ void bm_transport_qos_on_rx(bm_transport_qos_axis_t *axis) {
     cfg = &axis->config;
     now_ms = axis->resources.now_ms(axis->resources.now_ms_user);
 
-    if (axis->state.prev_tx_ms == 0u) {
+    /* 疑似-13：用独立的 have_pending_tx 标记「是否有挂起 tx」，不复用
+     * prev_tx_ms==0 作哨兵——now_ms() 恰好在 tx 发生时返回 0（上电初期或
+     * 32 位毫秒计数回绕经过 0）会与「无挂起」语义冲突，导致这次真实的
+     * 延迟采样被误判为无挂起而丢弃。 */
+    if (!axis->state.have_pending_tx) {
         return;
     }
 
@@ -128,6 +140,7 @@ void bm_transport_qos_on_rx(bm_transport_qos_axis_t *axis) {
         cfg->ema_alpha * latency +
         (1.0f - cfg->ema_alpha) * axis->state.latency_ema_ms;
     axis->state.prev_tx_ms = 0u;
+    axis->state.have_pending_tx = 0;
 }
 
 /**
@@ -148,7 +161,8 @@ static void token_refill(bm_transport_qos_axis_t *axis) {
     float burst;
     float added;
 
-    if (cfg->token_rate_bytes_per_ms <= 0.0f ||
+    if (!bm_algo_is_finite_f(cfg->token_rate_bytes_per_ms) ||
+        cfg->token_rate_bytes_per_ms <= 0.0f ||
         cfg->token_burst_bytes == 0u ||
         axis->resources.now_ms == NULL) {
         return;
@@ -201,11 +215,13 @@ void bm_transport_qos_step(bm_transport_qos_axis_t *axis) {
 
     token_refill(axis);
 
-    if (st->prev_tx_ms != 0u && axis->resources.now_ms != NULL) {
+    if (st->have_pending_tx && axis->resources.now_ms != NULL) {
         now_ms = axis->resources.now_ms(axis->resources.now_ms_user);
-        if ((uint32_t)((int32_t)(now_ms - st->prev_tx_ms)) >
-            cfg->latency_alarm_ms) {
+        /* 无符号回绕安全差；双重 (uint32_t)((int32_t)(...)) 强转语义与直接减法
+         * 相同，故简化为直接相减。 */
+        if ((now_ms - st->prev_tx_ms) > cfg->latency_alarm_ms) {
             st->prev_tx_ms = 0u;
+            st->have_pending_tx = 0;
         }
     }
 

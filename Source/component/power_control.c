@@ -2,14 +2,22 @@
  * @file power_control.c
  * @brief Buck 双环电源控制组件实现
  * @author zeh (china_qzh@163.com)
- * @version 0.2
- * @date 2026-06-13
+ * @version 0.4
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 SPDX 与函数级 Doxygen
+ * 2026-07-09       0.3            zeh            H13：current_step 的
+ *                                                read_feedback 失败改为
+ *                                                锁存故障，不再以 i_out=0
+ *                                                喂 PI 施加错误大修正
+ * 2026-07-09       0.4            zeh            缺口 12：current_step 的
+ *                                                write_duty 失败改为锁存
+ *                                                故障后仍发布遥测（带
+ *                                                FAULT 位），不再当拍丢发
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -70,6 +78,11 @@ int bm_power_control_validate_config(const bm_power_control_config_t *config) {
     if (config->duty_max <= config->duty_min) {
         return BM_ERR_INVALID;
     }
+    /* duty 需落在物理可实现范围 [0,1] 内，此前仅校验 max>min，
+     * 未限制越界（如 duty_min<0 或 duty_max>1）会传导到占空比输出 */
+    if (config->duty_min < 0.0f || config->duty_max > 1.0f) {
+        return BM_ERR_INVALID;
+    }
     return BM_OK;
 }
 
@@ -122,6 +135,8 @@ void bm_power_control_voltage_step(bm_power_control_axis_t *axis) {
     if (st->fault_latched ||
         (st->cmd.status & BM_POWER_CTRL_CMD_ENABLED) == 0u) {
         st->i_ref_a = 0.0f;
+        /* 未使能/故障态统一复位电压环积分器，避免残留积分量造成重启冲击 */
+        bm_algo_pi_reset(&st->pi_voltage, 0.0f);
         return;
     }
 
@@ -188,9 +203,14 @@ void bm_power_control_current_step(bm_power_control_axis_t *axis) {
         return;
     }
 
-    if (axis->resources.read_feedback != NULL) {
-        (void)axis->resources.read_feedback(
-            axis->resources.read_feedback_user, &v_out, &i_out);
+    /* H13：采样失败时不得丢弃返回值继续以 i_out=0 喂 PI——那会把误差算成
+     * 近满量程仍施加大修正，且不锁故障。照 voltage_step/write_duty 失败
+     * 路径的约定，read_feedback 失败即锁存故障并放弃本次输出。 */
+    if (axis->resources.read_feedback != NULL &&
+        axis->resources.read_feedback(
+            axis->resources.read_feedback_user, &v_out, &i_out) != 0) {
+        latch_fault(axis);
+        return;
     }
 
     duty_cmd = bm_algo_pi_step(&st->pi_current, &cfg->pi_current,
@@ -200,7 +220,14 @@ void bm_power_control_current_step(bm_power_control_axis_t *axis) {
     if (axis->resources.write_duty != NULL) {
         if (axis->resources.write_duty(axis->resources.write_duty_user,
                                        st->duty) != 0) {
+            /* 缺口 12：write_duty 失败此前直接 return，当拍遥测被跳过，
+             * FAULT 状态要等下一拍才对上层可见。锁存故障后仍照旧发布遥测，
+             * 用 BM_POWER_CTRL_TEL_FAULT 标出让故障立即可观测。 */
             latch_fault(axis);
+            st->telemetry.sequence = st->current_loops;
+            st->telemetry.status = BM_POWER_CTRL_TEL_FAULT;
+            st->telemetry.duty = st->duty;
+            BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
             return;
         }
     }
@@ -285,6 +312,10 @@ void bm_power_control_exec_safe_stop(const bm_exec_t *instance) {
     axis = (bm_power_control_axis_t *)instance->state;
     axis->state.i_ref_a = 0.0f;
     axis->state.duty = axis->config.duty_min;
+    /* 复位两级 PI 积分器，避免安全停机后重启时残留积分量造成冲击，
+     * 对齐 latch_fault() 的做法 */
+    bm_algo_pi_reset(&axis->state.pi_voltage, 0.0f);
+    bm_algo_pi_reset(&axis->state.pi_current, 0.0f);
     if (axis->resources.write_duty != NULL) {
         (void)axis->resources.write_duty(axis->resources.write_duty_user,
                                          axis->state.duty);

@@ -163,11 +163,47 @@ void test_mobile_base_exec_ops_lifecycle(void) {
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, axis.state.angular_cmd_rad_s);
 }
 
+/* ------------------------------------------------------------------ */
+/* 测试用例 5：非有限指令（NaN）时应被清零，后续 step 输出 0 轮速          */
+/* ------------------------------------------------------------------ */
+void test_mobile_base_rejects_nan_cmd(void) {
+    bm_mobile_base_control_axis_t axis;
+
+    memset(&axis, 0, sizeof(axis));
+    axis.config.wheel_base_m = 0.5f;
+    axis.config.wheel_radius_m = 0.1f;
+    axis.config.max_wheel_m_s = 2.0f;
+    axis.resources.write_wheels = write_wheels;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_mobile_base_control_init(&axis));
+
+    /* 先设置正常指令 */
+    bm_mobile_base_control_set_cmd(&axis, 1.0f, 0.0f);
+    bm_mobile_base_control_step(&axis);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, g_left);
+
+    /* 注入 NaN 线速度 */
+    bm_mobile_base_control_set_cmd(&axis, NAN, 0.5f);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, axis.state.linear_cmd_m_s);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, axis.state.angular_cmd_rad_s);
+
+    bm_mobile_base_control_step(&axis);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, g_left);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, g_right);
+
+    /* 注入 NaN 角速度 */
+    bm_mobile_base_control_set_cmd(&axis, 1.0f, NAN);
+    bm_mobile_base_control_step(&axis);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, g_left);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, g_right);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_mobile_base_differential_kinematics);
     RUN_TEST(test_mobile_base_slope_feedforward);
     RUN_TEST(test_mobile_base_wheel_clamp_boundary);
     RUN_TEST(test_mobile_base_exec_ops_lifecycle);
+    RUN_TEST(test_mobile_base_rejects_nan_cmd);
     return UNITY_END();
 }

@@ -5,8 +5,8 @@
  *
  * 基于 HAL 定时器 ISR 按周期触发回调；支持 deadline 错过弱钩子。
  * @author zeh (china_qzh@163.com)
- * @version 1.5
- * @date 2026-06-15
+ * @version 1.7
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
@@ -17,6 +17,11 @@
  * 2026-06-14       1.3            zeh            分域：每 CPU 独立槽表与 IRQ release 门控
  * 2026-06-15       1.4            zeh            start/stop/reset 临界区移除日志
  * 2026-06-15       1.5            zeh            协作式 bm_hrt_poll 供 QEMU 慢仿真
+ * 2026-07-02       1.6            zeh            QD-6：cache-line 补齐改用 union，
+ *                                                消除 MSVC C2233
+ * 2026-07-09       1.7            zeh            H3：hrt_dispatch 连错多周期时
+ *                                                deadline_missed 按实际错过
+ *                                                周期数累加，而非固定 +1
  *
  */
 #include "bm_hrt.h"
@@ -56,13 +61,8 @@ typedef struct {
     int                   started;
 } bm_hrt_cpu_state_t;
 
-typedef struct {
-    bm_hrt_cpu_state_t state;
-    uint8_t padding[(sizeof(bm_hrt_cpu_state_t) % BM_CONFIG_CACHE_LINE)
-        ? (BM_CONFIG_CACHE_LINE - (sizeof(bm_hrt_cpu_state_t) %
-                                   BM_CONFIG_CACHE_LINE))
-        : 0];
-} bm_hrt_cpu_storage_t;
+typedef BM_CACHE_LINE_PADDED_UNION(bm_hrt_cpu_state_t, state,
+                                   BM_CONFIG_CACHE_LINE) bm_hrt_cpu_storage_t;
 
 static BM_CACHE_ALIGNAS(BM_CONFIG_CACHE_LINE)
 bm_hrt_cpu_storage_t g_hrt_cpu[BM_CONFIG_CPU_COUNT];
@@ -180,8 +180,13 @@ static void hrt_dispatch(bm_hrt_cpu_state_t *state) {
             continue;
         }
         if ((uint32_t)(now - slot->next_tick) >= slot->period_ticks) {
+            /* 一次 ISR 内可能连错 N(>1) 个周期，按实际错过周期数饱和
+             * 累加，而非固定 +1（否则连错场景严重低估 miss 程度）。 */
+            uint32_t missed_periods =
+                1u + (uint32_t)(now - slot->next_tick) / slot->period_ticks;
+
             slot->deadline_missed =
-                bm_u32_saturating_inc(slot->deadline_missed);
+                bm_u32_saturating_add(slot->deadline_missed, missed_periods);
             bm_hrt_deadline_missed_hook(&slot->pub);
 #if BM_CONFIG_HRT_RUN_MISSED_CALLBACK
             if (slot->pub.callback) {
@@ -217,6 +222,11 @@ static void hrt_timer_isr(void) {
 
 /**
  * @brief 协作式轮询 HRT（用于 QEMU 慢仿真等无精确中断场景）
+ *
+ * @warning 本函数与硬件 HRT 定时器中断（hrt_timer_isr）共享同核 state，
+ * 且 hrt_dispatch 内部无临界区保护。⚠️ 本函数仅用于硬件 HRT 定时器中断
+ * 未启用的场景；禁止与硬件 HRT 中断并发驱动同一核，否则 hrt_dispatch
+ * 存在数据竞争。二者在设计上二选一，框架不做运行期互斥检查。
  */
 void bm_hrt_poll(void) {
     bm_hrt_cpu_state_t *state = bm_hrt_this();

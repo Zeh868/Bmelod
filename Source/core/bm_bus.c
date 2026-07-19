@@ -8,8 +8,8 @@
  * BLOCK 模式以控制反转方式透传至 bm_block_backend_iface_t 后端，
  * IPC 模式以控制反转方式透传至 bm_ipc_backend_iface_t 后端，core 层不引用任何 hybrid 类型。
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-27
+ * @version 1.2
+ * @date 2026-07-15
  *
  * @par 修改日志:
  *
@@ -24,13 +24,12 @@
  * 2026-06-26       0.8            zeh            新增 bm_bus_reset()：freeze 对称解冻/复位，与 bm_event_reset() 语义对称
  * 2026-06-26       0.9            zeh            seqlock 多读者 LATEST 读：latest_seq 字段 + bm_bus_latest_read 增量并存方案
  * 2026-06-27       1.0            zeh            BM_BUS_IPC 控制反转：bm_bus_bind_ipc_backend + 五入口 IPC 分流（无分配无循环）
+ * 2026-07-13       1.1            zeh            C7：QUEUE/SIGNAL 读侧新增 borrowed 借出跟踪，未 acquire 先 release
+ *                                                拒绝为 BM_ERR_INVALID，防 read_cur 越过 write_cur 永久毒化游标
+ * 2026-07-15       1.2            zeh            C7 补遗：IPC 分流接入 borrowed 未借先还防护
+ *                                                （acquire_read 置位、release 检查前移）
  *
  */
-/* 本 TU 是 bm_bus_latest_read_seq 的定义方（无条件编入 bm_core，决议 B）。
- * 该内部访问器的原型在 bm_bus.h 中受 BM_BUS_ALLOW_INTERNAL 门控，仅让定义方自身
- * 在包含头文件前 TU-局部定义该宏，使定义可见其原型——避免 GCC/Clang 交叉构建
- * 开启 -Wmissing-prototypes 时告警。不泄漏到其它 TU、app 或 bm_core target。 */
-#define BM_BUS_ALLOW_INTERNAL 1
 #include "bm/core/bm_bus.h"
 #include "bm/core/bm_cpu_local.h"
 #include "bm_critical_wrap.h"
@@ -89,7 +88,10 @@ static inline uint32_t bus_slot(uint32_t cur, uint32_t cap) {
  * @return 指向槽首字节的指针
  */
 static inline uint8_t *bus_slot_ptr(bm_bus_storage_t *st, uint32_t cur) {
-    return st->data_buf + bus_slot(cur, st->capacity) * st->elem_size;
+    /* (size_t) 提升后再乘：与文件内其它取址点（如 latest_read 的
+     * data_buf + (size_t)p * elem_size）风格统一，消除 32 位窄乘在
+     * 64 位平台上的截断隐患（B4）。 */
+    return st->data_buf + (size_t)bus_slot(cur, st->capacity) * st->elem_size;
 }
 
 /**
@@ -398,7 +400,8 @@ int bm_bus_acquire_write(bm_bus_t *h, void **slot_out) {
         st->write_in_progress = 1u;
         /* 选中槽存入 latest_writing（scratch），commit 时拷入 latest_published */
         bus_store_cur(&st->latest_writing, wslot);
-        *slot_out = st->data_buf + wslot * st->elem_size;
+        /* (size_t) 提升后再乘：与其它取址点风格统一，消除窄乘截断隐患（B4） */
+        *slot_out = st->data_buf + (size_t)wslot * st->elem_size;
         BUS_UNLOCK(s);
         return BM_OK;
     }
@@ -574,6 +577,7 @@ int bm_bus_reader_attach(bm_bus_t *h, bm_bus_reader_t *r) {
         st->reader_count++;
         r->storage  = st;
         r->slot_idx = UINT32_MAX;
+        r->borrowed = 0u;
         BUS_UNLOCK(s);
         return BM_OK;
     }
@@ -588,6 +592,7 @@ int bm_bus_reader_attach(bm_bus_t *h, bm_bus_reader_t *r) {
         st->reader_count++;
         r->storage  = st;
         r->slot_idx = UINT32_MAX;
+        r->borrowed = 0u;
         BUS_UNLOCK(s);
         return BM_OK;
     }
@@ -622,6 +627,7 @@ int bm_bus_reader_attach(bm_bus_t *h, bm_bus_reader_t *r) {
     st->reader_count++;
     r->storage  = st;
     r->slot_idx = i;
+    r->borrowed = 0u;
     BUS_UNLOCK(s);
     BM_LOGD("bus", "reader_attach slot=%u mode=%u",
             (unsigned)i, (unsigned)st->mode);
@@ -702,10 +708,16 @@ int bm_bus_acquire_read(bm_bus_reader_t *r, const void **slot_out) {
         return BM_OK;
     }
 
-    /* IPC 分流：判 NULL + 透传 vtable acquire_read；后端负责共享区→暂存 + CRC 校验 */
+    /* IPC 分流：判 NULL + 透传 vtable acquire_read；后端负责共享区→暂存 + CRC 校验。
+     * 成功时置 borrowed 标记，使 release 路径的 C7 未借先还防护对 IPC 后端生效。 */
     if (st->mode == BM_BUS_IPC) {
+        int rc;
         if (!st->ipc_iface) { return BM_ERR_INVALID; }
-        return st->ipc_iface->acquire_read(st->ipc_ctx, slot_out);
+        rc = st->ipc_iface->acquire_read(st->ipc_ctx, slot_out);
+        if (rc == BM_OK) {
+            r->borrowed = 1u;
+        }
+        return rc;
     }
 
     /* QUEUE / SIGNAL */
@@ -733,11 +745,13 @@ int bm_bus_acquire_read(bm_bus_reader_t *r, const void **slot_out) {
         rc = new_rc;
         BUS_UNLOCK(s);
         *slot_out = bus_slot_ptr(st, rc);
+        r->borrowed = 1u; /* OVERFLOW 仍借出槽指针，须配对 release（C7） */
         return BM_ERR_OVERFLOW;
     }
 
     *slot_out = bus_slot_ptr(st, rc);
     BUS_UNLOCK(s);
+    r->borrowed = 1u;
     return BM_OK;
 }
 
@@ -765,7 +779,7 @@ int bm_bus_acquire_read(bm_bus_reader_t *r, const void **slot_out) {
  *
  * @param r 读者句柄
  * @return BM_OK 成功；BM_ERR_OVERFLOW SIGNAL 消费窗口内本帧被覆盖（作废重取）；
- *         BM_ERR_INVALID 参数错（slot_idx 越界）
+ *         BM_ERR_INVALID 参数错（slot_idx 越界）或未 acquire 先 release（C7）
  */
 int bm_bus_release(bm_bus_reader_t *r) {
     bm_bus_storage_t *st;
@@ -781,7 +795,18 @@ int bm_bus_release(bm_bus_reader_t *r) {
         bus_store_cur(&st->latest_reading, BM_BUS_LATEST_NONE);
         return BM_OK;
     }
-    /* IPC 分流：判 NULL + 透传 vtable release；FIFO 后端推进读游标，LATEST 后端幂等 */
+    /* C7：未借先还防护（与写侧 write_in_progress 对称）。若无此防护，
+     * 误用（release 未配对 acquire）会把 read_cur 推过 write_cur，
+     * (wc-rc) 下溢为巨值 → ready_count 恒 cap-1、acquire_read 恒走 lap
+     * 分支读陈旧槽，游标被永久毒化且无诊断。
+     * LATEST 无读游标、release 仅清 reading 标记，不存在毒化问题；
+     * 该检查放在 IPC 分流之前，覆盖 FIFO/QUEUE/SIGNAL 等带游标后端。 */
+    if (!r->borrowed) {
+        return BM_ERR_INVALID;
+    }
+    r->borrowed = 0u;
+
+    /* IPC 分流：判 NULL + 透传 vtable release；FIFO 后端推进读游标。 */
     if (st->mode == BM_BUS_IPC) {
         if (!st->ipc_iface) { return BM_ERR_INVALID; }
         return st->ipc_iface->release(st->ipc_ctx);
@@ -1152,6 +1177,12 @@ int bm_bus_latest_read(const bm_bus_t *h, void *dst) {
         }
 #endif
 
+        /* seqlock 读侧 acquire 屏障：memcpy 与随后的 seq2 读之间无天然定序，
+         * 弱序多核（如 ARM）上编译器/CPU 可能把 memcpy 重排到 seq2 load 之后，
+         * 使"判稳"发生在数据实际落地之前，读到撕裂数据却误判一致。此处插入
+         * acquire 屏障，强制 memcpy 完成先于 seq2 读，恢复 seqlock 读侧的正确性。 */
+        bm_atomic_ipc_fence_acquire();
+
         /* seqlock 读侧第二步：复读序号，与 seq1 相等说明拷贝期间无写者发布 */
         seq2 = bus_load_cur(&st->latest_seq);
         if (seq1 == seq2) {
@@ -1191,6 +1222,9 @@ int bm_bus_latest_read_seq(const bm_bus_t *h, void *dst, uint32_t *out_seq) {
         p = bus_load_cur(&st->latest_published);
         if (p == BM_BUS_LATEST_NONE) return BM_ERR_WOULD_BLOCK;
         (void)memcpy(dst, st->data_buf + (size_t)p * st->elem_size, st->elem_size);
+        /* seqlock 读侧 acquire 屏障：与 bm_bus_latest_read 同理，防 memcpy 被
+         * 弱序多核重排到 seq2 读之后导致判稳却拷到撕裂数据。 */
+        bm_atomic_ipc_fence_acquire();
         seq2 = bus_load_cur(&st->latest_seq);
         if (seq1 == seq2) {
             *out_seq = seq1;      /* 稳定序号，与拷到的值同一次校验 */

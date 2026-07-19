@@ -19,6 +19,7 @@
  */
 #include "unity.h"
 #include "bm/component/robot_joint_control.h"
+#include "bm/algorithm/bm_algo_common.h"
 #include "bm/common/bm_types.h"
 
 #include <math.h>
@@ -169,11 +170,41 @@ void test_robot_joint_exec_ops_lifecycle(void) {
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, axis.state.torque_cmd_nm);
 }
 
+/* ------------------------------------------------------------------ */
+/* 测试用例 5：非有限反馈（NaN 速度）时须输出 0 力矩且不污染 PI 状态        */
+/* ------------------------------------------------------------------ */
+void test_robot_joint_rejects_nan_feedback(void) {
+    bm_robot_joint_control_axis_t axis;
+
+    make_default_axis(&axis);
+    TEST_ASSERT_EQUAL(BM_OK, bm_robot_joint_control_init(&axis));
+
+    /* 先走正常步，使 PI 积分非零 */
+    g_pos = 0.0f;
+    g_vel = 0.0f;
+    bm_robot_joint_control_step(&axis);
+    TEST_ASSERT_TRUE(g_torque != 0.0f);
+
+    /* 注入 NaN 速度：应输出 0 力矩，PI 积分不被污染 */
+    g_vel = NAN;
+    g_pos = 0.0f;
+    bm_robot_joint_control_step(&axis);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, g_torque);
+    TEST_ASSERT_TRUE(bm_algo_is_finite_f(axis.state.pi.integrator));
+
+    /* 注入 NaN 位置 */
+    g_vel = 0.0f;
+    g_pos = NAN;
+    bm_robot_joint_control_step(&axis);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, g_torque);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_robot_joint_pi_drives_torque);
     RUN_TEST(test_robot_joint_velocity_overspeed_clamp);
     RUN_TEST(test_robot_joint_soft_limit_clamp);
     RUN_TEST(test_robot_joint_exec_ops_lifecycle);
+    RUN_TEST(test_robot_joint_rejects_nan_feedback);
     return UNITY_END();
 }

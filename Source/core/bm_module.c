@@ -5,14 +5,16 @@
  *
  * 从应用提供的 _bm_module_table 加载模块，按优先级排序后依次 init/start/stop/deinit。
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-10
+ * @version 1.2
+ * @date 2026-07-02
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
  * 2026-06-10       1.1            zeh            失败回滚与状态机加固
+ * 2026-07-02       1.2            zeh            QD-6：cache-line 补齐改用 union，
+ *                                                消除 MSVC C2233
  *
  */
 #include "bm_module.h"
@@ -43,13 +45,8 @@ typedef struct {
     int initialized;
 } bm_module_cpu_state_t;
 
-typedef struct {
-    bm_module_cpu_state_t state;
-    uint8_t padding[(sizeof(bm_module_cpu_state_t) % BM_CONFIG_CACHE_LINE)
-        ? (BM_CONFIG_CACHE_LINE - (sizeof(bm_module_cpu_state_t) %
-                                   BM_CONFIG_CACHE_LINE))
-        : 0];
-} bm_module_cpu_storage_t;
+typedef BM_CACHE_LINE_PADDED_UNION(bm_module_cpu_state_t, state,
+                                   BM_CONFIG_CACHE_LINE) bm_module_cpu_storage_t;
 
 static BM_CACHE_ALIGNAS(BM_CONFIG_CACHE_LINE)
 bm_module_cpu_storage_t g_module_cpu[BM_CONFIG_CPU_COUNT];
@@ -129,8 +126,12 @@ static int _rollback_inits(bm_module_cpu_state_t *state, uint32_t through_index)
     return rc;
 }
 
+#if BM_CPU_LOCAL_ENABLE_ROUTE
 /**
  * @brief start 失败时逆序停止已启动模块（调用方须持有非 NULL 的 state）
+ *
+ * 仅被 ROUTE 分支（bm_module_start_on_this_cpu 的 start 回滚）引用，
+ * 非 ROUTE 构建下不编入以避免 unused 告警。
  */
 static int _rollback_starts(bm_module_cpu_state_t *state, uint32_t through_index) {
     int rc = BM_OK;
@@ -155,6 +156,7 @@ static int _rollback_starts(bm_module_cpu_state_t *state, uint32_t through_index
     }
     return rc;
 }
+#endif /* BM_CPU_LOCAL_ENABLE_ROUTE */
 
 /**
  * @brief 从模块表加载并依次调用 init
@@ -191,12 +193,13 @@ static int _module_init_all(bool reset_event_bus) {
         return BM_ERR_OVERFLOW;
     }
 
-    if (reset_event_bus) {
-        bm_event_reset();
-    }
-
-    state->module_count = _bm_module_count;
-    for (uint32_t i = 0u; i < state->module_count; i++) {
+    /*
+     * NULL 表项校验前移到 bm_event_reset() 之前（C1）：若在 reset 之后才
+     * 发现 NULL 表项而失败返回，事件总线已被清空，注释所说"避免已发布
+     * 事件不可逆丢失"的意图就落空了。故与上面的上界校验同侧，一并在
+     * reset 前完成，reset 只在全部表项校验通过后才执行。
+     */
+    for (uint32_t i = 0u; i < _bm_module_count; i++) {
         if (_bm_module_table[i] == NULL) {
             BM_LOGE("module", "module table contains null entry idx=%u",
                     (unsigned)i);
@@ -206,6 +209,14 @@ static int _module_init_all(bool reset_event_bus) {
             BM_CRITICAL_EXIT(s);
             return BM_ERR_INVALID;
         }
+    }
+
+    if (reset_event_bus) {
+        bm_event_reset();
+    }
+
+    state->module_count = _bm_module_count;
+    for (uint32_t i = 0u; i < state->module_count; i++) {
         memcpy(&state->modules[i], _bm_module_table[i], sizeof(bm_module_t));
     }
     for (uint32_t i = 0u; i < state->module_count; i++) {
@@ -301,6 +312,179 @@ int bm_module_init_all(void) {
 #endif
 }
 
+#if !BM_CPU_LOCAL_ENABLE_ROUTE
+/**
+ * @brief 判断模块是否匹配指定域（含 COMMON 通配域）
+ *
+ * @param mod    模块描述符（不可为 NULL）
+ * @param domain 目标域
+ * @return 非零表示匹配
+ */
+static int _module_domain_matches(const bm_module_t *mod, bm_domain_t domain) {
+    return mod->domain == domain || mod->domain == BM_DOMAIN_COMMON;
+}
+
+/**
+ * @brief 启动 state 中满足域过滤条件的已初始化模块
+ *
+ * @param state  当前 CPU 模块状态
+ * @param domain 目标域（filter 为 0 时忽略）
+ * @param filter 0 表示处理全部模块；非零表示仅处理匹配 domain 的模块
+ * @return BM_OK 成功；负值为首个失败模块的错误码
+ */
+static int _start_modules_filtered(bm_module_cpu_state_t *state,
+                                   bm_domain_t domain,
+                                   int filter) {
+    for (uint32_t i = 0u; i < state->module_count; i++) {
+        if (filter && !_module_domain_matches(&state->modules[i], domain)) {
+            continue;
+        }
+        if (state->modules[i].state == BM_MODULE_STATE_INITED ||
+            state->modules[i].state == BM_MODULE_STATE_STOPPED) {
+            int r = state->modules[i].start ? state->modules[i].start() : BM_OK;
+
+            if (r == BM_OK) {
+                state->modules[i].state = BM_MODULE_STATE_STARTED;
+                BM_LOGD("module", "'%s' started",
+                        state->modules[i].name ? state->modules[i].name : "(null)");
+            } else {
+                BM_LOGE("module", "'%s' start failed rc=%d",
+                        state->modules[i].name ? state->modules[i].name : "(null)", r);
+                return r;
+            }
+        }
+    }
+    return BM_OK;
+}
+
+/**
+ * @brief start 失败时逆序停止已启动的模块，可按域过滤
+ *
+ * @param state          当前 CPU 模块状态
+ * @param through_index  回滚上限索引（不包含）
+ * @param domain         目标域（filter 为 0 时忽略）
+ * @param filter         0 表示处理全部模块；非零表示仅处理匹配 domain 的模块
+ * @return BM_OK 全部成功；负值为首个失败模块的错误码
+ */
+static int _rollback_starts_filtered(bm_module_cpu_state_t *state,
+                                     uint32_t through_index,
+                                     bm_domain_t domain,
+                                     int filter) {
+    int rc = BM_OK;
+
+    while (through_index > 0u) {
+        through_index--;
+        if (filter && !_module_domain_matches(&state->modules[through_index], domain)) {
+            continue;
+        }
+        if (state->modules[through_index].state == BM_MODULE_STATE_STARTED) {
+            if (state->modules[through_index].stop) {
+                int r = state->modules[through_index].stop();
+
+                if (r != BM_OK) {
+                    BM_LOGE("module", "start rollback failed idx=%u rc=%d",
+                            (unsigned)through_index, r);
+                    if (rc == BM_OK) {
+                        rc = r;
+                    }
+                    continue;
+                }
+            }
+            state->modules[through_index].state = BM_MODULE_STATE_INITED;
+        }
+    }
+    return rc;
+}
+
+/**
+ * @brief 停止 state 中满足域过滤条件的已启动模块
+ *
+ * @param state  当前 CPU 模块状态
+ * @param domain 目标域（filter 为 0 时忽略）
+ * @param filter 0 表示处理全部模块；非零表示仅处理匹配 domain 的模块
+ * @return BM_OK 全部成功；负值为首个失败模块的错误码
+ */
+static int _stop_modules_filtered(bm_module_cpu_state_t *state,
+                                  bm_domain_t domain,
+                                  int filter) {
+    int rc = BM_OK;
+
+    for (int i = (int)state->module_count - 1; i >= 0; i--) {
+        if (filter && !_module_domain_matches(&state->modules[i], domain)) {
+            continue;
+        }
+        if (state->modules[i].state == BM_MODULE_STATE_STARTED) {
+            int r = state->modules[i].stop ? state->modules[i].stop() : BM_OK;
+
+            if (r == BM_OK) {
+                state->modules[i].state = BM_MODULE_STATE_STOPPED;
+            } else {
+                BM_LOGE("module", "stop failed idx=%d rc=%d", i, r);
+                if (rc == BM_OK) {
+                    rc = r;
+                }
+            }
+        }
+    }
+    return rc;
+}
+
+/**
+ * @brief 反初始化 state 中满足域过滤条件的模块
+ *
+ * @param state        当前 CPU 模块状态
+ * @param domain       目标域（filter 为 0 时忽略）
+ * @param filter       0 表示处理全部模块；非零表示仅处理匹配 domain 的模块
+ * @param remaining    输出参数：返回未被反初始化的模块数（filter 为 0 时恒为 0）
+ * @return BM_OK 全部成功；负值为首个失败模块的错误码
+ */
+static int _deinit_modules_filtered(bm_module_cpu_state_t *state,
+                                    bm_domain_t domain,
+                                    int filter,
+                                    uint32_t *remaining) {
+    int rc = BM_OK;
+    uint32_t rem = 0u;
+
+    for (int i = (int)state->module_count - 1; i >= 0; i--) {
+        if (filter && !_module_domain_matches(&state->modules[i], domain)) {
+            if (state->modules[i].state != BM_MODULE_STATE_UNINIT) {
+                rem++;
+            }
+            continue;
+        }
+        if (state->modules[i].state == BM_MODULE_STATE_STARTED) {
+            int r = state->modules[i].stop ? state->modules[i].stop() : BM_OK;
+
+            if (r != BM_OK) {
+                BM_LOGE("module", "deinit stop failed idx=%d rc=%d", i, r);
+                if (rc == BM_OK) {
+                    rc = r;
+                }
+                rem++;
+                continue;
+            }
+            state->modules[i].state = BM_MODULE_STATE_STOPPED;
+        }
+        if (state->modules[i].state != BM_MODULE_STATE_UNINIT &&
+            state->modules[i].deinit) {
+            int r = state->modules[i].deinit();
+            if (r != BM_OK) {
+                if (rc == BM_OK) {
+                    rc = r;
+                }
+                rem++;
+                continue;
+            }
+        }
+        state->modules[i].state = BM_MODULE_STATE_UNINIT;
+    }
+    if (remaining != NULL) {
+        *remaining = rem;
+    }
+    return rc;
+}
+#endif /* !BM_CPU_LOCAL_ENABLE_ROUTE */
+
 /**
  * @brief 依次启动已初始化的模块
  *
@@ -315,6 +499,7 @@ int bm_module_start_all(void) {
     bm_module_cpu_state_t *state = bm_module_this();
     bm_irq_state_t s;
     int initialized;
+    int rc;
 
     if (state == NULL) {
         return BM_ERR_INVALID;
@@ -335,30 +520,19 @@ int bm_module_start_all(void) {
     state->initialized = BM_MODULES_TRANSITIONING;
     BM_CRITICAL_EXIT(s);
 
-    for (uint32_t i = 0u; i < state->module_count; i++) {
-        if (state->modules[i].state == BM_MODULE_STATE_INITED ||
-            state->modules[i].state == BM_MODULE_STATE_STOPPED) {
-            int r = state->modules[i].start ? state->modules[i].start() : BM_OK;
-
-            if (r == BM_OK) {
-                state->modules[i].state = BM_MODULE_STATE_STARTED;
-                BM_LOGD("module", "'%s' started",
-                        state->modules[i].name ? state->modules[i].name : "(null)");
-            } else {
-                BM_LOGE("module", "'%s' start failed rc=%d",
-                        state->modules[i].name ? state->modules[i].name : "(null)", r);
-                if (_rollback_starts(state, i) != BM_OK) {
-                    s = BM_CRITICAL_ENTER();
-                    state->initialized = BM_MODULES_CLEANUP_PENDING;
-                    BM_CRITICAL_EXIT(s);
-                } else {
-                    s = BM_CRITICAL_ENTER();
-                    state->initialized = BM_MODULES_READY;
-                    BM_CRITICAL_EXIT(s);
-                }
-                return r;
-            }
+    rc = _start_modules_filtered(state, (bm_domain_t)0, 0);
+    if (rc != BM_OK) {
+        if (_rollback_starts_filtered(state, state->module_count, (bm_domain_t)0, 0)
+                != BM_OK) {
+            s = BM_CRITICAL_ENTER();
+            state->initialized = BM_MODULES_CLEANUP_PENDING;
+            BM_CRITICAL_EXIT(s);
+        } else {
+            s = BM_CRITICAL_ENTER();
+            state->initialized = BM_MODULES_READY;
+            BM_CRITICAL_EXIT(s);
         }
+        return rc;
     }
     s = BM_CRITICAL_ENTER();
     state->initialized = BM_MODULES_READY;
@@ -380,7 +554,7 @@ int bm_module_stop_all(void) {
 #else
     bm_module_cpu_state_t *state = bm_module_this();
     bm_irq_state_t s;
-    int rc = BM_OK;
+    int rc;
 
     if (state == NULL) {
         return BM_ERR_INVALID;
@@ -399,20 +573,7 @@ int bm_module_stop_all(void) {
     state->initialized = BM_MODULES_TRANSITIONING;
     BM_CRITICAL_EXIT(s);
 
-    for (int i = (int)state->module_count - 1; i >= 0; i--) {
-        if (state->modules[i].state == BM_MODULE_STATE_STARTED) {
-            int r = state->modules[i].stop ? state->modules[i].stop() : BM_OK;
-
-            if (r == BM_OK) {
-                state->modules[i].state = BM_MODULE_STATE_STOPPED;
-            } else {
-                BM_LOGE("module", "stop failed idx=%d rc=%d", i, r);
-                if (rc == BM_OK) {
-                    rc = r;
-                }
-            }
-        }
-    }
+    rc = _stop_modules_filtered(state, (bm_domain_t)0, 0);
     s = BM_CRITICAL_ENTER();
     state->initialized = BM_MODULES_READY;
     BM_CRITICAL_EXIT(s);
@@ -434,7 +595,7 @@ int bm_module_deinit_all(void) {
 #else
     bm_module_cpu_state_t *state = bm_module_this();
     bm_irq_state_t s;
-    int rc = BM_OK;
+    int rc;
 
     if (state == NULL) {
         return BM_ERR_INVALID;
@@ -448,35 +609,8 @@ int bm_module_deinit_all(void) {
     state->initialized = BM_MODULES_CLEANUP_PENDING;
     BM_CRITICAL_EXIT(s);
 
-    for (int i = (int)state->module_count - 1; i >= 0; i--) {
-        if (state->modules[i].state == BM_MODULE_STATE_STARTED) {
-            int r = state->modules[i].stop ? state->modules[i].stop() : BM_OK;
-
-            if (r != BM_OK) {
-                BM_LOGE("module", "deinit stop failed idx=%d rc=%d", i, r);
-                if (rc == BM_OK) {
-                    rc = r;
-                }
-                continue;
-            }
-            state->modules[i].state = BM_MODULE_STATE_STOPPED;
-        }
-        if (state->modules[i].state != BM_MODULE_STATE_UNINIT &&
-            state->modules[i].deinit) {
-            int r = state->modules[i].deinit();
-            if (r != BM_OK) {
-                if (rc == BM_OK) {
-                    rc = r;
-                }
-                continue;
-            }
-        }
-        state->modules[i].state = BM_MODULE_STATE_UNINIT;
-    }
+    rc = _deinit_modules_filtered(state, (bm_domain_t)0, 0, NULL);
     if (rc != BM_OK) {
-        s = BM_CRITICAL_ENTER();
-        state->initialized = BM_MODULES_CLEANUP_PENDING;
-        BM_CRITICAL_EXIT(s);
         BM_LOGW("module", "deinit_all completed with errors rc=%d", rc);
     } else {
         s = BM_CRITICAL_ENTER();
@@ -522,11 +656,11 @@ static int _module_init_all_for_domain(bm_domain_t domain, bool reset_event_bus)
         return BM_ERR_OVERFLOW;
     }
 
-    if (reset_event_bus) {
-        bm_event_reset();
-    }
-
-    state->module_count = 0;
+    /*
+     * NULL 表项校验前移到 bm_event_reset() 之前（C1，与 _module_init_all
+     * 同理）：避免 reset 之后才发现 NULL 表项失败返回，导致已发布事件
+     * 不可逆丢失。reset 只在全部表项校验通过后才执行。
+     */
     for (uint32_t i = 0u; i < _bm_module_count; i++) {
         if (_bm_module_table[i] == NULL) {
             BM_LOGE("module", "module table contains null entry idx=%u",
@@ -537,8 +671,15 @@ static int _module_init_all_for_domain(bm_domain_t domain, bool reset_event_bus)
             BM_CRITICAL_EXIT(s);
             return BM_ERR_INVALID;
         }
-        if (_bm_module_table[i]->domain == domain ||
-            _bm_module_table[i]->domain == BM_DOMAIN_COMMON) {
+    }
+
+    if (reset_event_bus) {
+        bm_event_reset();
+    }
+
+    state->module_count = 0;
+    for (uint32_t i = 0u; i < _bm_module_count; i++) {
+        if (_module_domain_matches(_bm_module_table[i], domain)) {
             memcpy(&state->modules[state->module_count], _bm_module_table[i],
                    sizeof(bm_module_t));
             state->modules[state->module_count].state = BM_MODULE_STATE_UNINIT;
@@ -611,12 +752,55 @@ int bm_module_init_all_for_domain(bm_domain_t domain) {
  * @return BM_OK 成功；负值表示失败
  */
 int bm_module_start_all_for_domain(bm_domain_t domain) {
-    /*
-     * _modules 中仅包含 init_all_for_domain(domain) 加载的匹配模块；
-     * 此处直接调用 start_all 仅操作已过滤的模块集。
-     */
+#if BM_CPU_LOCAL_ENABLE_ROUTE
+    BM_LOGW("module", "start_all_for_domain not supported when CPU routing is enabled;"
+            " use bm_module_start_on_this_cpu() on the owner CPU");
     (void)domain;
-    return bm_module_start_all();
+    return BM_ERR_INVALID;
+#else
+    bm_module_cpu_state_t *state = bm_module_this();
+    bm_irq_state_t s;
+    int initialized;
+    int rc;
+
+    if (state == NULL) {
+        return BM_ERR_INVALID;
+    }
+    s = BM_CRITICAL_ENTER();
+    initialized = state->initialized;
+
+    if (initialized == BM_MODULES_INITIALIZING ||
+        initialized == BM_MODULES_TRANSITIONING ||
+        initialized == BM_MODULES_CLEANUP_PENDING) {
+        BM_CRITICAL_EXIT(s);
+        return BM_ERR_BUSY;
+    }
+    if (initialized != BM_MODULES_READY) {
+        BM_CRITICAL_EXIT(s);
+        return BM_ERR_NOT_INIT;
+    }
+    state->initialized = BM_MODULES_TRANSITIONING;
+    BM_CRITICAL_EXIT(s);
+
+    rc = _start_modules_filtered(state, domain, 1);
+    if (rc != BM_OK) {
+        if (_rollback_starts_filtered(state, state->module_count, domain, 1)
+                != BM_OK) {
+            s = BM_CRITICAL_ENTER();
+            state->initialized = BM_MODULES_CLEANUP_PENDING;
+            BM_CRITICAL_EXIT(s);
+        } else {
+            s = BM_CRITICAL_ENTER();
+            state->initialized = BM_MODULES_READY;
+            BM_CRITICAL_EXIT(s);
+        }
+        return rc;
+    }
+    s = BM_CRITICAL_ENTER();
+    state->initialized = BM_MODULES_READY;
+    BM_CRITICAL_EXIT(s);
+    return BM_OK;
+#endif
 }
 
 /**
@@ -626,12 +810,42 @@ int bm_module_start_all_for_domain(bm_domain_t domain) {
  * @return BM_OK 成功；负值表示失败
  */
 int bm_module_stop_all_for_domain(bm_domain_t domain) {
-    /*
-     * 同理，stop_all 逆序遍历 _modules，仅停止当前已加载的
-     * 域匹配模块。
-     */
+#if BM_CPU_LOCAL_ENABLE_ROUTE
+    BM_LOGW("module", "stop_all_for_domain not supported when CPU routing is enabled;"
+            " stop modules on each CPU individually");
     (void)domain;
-    return bm_module_stop_all();
+    return BM_ERR_INVALID;
+#else
+    bm_module_cpu_state_t *state = bm_module_this();
+    bm_irq_state_t s;
+    int rc;
+    int initialized;
+
+    if (state == NULL) {
+        return BM_ERR_INVALID;
+    }
+    s = BM_CRITICAL_ENTER();
+    initialized = state->initialized;
+    if (initialized == BM_MODULES_INITIALIZING ||
+        initialized == BM_MODULES_TRANSITIONING ||
+        initialized == BM_MODULES_CLEANUP_PENDING) {
+        BM_CRITICAL_EXIT(s);
+        return BM_ERR_BUSY;
+    }
+    if (initialized == BM_MODULES_UNINITIALIZED) {
+        BM_CRITICAL_EXIT(s);
+        return BM_OK;
+    }
+    state->initialized = BM_MODULES_TRANSITIONING;
+    BM_CRITICAL_EXIT(s);
+
+    rc = _stop_modules_filtered(state, domain, 1);
+    s = BM_CRITICAL_ENTER();
+    state->initialized = BM_MODULES_READY;
+    BM_CRITICAL_EXIT(s);
+    BM_LOGI("module", "stop_all_for_domain done");
+    return rc;
+#endif
 }
 
 /**
@@ -641,8 +855,47 @@ int bm_module_stop_all_for_domain(bm_domain_t domain) {
  * @return BM_OK 成功；负值表示失败
  */
 int bm_module_deinit_all_for_domain(bm_domain_t domain) {
+#if BM_CPU_LOCAL_ENABLE_ROUTE
+    BM_LOGW("module", "deinit_all_for_domain not supported when CPU routing is enabled;"
+            " deinit modules on each CPU individually");
     (void)domain;
-    return bm_module_deinit_all();
+    return BM_ERR_INVALID;
+#else
+    bm_module_cpu_state_t *state = bm_module_this();
+    bm_irq_state_t s;
+    int rc;
+    int initialized;
+    uint32_t remaining = 0u;
+
+    if (state == NULL) {
+        return BM_ERR_INVALID;
+    }
+    s = BM_CRITICAL_ENTER();
+    initialized = state->initialized;
+    if (initialized == BM_MODULES_INITIALIZING ||
+        initialized == BM_MODULES_TRANSITIONING) {
+        BM_CRITICAL_EXIT(s);
+        return BM_ERR_BUSY;
+    }
+    state->initialized = BM_MODULES_CLEANUP_PENDING;
+    BM_CRITICAL_EXIT(s);
+
+    rc = _deinit_modules_filtered(state, domain, 1, &remaining);
+    if (rc != BM_OK) {
+        BM_LOGW("module", "deinit_all_for_domain completed with errors rc=%d", rc);
+    } else {
+        s = BM_CRITICAL_ENTER();
+        if (remaining == 0u) {
+            state->initialized = BM_MODULES_UNINITIALIZED;
+            state->module_count = 0u;
+        } else {
+            state->initialized = BM_MODULES_READY;
+        }
+        BM_CRITICAL_EXIT(s);
+        BM_LOGI("module", "deinit_all_for_domain done");
+    }
+    return rc;
+#endif
 }
 
 /**
@@ -711,10 +964,21 @@ int bm_module_init_on_this_cpu(void) {
         int r = state->modules[i].init ? state->modules[i].init() : BM_OK;
 
         if (r != BM_OK) {
-            (void)_rollback_inits(state, i);
+            /*
+             * 接住回滚返回值：回滚失败（个别模块 deinit 未成功）不能静默
+             * 复位为 UNINITIALIZED——那会让调用方误以为可以从头重新
+             * init，实际上部分模块残留 INITED 状态。与非路由路径
+             * _module_init_all 对齐：回滚失败置 CLEANUP_PENDING（A2）。
+             */
+            int rollback_rc = _rollback_inits(state, i);
+
             s = BM_CRITICAL_ENTER();
-            state->module_count = 0u;
-            state->initialized = BM_MODULES_UNINITIALIZED;
+            if (rollback_rc != BM_OK) {
+                state->initialized = BM_MODULES_CLEANUP_PENDING;
+            } else {
+                state->module_count = 0u;
+                state->initialized = BM_MODULES_UNINITIALIZED;
+            }
             BM_CRITICAL_EXIT(s);
             return r;
         }
@@ -753,6 +1017,18 @@ int bm_module_start_on_this_cpu(void) {
     }
 
     s = BM_CRITICAL_ENTER();
+    /*
+     * 状态码语义对齐非路由路径 bm_module_start_all（A3）：
+     * INITIALIZING/TRANSITIONING/CLEANUP_PENDING 属"忙态"（另一流程正在
+     * 变更状态），应返回 BM_ERR_BUSY 而非笼统的 BM_ERR_NOT_INIT；
+     * 仅 UNINITIALIZED（尚未 init）才是真正的"未初始化"。
+     */
+    if (state->initialized == BM_MODULES_INITIALIZING ||
+        state->initialized == BM_MODULES_TRANSITIONING ||
+        state->initialized == BM_MODULES_CLEANUP_PENDING) {
+        BM_CRITICAL_EXIT(s);
+        return BM_ERR_BUSY;
+    }
     if (state->initialized != BM_MODULES_READY) {
         BM_CRITICAL_EXIT(s);
         return BM_ERR_NOT_INIT;
@@ -766,9 +1042,17 @@ int bm_module_start_on_this_cpu(void) {
             int r = state->modules[i].start ? state->modules[i].start() : BM_OK;
 
             if (r != BM_OK) {
-                (void)_rollback_starts(state, i);
+                /*
+                 * 接住回滚返回值：回滚失败不能静默复位为 READY——那会让
+                 * 调用方误以为可以立即重新 start，实际上部分模块残留
+                 * STARTED 状态。与非路由路径 bm_module_start_all 对齐：
+                 * 回滚失败置 CLEANUP_PENDING（A2）。
+                 */
+                int rollback_rc = _rollback_starts(state, i);
+
                 s = BM_CRITICAL_ENTER();
-                state->initialized = BM_MODULES_READY;
+                state->initialized = (rollback_rc != BM_OK) ?
+                    BM_MODULES_CLEANUP_PENDING : BM_MODULES_READY;
                 BM_CRITICAL_EXIT(s);
                 return r;
             }

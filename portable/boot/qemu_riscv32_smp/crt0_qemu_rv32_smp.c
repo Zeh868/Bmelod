@@ -5,13 +5,14 @@
  *
  * 从核由 startup 汇编唤醒后经 qemu_rv32_smp_secondary_start 跳入框架入口。
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-15
+ * @version 1.1
+ * @date 2026-07-15
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-15       1.0            zeh            正式发布
+ * 2026-07-15       1.1            zeh            fence rw,rw 从 flag 写之后挪到之前，BSS 清零先于 flag 对从核可见
  *
  */
 #include "bm_config.h"
@@ -30,6 +31,9 @@ volatile uintptr_t g_secondary_mailbox[BM_CONFIG_CPU_COUNT];
 /** 从核已退出标志（join 路径自旋等待） */
 volatile uint32_t g_secondary_done[BM_CONFIG_CPU_COUNT];
 
+/** 主核 SystemInit 完成标志（从核在 BSS 有效前不得读 mailbox），对齐 RV64 SMP 实现 */
+volatile uint32_t g_cpu0_system_init_done;
+
 void SystemInit(void) {
     uintptr_t *src = (uintptr_t *)&_sidata;
     uintptr_t *dst = (uintptr_t *)&_sdata;
@@ -42,6 +46,8 @@ void SystemInit(void) {
     while (dst < (uintptr_t *)&_ebss) {
         *dst++ = 0;
     }
+    __asm volatile("fence rw, rw" ::: "memory"); /* BSS 清零先于 flag 可见 */
+    g_cpu0_system_init_done = 1u;
 }
 
 /**

@@ -17,6 +17,8 @@
 #ifndef BM_ALGO_PROFILE_H
 #define BM_ALGO_PROFILE_H
 
+#include "bm/algorithm/bm_algo_errors.h"
+
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -39,6 +41,14 @@ typedef struct {
     float output; /**< 当前输出值 */
     int   done;   /**< 非零表示已到达目标 */
 } bm_algo_ramp_state_t;
+
+/**
+ * @brief 校验斜坡限速配置
+ *
+ * @param config 斜坡配置指针
+ * @return 0 合法；BM_ALGO_ERR_INVALID 参数无效
+ */
+int bm_algo_ramp_validate_config(const bm_algo_ramp_config_t *config);
 
 /**
  * @brief 复位斜坡限速状态
@@ -75,6 +85,14 @@ typedef struct {
     float max_accel; /**< 最大加速度（单位/秒²），须 > 0 */
     float max_decel; /**< 最大减速度（单位/秒²），须 > 0 */
 } bm_algo_trapezoid_config_t;
+
+/**
+ * @brief 校验梯形速度轨迹配置
+ *
+ * @param config 梯形配置指针
+ * @return 0 合法；BM_ALGO_ERR_INVALID 参数无效
+ */
+int bm_algo_trapezoid_validate_config(const bm_algo_trapezoid_config_t *config);
 
 /**
  * @brief 梯形速度轨迹状态
@@ -131,6 +149,14 @@ typedef struct {
     float max_accel; /**< 最大加速度（单位/秒²），须 > 0 */
     float max_jerk;  /**< 最大加加速度 jerk（单位/秒³），须 > 0 */
 } bm_algo_scurve_config_t;
+
+/**
+ * @brief 校验 S 曲线轨迹配置
+ *
+ * @param config S 曲线配置指针
+ * @return 0 合法；BM_ALGO_ERR_INVALID 参数无效
+ */
+int bm_algo_scurve_validate_config(const bm_algo_scurve_config_t *config);
 
 /**
  * @brief S 曲线轨迹状态

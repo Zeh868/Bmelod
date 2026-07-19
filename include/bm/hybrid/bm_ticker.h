@@ -49,7 +49,7 @@ int bm_ticker_init(const bm_ticker_slot_t *slots, uint32_t slot_count);
  *
  * 非可重入，仅限主循环调用。
  *
- * @return 本次发布的事件数；负值为未初始化或事件发布错误
+ * @return 本次发布的事件数；负值为未初始化。单个事件发布失败（队列满）不计入返回值，而是累加到对应 slot 的 dropped 计数，可通过 bm_ticker_get_dropped 查询。
  */
 int bm_ticker_poll(void);
 

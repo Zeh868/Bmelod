@@ -32,7 +32,9 @@ int bm_algo_lpf1_init_from_cutoff(bm_algo_lpf1_config_t *config,
     float rc;
     float dt;
 
-    if (config == NULL || cutoff_hz <= 0.0f || sample_hz <= 0.0f) {
+    if (config == NULL ||
+        !bm_algo_is_finite_f(cutoff_hz) || cutoff_hz <= 0.0f ||
+        !bm_algo_is_finite_f(sample_hz) || sample_hz <= 0.0f) {
         return BM_ALGO_ERR_INVALID;
     }
 
@@ -57,6 +59,11 @@ float bm_algo_lpf1_step(bm_algo_lpf1_state_t *state,
         return input;
     }
 
+    /* 非有限输入会污染 output 持久状态；保持旧输出不变 */
+    if (!bm_algo_is_finite_f(input)) {
+        return state->output;
+    }
+
     alpha = bm_algo_clamp_f(config->alpha, 0.0f, 1.0f);
     state->output += alpha * (input - state->output);
     return state->output;
@@ -68,7 +75,9 @@ int bm_algo_hpf1_init_from_cutoff(bm_algo_hpf1_config_t *config,
     float rc;
     float dt;
 
-    if (config == NULL || cutoff_hz <= 0.0f || sample_hz <= 0.0f) {
+    if (config == NULL ||
+        !bm_algo_is_finite_f(cutoff_hz) || cutoff_hz <= 0.0f ||
+        !bm_algo_is_finite_f(sample_hz) || sample_hz <= 0.0f) {
         return BM_ALGO_ERR_INVALID;
     }
 
@@ -93,6 +102,11 @@ float bm_algo_hpf1_step(bm_algo_hpf1_state_t *state,
 
     if (state == NULL || config == NULL) {
         return input;
+    }
+
+    /* 非有限输入会污染 prev_input/prev_output 持久状态；保持旧输出不变 */
+    if (!bm_algo_is_finite_f(input)) {
+        return state->prev_output;
     }
 
     alpha = bm_algo_clamp_f(config->alpha, 0.0f, 1.0f);
@@ -135,6 +149,11 @@ float bm_algo_moving_avg_step(bm_algo_moving_avg_state_t *state,
         config->length != state->length ||
         state->index >= state->length) {
         return input;
+    }
+
+    /* NaN 输入会让增量和永久中毒；丢弃该样本，保持 sum 可自恢复 */
+    if (!bm_algo_is_finite_f(input)) {
+        return state->count ? state->sum / (float)state->count : input;
     }
 
     old = config->buffer[state->index];
@@ -348,6 +367,14 @@ float bm_algo_biquad_step(bm_algo_biquad_state_t *state,
 
     if (state == NULL || config == NULL) {
         return input;
+    }
+
+    /* 非有限输入或系数会污染 z1/z2 持久状态；跳过本拍并保持上一拍转置节点 */
+    if (!bm_algo_is_finite_f(input) ||
+        !bm_algo_is_finite_f(config->b0) || !bm_algo_is_finite_f(config->b1) ||
+        !bm_algo_is_finite_f(config->b2) || !bm_algo_is_finite_f(config->a1) ||
+        !bm_algo_is_finite_f(config->a2)) {
+        return state->z1;
     }
 
     /* 直接 II 型转置 */

@@ -6,14 +6,17 @@
  * 通过 bm_robot_joint_control_exec_ops 接入 bm_exec 生命周期。
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.2
- * @date 2026-06-17
+ * @version 0.3
+ * @date 2026-07-14
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-17       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 exec_ops、Doxygen、SPDX
+ * 2026-07-14       0.3            zeh            Medium-6 修复：read_joint 反馈
+ *                                                非有限时拒绝进入 PI/friction，
+ *                                                输出 0 力矩，避免 NaN 力矩下发
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -87,21 +90,31 @@ void bm_robot_joint_control_step(bm_robot_joint_control_axis_t *axis) {
         return;
     }
 
-    if (fabsf(vel) > cfg->velocity_max_rad_s) {
-        vel = (vel > 0.0f) ? cfg->velocity_max_rad_s : -cfg->velocity_max_rad_s;
+    /* 非有限反馈会穿透速度限幅、PI 积分及摩擦补偿，最终形成 NaN 力矩下发 */
+    if (!bm_algo_is_finite_f(pos) || !bm_algo_is_finite_f(vel)) {
+        /* 故障拍：将 NaN/Inf 反馈替换为安全值后再发布，避免遥测透传非法值 */
+        pos = 0.0f;
+        vel = 0.0f;
+        pi_out = 0.0f;
+        friction_ff = 0.0f;
+        torque = 0.0f;
+    } else {
+        if (fabsf(vel) > cfg->velocity_max_rad_s) {
+            vel = (vel > 0.0f) ? cfg->velocity_max_rad_s : -cfg->velocity_max_rad_s;
+        }
+
+        setpoint = bm_algo_clamp_f(cfg->position_setpoint_rad,
+                                   cfg->position_min_rad,
+                                   cfg->position_max_rad);
+        err = setpoint - pos;
+        pi_out = bm_algo_pi_step(&st->pi, &cfg->pi, err, cfg->dt_s);
+
+        friction_ff = bm_algo_friction_comp(vel, cfg->coulomb_friction,
+                                          cfg->viscous_friction,
+                                          cfg->friction_deadband);
+        torque = bm_algo_clamp_f(pi_out + friction_ff,
+                                 -cfg->torque_max_nm, cfg->torque_max_nm);
     }
-
-    setpoint = bm_algo_clamp_f(cfg->position_setpoint_rad,
-                               cfg->position_min_rad,
-                               cfg->position_max_rad);
-    err = setpoint - pos;
-    pi_out = bm_algo_pi_step(&st->pi, &cfg->pi, err, cfg->dt_s);
-
-    friction_ff = bm_algo_friction_comp(vel, cfg->coulomb_friction,
-                                      cfg->viscous_friction,
-                                      cfg->friction_deadband);
-    torque = bm_algo_clamp_f(pi_out + friction_ff,
-                             -cfg->torque_max_nm, cfg->torque_max_nm);
 
     st->torque_cmd_nm = torque;
 

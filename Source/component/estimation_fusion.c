@@ -6,8 +6,8 @@
  * 并提供 bm_exec_ops_t 调度封装（run 驱动 IMU 读取→step→publish）。
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.3
- * @date 2026-06-13
+ * @version 0.4
+ * @date 2026-07-14
  *
  * @par 修改日志:
  *
@@ -15,10 +15,15 @@
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            落地 EKF_CV 融合模式：放行 validate、补 step 分支
  * 2026-06-23       0.3            zeh            补 exec_ops 封装；补全公共函数 Doxygen
+ * 2026-07-14       0.4            zeh            Medium-6 修复：read_imu 成功
+ *                                                返回后统一校验六轴有限性，
+ *                                                非有限时跳过融合并上报 STALE，
+ *                                                避免 EKF_CV 持久状态被 NaN 污染
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/component/estimation_fusion.h"
+#include "bm/algorithm/bm_algo_common.h"
 #include "bm/common/bm_types.h"
 #include "bm/component/bm_component_common.h"
 
@@ -54,6 +59,12 @@ static float ekf_cv_accel_pitch(float ax, float az) {
 int bm_estimation_fusion_validate_config(
     const bm_estimation_fusion_config_t *config) {
     if (config == NULL || config->dt_s <= 0.0f) {
+        return BM_ERR_INVALID;
+    }
+    /* 拒绝非法/未定义融合模式，防止 step 直接发布上一拍数据并标 VALID */
+    if (config->mode != BM_EST_FUSION_COMPLEMENTARY &&
+        config->mode != BM_EST_FUSION_MAHONY &&
+        config->mode != BM_EST_FUSION_EKF_CV) {
         return BM_ERR_INVALID;
     }
     if (config->mode == BM_EST_FUSION_EKF_CV) {
@@ -124,6 +135,21 @@ void bm_estimation_fusion_step(bm_estimation_fusion_axis_t *axis) {
         return;
     }
 
+    /* read_imu 成功返回不代表数据合法；六轴任一非有限即可永久污染姿态状态
+     *（EKF_CV 的 vel=gy 直写会绕过算法层护栏），统一拦截并上报 STALE */
+    if (!bm_algo_is_finite_f(gx) || !bm_algo_is_finite_f(gy) ||
+        !bm_algo_is_finite_f(gz) || !bm_algo_is_finite_f(ax) ||
+        !bm_algo_is_finite_f(ay) || !bm_algo_is_finite_f(az)) {
+        st->step_count++;
+        st->telemetry.sequence = st->step_count;
+        st->telemetry.status = BM_EST_FUSION_TEL_STALE;
+        st->telemetry.roll_rad = st->euler.roll_rad;
+        st->telemetry.pitch_rad = st->euler.pitch_rad;
+        st->telemetry.yaw_rad = st->euler.yaw_rad;
+        BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
+        return;
+    }
+
     switch (cfg->mode) {
     case BM_EST_FUSION_COMPLEMENTARY:
         bm_algo_complementary_step(&st->complementary, &cfg->complementary,
@@ -155,7 +181,15 @@ void bm_estimation_fusion_step(bm_estimation_fusion_axis_t *axis) {
         st->euler.yaw_rad   = 0.0f;
         break;
     default:
-        break;
+        /* Batch-3：运行期 mode 损坏时（仅 init 校验不够），不应标 VALID */
+        st->step_count++;
+        st->telemetry.sequence = st->step_count;
+        st->telemetry.status = BM_EST_FUSION_TEL_STALE;
+        st->telemetry.roll_rad = st->euler.roll_rad;
+        st->telemetry.pitch_rad = st->euler.pitch_rad;
+        st->telemetry.yaw_rad = st->euler.yaw_rad;
+        BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
+        return;
     }
 
     st->step_count++;

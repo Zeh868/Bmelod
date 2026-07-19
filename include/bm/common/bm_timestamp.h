@@ -7,9 +7,9 @@
  *
  * 本次升级要点：
  * - `ticks` 由 `uint32_t` 升至 `uint64_t`，消除 ~49 天（@1MHz）回绕；
- * - `bm_timestamp_before()`/`bm_timestamp_after()` 参数升 `uint64_t`，
- *   内部保留 `int32_t` 截断比较，对 32 位 HRT 场景维持回绕安全语义，
- *   同时兼容未来 64 位 `uptime_us` 值（差值 < 2^31 µs ≈ 35 分钟均正确）；
+ * - `bm_timestamp_before()`/`bm_timestamp_after()` 对 64 位单调时钟做全宽比较；
+ * - 新增 `bm_timestamp_before_32()`/`bm_timestamp_after_32()` 供 32 位 HRT 计数器
+ *   做半量程回绕安全比较；
  * - 新增 `bm_timestamp_from_uptime()`，供 1c 路径用 `bm_uptime_ns()` 构造时间戳
  *   （ns 粒度：ticks=uptime_ns、rate_hz=1e9）。
  *
@@ -70,31 +70,52 @@ typedef struct {
 } bm_timestamp_t;
 
 /**
- * @brief 判断时间戳 a 是否早于 b
+ * @brief 判断 32 位 HRT 计数器 a 是否早于 b（半量程回绕安全）
  *
- * 采用 int32_t 截断比较，在以下场景均正确：
- *  1. 32 位 HRT 场景（a、b < 2^32）：等价于原 uint32_t 版本，支持 32 位回绕；
- *  2. 64 位 uptime_us 场景：差值 |a-b| < 2^31 µs（约 35 分钟）时精确。
+ * 适用于 32 位硬件定时器节拍，允许 |a-b| < 2^31 个 tick 时正确判断先后。
  *
- * @param a 较早时刻候选（单调节拍）
- * @param b 较晚时刻候选（单调节拍）
+ * @param a 较早时刻候选（32 位单调节拍）
+ * @param b 较晚时刻候选（32 位单调节拍）
  * @return 非零表示 a 在时间轴上早于 b
  */
-static inline int bm_timestamp_before(uint64_t a, uint64_t b) {
-    return (int32_t)(uint32_t)(a - b) < 0;
+static inline int bm_timestamp_before_32(uint32_t a, uint32_t b) {
+    return (int32_t)(a - b) < 0;
 }
 
 /**
- * @brief 判断时间戳 a 是否晚于 b
+ * @brief 判断 32 位 HRT 计数器 a 是否晚于 b（半量程回绕安全）
  *
- * 采用 int32_t 截断比较（详见 bm_timestamp_before 说明）。
+ * @param a 较晚时刻候选（32 位单调节拍）
+ * @param b 较早时刻候选（32 位单调节拍）
+ * @return 非零表示 a 在时间轴上晚于 b
+ */
+static inline int bm_timestamp_after_32(uint32_t a, uint32_t b) {
+    return bm_timestamp_before_32(b, a);
+}
+
+/**
+ * @brief 判断 64 位单调时间戳 a 是否早于 b
  *
- * @param a 较晚时刻候选（单调节拍）
- * @param b 较早时刻候选（单调节拍）
+ * 对 64 位单调时钟（如 bm_uptime_ns() 产生的 ns 值）做全宽直接比较。
+ * 64 位 ns 粒度下可保证约 292 年内正确，不再受 32 位截断的 2.147 s 限制。
+ *
+ * @param a 较早时刻候选（64 位单调节拍）
+ * @param b 较晚时刻候选（64 位单调节拍）
+ * @return 非零表示 a 在时间轴上早于 b
+ */
+static inline int bm_timestamp_before(uint64_t a, uint64_t b) {
+    return a < b;
+}
+
+/**
+ * @brief 判断 64 位单调时间戳 a 是否晚于 b
+ *
+ * @param a 较晚时刻候选（64 位单调节拍）
+ * @param b 较早时刻候选（64 位单调节拍）
  * @return 非零表示 a 在时间轴上晚于 b
  */
 static inline int bm_timestamp_after(uint64_t a, uint64_t b) {
-    return (int32_t)(uint32_t)(a - b) > 0;
+    return bm_timestamp_before(b, a);
 }
 
 /**

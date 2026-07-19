@@ -5,13 +5,16 @@
  *
  * 临界区与内存屏障由 `bm_port_arch_armv7a` 提供。
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-15
+ * @version 1.3
+ * @date 2026-07-16
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-15       1.0            zeh            正式发布
+ * 2026-07-11       1.1            zeh            tick 回调派发接入 arch 层 FPU 守卫（bm_arch_isr_fpu.h，armv7a 路径当前仍为 no-op）
+ * 2026-07-15       1.2            zeh            GICD_ISENABLER0（IRQ 0-31 为 per-core banked）从 gic_dist_init 移入 gic_cpu_init，从核各自使能定时器 PPI
+ * 2026-07-16       1.3            zeh            IRQ 分发跳过 GICv2 保留/伪 IRQ ID（1022/1023），避免无条件写 GICC_EOIR
  *
  */
 #include "bm_drv_timer.h"
@@ -21,6 +24,7 @@
 #include "bm_types.h"
 #include "hal/bm_hal_cpu.h"
 #include "hal/bm_hal_uptime.h"
+#include "armv7a/bm_arch_isr_fpu.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -125,17 +129,21 @@ static void bm_cortexa_gic_dist_init(void) {
     for (irq = 32u; irq < 1020u; irq += 16u) {
         GICD_ICFGR(irq / 16u) = 0u;
     }
-    GICD_ISENABLER(BM_CORTEXA_TIMER_IRQ_ID / 32u) =
-        (1u << (BM_CORTEXA_TIMER_IRQ_ID % 32u));
     GICD_CTLR = 1u;
 }
 
 /**
  * @brief 初始化当前 CPU 的 GIC CPU 接口
+ *
+ * IRQ 0–31（SGI/PPI）的 ISENABLER0 是 per-core banked 寄存器：
+ * 每核须写自己那份 banked 位才能使能本核的 Generic Timer PPI，
+ * 只在 bootstrap 的 dist_init 里写一次会导致从核收不到 tick。
  */
 static void bm_cortexa_gic_cpu_init(void) {
     GICC_PMR = 0xFFu;
     GICC_CTLR = 1u;
+    GICD_ISENABLER(BM_CORTEXA_TIMER_IRQ_ID / 32u) =
+        (1u << (BM_CORTEXA_TIMER_IRQ_ID % 32u));
 }
 
 /**
@@ -210,24 +218,38 @@ const struct bm_timer_driver_api bm_drv_timer_api = {
     cortexa_timer_set_callback,
 };
 
+/** @brief tick ISR 内 FPU 现场保存区（当前 armv7a no-op，接线预留）。 */
+static uint8_t g_tick_cp0_sa[BM_ARCH_ISR_FPU_SA_SIZE] __attribute__((aligned(16)));
+
 /**
  * @brief IRQ 顶层分发（由异常向量汇编调用）
+ *
+ * g_tick_cb 派发可能触达浮点回调，经 bm_arch_isr_fpu_enter/exit
+ * （portable/arch/armv7a/bm_arch_isr_fpu.h）包裹；该路径当前为 no-op（QEMU
+ * cortex-a 裸机 IRQ 入口未保存 VFP 现场，见该头文件注释），此处接线只为
+ * 统一调用点，行为不变。
  */
 void bm_qemu_cortexa_irq_dispatch(void) {
     uint32_t cpu = cortexa_smp_cpu_index();
     uint32_t iar = GICC_IAR;
     uint32_t irq_id = iar & 0x3FFu;
     void (*cb)(void);
+    unsigned cp_prev;
 
     if (irq_id == BM_CORTEXA_TIMER_IRQ_ID) {
         g_ticks[cpu]++;
+        cp_prev = bm_arch_isr_fpu_enter(g_tick_cp0_sa);
         cb = g_tick_cb[cpu];
         if (cb) {
             cb();
         }
+        bm_arch_isr_fpu_exit(g_tick_cp0_sa, cp_prev);
         bm_cortexa_timer_rearm(cpu);
     }
-    GICC_EOIR = iar;
+    /* GICv2: 1022/1023 为保留/伪 IRQ ID，写 EOIR 在真机属 UNPREDICTABLE。 */
+    if (irq_id < 1022u) {
+        GICC_EOIR = iar;
+    }
 }
 
 static int cortexa_uart_init(void *config) {

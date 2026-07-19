@@ -221,6 +221,42 @@ void test_motion_profile_exec_ops_lifecycle(void) {
 }
 
 /* ================================================================
+ * 测试 12（H12 回归）：safe_stop 后底层速度须清零，step() 不得再回显
+ * 停止前残留的非零速度
+ * ================================================================ */
+void test_motion_profile_safe_stop_clears_residual_velocity(void) {
+    bm_motion_profile_axis_t axis;
+    bm_motion_profile_output_t out;
+    bm_exec_t exec;
+    uint32_t i;
+
+    memset(&axis, 0, sizeof(axis));
+    axis.config.type = BM_MOTION_PROFILE_TRAP;
+    axis.config.vmax = 1.0f;
+    axis.config.amax = 2.0f;
+    axis.config.dt_s = 0.01f;
+    bm_motion_profile_reset(&axis, 0.0f);
+    bm_motion_profile_goto(&axis, 1.0f);
+
+    /* 加速若干步，使梯形速度变为非零 */
+    for (i = 0u; i < 20u; ++i) {
+        bm_motion_profile_step(&axis, &out);
+    }
+    TEST_ASSERT_TRUE(axis.state.trapezoid.velocity > 0.0f);
+
+    memset(&exec, 0, sizeof(exec));
+    exec.state = &axis;
+    bm_motion_profile_exec_ops.safe_stop(&exec);
+    TEST_ASSERT_EQUAL(0, axis.state.active);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, axis.state.trapezoid.velocity);
+
+    /* 急停后 step() 应报告速度 0，而非残留的加速阶段速度 */
+    bm_motion_profile_step(&axis, &out);
+    TEST_ASSERT_EQUAL(1, out.done);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, out.velocity);
+}
+
+/* ================================================================
  * 测试 11：exec_ops init 对非法配置返回 BM_ERR_INVALID
  * ================================================================ */
 void test_motion_profile_exec_ops_init_rejects_bad_config(void) {
@@ -251,6 +287,7 @@ int main(void) {
     RUN_TEST(test_motion_profile_validate_null_returns_invalid);
     RUN_TEST(test_motion_profile_validate_rejects_zero_dt);
     RUN_TEST(test_motion_profile_exec_ops_lifecycle);
+    RUN_TEST(test_motion_profile_safe_stop_clears_residual_velocity);
     RUN_TEST(test_motion_profile_exec_ops_init_rejects_bad_config);
     return UNITY_END();
 }

@@ -4,13 +4,14 @@
  * @brief native_sim 多核 CPU HAL（TLS cpu_id + 从核线程启动）
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-14
+ * @version 1.1
+ * @date 2026-07-03
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
+ * 2026-07-03       1.1            zeh            新增 CPU 主频接口 freq_hz/freq_points/freq_set 实现
  *
  */
 #include "hal/bm_hal_cpu.h"
@@ -171,6 +172,8 @@ void bm_hal_cpu_yield(void) {
 static pthread_key_t s_tls_cpu_key;
 static pthread_once_t s_tls_once = PTHREAD_ONCE_INIT;
 static pthread_t s_secondary_thread[BM_CONFIG_CPU_COUNT - 1u];
+/** @brief 标记对应下标的 pthread_t 是否创建成功，避免对未初始化句柄 join(UB) */
+static int s_secondary_thread_valid[BM_CONFIG_CPU_COUNT - 1u];
 typedef struct {
     uintptr_t entry;
     uint32_t cpu;
@@ -229,6 +232,7 @@ int bm_hal_cpu_boot_secondary(uintptr_t entry_pc) {
     rc = pthread_create(
         &s_secondary_thread[index], NULL, secondary_thread_main,
         &s_secondary_context[index]);
+    s_secondary_thread_valid[index] = (rc == 0) ? 1 : 0;
     if (rc == 0) {
         s_next_secondary_cpu++;
     }
@@ -248,8 +252,13 @@ int bm_hal_cpu_native_set_id(uint32_t cpu) {
 int bm_hal_cpu_join_secondary(void) {
     uint32_t index;
 
+    /* 仅 join 真正创建成功的线程，未创建/创建失败的下标 pthread_t 未初始化，
+     * 无条件 join 属未定义行为 */
     for (index = 0u; index < (BM_CONFIG_CPU_COUNT - 1u); index++) {
-        (void)pthread_join(s_secondary_thread[index], NULL);
+        if (s_secondary_thread_valid[index]) {
+            (void)pthread_join(s_secondary_thread[index], NULL);
+            s_secondary_thread_valid[index] = 0;
+        }
     }
     return BM_OK;
 }
@@ -260,3 +269,37 @@ void bm_hal_cpu_yield(void) {
 
 #endif /* _WIN32 */
 #endif /* BM_CONFIG_CPU_COUNT */
+
+#ifdef BM_CONFIG_CPU_DVFS_POINTS_HZ
+/** @brief DVFS 频率点表（config 声明多档主频时启用） */
+static const uint32_t s_cpu_freq_points[] = BM_CONFIG_CPU_DVFS_POINTS_HZ;
+#else
+/** @brief 单频率点表（config 未声明 DVFS 时，退化为单点） */
+static const uint32_t s_cpu_freq_points[] = { BM_CONFIG_CPU_FREQ_HZ };
+#endif
+/** @brief 当前主频（Hz），初值取 config 声明的标称主频 */
+static uint32_t s_cpu_freq_hz = BM_CONFIG_CPU_FREQ_HZ;
+
+uint32_t bm_hal_cpu_freq_hz(void) {
+    return s_cpu_freq_hz;
+}
+
+int bm_hal_cpu_freq_points(const uint32_t **points, uint32_t *count) {
+    if ((points == NULL) || (count == NULL)) {
+        return BM_ERR_INVALID;
+    }
+    *points = s_cpu_freq_points;
+    *count = (uint32_t)(sizeof s_cpu_freq_points / sizeof s_cpu_freq_points[0]);
+    return BM_OK;
+}
+
+int bm_hal_cpu_freq_set(uint32_t hz) {
+    /* 单核/仿真桩：校验落在支持集内后记录，令 freq_hz 反映（无真实时钟硬件） */
+    for (uint32_t i = 0u; i < (sizeof s_cpu_freq_points / sizeof s_cpu_freq_points[0]); ++i) {
+        if (s_cpu_freq_points[i] == hz) {
+            s_cpu_freq_hz = hz;
+            return BM_OK;
+        }
+    }
+    return BM_ERR_INVALID;
+}

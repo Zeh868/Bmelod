@@ -94,12 +94,23 @@ function(bm_sdk_esp32_idf_apply TARGET)
     endif()
 
     set(_idf "$ENV{IDF_PATH}")
+
+    # 独立 CMake 构建没有 Kconfig 生成的 sdkconfig.h，但 adc_types.h / esp_attr.h /
+    # assert.h 等 IDF 底层头无条件包含它。此处生成 shim 转发到 bm_idf_minimal_config.h
+    # （完整 IDF 工程中真实 sdkconfig.h 由 idf.py 提供，不会走到本路径）。
+    set(_sdkconfig_shim_dir "${CMAKE_CURRENT_BINARY_DIR}/bm_sdk_esp32_idf_shim")
+    file(MAKE_DIRECTORY "${_sdkconfig_shim_dir}")
+    file(WRITE "${_sdkconfig_shim_dir}/sdkconfig.h"
+        "/* 自动生成：独立 CMake 构建的 sdkconfig.h 占位，见 bm_idf_minimal_config.h */\n"
+        "#include \"bm_idf_minimal_config.h\"\n")
+
     # IDF 5.2.3 真实头目录（已核实存在）。
     # 注意：esp_hal_gpio/i2c/ana_conv/mcpwm/wdt 是 IDF 5.4+ 拆分组件，5.2.3 不存在，已删除。
     # hal/esp32/include 包含 adc_ll.h / gpio_ll.h / mwdt_ll.h 等 LL 头。
     # esp_rom/include/esp32 是 5.2.3 下 esp32 专属 rom 头的正确路径。
     set(_inc
         "${CMAKE_CURRENT_LIST_DIR}/../portable/vendor/esp32_idf"
+        "${_sdkconfig_shim_dir}"
         "${_idf}/components/hal/platform_port/include"
         "${_idf}/components/hal/include"
         "${_idf}/components/hal/esp32/include"
@@ -123,7 +134,14 @@ function(bm_sdk_esp32_idf_apply TARGET)
 
     bm_sdk_esp32_idf_failfast_scan()
 
+    # IDF 底层头（hal/misc.h 的 HAL_FORCE_*_REG_FIELD 等）使用 GNU typeof 扩展，
+    # 全局 C_EXTENSIONS OFF 的严格 c11 下不可编译；本目标单独放开为 gnu11。
+    set_target_properties(${TARGET} PROPERTIES C_EXTENSIONS ON)
+
     target_compile_definitions(${TARGET} PRIVATE
+        # Zephyr newlib 的 assert.h 仅在 __ASSERT_VERBOSE 下定义 __ASSERT_FUNC，
+        # 而 IDF platform_include/assert.h 无条件使用它；显式预定义为 __func__。
+        __ASSERT_FUNC=__func__
         BM_ESP32_BAREMETAL=1
         IDF_VER=\"standalone\")
 endfunction()

@@ -5,8 +5,8 @@
  *
  * 校验域描述后委托 HAL 完成配置、武装与触发。
  * @author zeh (china_qzh@163.com)
- * @version 1.4
- * @date 2026-06-15
+ * @version 1.5
+ * @date 2026-07-02
  *
  * @par 修改日志:
  *
@@ -16,6 +16,8 @@
  * 2026-06-11       1.2            zeh            member_count 上界校验
  * 2026-06-11       1.3            zeh            phase_ticks 上界校验
  * 2026-06-15       1.4            zeh            配置后拒绝动态切换同步域
+ * 2026-07-02       1.5            zeh            QD-6：cache-line 补齐改用 union，
+ *                                                消除 MSVC C2233
  *
  */
 #include "bm_sync.h"
@@ -31,13 +33,8 @@ typedef struct {
     bm_sync_state_t         state;
 } bm_sync_cpu_state_t;
 
-typedef struct {
-    bm_sync_cpu_state_t state;
-    uint8_t padding[(sizeof(bm_sync_cpu_state_t) % BM_CONFIG_CACHE_LINE)
-        ? (BM_CONFIG_CACHE_LINE - (sizeof(bm_sync_cpu_state_t) %
-                                   BM_CONFIG_CACHE_LINE))
-        : 0];
-} bm_sync_cpu_storage_t;
+typedef BM_CACHE_LINE_PADDED_UNION(bm_sync_cpu_state_t, state,
+                                   BM_CONFIG_CACHE_LINE) bm_sync_cpu_storage_t;
 
 static BM_CACHE_ALIGNAS(BM_CONFIG_CACHE_LINE)
 bm_sync_cpu_storage_t g_sync_cpu[BM_CONFIG_CPU_COUNT];

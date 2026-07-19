@@ -22,6 +22,20 @@ _start:
     ands    r0, r0, #3
     bne     cortexa_secondary_park
 
+    /* 初始化 IRQ 模式栈（SP_irq 为 banked 寄存器，每核须各自设置，
+       否则首个 GIC 中断的 stmfd 写野地址；步长 1024B 与
+       crt0 g_cortexa_irq_stacks 一致） */
+    mrs     r1, cpsr
+    bic     r2, r1, #0x1f
+    orr     r2, r2, #0x12
+    msr     cpsr_c, r2
+    ldr     r2, =g_cortexa_irq_stacks
+    mov     r3, #1024
+    mul     r4, r0, r3
+    add     r2, r2, r4
+    add     sp, r2, r3
+    msr     cpsr_c, r1
+
     ldr     sp, =_estack
     bl      SystemInit
     bl      main
@@ -61,9 +75,22 @@ cortexa_irq_handler:
 bm_cortexa_secondary_startup:
     mrc     p15, 0, r0, c0, c0, 5
     and     r0, r0, #3
+    /* 同 _start：先初始化本核 IRQ 模式栈再进 C（步长 1024B 同 crt0） */
+    mrs     r1, cpsr
+    bic     r2, r1, #0x1f
+    orr     r2, r2, #0x12
+    msr     cpsr_c, r2
+    ldr     r2, =g_cortexa_irq_stacks
+    mov     r3, #1024
+    mul     r4, r0, r3
+    add     r2, r2, r4
+    add     sp, r2, r3
+    msr     cpsr_c, r1
     ldr     r1, =_secondary_stack
-    ldr     r2, =_secondary_stack_size
-    add     sp, r1, r2
+    ldr     r2, =_secondary_stack_size_per_cpu
+    mul     r3, r0, r2
+    add     r3, r3, r2
+    add     sp, r1, r3
     bl      bm_cortexa_secondary_entry_c
 3:
     wfi

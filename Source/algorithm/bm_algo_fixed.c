@@ -3,8 +3,8 @@
  * @brief Q31/Q15 定点算法实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 2.4
- * @date 2026-06-23
+ * @version 2.8
+ * @date 2026-07-16
  *
  * @par 修改日志:
  *
@@ -24,6 +24,30 @@
  * 2026-06-17       2.2            zeh            定点第十四批：全族 Q31/Q15 后缀 API 收口
  * 2026-06-23       2.3            zeh            缺陷修复：abs_q15 INT16_MIN UB、Mahony Ki 积分持久化、rms_q31 溢出防护
  * 2026-06-23       2.4            zeh            磁链观测器包装启用 wc_rad_s 衰减截止频率；修正 BM_ALGO_SQRT3_Q31 为精确 Q30 值
+ * 2026-07-09       2.5            zeh            H5：redundant_pair/debounce_analog
+ *                                                q15/q31 差值改宽类型算避免满量程
+ *                                                异号溢出漏报；abs_q15_val 补
+ *                                                INT16_MIN 饱和；H7：abs_q31 补
+ *                                                INT32_MIN 饱和（envelope_q31_step）
+ * 2026-07-09       2.6            zeh            Medium-3：pid2_q15/q31 微分项
+ *                                                div_q15/q31 满量程溢出返回
+ *                                                INT16_MIN/INT32_MIN 时直接
+ *                                                窄化取负越界，改用饱和取负；
+ *                                                Medium-4：deadband_q31 对
+ *                                                INT32_MIN 窄化取绝对值回绕
+ *                                                为负数误判死区内，改 int64
+ *                                                内比较
+ * 2026-07-14       2.7            zeh            Medium-5 修复：mppt_ic_q31/q15、
+ *                                                pid2_q31/q15 的差分运算改用
+ *                                                int64/int32 宽化后饱和，避免
+ *                                                INT32_MIN/INT16_MIN 相减回绕
+ * 2026-07-16       2.8            zeh            SOGI-PLL q15/q31 状态补
+ *                                                d_alpha_prev/d_beta_prev 持久化，
+ *                                                消除桥接 float 版时 Tustin 导数
+ *                                                缓存未初始化读（UB）并恢复跨帧
+ *                                                连续；debounce_analog q15/q31
+ *                                                stable_count 自增加 UINT32_MAX
+ *                                                饱和（镜像 float 版）
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -537,7 +561,7 @@ bm_algo_q31_t bm_algo_rate_limit_q31_step(bm_algo_rate_limit_q31_state_t *state,
 
     max_up = mul_q31(config->max_rise_per_s_q31, dt_q31);
     max_dn = mul_q31(config->max_fall_per_s_q31, dt_q31);
-    delta = target - state->output;
+    delta = saturate_q31_i64((int64_t)target - (int64_t)state->output);
 
     if (delta > max_up) {
         state->output = saturate_q31_i64((int64_t)state->output + (int64_t)max_up);
@@ -550,14 +574,17 @@ bm_algo_q31_t bm_algo_rate_limit_q31_step(bm_algo_rate_limit_q31_state_t *state,
 }
 
 bm_algo_q31_t bm_algo_deadband_q31(bm_algo_q31_t value, bm_algo_q31_t width_q31) {
-    bm_algo_q31_t abs_v;
+    int64_t abs_v;
 
     if (width_q31 <= 0) {
         return value;
     }
 
-    abs_v = (value < 0) ? (bm_algo_q31_t)(-(int64_t)value) : value;
-    if (abs_v <= width_q31) {
+    /* Medium-4：value == INT32_MIN 时 -(int64_t)value 结果 2^31 无法窄化回
+     * int32，旧代码窄化后 abs_v 变回 INT32_MIN（负数），误判为落在死区内
+     * 而直接返回 0；改在 int64 内比较，避免窄化。 */
+    abs_v = (value < 0) ? -(int64_t)value : (int64_t)value;
+    if (abs_v <= (int64_t)width_q31) {
         return 0;
     }
     if (value > 0) {
@@ -623,7 +650,7 @@ bm_algo_q31_t bm_algo_ramp_q31_step(bm_algo_ramp_q31_state_t *state,
         return target;
     }
 
-    delta = target - state->output;
+    delta = saturate_q31_i64((int64_t)target - (int64_t)state->output);
     step = mul_q31(config->rate_per_s_q31, dt_q31);
 
     if (delta > step) {
@@ -719,6 +746,15 @@ bm_algo_q15_t bm_algo_moving_avg_q15_step(bm_algo_moving_avg_q15_state_t *state,
         win = BM_ALGO_MOVING_AVG_Q15_MAX;
     }
 
+    /* 疑似-8：window_size 运行期缩小时自愈——钳位游标/计数到新窗口范围，
+     * 避免新窗口之外的陈旧样本被永久纳入求和（count 此前只增不减）。 */
+    if (state->index >= win) {
+        state->index = 0u;
+    }
+    if (state->count > win) {
+        state->count = win;
+    }
+
     state->samples[state->index] = input;
     state->index = (uint16_t)((state->index + 1u) % win);
     if (state->count < win) {
@@ -764,15 +800,15 @@ bm_algo_q15_t bm_algo_pid_q15_step(bm_algo_pid_q15_state_t *state,
                                           config->integrator_min,
                                           config->integrator_max);
 
-    d_raw = (((int32_t)error - (int32_t)state->prev_error) << 15) /
-            (int32_t)dt_q15;
+    d_raw = div_q15((int32_t)error - (int32_t)state->prev_error, dt_q15);
     state->prev_error = error;
 
     alpha = (int32_t)bm_algo_clamp_q15(config->d_filter_alpha_q15,
                                        0, BM_ALGO_Q15_ONE);
     state->d_filtered = saturate_q15_i32(
         (int32_t)state->d_filtered +
-        ((alpha * ((int32_t)d_raw - (int32_t)state->d_filtered)) >> 15));
+        (int32_t)(((int64_t)alpha *
+                   ((int64_t)d_raw - (int64_t)state->d_filtered)) >> 15));
     d_term = ((int32_t)config->kd * (int32_t)state->d_filtered) >> 15;
 
     u_unsat = p_term +
@@ -842,7 +878,7 @@ void bm_algo_trapezoid_q31_set_target(bm_algo_trapezoid_q31_state_t *state,
 bm_algo_q31_t bm_algo_trapezoid_q31_step(bm_algo_trapezoid_q31_state_t *state,
                                         const bm_algo_trapezoid_q31_config_t *config,
                                         bm_algo_q31_t dt_q31) {
-    bm_algo_q31_t dist;
+    int64_t dist;
     bm_algo_q31_t accel_step;
     bm_algo_q31_t decel_step;
     bm_algo_q31_t vel_step;
@@ -858,7 +894,8 @@ bm_algo_q31_t bm_algo_trapezoid_q31_step(bm_algo_trapezoid_q31_state_t *state,
         return state->position;
     }
 
-    dist = state->target - state->position;
+    /* Batch-3：dist 用 int64 局部量，避免 dist 饱和到 INT32_MIN 时取负溢出 UB */
+    dist = (int64_t)state->target - (int64_t)state->position;
     if (dist == 0 && state->velocity == 0) {
         state->done = 1;
         return state->position;
@@ -873,25 +910,29 @@ bm_algo_q31_t bm_algo_trapezoid_q31_step(bm_algo_trapezoid_q31_state_t *state,
         (stop_num << 31) / (2 * (int64_t)config->max_decel_q31));
 
     if (dist > 0) {
-        if (dist > stop_dist || state->velocity < 0) {
-            state->velocity += accel_step;
+        if (dist > (int64_t)stop_dist || state->velocity < 0) {
+            state->velocity = saturate_q31_i64((int64_t)state->velocity +
+                                               (int64_t)accel_step);
             if (state->velocity > config->max_vel_q31) {
                 state->velocity = config->max_vel_q31;
             }
         } else {
-            state->velocity -= decel_step;
+            state->velocity = saturate_q31_i64((int64_t)state->velocity -
+                                               (int64_t)decel_step);
             if (state->velocity < 0) {
                 state->velocity = 0;
             }
         }
     } else if (dist < 0) {
-        if (-dist > stop_dist || state->velocity > 0) {
-            state->velocity -= accel_step;
+        if (-dist > (int64_t)stop_dist || state->velocity > 0) {
+            state->velocity = saturate_q31_i64((int64_t)state->velocity -
+                                               (int64_t)accel_step);
             if (state->velocity < -config->max_vel_q31) {
                 state->velocity = -config->max_vel_q31;
             }
         } else {
-            state->velocity += decel_step;
+            state->velocity = saturate_q31_i64((int64_t)state->velocity +
+                                               (int64_t)decel_step);
             if (state->velocity > 0) {
                 state->velocity = 0;
             }
@@ -903,9 +944,9 @@ bm_algo_q31_t bm_algo_trapezoid_q31_step(bm_algo_trapezoid_q31_state_t *state,
     state->position = saturate_q31_i64((int64_t)state->position +
                                        (int64_t)pos_delta);
 
-    dist = state->target - state->position;
-    if ((dist >= 0 && state->velocity <= 0 && dist <= accel_step) ||
-        (dist <= 0 && state->velocity >= 0 && -dist <= accel_step)) {
+    dist = (int64_t)state->target - (int64_t)state->position;
+    if ((dist >= 0 && state->velocity <= 0 && dist <= (int64_t)accel_step) ||
+        (dist <= 0 && state->velocity >= 0 && -dist <= (int64_t)accel_step)) {
         state->position = state->target;
         state->velocity = 0;
         state->done = 1;
@@ -1007,7 +1048,9 @@ bm_algo_q15_t bm_algo_hpf1_q15_step(bm_algo_hpf1_q15_state_t *state,
                                     bm_algo_q15_t input) {
     int32_t diff;
     int32_t sum;
-    int32_t prod;
+    int64_t prod; /* H8：prod 提宽至 int64，避免满量程阶跃+高 alpha 时
+                   * sum(可达约 ±98303，已超 Q15 量程) * alpha_q15 在
+                   * int32 内乘法溢出 */
     int32_t out;
 
     if (state == NULL || config == NULL) {
@@ -1016,8 +1059,8 @@ bm_algo_q15_t bm_algo_hpf1_q15_step(bm_algo_hpf1_q15_state_t *state,
 
     diff = (int32_t)input - (int32_t)state->prev_input;
     sum = (int32_t)state->prev_output + diff;
-    prod = sum * (int32_t)config->alpha_q15;
-    out = prod >> 15;
+    prod = (int64_t)sum * (int64_t)config->alpha_q15;
+    out = (int32_t)(prod >> 15);
     out = saturate_q15_i32(out);
     state->prev_input = input;
     state->prev_output = (bm_algo_q15_t)out;
@@ -1121,6 +1164,15 @@ bm_algo_q15_t bm_algo_rms_q15_step(bm_algo_rms_q15_state_t *state,
         win = BM_ALGO_RMS_Q15_MAX;
     }
 
+    /* 疑似-8：window_size 运行期缩小时自愈——钳位游标/计数到新窗口范围，
+     * 避免新窗口之外的陈旧样本被永久纳入求和（count 此前只增不减）。 */
+    if (state->index >= win) {
+        state->index = 0u;
+    }
+    if (state->count > win) {
+        state->count = win;
+    }
+
     if (state->count < win) {
         state->samples[state->count] = input;
         state->count++;
@@ -1184,6 +1236,8 @@ bm_algo_q31_t bm_algo_hpf1_q31_step(bm_algo_hpf1_q31_state_t *state,
                                     bm_algo_q31_t input) {
     int64_t diff;
     int64_t sum;
+    int64_t alpha_mag;
+    int64_t sum_limit;
     int64_t prod;
 
     if (state == NULL || config == NULL) {
@@ -1192,6 +1246,25 @@ bm_algo_q31_t bm_algo_hpf1_q31_step(bm_algo_hpf1_q31_state_t *state,
 
     diff = (int64_t)input - (int64_t)state->prev_input;
     sum = (int64_t)state->prev_output + diff;
+
+    /* H8：sum 是超 Q31 量程的宽累加器（最大约 ±3×2^31），已无更宽的原生
+     * 整型可再提宽；sum * alpha_q31 在满量程阶跃 + 高 alpha 时仍可能超出
+     * int64 范围导致乘法溢出。按 alpha 幅值动态算出安全上界并饱和 sum，
+     * 保证乘法不溢出——该饱和只在真正逼近满量程的极端场景生效，此时
+     * 结果本就会被下面 saturate_q31_i64 钳到 Q31 边界，不影响正常工况
+     * 精度。 */
+    alpha_mag = (config->alpha_q31 < 0)
+                    ? -(int64_t)config->alpha_q31
+                    : (int64_t)config->alpha_q31;
+    if (alpha_mag > 0) {
+        sum_limit = INT64_MAX / alpha_mag;
+        if (sum > sum_limit) {
+            sum = sum_limit;
+        } else if (sum < -sum_limit) {
+            sum = -sum_limit;
+        }
+    }
+
     prod = sum * (int64_t)config->alpha_q31;
     state->prev_input = input;
     state->prev_output = saturate_q31_i64(prod >> 31);
@@ -1225,6 +1298,15 @@ bm_algo_q31_t bm_algo_moving_avg_q31_step(bm_algo_moving_avg_q31_state_t *state,
     win = config->window_size;
     if (win > BM_ALGO_MOVING_AVG_Q31_MAX) {
         win = BM_ALGO_MOVING_AVG_Q31_MAX;
+    }
+
+    /* 疑似-8：window_size 运行期缩小时自愈——钳位游标/计数到新窗口范围，
+     * 避免新窗口之外的陈旧样本被永久纳入求和（count 此前只增不减）。 */
+    if (state->index >= win) {
+        state->index = 0u;
+    }
+    if (state->count > win) {
+        state->count = win;
     }
 
     state->samples[state->index] = input;
@@ -1456,7 +1538,15 @@ void bm_algo_envelope_q31_reset(bm_algo_envelope_q31_state_t *state,
     }
 }
 
+/**
+ * @brief Q31 绝对值，对 INT32_MIN 饱和为 INT32_MAX（避免 -(-2^31) 窄化 UB，H7）
+ * @param v 输入 Q31 值
+ * @return 绝对值（饱和处理）
+ */
 static bm_algo_q31_t abs_q31(bm_algo_q31_t v) {
+    if (v == (bm_algo_q31_t)INT32_MIN) {
+        return (bm_algo_q31_t)INT32_MAX;
+    }
     return (v < 0) ? (bm_algo_q31_t)(-(int64_t)v) : v;
 }
 
@@ -1503,6 +1593,15 @@ bm_algo_q31_t bm_algo_rms_q31_step(bm_algo_rms_q31_state_t *state,
     win = config->window_size;
     if (win > BM_ALGO_RMS_Q31_MAX) {
         win = BM_ALGO_RMS_Q31_MAX;
+    }
+
+    /* 疑似-8：window_size 运行期缩小时自愈——钳位游标/计数到新窗口范围，
+     * 避免新窗口之外的陈旧样本被永久纳入求和（count 此前只增不减）。 */
+    if (state->index >= win) {
+        state->index = 0u;
+    }
+    if (state->count > win) {
+        state->count = win;
     }
 
     if (state->count < win) {
@@ -1898,7 +1997,7 @@ bm_algo_q15_t bm_algo_ramp_q15_step(bm_algo_ramp_q15_state_t *state,
         return target;
     }
 
-    delta = target - state->output;
+    delta = saturate_q15_i32((int32_t)target - (int32_t)state->output);
     step = mul_q15(config->rate_per_s_q15, dt_q15);
 
     if (delta > step) {
@@ -1952,7 +2051,7 @@ bm_algo_q15_t bm_algo_trapezoid_q15_step(bm_algo_trapezoid_q15_state_t *state,
         return state->position;
     }
 
-    dist = state->target - state->position;
+    dist = saturate_q15_i32((int32_t)state->target - (int32_t)state->position);
     if (dist == 0 && state->velocity == 0) {
         state->done = 1;
         return state->position;
@@ -2003,7 +2102,7 @@ bm_algo_q15_t bm_algo_trapezoid_q15_step(bm_algo_trapezoid_q15_state_t *state,
     state->position = saturate_q15_i32((int32_t)state->position +
                                        (int32_t)pos_delta);
 
-    dist = state->target - state->position;
+    dist = saturate_q15_i32((int32_t)state->target - (int32_t)state->position);
     if ((dist >= 0 && state->velocity <= 0 && dist <= accel_step) ||
         (dist <= 0 && state->velocity >= 0 && -dist <= accel_step)) {
         state->position = state->target;
@@ -2014,7 +2113,15 @@ bm_algo_q15_t bm_algo_trapezoid_q15_step(bm_algo_trapezoid_q15_state_t *state,
     return state->position;
 }
 
+/**
+ * @brief Q15 绝对值，对 INT16_MIN 饱和为 INT16_MAX（避免 -(-32768) 窄化 UB，H5）
+ * @param v 输入 Q15 值
+ * @return 绝对值（饱和处理）
+ */
 static bm_algo_q15_t abs_q15_val(bm_algo_q15_t v) {
+    if (v == (bm_algo_q15_t)INT16_MIN) {
+        return (bm_algo_q15_t)INT16_MAX;
+    }
     return (v < 0) ? (bm_algo_q15_t)(-(int32_t)v) : v;
 }
 
@@ -2029,11 +2136,14 @@ uint32_t bm_algo_redundant_pair_q15_step(
     bm_algo_q15_t a,
     bm_algo_q15_t b,
     const bm_algo_redundant_pair_q15_config_t *config) {
-    bm_algo_q15_t diff;
+    int32_t diff; /* H5：在 int32 内算差，避免 a、b 满量程异号时窄化溢出漏报 */
     bm_algo_q15_t ref;
     bm_algo_q15_t tol;
 
-    diff = abs_q15_val(a - b);
+    diff = (int32_t)a - (int32_t)b;
+    if (diff < 0) {
+        diff = -diff;
+    }
     if (config == NULL) {
         return (diff > 0) ? BM_ALGO_FAULT_REDUNDANT_MISMATCH : 0u;
     }
@@ -2044,7 +2154,7 @@ uint32_t bm_algo_redundant_pair_q15_step(
     }
     tol = saturate_q15_i32((int32_t)config->tolerance_abs +
                            (int32_t)mul_q15(config->tolerance_rel, ref));
-    if (diff > tol) {
+    if (diff > (int32_t)tol) {
         return BM_ALGO_FAULT_REDUNDANT_MISMATCH;
     }
     return 0u;
@@ -2054,11 +2164,14 @@ uint32_t bm_algo_redundant_pair_q31_step(
     bm_algo_q31_t a,
     bm_algo_q31_t b,
     const bm_algo_redundant_pair_q31_config_t *config) {
-    bm_algo_q31_t diff;
+    int64_t diff; /* H5：在 int64 内算差，避免 a、b 满量程异号时 int32 减法溢出漏报 */
     bm_algo_q31_t ref;
     bm_algo_q31_t tol;
 
-    diff = abs_q31_val(a - b);
+    diff = (int64_t)a - (int64_t)b;
+    if (diff < 0) {
+        diff = -diff;
+    }
     if (config == NULL) {
         return (diff > 0) ? BM_ALGO_FAULT_REDUNDANT_MISMATCH : 0u;
     }
@@ -2069,7 +2182,7 @@ uint32_t bm_algo_redundant_pair_q31_step(
     }
     tol = saturate_q31_i64((int64_t)config->tolerance_abs +
                            (int64_t)mul_q31(config->tolerance_rel, ref));
-    if (diff > tol) {
+    if (diff > (int64_t)tol) {
         return BM_ALGO_FAULT_REDUNDANT_MISMATCH;
     }
     return 0u;
@@ -2264,8 +2377,9 @@ bm_algo_q15_t bm_algo_mppt_ic_q15_step(bm_algo_mppt_ic_q15_state_t *state,
         return voltage_q15;
     }
 
-    dv = voltage_q15 - state->prev_v_q15;
-    di = current_q15 - state->prev_i_q15;
+    /* 宽化到 int32 后饱和，避免 INT16_MIN 相减回绕 */
+    dv = saturate_q15_i32((int32_t)voltage_q15 - (int32_t)state->prev_v_q15);
+    di = saturate_q15_i32((int32_t)current_q15 - (int32_t)state->prev_i_q15);
 
     if (dv != 0 && voltage_q15 != 0) {
         lhs = (int64_t)di * (int64_t)voltage_q15;
@@ -2345,15 +2459,21 @@ int bm_algo_debounce_analog_q15_step(
     bm_algo_debounce_analog_q15_state_t *state,
     const bm_algo_debounce_analog_q15_config_t *config,
     bm_algo_q15_t sample_q15) {
-    bm_algo_q15_t diff;
+    int32_t diff; /* H5：int32 内算差，避免满量程异号窄化溢出漏报 */
 
     if (state == NULL || config == NULL) {
         return 0;
     }
 
-    diff = abs_q15_val(sample_q15 - state->candidate_q15);
-    if (diff <= config->tolerance_q15) {
-        state->stable_count++;
+    diff = (int32_t)sample_q15 - (int32_t)state->candidate_q15;
+    if (diff < 0) {
+        diff = -diff;
+    }
+    if (diff <= (int32_t)config->tolerance_q15) {
+        /* 饱和加法，防止 uint32_t 绕回（镜像 float 版 bm_algo_signal_quality.c） */
+        if (state->stable_count < UINT32_MAX) {
+            state->stable_count++;
+        }
     } else {
         state->candidate_q15 = sample_q15;
         state->stable_count = 0u;
@@ -2658,15 +2778,21 @@ int bm_algo_debounce_analog_q31_step(
     bm_algo_debounce_analog_q31_state_t *state,
     const bm_algo_debounce_analog_q31_config_t *config,
     bm_algo_q31_t sample_q31) {
-    bm_algo_q31_t diff;
+    int64_t diff; /* H5：int64 内算差，避免满量程异号 int32 减法溢出漏报 */
 
     if (state == NULL || config == NULL) {
         return 0;
     }
 
-    diff = abs_q31_val(sample_q31 - state->candidate_q31);
-    if (diff <= config->tolerance_q31) {
-        state->stable_count++;
+    diff = (int64_t)sample_q31 - (int64_t)state->candidate_q31;
+    if (diff < 0) {
+        diff = -diff;
+    }
+    if (diff <= (int64_t)config->tolerance_q31) {
+        /* 饱和加法，防止 uint32_t 绕回（镜像 float 版 bm_algo_signal_quality.c） */
+        if (state->stable_count < UINT32_MAX) {
+            state->stable_count++;
+        }
     } else {
         state->candidate_q31 = sample_q31;
         state->stable_count = 0u;
@@ -3436,6 +3562,15 @@ bm_algo_q15_t bm_algo_median_q15_step(bm_algo_median_q15_state_t *state,
         return input_q15;
     }
 
+    /* 疑似-8：window_size 运行期缩小时自愈——钳位游标/计数到新窗口范围，
+     * 避免新窗口之外的陈旧样本被永久纳入排序（count 此前只增不减）。 */
+    if (state->index >= len) {
+        state->index = 0u;
+    }
+    if (state->count > len) {
+        state->count = len;
+    }
+
     state->samples[state->index] = input_q15;
     state->index = (uint16_t)((state->index + 1u) % len);
     if (state->count < len) {
@@ -3470,6 +3605,15 @@ bm_algo_q31_t bm_algo_median_q31_step(bm_algo_median_q31_state_t *state,
     len = config->window_size;
     if (len < 3u || len > BM_ALGO_MEDIAN_Q31_MAX || (len & 1u) != 0u) {
         return input_q31;
+    }
+
+    /* 疑似-8：window_size 运行期缩小时自愈——钳位游标/计数到新窗口范围，
+     * 避免新窗口之外的陈旧样本被永久纳入排序（count 此前只增不减）。 */
+    if (state->index >= len) {
+        state->index = 0u;
+    }
+    if (state->count > len) {
+        state->count = len;
     }
 
     state->samples[state->index] = input_q31;
@@ -3541,8 +3685,9 @@ bm_algo_q31_t bm_algo_mppt_ic_q31_step(bm_algo_mppt_ic_q31_state_t *state,
         return voltage_q31;
     }
 
-    dv = voltage_q31 - state->prev_v_q31;
-    di = current_q31 - state->prev_i_q31;
+    /* 宽化到 int64 后饱和，避免 INT32_MIN 相减回绕 */
+    dv = saturate_q31_i64((int64_t)voltage_q31 - (int64_t)state->prev_v_q31);
+    di = saturate_q31_i64((int64_t)current_q31 - (int64_t)state->prev_i_q31);
 
     if (dv != 0 && voltage_q31 != 0) {
         lhs = (int64_t)di * (int64_t)voltage_q31;
@@ -3591,7 +3736,8 @@ bm_algo_q15_t bm_algo_pid2_q15_step(bm_algo_pid2_q15_state_t *state,
         return 0;
     }
 
-    error_i = reference_q15 - measurement_q15;
+    /* 宽化到 int32 后饱和，避免 INT16_MIN 相减回绕 */
+    error_i = saturate_q15_i32((int32_t)reference_q15 - (int32_t)measurement_q15);
     ref_weighted = (int32_t)mul_q15(config->b_q15, reference_q15) -
                    (int32_t)measurement_q15;
     p_term = mul_q15(config->kp_q15, saturate_q15_i32(ref_weighted));
@@ -3604,7 +3750,9 @@ bm_algo_q15_t bm_algo_pid2_q15_step(bm_algo_pid2_q15_state_t *state,
 
     d_raw = div_q15((int32_t)measurement_q15 - (int32_t)state->prev_measurement,
                     dt_q15);
-    d_raw = (bm_algo_q15_t)(-(int32_t)d_raw);
+    /* Medium-3：div_q15 满量程溢出时可能返回 INT16_MIN，直接窄化取负
+     * -(-32768) 越出 int16 范围（UB/截断后符号不翻转）；改用饱和取负。 */
+    d_raw = saturate_q15_i32(-(int32_t)d_raw);
     state->prev_measurement = measurement_q15;
     alpha = bm_algo_clamp_q15(config->d_filter_coeff_q15, 0, BM_ALGO_Q15_ONE);
     state->d_filtered = saturate_q15_i32(
@@ -3659,7 +3807,8 @@ bm_algo_q31_t bm_algo_pid2_q31_step(bm_algo_pid2_q31_state_t *state,
         return 0;
     }
 
-    error_i = reference_q31 - measurement_q31;
+    /* 宽化到 int64 后饱和，避免 INT32_MIN 相减回绕 */
+    error_i = saturate_q31_i64((int64_t)reference_q31 - (int64_t)measurement_q31);
     ref_weighted = saturate_q31_i64(
         (int64_t)mul_q31(config->b_q31, reference_q31) - (int64_t)measurement_q31);
     p_term = mul_q31(config->kp_q31, ref_weighted);
@@ -3672,7 +3821,9 @@ bm_algo_q31_t bm_algo_pid2_q31_step(bm_algo_pid2_q31_state_t *state,
 
     d_raw = div_q31((int64_t)measurement_q31 - (int64_t)state->prev_measurement,
                     dt_q31);
-    d_raw = (bm_algo_q31_t)(-(int64_t)d_raw);
+    /* Medium-3：div_q31 满量程溢出时可能返回 INT32_MIN，直接窄化取负
+     * -(-2^31) 越出 int32 范围（UB/截断后符号不翻转）；改用饱和取负。 */
+    d_raw = saturate_q31_i64(-(int64_t)d_raw);
     state->prev_measurement = measurement_q31;
     alpha = bm_algo_clamp_q31(config->d_filter_alpha_q31, 0, BM_ALGO_Q31_ONE);
     state->d_filtered = saturate_q31_i64(
@@ -3920,6 +4071,8 @@ void bm_algo_sogi_pll_q15_reset(bm_algo_sogi_pll_q15_state_t *state,
     state->v_alpha = fst.v_alpha;
     state->v_beta = fst.v_beta;
     state->integrator = fst.integrator;
+    state->d_alpha_prev = fst.d_alpha_prev; /* Tustin 导数缓存同步清零 */
+    state->d_beta_prev = fst.d_beta_prev;   /* Tustin 导数缓存同步清零 */
     state->theta_rad_q15 = bm_algo_float_to_q15(fst.theta_rad);
     state->omega_rad_s_q15 = bm_algo_float_to_q15(fst.omega_rad_s);
 }
@@ -3945,6 +4098,10 @@ void bm_algo_sogi_pll_q15_step(bm_algo_sogi_pll_q15_state_t *state,
     fst.v_alpha = state->v_alpha;
     fst.v_beta = state->v_beta;
     fst.integrator = state->integrator;
+    /* Tustin 历史导数缓存随帧持久化，避免局部 fst 未初始化读（UB）
+     * 且保证梯形积分跨帧连续（与 float 版语义对齐）。 */
+    fst.d_alpha_prev = state->d_alpha_prev;
+    fst.d_beta_prev = state->d_beta_prev;
     bm_algo_sogi_pll_step(
         &fst, &fcfg,
         bm_algo_q15_to_float(v_input_q15),
@@ -3954,6 +4111,8 @@ void bm_algo_sogi_pll_q15_step(bm_algo_sogi_pll_q15_state_t *state,
     state->v_alpha = fst.v_alpha;
     state->v_beta = fst.v_beta;
     state->integrator = fst.integrator;
+    state->d_alpha_prev = fst.d_alpha_prev;
+    state->d_beta_prev = fst.d_beta_prev;
     state->theta_rad_q15 = bm_algo_float_to_q15(fst.theta_rad);
     state->omega_rad_s_q15 = bm_algo_float_to_q15(fst.omega_rad_s);
 }
@@ -3980,6 +4139,8 @@ void bm_algo_sogi_pll_q31_reset(bm_algo_sogi_pll_q31_state_t *state,
     state->v_alpha = fst.v_alpha;
     state->v_beta = fst.v_beta;
     state->integrator = fst.integrator;
+    state->d_alpha_prev = fst.d_alpha_prev; /* Tustin 导数缓存同步清零 */
+    state->d_beta_prev = fst.d_beta_prev;   /* Tustin 导数缓存同步清零 */
     state->theta_rad_q31 = bm_algo_float_to_q31(fst.theta_rad);
     state->omega_rad_s_q31 = bm_algo_float_to_q31(fst.omega_rad_s);
 }
@@ -4005,6 +4166,10 @@ void bm_algo_sogi_pll_q31_step(bm_algo_sogi_pll_q31_state_t *state,
     fst.v_alpha = state->v_alpha;
     fst.v_beta = state->v_beta;
     fst.integrator = state->integrator;
+    /* Tustin 历史导数缓存随帧持久化，避免局部 fst 未初始化读（UB）
+     * 且保证梯形积分跨帧连续（与 float 版语义对齐）。 */
+    fst.d_alpha_prev = state->d_alpha_prev;
+    fst.d_beta_prev = state->d_beta_prev;
     bm_algo_sogi_pll_step(
         &fst, &fcfg,
         bm_algo_q31_to_float(v_input_q31),
@@ -4014,6 +4179,8 @@ void bm_algo_sogi_pll_q31_step(bm_algo_sogi_pll_q31_state_t *state,
     state->v_alpha = fst.v_alpha;
     state->v_beta = fst.v_beta;
     state->integrator = fst.integrator;
+    state->d_alpha_prev = fst.d_alpha_prev;
+    state->d_beta_prev = fst.d_beta_prev;
     state->theta_rad_q31 = bm_algo_float_to_q31(fst.theta_rad);
     state->omega_rad_s_q31 = bm_algo_float_to_q31(fst.omega_rad_s);
 }

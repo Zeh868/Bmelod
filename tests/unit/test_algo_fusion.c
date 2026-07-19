@@ -77,6 +77,37 @@ static void test_ukf1d_square_model_updates(void) {
     TEST_ASSERT_TRUE(isfinite(st.x));
 }
 
+/**
+ * @brief H9 回归：ekf_cv_predict/update 注入一次 NaN 输入后，持久协方差
+ *        状态须保持有限且不变
+ */
+static void test_ekf_cv_nan_guard_rejects_and_preserves_state(void) {
+    bm_algo_ekf_cv_config_t cfg = {
+        .q_pos = 0.01f,
+        .q_vel = 0.01f,
+        .r_pos = 0.1f
+    };
+    bm_algo_ekf_cv_state_t st;
+    float nan_val = NAN;
+
+    bm_algo_ekf_cv_reset(&st, 1.0f, 2.0f);
+    bm_algo_ekf_cv_predict(&st, &cfg, nan_val);
+    TEST_ASSERT_TRUE(isfinite(st.pos) && isfinite(st.vel) &&
+                     isfinite(st.p00) && isfinite(st.p11));
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, st.pos);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 2.0f, st.vel);
+
+    bm_algo_ekf_cv_reset(&st, 1.0f, 2.0f);
+    bm_algo_ekf_cv_update(&st, &cfg, nan_val);
+    TEST_ASSERT_TRUE(isfinite(st.pos) && isfinite(st.vel) &&
+                     isfinite(st.p00) && isfinite(st.p11));
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, st.pos);
+
+    /* 状态未被永久污染：注入 NaN 后正常更新仍应生效 */
+    bm_algo_ekf_cv_predict(&st, &cfg, 0.1f);
+    TEST_ASSERT_TRUE(isfinite(st.pos));
+}
+
 static void test_ekf_gate_and_gated_update(void) {
     bm_algo_ekf_cv_config_t cfg = {
         .q_pos = 0.01f,
@@ -146,6 +177,35 @@ static void test_mahony_uses_simultaneous_quaternion_update(void) {
     TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.3f / norm, st.q.z);
 }
 
+/**
+ * @brief H10 回归：Mahony/Madgwick 陀螺输入含 NaN 时不得污染四元数持久
+ *        状态——应跳过本次积分，四元数保持有限（此前有限值不变）
+ */
+static void test_mahony_madgwick_reject_nonfinite_gyro(void) {
+    bm_algo_mahony_config_t mahony_cfg = { .kp = 1.0f, .ki = 0.1f };
+    bm_algo_mahony_state_t mahony_st;
+    bm_algo_madgwick_config_t madgwick_cfg = { .beta = 0.1f };
+    bm_algo_madgwick_state_t madgwick_st;
+    float nan_val = NAN;
+
+    bm_algo_mahony_reset(&mahony_st);
+    bm_algo_mahony_step(&mahony_st, &mahony_cfg, nan_val, 0.0f, 0.0f,
+                        0.0f, 0.0f, 1.0f, 0.01f);
+    TEST_ASSERT_TRUE(isfinite(mahony_st.q.w) && isfinite(mahony_st.q.x) &&
+                     isfinite(mahony_st.q.y) && isfinite(mahony_st.q.z));
+    /* 跳过本次积分：四元数应保持复位后的单位四元数不变 */
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, mahony_st.q.w);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.0f, mahony_st.q.x);
+
+    bm_algo_madgwick_reset(&madgwick_st);
+    bm_algo_madgwick_step(&madgwick_st, &madgwick_cfg, 0.0f, nan_val, 0.0f,
+                          0.0f, 0.0f, 1.0f, 0.01f);
+    TEST_ASSERT_TRUE(isfinite(madgwick_st.q.w) && isfinite(madgwick_st.q.x) &&
+                     isfinite(madgwick_st.q.y) && isfinite(madgwick_st.q.z));
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, madgwick_st.q.w);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.0f, madgwick_st.q.y);
+}
+
 static void test_soc_ekf_and_power_quality(void) {
     bm_algo_soc_ekf_config_t ekf_cfg = {
         .q_soc = 1e-6f,
@@ -179,9 +239,11 @@ void test_algo_fusion(void) {
     RUN_TEST(test_ekf_covariance_stays_symmetric);
     RUN_TEST(test_ukf1d_identity_tracks_measurement);
     RUN_TEST(test_ukf1d_square_model_updates);
+    RUN_TEST(test_ekf_cv_nan_guard_rejects_and_preserves_state);
     RUN_TEST(test_ekf_gate_and_gated_update);
     RUN_TEST(test_imu_calib_apply_and_accumulator);
     RUN_TEST(test_mahony_uses_simultaneous_quaternion_update);
+    RUN_TEST(test_mahony_madgwick_reject_nonfinite_gyro);
     RUN_TEST(test_soc_ekf_and_power_quality);
 }
 

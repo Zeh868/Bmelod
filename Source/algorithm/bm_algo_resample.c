@@ -202,14 +202,16 @@ void bm_algo_clock_drift_feed(bm_algo_clock_drift_state_t *state,
     float alpha;
 
     if (state == NULL || config == NULL ||
+        !bm_algo_is_finite_f(expected_dt_s) ||
+        !bm_algo_is_finite_f(actual_dt_s) ||
         expected_dt_s <= 0.0f || actual_dt_s <= 0.0f) {
         return;
     }
 
     measured = actual_dt_s / expected_dt_s - 1.0f;
     alpha = config->alpha;
-    if (alpha < 0.0f) {
-        alpha = 0.0f;
+    if (!bm_algo_is_finite_f(alpha) || alpha < 1e-6f) {
+        alpha = 1e-6f;
     }
     if (alpha > 1.0f) {
         alpha = 1.0f;
@@ -227,7 +229,7 @@ float bm_algo_clock_drift_compensate(const bm_algo_clock_drift_state_t *state,
     }
 
     denom = 1.0f + state->ratio_error;
-    if (denom <= 1e-6f) {
+    if (!bm_algo_is_finite_f(denom) || denom <= 1e-6f) {
         return actual_dt_s;
     }
     return actual_dt_s / denom;

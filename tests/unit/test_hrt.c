@@ -73,6 +73,28 @@ void test_hrt_deadline_miss(void) {
                       bm_hrt_get_deadline_missed_total());
 }
 
+/**
+ * @brief H3 回归：一次 ISR 内连错多个周期时，deadline_missed 须按实际
+ *        错过的周期数累加，而非固定 +1（会严重低估真实错失程度）。
+ *
+ * period_us=1000，BM_CONFIG_HRT_TICK_US=100 ⇒ period_ticks=10。
+ * 一次性 jump 到 tick 55：到期周期依次为 10/20/30/40/50，共 5 个应计入
+ * deadline_missed；tick 60 尚未到期。
+ */
+void test_hrt_deadline_miss_counts_all_missed_periods(void) {
+    static const bm_hrt_slot_t slots[] = {
+        { 1000u, BM_HRT_TRIGGER_TIMER, slot_a_cb, NULL, "a" },
+    };
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_hrt_init(slots, 1u));
+    TEST_ASSERT_EQUAL(BM_OK, bm_hrt_start());
+
+    bm_hal_timer_native_jump_ticks(55u);
+    TEST_ASSERT_EQUAL(0u, g_slot_a);
+    TEST_ASSERT_EQUAL_UINT32(5u, bm_hrt_get_deadline_missed(0u));
+    TEST_ASSERT_EQUAL_UINT32(5u, bm_hrt_get_deadline_missed_total());
+}
+
 void test_hrt_rejects_invalid_period(void) {
     static const bm_hrt_slot_t slots[] = {
         { 150u, BM_HRT_TRIGGER_TIMER, slot_a_cb, NULL, "bad" },
@@ -157,6 +179,7 @@ int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_hrt_schedules_multiple_slots);
     RUN_TEST(test_hrt_deadline_miss);
+    RUN_TEST(test_hrt_deadline_miss_counts_all_missed_periods);
     RUN_TEST(test_hrt_rejects_invalid_period);
     RUN_TEST(test_hrt_stop_clears_callback);
     RUN_TEST(test_hrt_start_requires_init);

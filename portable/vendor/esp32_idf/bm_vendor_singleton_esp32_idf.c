@@ -25,8 +25,8 @@
  *       待硬件：若日后迁移到 IDF FreeRTOS 应用路径，可切换为 esp_task_wdt_init。
  *
  * @author zeh (china_qzh@163.com)
- * @version 3.1
- * @date 2026-06-26
+ * @version 3.7
+ * @date 2026-07-15
  *
  * @par 修改日志:
  *
@@ -36,6 +36,26 @@
  * 2026-06-19       2.0            zeh            Phase 2：timer_group LL + ISR 驱动
  * 2026-06-19       3.0            zeh            Phase 3：RCC 宏正规化 + task WDT 类型归档
  * 2026-06-26       3.1            zeh            添加 bm_hal_uptime_ns_raw()（路线图 #9 时间基统一 1a）
+ * 2026-07-11       3.2            zeh            tick ISR 加 FPU 协处理器守卫，修复 10kHz 电流环回调触发 Coprocessor 异常崩溃
+ * 2026-07-11       3.3            zeh            esp32_uart_recv 实现 UART0 RX FIFO 非阻塞轮询读（uart_ll），修 shell 无法输入
+ * 2026-07-12       3.4            zeh            tick 中断注册去掉 ESP_INTR_FLAG_IRAM：
+ *                                                回调链在 flash，flash 写窗口（WiFi PHY
+ *                                                校准/NVS commit）内触发即 cache panic
+ *                                                循环重启（真机实证）；改为窗口内自动
+ *                                                延迟，丢拍由 LET/wcet 账目如实体现
+ * 2026-07-12       3.5            zeh            去除 TG0 组级复位（误伤 esp_timer LACT
+ *                                                时基致 WiFi 连接 INT WDT），改窄范围清
+ *                                                timer0 中断
+ * 2026-07-13       3.6            zeh            tick 中断级别 LEVEL3→LEVEL2：Plan B 把 FOC
+ *                                                电流环 bind 到 PWM TEZ ISR（LEVEL2）后该
+ *                                                ISR 跑满 FPU，LEVEL3 tick 抢占之致嵌套中断
+ *                                                破坏寄存器窗口/FPU 上下文 LoadProhibited
+ *                                                崩溃（真机 addr2line 实证）；降至与 TEZ 同级
+ *                                                消除嵌套，三请求正好占满 3 条 LEVEL2 线
+ * 2026-07-15       3.7            zeh            esp_intr_alloc_intrstatus 接住 esp_err_t，
+ *                                                失败 esp_rom_printf 并 return BM_ERR_IO
+ *                                                fail-fast（tick 分配失败=系统无节拍，
+ *                                                静默继续比崩溃更危险）
  *
  */
 #include "bm_drv_timer.h"
@@ -45,6 +65,7 @@
 #include "bm_vendor_esp32_idf_compat.h"
 #include "bm_hal_uptime.h"
 #include "bm_types.h"
+#include "xtensa/bm_arch_isr_fpu.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -54,6 +75,14 @@
 #include "esp_rom_sys.h"
 #include "hal/mwdt_ll.h"
 #include "hal/timer_ll.h"
+/*
+ * UART0 RX FIFO 轮询读依赖 uart_ll_get_rxfifo_len / uart_ll_read_rxfifo。
+ * hal/uart_ll.h 及其全部传递依赖（hal/misc.h、soc/uart_reg.h、soc/uart_struct.h、
+ * soc/dport_reg.h、hal/uart_types.h）均在 pack 注入的 IDF 头清单
+ * （cmake/bm_sdk_esp32_idf.cmake）与 _compilecheck harness 的 include 路径内，
+ * 故直接 #include（与 timer_ll/mwdt_ll 同一惯例），无需 esp_timer 式前向声明。
+ */
+#include "hal/uart_ll.h"
 #include "soc/timer_group_struct.h"
 #include "soc/interrupts.h"
 #include "esp_intr_alloc.h"
@@ -141,6 +170,18 @@ static uint8_t     g_uart_ready;
 static uint8_t     g_wdt_ready;
 static intr_handle_t g_tick_intr_handle;
 
+/**
+ * @brief tick ISR 内 FPU(CP0) 现场保存区（16 字节对齐）。
+ *
+ * 供 bm_arch_isr_fpu_enter/exit（portable/arch/xtensa/bm_arch_isr_fpu.h）
+ * 保存/恢复被打断代码的浮点现场，使 g_tick_callback 派发链（经 hrt_dispatch
+ * 触达 10kHz 电流环等浮点回调）在 ISR 内安全执行。单例定时器只有一份 tick
+ * ISR，故仅需一份保存区（不与 PWM ISR 的 cp0_sa 共享，二者互不嵌套）。
+ * 无 FPU 芯片或非 ESP_PLATFORM 路径上 BM_ARCH_ISR_FPU_SA_SIZE=1，仅占位、
+ * 守卫为 no-op。
+ */
+static uint8_t g_tick_cp0_sa[BM_ARCH_ISR_FPU_SA_SIZE] __attribute__((aligned(16)));
+
 /* ---------- Timer ISR ---------- */
 
 /**
@@ -149,13 +190,20 @@ static intr_handle_t g_tick_intr_handle;
  * 每次 timer alarm 触发时：
  *   1. 清除中断标志并重新使能 alarm（自动重载已配置，此处重使能 alarm）
  *   2. 递增 tick 计数
- *   3. 调用注册的 tick 回调
+ *   3. 在 FPU 守卫内调用注册的 tick 回调
+ *
+ * 铁律步骤 1-2（清中断、计数）在 FPU 守卫之外先完成，不受浮点开销影响；
+ * g_tick_callback 经 hrt_dispatch 可能派发到 10kHz 电流环等浮点回调（FOC
+ * current_step 等），ESP 中断上下文默认禁用 FPU(CP0)，故整段派发须包在
+ * bm_arch_isr_fpu_enter/exit 之间，顺序铁律见 bm_arch_isr_fpu.h：
+ * 开 CP0 → 存现场 → 跑浮点 → 复现场 → 还原 CPENABLE。
  *
  * @param arg 未使用（NULL）。
  */
 static void IRAM_ATTR bm_vendor_tick_isr(void *arg)
 {
     timg_dev_t *hw;
+    unsigned    cp_prev;
 
     (void)arg;
     hw = TIMER_LL_GET_HW(BM_VENDOR_TICK_TIMER_GROUP);
@@ -167,10 +215,12 @@ static void IRAM_ATTR bm_vendor_tick_isr(void *arg)
     /* 递增 tick 计数 */
     g_tick_count++;
 
-    /* 调用注册的 tick 回调 */
+    /* 调用注册的 tick 回调（FPU 守卫内，见函数头注释） */
+    cp_prev = bm_arch_isr_fpu_enter(g_tick_cp0_sa);
     if (g_tick_callback != NULL) {
         g_tick_callback();
     }
+    bm_arch_isr_fpu_exit(g_tick_cp0_sa, cp_prev);
 }
 
 /* ---------- timer 驱动实现 ---------- */
@@ -211,13 +261,30 @@ static int esp32_timer_init(uint32_t freq_hz)
      *   - 真实 IDF 构建（ESP_PLATFORM）：展开为 PERIPH_RCC_ATOMIC(){...} 临界块。
      *   - compilecheck/freestanding：展开为带守卫变量声明的普通块（满足 IDF LL 宏要求）。
      */
+    /*
+     * 仅使能总线时钟，刻意不做组级复位 timer_ll_reset_register(TG0)：
+     *   timer_ll_reset_register(BM_VENDOR_TICK_TIMER_GROUP) 是对整个 Timer
+     *   Group 0 的 DPORT 组级复位，会连带复位 esp_timer 在 ESP32 上占用的
+     *   TG0 LACT 微秒时基（CONFIG_ESP_TIMER_IMPL_TG0_LAC）。LACT 一旦被复位，
+     *   esp_timer 时基失准、已 arm 的定时器永不触发/移除，WiFi 一连上狂 arm
+     *   使有序链表暴涨，timer_insert 持锁遍历长链表吃满 300ms 触发 CPU0
+     *   Interrupt WDT（真机 2026-07-12 实证：station 连上 SoftAP 即崩）。
+     *   timer0 所需初态由下方逐寄存器显式配置独立达成，不依赖组复位；
+     *   组复位唯一有用副作用（清 timer0 pending 中断位）用窄范围清中断精确补回。
+     * timer_ll_enable_bus_clock 幂等、只动总线时钟门控，不扰 LACT，保留。
+     */
     BM_PERIPH_RCC_ATOMIC_BEGIN
         timer_ll_enable_bus_clock(BM_VENDOR_TICK_TIMER_GROUP, true);
-        timer_ll_reset_register(BM_VENDOR_TICK_TIMER_GROUP);
     BM_PERIPH_RCC_ATOMIC_END
 
     /* 停止计数 */
     timer_ll_enable_counter(hw, BM_VENDOR_TICK_TIMER_NUM, false);
+
+    /*
+     * 替代组复位唯一有用副作用：清 timer0 pending 中断位。
+     * 窄范围只清 timer0 的 alarm 事件，不碰 LACT / 整组，避免误伤 esp_timer 时基。
+     */
+    timer_ll_clear_intr_status(hw, TIMER_LL_EVENT_ALARM(BM_VENDOR_TICK_TIMER_NUM));
 
     /* 配置分频、向上计数、自动重载 */
     timer_ll_set_clock_prescale(hw, BM_VENDOR_TICK_TIMER_NUM, divider);
@@ -241,17 +308,49 @@ static int esp32_timer_init(uint32_t freq_hz)
     {
         volatile void *status_reg;
         uint32_t       status_mask;
+        esp_err_t      intr_rc;
 
         status_reg  = timer_ll_get_intr_status_reg(hw);
         status_mask = TIMER_LL_EVENT_ALARM(BM_VENDOR_TICK_TIMER_NUM);
-        (void)esp_intr_alloc_intrstatus(
+        /*
+         * 刻意不带 ESP_INTR_FLAG_IRAM：tick 回调链（bm_hrt 派发→tt_schedule→
+         * 控制 LET）整体位于 flash，若以 IRAM-safe 注册，flash 写入窗口
+         * （WiFi PHY 校准/NVS commit 等，cache 关闭）内中断照常触发会跳入
+         * flash 地址，触发 "Cache disabled but cached memory region accessed"
+         * panic（真机 2026-07-12 实证：WiFi 起网必炸循环重启）。去掉该标志
+         * 后 flash 操作期间本中断被 IDF 自动延迟、窗口结束恢复——控制环丢拍
+         * 由 LET staleness/wcet deadline-miss 账目如实体现；出力期与 flash
+         * 写的互斥由业务门控保证（web spec §6 R1：armed 拒 save/reset）。
+         */
+        /*
+         * 中断级别 LEVEL2：与两个 PWM TEZ ISR（bm_vendor_pwm_esp32_idf.c
+         * 的 esp_intr_alloc，ESP_INTR_FLAG_LEVEL2）严格同级。Plan B 把 FOC
+         * 电流环 bind 到 TEZ ISR 后，该 ISR 不再"职责轻"而是跑满 FPU
+         * （sqrtf / foc current_step）；若本 tick 保持 LEVEL3，会抢占正在算
+         * FPU 的 TEZ ISR，嵌套中断破坏 Xtensa 寄存器窗口 / FPU 协处理器
+         * 上下文，致 LoadProhibited 崩溃（真机 2026-07-13 addr2line 实证：
+         * _xt_medint3 → tick → tt_bus_publish 打断 current_hw_isr_axis 的
+         * sqrtf）。同级则互不抢占、串行执行，从根上消除嵌套（等价于 v3.5
+         * 拆分级别之前 tick/TEZ 同为 LEVEL3 的"无嵌套"不变量，因 LEVEL3 只
+         * 有 2 条通用线容不下 3 个请求，故同级落点改取 LEVEL2）。
+         * PWM0 + PWM1 + tick 三请求正好占满 3 条 LEVEL2 通用线（intno
+         * 19/20/21）；若日后同核再增 LEVEL2 消费者需重评容量（见
+         * bm_vendor_pwm_esp32_idf.c changelog v3.5 / v3.6）。
+         */
+        intr_rc = esp_intr_alloc_intrstatus(
             ETS_TG0_T0_LEVEL_INTR_SOURCE,
-            ESP_INTR_FLAG_LEVEL3 | ESP_INTR_FLAG_IRAM,
+            ESP_INTR_FLAG_LEVEL2,
             (uint32_t)(uintptr_t)status_reg,
             status_mask,
             bm_vendor_tick_isr,
             NULL,
             &g_tick_intr_handle);
+        if (intr_rc != ESP_OK) {
+            /* tick 分配失败 = 系统无节拍，静默继续比崩溃更危险，必须 fail-fast */
+            esp_rom_printf("bm_vendor: tick intr alloc failed rc=%d\n",
+                           (int)intr_rc);
+            return BM_ERR_IO;
+        }
     }
 
     /* 启动计数 */
@@ -359,16 +458,42 @@ static int esp32_uart_send(const uint8_t *data, size_t len)
 }
 
 /**
- * @brief 接收字节（裸机模式下不支持，返回 0）。
- * @param data    未使用。
- * @param max_len 未使用。
- * @return 0（无可用字节）。
+ * @brief 接收字节：UART0 RX FIFO 非阻塞轮询读。
+ *
+ * 直接经 uart_ll 读硬件 RX FIFO（uart_ll_get_rxfifo_len 查可读字节数，
+ * uart_ll_read_rxfifo 逐字节搬出），有多少读多少（不超过 @p max_len），
+ * FIFO 空立即返回 0，不阻塞不等待——契合裸机主循环轮询（bm_shell_poll →
+ * bm_hal_console_read → 本函数）的节奏。
+ *
+ * @note 只读 FIFO，不动波特率/引脚/时钟配置：UART0 由 boot ROM 按 115200
+ *       配好并被 esp_rom_printf（TX 侧）复用，RX 侧同一硬件口。
+ * @note 刻意不用 IDF uart_driver_install（会起后台中断+环形缓冲+任务，
+ *       与本 vendor 裸机零调度架构不搭）；FIFO 深 128 字节，主循环 tick
+ *       级轮询下人工敲键不会溢出。
+ *
+ * @param data    接收缓冲区。
+ * @param max_len 缓冲区容量（字节）。
+ * @return 实际读出的字节数；无数据/未初始化/参数无效时为 0。
  */
 static size_t esp32_uart_recv(uint8_t *data, size_t max_len)
 {
-    (void)data;
-    (void)max_len;
-    return 0u;
+    uint32_t avail;
+    uint32_t n;
+
+    if (data == NULL || max_len == 0u) {
+        return 0u;
+    }
+    if (g_uart_ready == 0u) {
+        return 0u;
+    }
+
+    avail = uart_ll_get_rxfifo_len(&UART0);
+    if (avail == 0u) {
+        return 0u;
+    }
+    n = (avail < (uint32_t)max_len) ? avail : (uint32_t)max_len;
+    uart_ll_read_rxfifo(&UART0, data, n);
+    return (size_t)n;
 }
 
 /**

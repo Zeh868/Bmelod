@@ -4,8 +4,8 @@
  *
  * 校验实例与资源声明，组装 HRT 调度表，协调 init/start/stop 与硬件绑定。
  * @author zeh (china_qzh@163.com)
- * @version 2.5
- * @date 2026-06-26
+ * @version 2.6
+ * @date 2026-07-02
  *
  * @par 修改日志:
  *
@@ -20,6 +20,8 @@
  * 2026-06-14       2.3            zeh            按 CPU 会话；stream commit/drain 解耦
  * 2026-06-14       2.4            zeh            deadline miss 可注册处理；按 CPU clock_id
  * 2026-06-26       2.5            zeh            deadline 时间基迁至 bm_uptime_us()（#9-2a）
+ * 2026-07-02       2.6            zeh            QD-6：cache-line 补齐改用 union，
+ *                                                消除 MSVC C2233
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -57,13 +59,8 @@ typedef struct {
     bm_atomic_ipc_u32_t session;
 } bm_exec_cpu_state_t;
 
-typedef struct {
-    bm_exec_cpu_state_t state;
-    uint8_t padding[(sizeof(bm_exec_cpu_state_t) % BM_CONFIG_CACHE_LINE)
-        ? (BM_CONFIG_CACHE_LINE - (sizeof(bm_exec_cpu_state_t) %
-                                   BM_CONFIG_CACHE_LINE))
-        : 0];
-} bm_exec_cpu_storage_t;
+typedef BM_CACHE_LINE_PADDED_UNION(bm_exec_cpu_state_t, state,
+                                   BM_CONFIG_CACHE_LINE) bm_exec_cpu_storage_t;
 
 static BM_CACHE_ALIGNAS(BM_CONFIG_CACHE_LINE)
 bm_exec_cpu_storage_t g_exec_cpu[BM_CONFIG_CPU_COUNT];
@@ -183,6 +180,11 @@ static int exec_block_is_late(const bm_exec_slot_t *slot,
              * profile build 会 bump 全核 clock_epoch；块若在 bump 前后沿采样，
              * epoch/rate 可能与消费侧不一致，按当前时钟域重对齐后再算 elapsed。
              */
+            /* 就地写 block->timestamp 而非用局部副本：SPSC 独占下安全——
+             * acquire 时该 block 已被置为 PROCESSING 状态，生产者在消费者
+             * 释放前不会再触碰同一块；改成局部副本会让下方 deadline/late
+             * 判定读到未重对齐的 epoch/rate，改变 late 判定语义，故保持
+             * 就地写。 */
             if (block->timestamp.clock_epoch != timer.clock_epoch ||
                 block->timestamp.rate_hz != timer_freq) {
                 block->timestamp.clock_epoch = timer.clock_epoch;

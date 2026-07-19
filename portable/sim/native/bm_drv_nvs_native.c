@@ -30,6 +30,8 @@
 
 /** @brief 文件路径（由测试通过 bm_drv_nvs_native_set_path 设置） */
 static char s_nvs_path[256];
+/** @brief 接下来强制失败的 save 次数（测试注入 flash 写入失败） */
+static int s_fail_save_count;
 
 /* -------------------------------------------------------------------------- */
 /*  测试辅助钩子（bm_hal_nvs_native.h 接口）                                    */
@@ -58,6 +60,11 @@ void bm_drv_nvs_native_reset(void) {
     if (s_nvs_path[0] != '\0') {
         (void)remove(s_nvs_path);
     }
+    s_fail_save_count = 0;
+}
+
+void bm_drv_nvs_native_set_fail_save_count(int n) {
+    s_fail_save_count = (n < 0) ? 0 : n;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -103,8 +110,15 @@ int bm_hal_nvs_save(const uint8_t *buf, uint16_t size) {
     FILE *f;
     size_t nwritten;
 
+    (void)buf;
+    (void)size;
+
     if (s_nvs_path[0] == '\0') {
         return BM_ERR_NOT_INIT;
+    }
+    if (s_fail_save_count > 0) {
+        s_fail_save_count--;
+        return BM_ERR_OVERFLOW;
     }
     f = fopen(s_nvs_path, "wb");
     if (f == NULL) {

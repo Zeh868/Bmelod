@@ -4,8 +4,8 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.3
- * @date 2026-06-23
+ * @version 1.4
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
@@ -14,6 +14,9 @@
  * 2026-06-17       1.1            zeh            增加 1D UKF 与 EKF 创新门控
  * 2026-06-23       1.2            zeh            KF 更新分母阈值放宽为 1e-9f；UKF β 修正项补注释
  * 2026-06-23       1.3            zeh            落地 UKF β 协方差修正项：pzz 中 i=0 项使用 w0_cov
+ * 2026-07-09       1.4            zeh            H9：ekf_cv_predict/update 补
+ *                                                NaN/Inf 输入护栏，避免一次
+ *                                                毛刺永久污染持久协方差状态
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

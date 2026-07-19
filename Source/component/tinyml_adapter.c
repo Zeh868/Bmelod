@@ -5,8 +5,8 @@
  * bump pointer 分配，tensor 元数据委托 bm_algo_features 量化。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-17
+ * @version 1.4
+ * @date 2026-07-15
  *
  * @par 修改日志:
  *
@@ -22,6 +22,14 @@
  * 2026-06-17       0.9            zeh            CONV2D 1x1 NCHW 算子
  * 2026-06-23       1.0            zeh            通用 CONV2D（任意核/步长/explicit padding）
  * 2026-06-23       1.1            zeh            补 SPDX 与函数级 Doxygen
+ * 2026-07-09       1.2            zeh            修复非原地 RELU/SOFTMAX 缺容量校验、
+ *                                                 arena_alloc size 溢出环绕、QUANTIZE
+ *                                                 校验错张量（疑似-10/11/16.3/16.4）
+ * 2026-07-13       1.3            zeh            C10：conv2d/conv2d_1x1 容量校验的维度
+ *                                                 乘积补 u32 溢出防护（mul_u32_checked），
+ *                                                 补齐 1.2 漏修的两处同类缺口
+ * 2026-07-15       1.4            zeh            maxpool 补读侧输入容量校验（含 h*w 溢出防护）
+ * 2026-07-16       1.5            zeh            FLATTEN dims 乘积补 u32 溢出防护
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -56,6 +64,24 @@ static int8_t clamp_i8(int32_t value) {
         return (int8_t)-128;
     }
     return (int8_t)value;
+}
+
+/**
+ * @brief u32 乘法溢出检查（照 arena_alloc/maxpool/tensor_alloc 的防护先例）
+ *
+ * 乘前判 b > UINT32_MAX/a 拦截回绕；成功时写入乘积。
+ *
+ * @param a   乘数
+ * @param b   乘数
+ * @param out 输出乘积（仅成功时写入，不可为 NULL）
+ * @return 0 成功；-1 乘积溢出 uint32_t
+ */
+static int mul_u32_checked(uint32_t a, uint32_t b, uint32_t *out) {
+    if (a != 0u && b > UINT32_MAX / a) {
+        return -1;
+    }
+    *out = a * b;
+    return 0;
 }
 
 /**
@@ -102,6 +128,12 @@ void *bm_tinyml_arena_alloc(bm_tinyml_arena_t *arena,
     }
 
     start = align_up(arena->offset, align);
+    /* start+size 的 u32 加法溢出防护（疑似-16.3）：size 接近 UINT32_MAX 时
+     * 会环绕成一个小值，让下面的容量校验被误判通过，从而返回一个远超
+     * arena 实际容量的“成功”指针。乘前判 size > UINT32_MAX - start 拦截。 */
+    if (size > UINT32_MAX - start) {
+        return NULL;
+    }
     end = start + size;
     if (end > BM_TINYML_ARENA_MAX_BYTES) {
         return NULL;
@@ -358,7 +390,9 @@ static int run_flatten_node(bm_tinyml_tensor_t *in_tensor,
     }
 
     for (i = 0u; i < in_tensor->ndim; ++i) {
-        total *= in_tensor->dims[i];
+        if (mul_u32_checked(total, in_tensor->dims[i], &total) != 0) {
+            return -1;
+        }
     }
 
     out_tensor->data = in_tensor->data;
@@ -453,8 +487,24 @@ static int run_maxpool_2x2_node(const bm_tinyml_tensor_t *in_tensor,
         return -1;
     }
 
+    /* 读侧校验：输入 tensor 容量须覆盖 h*w，并防 h*w 乘法溢出。 */
+    if (w > UINT32_MAX / h) {
+        return -1;
+    }
+    if (in_tensor->byte_count < h * w) {
+        return -1;
+    }
+
     oh = h / 2u;
     ow = w / 2u;
+    /* 写入前校验输出缓冲容量（照兄弟算子 depthwise/conv2d 的约定），
+     * 并防 oh*ow 的乘法溢出。 */
+    if (oh > 0u && ow > UINT32_MAX / oh) {
+        return -1;
+    }
+    if (out_tensor->byte_count < oh * ow) {
+        return -1;
+    }
 
     for (y = 0u; y < oh; ++y) {
         for (x = 0u; x < ow; ++x) {
@@ -548,9 +598,24 @@ static int run_conv2d_1x1_node(const bm_tinyml_graph_node_t *node,
         n_dim == 0u || h_dim == 0u || w_dim == 0u) {
         return -1;
     }
-    if (in_tensor->byte_count < n_dim * c_in_dim * h_dim * w_dim ||
-        out_tensor->byte_count < n_dim * node->fc_out_dim * h_dim * w_dim) {
-        return -1;
+    /* 维度乘积 u32 溢出防护（C10，照 maxpool/arena_alloc 先例）：裸乘回绕成
+     * 小值会让下方容量校验误通过，嵌套循环随后按真实乘积索引越界写。 */
+    {
+        uint32_t in_elems;
+        uint32_t out_elems;
+
+        if (mul_u32_checked(n_dim, c_in_dim, &in_elems) != 0 ||
+            mul_u32_checked(in_elems, h_dim, &in_elems) != 0 ||
+            mul_u32_checked(in_elems, w_dim, &in_elems) != 0 ||
+            mul_u32_checked(n_dim, node->fc_out_dim, &out_elems) != 0 ||
+            mul_u32_checked(out_elems, h_dim, &out_elems) != 0 ||
+            mul_u32_checked(out_elems, w_dim, &out_elems) != 0) {
+            return -1;
+        }
+        if (in_tensor->byte_count < in_elems ||
+            out_tensor->byte_count < out_elems) {
+            return -1;
+        }
     }
 
     for (n = 0u; n < n_dim; ++n) {
@@ -657,6 +722,14 @@ static int run_conv2d_node(const bm_tinyml_graph_node_t *node,
     pad_left   = node->conv_pad_left;
     pad_right  = node->conv_pad_right;
 
+    /* padding 上界保护：防止 ih/iw 与 padding 相加 u32 溢出 */
+    if (pad_top > UINT32_MAX - ih_dim ||
+        pad_bottom > UINT32_MAX - ih_dim - pad_top ||
+        pad_left > UINT32_MAX - iw_dim ||
+        pad_right > UINT32_MAX - iw_dim - pad_left) {
+        return -1;
+    }
+
     /* 参数合法性校验 */
     if (c_in_dim == 0u || c_out_dim == 0u || n_dim == 0u ||
         ih_dim == 0u || iw_dim == 0u ||
@@ -678,10 +751,24 @@ static int run_conv2d_node(const bm_tinyml_graph_node_t *node,
         return -1;
     }
 
-    /* 缓冲足够性校验 */
-    if (in_tensor->byte_count < n_dim * c_in_dim * ih_dim * iw_dim ||
-        out_tensor->byte_count < n_dim * c_out_dim * oh * ow) {
-        return -1;
+    /* 缓冲足够性校验——维度乘积 u32 溢出防护（C10，同 conv2d_1x1）：
+     * 裸乘回绕成小值会让校验误通过，嵌套循环随后越界写。 */
+    {
+        uint32_t in_elems;
+        uint32_t out_elems;
+
+        if (mul_u32_checked(n_dim, c_in_dim, &in_elems) != 0 ||
+            mul_u32_checked(in_elems, ih_dim, &in_elems) != 0 ||
+            mul_u32_checked(in_elems, iw_dim, &in_elems) != 0 ||
+            mul_u32_checked(n_dim, c_out_dim, &out_elems) != 0 ||
+            mul_u32_checked(out_elems, oh, &out_elems) != 0 ||
+            mul_u32_checked(out_elems, ow, &out_elems) != 0) {
+            return -1;
+        }
+        if (in_tensor->byte_count < in_elems ||
+            out_tensor->byte_count < out_elems) {
+            return -1;
+        }
     }
 
     for (n = 0u; n < n_dim; ++n) {
@@ -812,8 +899,12 @@ int bm_tinyml_graph_run(bm_tinyml_graph_t *graph,
 
         switch (node->op) {
         case BM_TINYML_OP_QUANTIZE:
+            /* 疑似-16.4：真正被读取的量是 out_tensor->byte_count（写入量化
+             * 结果的目的张量），而非 in_tensor->byte_count；两者可以不同，
+             * 校验错张量会在 float_input_count 不足以覆盖 out_tensor 时
+             * 仍放行，读越界 float_inputs。 */
             if (float_inputs == NULL ||
-                float_input_count < in_tensor->byte_count) {
+                float_input_count < out_tensor->byte_count) {
                 return -1;
             }
             if (bm_tinyml_tensor_quantize_f32(out_tensor, float_inputs,
@@ -841,6 +932,12 @@ int bm_tinyml_graph_run(bm_tinyml_graph_t *graph,
                 return -1;
             }
             if (out_tensor != in_tensor) {
+                /* 疑似-10：非原地 RELU 写出前须判空且校验 out_tensor 容量，
+                 * 否则 out_tensor->data 为 NULL 或容量不足时会崩溃/越界写。 */
+                if (out_tensor->data == NULL ||
+                    out_tensor->byte_count < in_tensor->byte_count) {
+                    return -1;
+                }
                 memcpy(out_tensor->data, in_tensor->data,
                        in_tensor->byte_count);
             }
@@ -849,7 +946,12 @@ int bm_tinyml_graph_run(bm_tinyml_graph_t *graph,
             if (run_softmax_node(in_tensor) != 0) {
                 return -1;
             }
-            if (out_tensor != in_tensor && out_tensor->data != NULL) {
+            if (out_tensor != in_tensor) {
+                /* 疑似-11：此前只判空未校验容量，容量不足时仍会越界写。 */
+                if (out_tensor->data == NULL ||
+                    out_tensor->byte_count < in_tensor->byte_count) {
+                    return -1;
+                }
                 memcpy(out_tensor->data, in_tensor->data,
                        in_tensor->byte_count);
             }

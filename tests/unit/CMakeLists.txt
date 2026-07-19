@@ -33,6 +33,14 @@ bm_add_test(test_idle test_idle.c bm_core)
 bm_add_test(test_persist test_persist.c bm_core)
 target_include_directories(test_persist PRIVATE
     ${CMAKE_SOURCE_DIR}/portable/sim/native)
+
+# 批 P：bm_param 参数注册表测试（persist 依赖 native_sim 文件仿真 NVS）
+if(BM_ENABLE_PARAM)
+    bm_add_test(test_param test_param.c bm_param)
+    target_include_directories(test_param PRIVATE
+        ${CMAKE_SOURCE_DIR}/portable/sim/native)
+endif()
+
 bm_add_test(test_ultra test_ultra.c bm_core)
 target_compile_definitions(test_ultra PRIVATE BM_ENABLE_ULTRA_TEST_HOOK=1)
 bm_add_test(test_mempool test_mempool.c bm_core)
@@ -44,6 +52,7 @@ target_include_directories(test_wdg PRIVATE
 
 if(BM_ENABLE_MODULE)
     bm_add_test(test_module test_module.c bm_module)
+    bm_add_test(test_module_domain test_module_domain.c bm_module)
 endif()
 
 if(BM_ENABLE_BUS)
@@ -55,7 +64,6 @@ if(BM_ENABLE_BUS)
         bm_add_test(test_bus test_bus.c bm_core)
     endif()
     target_compile_definitions(test_bus PRIVATE BM_ENABLE_BUS_TEST_HOOK=1)
-    target_compile_definitions(test_bus PRIVATE BM_BUS_ALLOW_INTERNAL=1)
 
     # 确定性 L1 C1：bus retry-bound（DET-01）+ 非阻塞已由 test_bus 证明，纳入 determinism 标签
     set_tests_properties(test_bus PROPERTIES LABELS "determinism")
@@ -122,6 +130,8 @@ endif()
 
 if(BM_ENABLE_SHELL)
     bm_add_test(test_shell test_shell.c bm_shell)
+    # 历史命令 + ESC 序列吞噬（批 P 后继小批）
+    bm_add_test(test_shell_history test_shell_history.c bm_shell)
 
     if(BM_ENABLE_BUS)
         # #11 shell 业务命令集成：验证「命令字符串→业务动作生效」链路
@@ -130,6 +140,11 @@ if(BM_ENABLE_SHELL)
             ${CMAKE_SOURCE_DIR}/Demo/bus_servo/shell_cmds.c)
         target_include_directories(test_shell_cmds PRIVATE
             ${CMAKE_SOURCE_DIR}/Demo/bus_servo)
+    endif()
+
+    # 批 P：框架内建命令组（param/log/ver/uptime）
+    if(BM_ENABLE_PARAM)
+        bm_add_test(test_shell_builtins test_shell_builtins.c "bm_shell;bm_param")
     endif()
 endif()
 
@@ -141,10 +156,13 @@ endif()
 
 if(BM_ENABLE_TT_SCHEDULE)
     # Task 3：输入冻结 + seq-delta 判龄；走门面 API + 公共 bus API，
-    # 但测试内直接调用 bm_bus_latest_read_seq 验证 seq 语义，
-    # 该内部访问器原型受 BM_BUS_ALLOW_INTERNAL 门控，需 PRIVATE 定义（照 test_bus）。
+    # 测试内直接调用 bm_bus_latest_read_seq 验证 seq 语义
+    #（2026-07-16 该访问器已转公共 API，原 BM_BUS_ALLOW_INTERNAL 门控删除）。
     bm_add_test(test_tt_schedule test_tt_schedule.c bm_tt_schedule)
-    target_compile_definitions(test_tt_schedule PRIVATE BM_BUS_ALLOW_INTERNAL=1)
+
+    # Task 2 (schedule-map v2): bm_tt_schedule_report_json machine-readable export (schema v1).
+    bm_add_test(test_tt_schedule_json test_tt_schedule_json.c bm_tt_schedule)
+    set_tests_properties(test_tt_schedule_json PROPERTIES LABELS "determinism")
     # A5：本门面全静态分配（无 malloc/calloc/realloc/free 符号）+ 循环上界
     # 均受 init 期校验（entry_count/input_count/n_frames ≤ 编译期上界），
     # 纳入既有 determinism 回归面（见 test_tt_schedule.c 场景19注释）。
@@ -165,6 +183,7 @@ if(BM_ENABLE_TT_SCHEDULE)
                     -DTOOL_ID=MSVC
                     -DDUMPBIN_EXE=${BM_DUMPBIN_EXE}
                     -DLIB_PATH=$<TARGET_FILE:bm_tt_schedule>
+                    -DTARGET_NAME=bm_tt_schedule
                     -P ${CMAKE_SOURCE_DIR}/tests/unit/support/check_no_alloc_symbols.cmake)
             set_tests_properties(test_tt_schedule_symbols_no_alloc PROPERTIES
                 LABELS "determinism")
@@ -180,6 +199,7 @@ if(BM_ENABLE_TT_SCHEDULE)
                     -DTOOL_ID=GNU
                     -DNM_EXE=${BM_NM_EXE}
                     -DLIB_PATH=$<TARGET_FILE:bm_tt_schedule>
+                    -DTARGET_NAME=bm_tt_schedule
                     -P ${CMAKE_SOURCE_DIR}/tests/unit/support/check_no_alloc_symbols.cmake)
             set_tests_properties(test_tt_schedule_symbols_no_alloc PROPERTIES
                 LABELS "determinism")
@@ -188,27 +208,170 @@ if(BM_ENABLE_TT_SCHEDULE)
         endif()
     endif()
 
-    # Task 7：host dump 工具，装配示例调度表并导出 bm_tt_schedule_report
-    # 到 build/schedule_map.txt，供开发者人工核对调度概览（非单元测试，
-    # 随 ALL 目标构建）。
-    add_executable(tt_schedule_map_dump ${CMAKE_SOURCE_DIR}/tests/tools/tt_schedule_map_dump.c)
+    # schedule-map v2：一行接入函数生成注册单元 + host dump 可执行 +
+    # POST_BUILD 自动出表（级 2 复合报告落 build/schedule_map/schedule_map_all.txt），
+    # 替换原先手搭的 demo dump 目标与 Task 3 手搭的 bm_schedule_map_dump。
+    # 另建 bm_schedule_map_dump_bad 作门禁负例（init 故意失败，非零退出）。
+    include(${CMAKE_SOURCE_DIR}/cmake/bm_schedule_map.cmake)
+    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/schedule_map_out ${CMAKE_BINARY_DIR}/schedule_map_out_bad
+                         ${CMAKE_BINARY_DIR}/schedule_map_out_fixture_reg)
+    # Task 6：INTERFERENCE_SRC 声明 2 个干扰源（均 cpu0，与
+    # tests/tools/schedule_map_fixture_reg.c 手写的干扰源逐字一致），验证
+    # CMake 生成路径——sched_fixture_a（cpu0）出表 JSON 应含二者，
+    # sched_fixture_b（cpu1）不含（main 按 cpu 过滤）。
+    bm_add_schedule_map(bm_schedule_map_dump
+        SOURCES ${CMAKE_SOURCE_DIR}/tests/tools/schedule_map_fixture.c
+        SETUP   schedule_map_fixture_setup
+        TABLES  sched_fixture_a:0 sched_fixture_b:1
+        INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/tests/tools
+        REF_CLK_HZ 240000000
+        OPERATING_POINTS 240000000 160000000 80000000 40000000
+        INTERFERENCE_SRC spi_isr:1000:20:hardware:0 wifi_task:5000:300:scheduled:0)
+    # 交叉编译分支下 bm_add_schedule_map 建的是 add_custom_target（非可执行目标），
+    # 对其调 target_include_directories 会在 configure 期报错；仅 native 分支需要此调用。
+    if(NOT CMAKE_CROSSCOMPILING)
+        bm_target_internal_includes(bm_schedule_map_dump)
+    endif()
+    add_custom_target(schedule-map ALL DEPENDS bm_schedule_map_dump)
+
+    add_executable(bm_schedule_map_dump_bad
+        ${CMAKE_SOURCE_DIR}/tools/schedule_map/bm_schedule_map_main.c
+        ${CMAKE_SOURCE_DIR}/tests/tools/schedule_map_fixture_bad.c)
+    target_include_directories(bm_schedule_map_dump_bad PRIVATE
+        ${CMAKE_SOURCE_DIR}/tools/schedule_map ${CMAKE_SOURCE_DIR}/tests/tools)
+    bm_target_internal_includes(bm_schedule_map_dump_bad)
     # 同 bm_add_test 注释：BM_ENABLE_WCET_MON 打开时需把 bm_wcet_mon 纳入同一 GNU
     # 静态库解析组，否则其 PUBLIC 链 bm_core/bm_hal 在组外重复出现时脱离
     # bm_hal_native 覆盖范围，bm_hal_uptime_ns_raw 未解析。
     if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
-        target_link_libraries(tt_schedule_map_dump PRIVATE
+        target_link_libraries(bm_schedule_map_dump_bad PRIVATE
             "-Wl,--start-group"
             bm_tt_schedule bm_core bm_hal bm_hal_native
             $<$<BOOL:${BM_ENABLE_WCET_MON}>:bm_wcet_mon>
             "-Wl,--end-group")
     else()
-        target_link_libraries(tt_schedule_map_dump PRIVATE bm_tt_schedule bm_core bm_hal bm_hal_native)
+        target_link_libraries(bm_schedule_map_dump_bad PRIVATE bm_tt_schedule bm_core bm_hal bm_hal_native)
     endif()
-    bm_target_internal_includes(tt_schedule_map_dump)
-    add_custom_target(schedule-map ALL
-        COMMAND tt_schedule_map_dump ${CMAKE_BINARY_DIR}/schedule_map.txt
-        DEPENDS tt_schedule_map_dump
-        COMMENT "Generating build/schedule_map.txt")
+
+    # Task 6：手写 reg 契约路径的正例——直接链
+    # tests/tools/schedule_map_fixture_reg.c（不经 bm_add_schedule_map() 生成），
+    # 与上面 bm_schedule_map_dump 用同一套双表装配件，验证"CMake 生成/手写"
+    # 两条 reg 契约实现路径都满足新增的干扰源数组契约。
+    add_executable(bm_schedule_map_dump_fixture_reg
+        ${CMAKE_SOURCE_DIR}/tools/schedule_map/bm_schedule_map_main.c
+        ${CMAKE_SOURCE_DIR}/tests/tools/schedule_map_fixture_reg.c
+        ${CMAKE_SOURCE_DIR}/tests/tools/schedule_map_fixture.c)
+    target_include_directories(bm_schedule_map_dump_fixture_reg PRIVATE
+        ${CMAKE_SOURCE_DIR}/tools/schedule_map ${CMAKE_SOURCE_DIR}/tests/tools)
+    bm_target_internal_includes(bm_schedule_map_dump_fixture_reg)
+    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        target_link_libraries(bm_schedule_map_dump_fixture_reg PRIVATE
+            "-Wl,--start-group"
+            bm_tt_schedule bm_core bm_hal bm_hal_native
+            $<$<BOOL:${BM_ENABLE_WCET_MON}>:bm_wcet_mon>
+            "-Wl,--end-group")
+    else()
+        target_link_libraries(bm_schedule_map_dump_fixture_reg PRIVATE bm_tt_schedule bm_core bm_hal bm_hal_native)
+    endif()
+
+    add_test(NAME schedule_map_dump_ok
+        COMMAND bm_schedule_map_dump ${CMAKE_BINARY_DIR}/schedule_map_out)
+    add_test(NAME schedule_map_dump_gate
+        COMMAND bm_schedule_map_dump_bad ${CMAKE_BINARY_DIR}/schedule_map_out_bad)
+    add_test(NAME schedule_map_dump_fixture_reg_ok
+        COMMAND bm_schedule_map_dump_fixture_reg ${CMAKE_BINARY_DIR}/schedule_map_out_fixture_reg)
+    set_tests_properties(schedule_map_dump_gate PROPERTIES WILL_FAIL TRUE)
+    set_tests_properties(schedule_map_dump_ok schedule_map_dump_gate schedule_map_dump_fixture_reg_ok
+        PROPERTIES LABELS "determinism")
+
+    # Task 4：config 单源路径——不传 REF_CLK_HZ/OPERATING_POINTS/INTERFERENCE_SRC，
+    # 全部经强制预包含的 schedule_map_cfg_only.h 注入，验证 #ifdef 展开链。
+    # OUTPUT_DIR 必须显式指定专属目录（同 overflow 目标做法）：缺省会落
+    # ${CMAKE_BINARY_DIR}/schedule_map，与 bm_schedule_map_dump 的 POST_BUILD
+    # 出表同目录竞写（两目标均在 ALL 且无依赖序，sched_fixture_a.json 与
+    # 复合报告会被后跑者覆盖，构建产物不确定）。
+    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/schedule_map_out_cfg)
+    bm_add_schedule_map(bm_schedule_map_dump_cfg
+        SOURCES ${CMAKE_SOURCE_DIR}/tests/tools/schedule_map_fixture.c
+        SETUP   schedule_map_fixture_setup
+        TABLES  sched_fixture_a:0
+        OUTPUT_DIR ${CMAKE_BINARY_DIR}/schedule_map_out_cfg
+        INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/tests/tools)
+    if(NOT CMAKE_CROSSCOMPILING)
+        bm_target_internal_includes(bm_schedule_map_dump_cfg)
+        target_compile_options(bm_schedule_map_dump_cfg PRIVATE
+            $<$<C_COMPILER_ID:MSVC>:/FI${CMAKE_SOURCE_DIR}/tests/tools/schedule_map_cfg_only.h>
+            $<$<NOT:$<C_COMPILER_ID:MSVC>>:-include${CMAKE_SOURCE_DIR}/tests/tools/schedule_map_cfg_only.h>)
+    endif()
+    add_test(NAME schedule_map_dump_cfg_ok
+        COMMAND ${CMAKE_COMMAND}
+            -DDUMP_EXE=$<TARGET_FILE:bm_schedule_map_dump_cfg>
+            -DOUT_DIR=${CMAKE_BINARY_DIR}/schedule_map_out_cfg
+            -DEXPECT_NAME=cfg_hw -DEXPECT_TIER=hardware
+            -DEXPECT_PERIOD=500 -DEXPECT_WCET=5 -DEXPECT_OP_HZ=120000000
+            -P ${CMAKE_SOURCE_DIR}/tests/unit/support/check_schedule_map_interference.cmake)
+    set_tests_properties(schedule_map_dump_cfg_ok PROPERTIES LABELS "determinism")
+
+    # Task 6 评审修复：干扰源截断告警负例——INTERFERENCE_SRC 生成 17 个 cpu0
+    # 干扰源（超过 bm_schedule_map_main.c 的 BM_SM_MAX_INTF=16 上限），断言
+    # dump 向 stderr 打出明确的截断告警（截断丢源=低估干扰，不允许静默）。
+    # 注意 PASS_REGULAR_EXPRESSION 使 ctest 只按输出匹配判 pass（不再看退出
+    # 码），对本负例足够：告警文案出现即证明截断路径被触发且未静默；正则只钉
+    # ASCII 片段，规避跨平台控制台编码差异。
+    set(_sm_ovf_intf "")
+    foreach(_k RANGE 1 17)
+        list(APPEND _sm_ovf_intf "ovf_src_${_k}:1000:10:hardware:0")
+    endforeach()
+    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/schedule_map_out_overflow
+                         ${CMAKE_BINARY_DIR}/schedule_map_overflow_postbuild)
+    bm_add_schedule_map(bm_schedule_map_dump_overflow
+        SOURCES ${CMAKE_SOURCE_DIR}/tests/tools/schedule_map_fixture.c
+        SETUP   schedule_map_fixture_setup
+        TABLES  sched_fixture_a:0 sched_fixture_b:1
+        INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/tests/tools
+        REF_CLK_HZ 240000000
+        OUTPUT_DIR ${CMAKE_BINARY_DIR}/schedule_map_overflow_postbuild
+        INTERFERENCE_SRC ${_sm_ovf_intf})
+    if(NOT CMAKE_CROSSCOMPILING)
+        bm_target_internal_includes(bm_schedule_map_dump_overflow)
+    endif()
+    add_test(NAME schedule_map_dump_intf_overflow_warns
+        COMMAND bm_schedule_map_dump_overflow ${CMAKE_BINARY_DIR}/schedule_map_out_overflow)
+    set_tests_properties(schedule_map_dump_intf_overflow_warns PROPERTIES
+        PASS_REGULAR_EXPRESSION "BM_SM_MAX_INTF=16" LABELS "determinism")
+
+    # Task 6：干扰源装配内容级检查——分别校验 CMake 生成路径
+    # （bm_schedule_map_dump，INTERFERENCE_SRC）与手写 reg 路径
+    # （bm_schedule_map_dump_fixture_reg）的出表 JSON，DEPENDS 确保先跑完对应
+    # 的 dump 测试再读产物（不依赖 ctest 默认串行顺序）。
+    add_test(NAME schedule_map_interference_cmake_gen_ok
+        COMMAND ${CMAKE_COMMAND} -DDIR=${CMAKE_BINARY_DIR}/schedule_map_out
+                -P ${CMAKE_SOURCE_DIR}/tests/unit/support/check_schedule_map_interference.cmake)
+    add_test(NAME schedule_map_interference_handwritten_reg_ok
+        COMMAND ${CMAKE_COMMAND} -DDIR=${CMAKE_BINARY_DIR}/schedule_map_out_fixture_reg
+                -P ${CMAKE_SOURCE_DIR}/tests/unit/support/check_schedule_map_interference.cmake)
+    set_tests_properties(schedule_map_interference_cmake_gen_ok PROPERTIES
+        DEPENDS schedule_map_dump_ok LABELS "determinism")
+    set_tests_properties(schedule_map_interference_handwritten_reg_ok PROPERTIES
+        DEPENDS schedule_map_dump_fixture_reg_ok LABELS "determinism")
+
+    # Task 4：级 2 复合分析工具（tools/schedule_map_tool.py）的 stdlib unittest
+    # 自测，纯 Python 进程内构造 JSON fixture，不依赖上面的 dump 产物。
+    find_package(Python3 COMPONENTS Interpreter)
+    if(Python3_FOUND)
+        add_test(NAME schedule_map_tool_test
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/tools/test_schedule_map_tool.py)
+        set_tests_properties(schedule_map_tool_test PROPERTIES LABELS "determinism")
+    else()
+        message(STATUS "Python3 未找到：schedule_map_tool_test 未注册")
+    endif()
+
+    # Task 7：BM_LET_DEFINE_EX 编译期 _Static_assert 硬门（every>=1 / at<every）
+    # 的 configure 期负例检查——试编译一个 at>=every 的非法装配，断言必须编译
+    # 失败且失败原因确为该 static assert（而非 include 配错导致的缺头误判）。
+    set(BM_LET_NEG_INCLUDE_DIRS
+        "${CMAKE_SOURCE_DIR}/include;${CMAKE_SOURCE_DIR}/include/bm/hybrid;${CMAKE_SOURCE_DIR}/include/bm/core;${CMAKE_SOURCE_DIR}/include/bm/common")
+    include(${CMAKE_SOURCE_DIR}/tests/unit/support/check_let_static_assert.cmake)
 endif()
 
 if(BM_ENABLE_WCET_MON)
@@ -225,6 +388,7 @@ if(BM_ENABLE_WCET_MON)
                     -DTOOL_ID=GNU
                     -DNM_EXE=${BM_NM_EXE}
                     -DLIB_PATH=$<TARGET_FILE:bm_wcet_mon>
+                    -DTARGET_NAME=bm_wcet_mon
                     -P ${CMAKE_SOURCE_DIR}/tests/unit/support/check_no_alloc_symbols.cmake)
             set_tests_properties(test_wcet_mon_symbols_no_alloc PROPERTIES
                 LABELS "determinism")
@@ -237,6 +401,7 @@ if(BM_ENABLE_WCET_MON)
                     -DTOOL_ID=MSVC
                     -DDUMPBIN_EXE=${BM_DUMPBIN_EXE}
                     -DLIB_PATH=$<TARGET_FILE:bm_wcet_mon>
+                    -DTARGET_NAME=bm_wcet_mon
                     -P ${CMAKE_SOURCE_DIR}/tests/unit/support/check_no_alloc_symbols.cmake)
             set_tests_properties(test_wcet_mon_symbols_no_alloc PROPERTIES
                 LABELS "determinism")
@@ -282,6 +447,14 @@ endif()
 bm_add_test(test_hal_dma_stream test_hal_dma_stream.c bm_core)
 target_include_directories(test_hal_dma_stream PRIVATE
     ${CMAKE_SOURCE_DIR}/portable/sim/native)
+
+# CPU 主频 HAL 接口机制单测（freq_hz/freq_points/freq_set）
+# 该测试验证的是单核桩（bm_hal_cpu_stub.c）的主频机制，三个符号仅由桩提供；
+# SMP/多核后端此时尚未实现 freq 接口（留给后续 port 任务），
+# 故仅在 BM_HAL_USE_CPU_STUB（桩链入 bm_hal）时注册，避免 SMP 构建链接失败。
+if(BM_HAL_USE_CPU_STUB)
+    bm_add_test(test_hal_cpu_freq test_hal_cpu_freq.c bm_hal)
+endif()
 
 if(BM_ENABLE_ALGORITHM)
     # test_algorithm.c 按域拆分（架构改进计划任务 1.5b 项 6）：原单一 3300+ 行
@@ -484,6 +657,9 @@ if(BM_BUILD_TESTS)
         add_test(NAME check_esp32_backend_configure
             COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_SOURCE_DIR}/tests/cmake/check_esp32_backend_configure.py)
+        add_test(NAME check_config_template
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tools/check_config_template.py)
     endif()
 endif()
 

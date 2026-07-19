@@ -91,7 +91,10 @@ static inline uint32_t bm_atomic_ipc_exchange_u32(bm_atomic_ipc_u32_t *p,
 }
 static inline int bm_atomic_ipc_compare_exchange_u32(
     bm_atomic_ipc_u32_t *p, uint32_t *expected, uint32_t desired) {
-    return atomic_compare_exchange_weak_explicit(
+    /* 改用 strong 版本：weak 允许伪失败（spurious failure），在如
+     * bm_atomic_inc 的 CAS 重试循环中会更快耗尽重试预算；MSVC 路径的
+     * _InterlockedCompareExchange 本身即 strong 语义，无需改动 */
+    return atomic_compare_exchange_strong_explicit(
         p, expected, desired, memory_order_acq_rel, memory_order_acquire);
 }
 static inline void bm_atomic_ipc_fence_release(void) {

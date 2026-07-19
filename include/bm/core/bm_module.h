@@ -118,6 +118,30 @@ typedef uint8_t (*bm_module_owner_resolver_t)(uint32_t module_index);
         (deinit_fn) \
     }
 
+/**
+ * @brief 同时指定 domain 与 owner_cpu 的模块声明宏（Plan B 缺口③）。
+ *
+ * BM_MODULE_DEFINE_DOMAIN 硬编码 owner_cpu=BM_CPU_ANY；BM_MODULE_DEFINE_OWNER
+ * 硬编码 domain=BM_DOMAIN_COMMON。真机双核部署需要"SRT/WORKER 域 + 指定
+ * owner_cpu"的组合（module_table.c 真机双核归属表），故新增本宏，不改动上述
+ * 两个既有宏的行为（零回归面）。
+ */
+#define BM_MODULE_DEFINE_DOMAIN_OWNER(name, priority, domain, owner_cpu, \
+                                      init_fn, start_fn, stop_fn, deinit_fn) \
+    const bm_module_t _bm_mod_##name = { \
+        #name, \
+        (uint8_t)(priority), \
+        (domain), \
+        (uint8_t)(owner_cpu), \
+        NULL, \
+        0u, \
+        BM_MODULE_STATE_UNINIT, \
+        (init_fn), \
+        (start_fn), \
+        (stop_fn), \
+        (deinit_fn) \
+    }
+
 /** 在 module_table.c 中前置声明各模块条目 */
 #define BM_MODULE_DECLARE(name) \
     extern const bm_module_t _bm_mod_##name
@@ -191,17 +215,19 @@ void bm_module_set_freeze_hook(void (*hook)(void));
 /**
  * @brief 获取当前应用静态模块表
  *
- * 返回值由 `BM_MODULE_TABLE(...)` 宏提供的只读数组承载；当应用未定义
- * 模块表时，返回 NULL。
+ * 返回值由 `BM_MODULE_TABLE(...)` 宏提供的只读数组承载。该宏定义的
+ * `_bm_module_table`/`_bm_module_count` 为普通（非 weak）外部符号，应用
+ * 必须使用 `BM_MODULE_TABLE(...)` 定义模块表，否则链接期报未定义符号错误
+ * （而非返回 NULL）。
  *
- * @return 模块表首地址，或 NULL
+ * @return 模块表首地址
  */
 const bm_module_t *const *bm_module_table(void);
 
 /**
  * @brief 获取当前应用静态模块表元素个数
  *
- * @return 模块条目数；未定义模块表时返回 0
+ * @return 模块条目数（应用未定义模块表时链接期报错，而非返回 0）
  */
 uint32_t bm_module_count(void);
 

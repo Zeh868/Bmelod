@@ -24,14 +24,17 @@
  * 格式变更时版本号递增（0x01→0x02），旧版本 blob 经版本不匹配自然拒绝。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-26
+ * @version 1.2
+ * @date 2026-07-09
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-26       1.0            zeh            正式发布（路线图 #10 参数/配置持久化）
  * 2026-07-02       1.1            zeh            blob 尾部增加 CRC32 完整性校验（P1-11），版本 0x01→0x02
+ * 2026-07-09       1.2            zeh            H4：get/erase 的 strncmp 比较长度
+ *                                                改为 KEY_MAX+1，修复已存 key 恰为
+ *                                                KEY_MAX 长时被更长前缀 key 误匹配
  *
  */
 #include "bm/common/bm_persist.h"
@@ -262,9 +265,13 @@ int bm_persist_get(const char *key, void *buf, uint16_t cap, uint16_t *out_len) 
         return BM_ERR_NOT_INIT;
     }
     for (i = 0u; i < (uint16_t)BM_CONFIG_PERSIST_MAX_ENTRIES; i++) {
+        /* 比较 KEY_MAX+1 字节（含 NUL）：g_store[i].key 缓冲恰为
+         * KEY_MAX+1 且必以 NUL 结尾，strncmp 遇 NUL 即停，不会越读；
+         * 若只比较 KEY_MAX 字节，当已存 key 恰为 KEY_MAX 长时，前缀
+         * 相同但更长的 key 会因未比较到差异字节而被误判为匹配（H4）。 */
         if (g_store[i].valid &&
             (strncmp(g_store[i].key, key,
-                     (uint16_t)BM_CONFIG_PERSIST_KEY_MAX_LEN) == 0)) {
+                     (uint16_t)BM_CONFIG_PERSIST_KEY_MAX_LEN + 1u) == 0)) {
             if (g_store[i].val_len > cap) {
                 return BM_ERR_OVERFLOW;
             }
@@ -303,7 +310,7 @@ int bm_persist_set(const char *key, const void *data, uint16_t len) {
     for (i = 0u; i < (uint16_t)BM_CONFIG_PERSIST_MAX_ENTRIES; i++) {
         if (g_store[i].valid &&
             (strncmp(g_store[i].key, key,
-                     (uint16_t)BM_CONFIG_PERSIST_KEY_MAX_LEN) == 0)) {
+                     (uint16_t)BM_CONFIG_PERSIST_KEY_MAX_LEN + 1u) == 0)) {
             (void)memcpy(g_store[i].val, data, len);
             g_store[i].val_len = len;
             return BM_OK;
@@ -336,9 +343,11 @@ int bm_persist_erase(const char *key) {
         return BM_ERR_NOT_INIT;
     }
     for (i = 0u; i < (uint16_t)BM_CONFIG_PERSIST_MAX_ENTRIES; i++) {
+        /* 同 bm_persist_get：比较 KEY_MAX+1 字节，避免已存 key 恰为
+         * KEY_MAX 长时被更长前缀相同的 key 误匹配（H4）。 */
         if (g_store[i].valid &&
             (strncmp(g_store[i].key, key,
-                     (uint16_t)BM_CONFIG_PERSIST_KEY_MAX_LEN) == 0)) {
+                     (uint16_t)BM_CONFIG_PERSIST_KEY_MAX_LEN + 1u) == 0)) {
             g_store[i].valid = 0u;
             return BM_OK;
         }
