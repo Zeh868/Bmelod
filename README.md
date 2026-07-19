@@ -325,6 +325,20 @@ Contributions are welcome. When adding new components or HAL references:
 
 ---
 
+## About the Author · More Content
+
+Bmelod is independently developed and maintained by **硬核嵌入式** ("Hardcore Embedded" — same handle on Zhihu / WeChat / ZSXQ / Bilibili; on CSDN as「硬核开源」). The author moved into embedded development from the PLC/electrical industry; the project is developed, designed, and debugged with LLM assistance, and every conclusion is verified through builds, tests, and real-hardware experiments.
+
+Companion content series (in Chinese):
+
+- 📝 **Zhihu columns**: framework refactoring chronicles, and balance-bot debugging notes from real hardware
+- 🚗 **Flagship demo**: a two-wheel self-balancing robot built on this framework — first unassisted standing (42 s) achieved; the full turnkey project will be released once tuning wraps up
+- 📮 **WeChat Official Account「硬核嵌入式」**: monthly progress updates
+- 🌍 **ZSXQ (Knowledge Planet)「硬核嵌入式」**: full debugging logs, reproducible project assets, and Q&A
+- 📺 **Bilibili**: hands-on video series
+
+---
+
 ## License
 
 Bmelod Baremetal is free software licensed under the [GNU Lesser General Public License v3.0](COPYING.LESSER) (LGPL-3.0). The incorporated GPLv3 terms are included in [COPYING.GPL3](COPYING.GPL3). See [NOTICE](NOTICE) (`SPDX-License-Identifier: LGPL-3.0-or-later`).
