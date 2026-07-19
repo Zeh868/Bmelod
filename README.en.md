@@ -1,6 +1,8 @@
 # Bmelod Baremetal
 
-[中文（默认）](README.md) ｜ 📝 Companion hands-on series (in Chinese) → [About the Author · More Content](#about-the-author--more-content)
+> 👤 **硬核嵌入式** ("Hardcore Embedded") — building a two-wheel self-balancing robot on this framework (first unassisted standing: 42 s, fully documented on real hardware)
+> 📝 Companion series (in Chinese): Zhihu columns ｜ WeChat「硬核嵌入式」 ｜ ZSXQ ｜ Bilibili
+> 👉 [About the Author · More Content](#about-the-author--more-content) ｜ [中文（默认）](README.md)
 
 A resource-scalable deterministic event, control, and streaming-compute framework for MCUs.
 
