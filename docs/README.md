@@ -119,4 +119,4 @@ docs/
 
 ---
 
-仓库入口：[README.zh-CN.md](../README.zh-CN.md)
+仓库入口：[README.md](../README.md)（English: [README.en.md](../README.en.md)）
