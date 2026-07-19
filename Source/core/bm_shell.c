@@ -6,10 +6,11 @@
  * 字符回显、退格处理与命令分词执行；通过 Console CLI 通道收发。
  * v1.1 新增：前台模态命令（Ctrl+C 退出）、Tab 命令补全、内建 help 兜底。
  * v1.2 新增：行历史（↑/↓ 回翻）、ESC 序列吞噬（修箭头键注入垃圾字符）。
+ * v1.3 新增：参数区 Tab 补全（命令可选登记补全回调，复用命令词补全骨架）。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.2
- * @date 2026-07-11
+ * @version 1.3
+ * @date 2026-07-18
  *
  * @par 修改日志:
  *
@@ -17,6 +18,10 @@
  * 2026-06-10       1.0            zeh            正式发布
  * 2026-07-11       1.1            zeh            shell 交互批①：前台模态命令（Ctrl+C 退出）+ Tab 补全 + 内建 help 兜底
  * 2026-07-11       1.2            zeh            shell 交互批②：行历史（↑/↓ 回翻）+ ESC 序列吞噬（修箭头键注入垃圾字符）
+ * 2026-07-18       1.3            zeh            shell 交互批③：参数区 Tab 补全——新增
+ *                                                 bm_shell_set_completer()，_tab_complete
+ *                                                 拆出 _complete_unique/_complete_list_*
+ *                                                 共用收尾逻辑供参数区补全复用
  *
  */
 #include "bm_shell.h"
@@ -116,9 +121,36 @@ int bm_shell_register(bm_shell_t *shell, const char *name,
         shell->cmd_names[shell->cmd_count];
     shell->cmds[shell->cmd_count].fn = fn;
     shell->cmds[shell->cmd_count].help = help;
+    /* 补全器随注册清零：挡复用同一 shell 实例（如单测反复 init/register）
+     * 时遗留上一轮登记的悬挂 completer/ctx */
+    shell->cmds[shell->cmd_count].completer = NULL;
+    shell->cmds[shell->cmd_count].completer_ctx = NULL;
     shell->cmd_count++;
     BM_LOGD("shell", "cmd '%s' registered", name);
     return BM_OK;
+}
+
+/**
+ * @brief 登记/更新命令的参数区 Tab 补全回调（详见头文件同名函数注释）
+ *
+ * @param shell     Shell 实例指针
+ * @param name      目标命令名（须已注册）
+ * @param completer 补全回调；NULL 清除
+ * @param user_ctx  透传给 completer 的用户上下文
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效；BM_ERR_NOT_FOUND 命令未注册
+ */
+int bm_shell_set_completer(bm_shell_t *shell, const char *name,
+                           bm_shell_completer_fn_t completer, void *user_ctx) {
+    if (!shell || !name) return BM_ERR_INVALID;
+
+    for (uint8_t i = 0; i < shell->cmd_count; i++) {
+        if (_strcmp(shell->cmds[i].name, name) == 0) {
+            shell->cmds[i].completer = completer;
+            shell->cmds[i].completer_ctx = user_ctx;
+            return BM_OK;
+        }
+    }
+    return BM_ERR_NOT_FOUND;
 }
 
 /**
@@ -227,13 +259,167 @@ static void _modal_exit(bm_shell_t *shell) {
 }
 
 /**
- * @brief Tab 命令补全：对行首命令词做前缀匹配
+ * @brief 唯一匹配收尾：把 match 中 prefix_len 之后的剩余字符追加进行缓冲
+ *        并逐字符回显（受行缓冲上限约束）。命令词补全与参数区补全共用。
  *
- * 候选集 = 已注册命令表 ∪ 内建 "help"（用户未注册同名命令时）：
+ * @param shell      Shell 实例指针（调用方保证非 NULL）
+ * @param match      完整候选词（NUL 结尾）
+ * @param prefix_len 已输入前缀长度（match 的前 prefix_len 字符即已输入内容）
+ */
+static void _complete_unique(bm_shell_t *shell, const char *match, uint8_t prefix_len) {
+    const char *rest = match + prefix_len;
+    while (*rest && shell->cursor < BM_CONFIG_SHELL_BUF_SIZE - 1) {
+        shell->buf[shell->cursor++] = *rest;
+        (void)bm_hal_console_write(BM_CONSOLE_CLI, (const uint8_t *)rest, 1u);
+        rest++;
+    }
+}
+
+/** @brief 多候选列表起始：换行。命令词补全与参数区补全共用。 */
+static void _complete_list_begin(void) {
+    _puts("\r\n");
+}
+
+/** @brief 多候选列表条目：候选词 + 两个空格分隔。 */
+static void _complete_list_item(const char *cand) {
+    _puts(cand);
+    _puts("  ");
+}
+
+/** @brief 多候选列表收尾：换行 + 重绘提示符与已输入整行（buf 已 NUL 结尾）。 */
+static void _complete_list_end(bm_shell_t *shell) {
+    _puts("\r\n$ ");
+    _puts(shell->buf);
+}
+
+/**
+ * @brief 参数区 Tab 补全候选收集器（栈上定长，零 malloc）。
+ *
+ * 容量/单条候选长度上限分别复用 BM_CONFIG_SHELL_MAX_COMPLETIONS 与
+ * BM_CONFIG_SHELL_MAX_NAME_LEN（沿用命令名长度上限，参数名与命令名同属
+ * 点分小写短标识符量级，无需另立宏）。
+ */
+typedef struct {
+    char (*cand)[BM_CONFIG_SHELL_MAX_NAME_LEN]; /**< 候选词存储（调用方栈上数组） */
+    uint16_t count;                              /**< 已收集条数 */
+    uint16_t cap;                                 /**< 容量上限 */
+} _complete_collect_t;
+
+/**
+ * @brief 参数区补全 emit 回调实现：越界候选静默丢弃，超长候选截断。
+ *
+ * @param emit_ctx  _complete_collect_t 指针
+ * @param candidate 候选词（NUL 结尾）
+ */
+static void _complete_emit(void *emit_ctx, const char *candidate) {
+    _complete_collect_t *c = (_complete_collect_t *)emit_ctx;
+    size_t len;
+
+    if (!c || !candidate || c->count >= c->cap) {
+        return;
+    }
+    len = strlen(candidate);
+    if (len >= (size_t)BM_CONFIG_SHELL_MAX_NAME_LEN) {
+        len = (size_t)BM_CONFIG_SHELL_MAX_NAME_LEN - 1u;
+    }
+    memcpy(c->cand[c->count], candidate, len);
+    c->cand[c->count][len] = '\0';
+    c->count++;
+}
+
+/**
+ * @brief 参数区 Tab 补全：命令若登记了补全器，按（参数序号，当前词前缀）
+ *        取候选词，复用命令词补全同一套"唯一匹配自动补全 / 多候选列出 /
+ *        无匹配响铃"逻辑；未登记补全器的命令响铃退出（向后兼容）。
+ *
+ * @param shell    Shell 实例指针（调用方保证非 NULL；shell->buf 已在
+ *                 shell->cursor 处 NUL 结尾）
+ * @param first_ws 命令词后第一个空白在 buf 中的下标（< shell->cursor）
+ */
+static void _tab_complete_args(bm_shell_t *shell, uint8_t first_ws) {
+    char    cmd_name[BM_CONFIG_SHELL_MAX_NAME_LEN];
+    uint8_t cmd_idx = 0;
+    uint8_t found = 0;
+    uint8_t prefix_start;
+    uint8_t argv_idx;
+    uint8_t in_token;
+    uint8_t i;
+    char    cand[BM_CONFIG_SHELL_MAX_COMPLETIONS][BM_CONFIG_SHELL_MAX_NAME_LEN];
+    _complete_collect_t collect;
+
+    if (first_ws >= (uint8_t)sizeof(cmd_name)) {
+        /* 命令名超长不可能命中注册表（注册时已限长），直接响铃 */
+        _puts("\a");
+        return;
+    }
+    memcpy(cmd_name, shell->buf, first_ws);
+    cmd_name[first_ws] = '\0';
+
+    for (i = 0; i < shell->cmd_count; i++) {
+        if (_strcmp(shell->cmds[i].name, cmd_name) == 0) {
+            cmd_idx = i;
+            found = 1;
+            break;
+        }
+    }
+    if (!found || shell->cmds[cmd_idx].completer == NULL) {
+        _puts("\a");
+        return;
+    }
+
+    /* 定位当前词前缀起点：cursor 前最后一个空白之后 */
+    prefix_start = 0;
+    for (i = 0; i < shell->cursor; i++) {
+        if (shell->buf[i] == ' ' || shell->buf[i] == '\t') {
+            prefix_start = (uint8_t)(i + 1u);
+        }
+    }
+    /* 统计 [0,prefix_start) 内完整 token 数 = 当前词的 argv 序号
+     * （argv[0]=命令词，故命令词自身计入一次；不含当前正在输入的这个词） */
+    argv_idx = 0;
+    in_token = 0;
+    for (i = 0; i < prefix_start; i++) {
+        if (shell->buf[i] == ' ' || shell->buf[i] == '\t') {
+            in_token = 0;
+        } else if (!in_token) {
+            in_token = 1;
+            argv_idx++;
+        }
+    }
+
+    collect.cand  = cand;
+    collect.count = 0;
+    collect.cap   = (uint16_t)BM_CONFIG_SHELL_MAX_COMPLETIONS;
+    shell->cmds[cmd_idx].completer(argv_idx, &shell->buf[prefix_start],
+                                   (uint8_t)(shell->cursor - prefix_start),
+                                   _complete_emit, &collect,
+                                   shell->cmds[cmd_idx].completer_ctx);
+
+    if (collect.count == 0u) {
+        _puts("\a");
+        return;
+    }
+    if (collect.count == 1u) {
+        _complete_unique(shell, cand[0], (uint8_t)(shell->cursor - prefix_start));
+        return;
+    }
+    _complete_list_begin();
+    for (i = 0; i < collect.count; i++) {
+        _complete_list_item(cand[i]);
+    }
+    _complete_list_end(shell);
+}
+
+/**
+ * @brief Tab 命令补全：行首补命令词，参数区（若命令登记了补全器）委托
+ *        _tab_complete_args。
+ *
+ * 命令词候选集 = 已注册命令表 ∪ 内建 "help"（用户未注册同名命令时）：
  *   - 唯一匹配：补全余下字符并回显；
  *   - 多个匹配：换行列出全部候选，重绘提示符与已输入前缀；
  *   - 无匹配：响铃 \\a。
- * 仅补全命令词：前缀中已含空白（进入参数区）时响铃退出。
+ * 参数区（前缀已含空白）：命令若经 bm_shell_set_completer() 登记补全器，
+ * 按上述同一套骨架处理该补全器给出的候选；未登记则响铃（向后兼容）。
  * 遍历命令表 O(N)，N 有界（BM_CONFIG_SHELL_MAX_CMDS）。
  *
  * @param shell Shell 实例指针（调用方保证非 NULL）
@@ -242,17 +428,25 @@ static void _tab_complete(bm_shell_t *shell) {
     const char *match = NULL;
     uint16_t    n_match = 0;
     uint8_t     help_registered = 0;
+    uint8_t     ws_pos = shell->cursor; /* 哨兵：未见空白 = 仍在命令词区 */
+    uint8_t     i;
 
-    /* 只补全行首命令词：已进入参数区（前缀含空白）时不补全 */
-    for (uint8_t i = 0; i < shell->cursor; i++) {
+    for (i = 0; i < shell->cursor; i++) {
         if (shell->buf[i] == ' ' || shell->buf[i] == '\t') {
-            _puts("\a");
-            return;
+            ws_pos = i;
+            break;
         }
     }
     shell->buf[shell->cursor] = '\0';
 
-    for (uint8_t i = 0; i < shell->cmd_count; i++) {
+    if (ws_pos != shell->cursor) {
+        /* 已进入参数区：委托 completer（未登记则内部响铃），不再走
+         * 下方命令词前缀匹配 */
+        _tab_complete_args(shell, ws_pos);
+        return;
+    }
+
+    for (i = 0; i < shell->cmd_count; i++) {
         if (_strcmp(shell->cmds[i].name, "help") == 0) {
             help_registered = 1;
         }
@@ -273,30 +467,21 @@ static void _tab_complete(bm_shell_t *shell) {
     }
 
     if (n_match == 1) {
-        /* 唯一匹配：补全余下字符并回显（受行缓冲上限约束） */
-        const char *rest = match + shell->cursor;
-        while (*rest && shell->cursor < BM_CONFIG_SHELL_BUF_SIZE - 1) {
-            shell->buf[shell->cursor++] = *rest;
-            (void)bm_hal_console_write(BM_CONSOLE_CLI,
-                                       (const uint8_t *)rest, 1u);
-            rest++;
-        }
+        _complete_unique(shell, match, shell->cursor);
         return;
     }
 
     /* 多个匹配：换行列出候选，重绘提示符与已输入前缀 */
-    _puts("\r\n");
-    for (uint8_t i = 0; i < shell->cmd_count; i++) {
+    _complete_list_begin();
+    for (i = 0; i < shell->cmd_count; i++) {
         if (_starts_with(shell->cmds[i].name, shell->buf)) {
-            _puts(shell->cmds[i].name);
-            _puts("  ");
+            _complete_list_item(shell->cmds[i].name);
         }
     }
     if (!help_registered && _starts_with("help", shell->buf)) {
-        _puts("help  ");
+        _complete_list_item("help");
     }
-    _puts("\r\n$ ");
-    _puts(shell->buf);
+    _complete_list_end(shell);
 }
 
 #if BM_CONFIG_SHELL_HISTORY_DEPTH > 0

@@ -2,12 +2,15 @@
  * @file test_shell.c
  * @brief Shell 命令注册、解析、feed 与边界条件单元测试
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-07-11
+ * @version 1.2
+ * @date 2026-07-18
  * @par 修改日志:
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
  * 2026-07-11       1.1            zeh            shell 交互批①：补模态机制与 Tab 补全用例
+ * 2026-07-18       1.2            zeh            shell 交互批③：补参数区补全器用例——
+ *                                                唯一匹配/多候选列出/未登记补全器仍响铃
+ *                                                （向后兼容基线）/argv_idx+prefix 解析正确性
  */
 
 #include "unity.h"
@@ -15,6 +18,7 @@
 #include "bm_log.h"
 
 #include <stdio.h>
+#include <string.h>
 
 static int g_cmd_count = 0;
 static int g_last_argc = 0;
@@ -266,6 +270,117 @@ void test_shell_builtin_help_executes(void) {
     TEST_ASSERT_EQUAL(0, g_cmd_count);
 }
 
+/* =========================================================================
+ * 参数区 Tab 补全（v1.2，功能 A）
+ * ========================================================================= */
+
+/** 补全器候选词表：故意含前缀重叠（kp/ki 同 'k' 前缀）覆盖唯一/多候选两支。 */
+static void arg_completer_kwlist(uint8_t argv_idx, const char *prefix, uint8_t prefix_len,
+                                 bm_shell_complete_emit_fn_t emit, void *emit_ctx,
+                                 void *user_ctx) {
+    static const char *const k_words[] = { "kp", "ki", "bd" };
+    uint8_t i;
+
+    (void)user_ctx;
+    if (argv_idx != 1u) return;
+    for (i = 0; i < (uint8_t)(sizeof(k_words) / sizeof(k_words[0])); i++) {
+        if (strncmp(k_words[i], prefix, (size_t)prefix_len) == 0) {
+            emit(emit_ctx, k_words[i]);
+        }
+    }
+}
+
+/** 只记录 (argv_idx, prefix)、不产生候选的探针补全器：专测参数解析正确性。 */
+static uint8_t g_probe_argv_idx;
+static char    g_probe_prefix[BM_CONFIG_SHELL_MAX_NAME_LEN];
+
+static void arg_completer_probe(uint8_t argv_idx, const char *prefix, uint8_t prefix_len,
+                                bm_shell_complete_emit_fn_t emit, void *emit_ctx,
+                                void *user_ctx) {
+    (void)emit; (void)emit_ctx; (void)user_ctx;
+    g_probe_argv_idx = argv_idx;
+    memcpy(g_probe_prefix, prefix, prefix_len);
+    g_probe_prefix[prefix_len] = '\0';
+}
+
+/** 参数区 Tab：命令登记了补全器、唯一匹配 → 自动补全余下字符。 */
+void test_shell_arg_completer_unique_match_completes(void) {
+    TEST_ASSERT_EQUAL(BM_OK, bm_shell_register(&my_shell, "set", cmd_echo, NULL));
+    TEST_ASSERT_EQUAL(BM_OK, bm_shell_set_completer(&my_shell, "set", arg_completer_kwlist, NULL));
+
+    bm_shell_feed(&my_shell, 's');
+    bm_shell_feed(&my_shell, 'e');
+    bm_shell_feed(&my_shell, 't');
+    bm_shell_feed(&my_shell, ' ');
+    bm_shell_feed(&my_shell, 'b'); /* "b" 在 {kp,ki,bd} 中唯一匹配 bd */
+    bm_shell_feed(&my_shell, '\t');
+    TEST_ASSERT_EQUAL_STRING("set bd", my_shell.buf);
+    TEST_ASSERT_EQUAL(6u, my_shell.cursor);
+}
+
+/** 参数区 Tab：多候选 → 缓冲/光标不变（列出候选，不自动补全）。 */
+void test_shell_arg_completer_multi_match_keeps_buffer(void) {
+    TEST_ASSERT_EQUAL(BM_OK, bm_shell_register(&my_shell, "set", cmd_echo, NULL));
+    TEST_ASSERT_EQUAL(BM_OK, bm_shell_set_completer(&my_shell, "set", arg_completer_kwlist, NULL));
+
+    bm_shell_feed(&my_shell, 's');
+    bm_shell_feed(&my_shell, 'e');
+    bm_shell_feed(&my_shell, 't');
+    bm_shell_feed(&my_shell, ' ');
+    bm_shell_feed(&my_shell, 'k'); /* "k" 同时匹配 kp/ki → 多候选 */
+    bm_shell_feed(&my_shell, '\t');
+    TEST_ASSERT_EQUAL_STRING("set k", my_shell.buf);
+    TEST_ASSERT_EQUAL(5u, my_shell.cursor);
+}
+
+/** 参数区 Tab：命令未登记补全器 → 响铃退出，缓冲/光标不变（功能 A 向后
+ *  兼容基线：v1.1/v1.2 行为——参数区任何命令 Tab 一律响铃——原样保留）。 */
+void test_shell_arg_no_completer_bells_unchanged(void) {
+    TEST_ASSERT_EQUAL(BM_OK, bm_shell_register(&my_shell, "echo", cmd_echo, NULL));
+
+    bm_shell_feed(&my_shell, 'e');
+    bm_shell_feed(&my_shell, 'c');
+    bm_shell_feed(&my_shell, 'h');
+    bm_shell_feed(&my_shell, 'o');
+    bm_shell_feed(&my_shell, ' ');
+    bm_shell_feed(&my_shell, 'x');
+    bm_shell_feed(&my_shell, '\t');
+    TEST_ASSERT_EQUAL_STRING("echo x", my_shell.buf);
+    TEST_ASSERT_EQUAL(6u, my_shell.cursor);
+}
+
+/** 补全器收到的 argv_idx/prefix 与命令行实际结构一致（多参数、无尾随空格）。 */
+void test_shell_arg_completer_argv_idx_and_prefix(void) {
+    const char *line = "cmd foo bar";
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_shell_register(&my_shell, "cmd", cmd_echo, NULL));
+    TEST_ASSERT_EQUAL(BM_OK, bm_shell_set_completer(&my_shell, "cmd", arg_completer_probe, NULL));
+
+    g_probe_argv_idx = 0xFFu;
+    g_probe_prefix[0] = '\0';
+    for (const char *p = line; *p; p++) bm_shell_feed(&my_shell, *p);
+    bm_shell_feed(&my_shell, '\t');
+
+    TEST_ASSERT_EQUAL(2u, g_probe_argv_idx); /* argv[0]=cmd argv[1]=foo argv[2]=bar(当前词) */
+    TEST_ASSERT_EQUAL_STRING("bar", g_probe_prefix);
+}
+
+/** 补全器收到的 prefix 在尾随空格（当前词为空）时应为空串，argv_idx 仍前移一位。 */
+void test_shell_arg_completer_trailing_space_empty_prefix(void) {
+    const char *line = "cmd foo ";
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_shell_register(&my_shell, "cmd", cmd_echo, NULL));
+    TEST_ASSERT_EQUAL(BM_OK, bm_shell_set_completer(&my_shell, "cmd", arg_completer_probe, NULL));
+
+    g_probe_argv_idx = 0xFFu;
+    g_probe_prefix[0] = 'X'; g_probe_prefix[1] = '\0';
+    for (const char *p = line; *p; p++) bm_shell_feed(&my_shell, *p);
+    bm_shell_feed(&my_shell, '\t');
+
+    TEST_ASSERT_EQUAL(2u, g_probe_argv_idx);
+    TEST_ASSERT_EQUAL_STRING("", g_probe_prefix);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_shell_register_and_exec);
@@ -286,5 +401,10 @@ int main(void) {
     RUN_TEST(test_shell_tab_no_match_keeps_buffer);
     RUN_TEST(test_shell_tab_completes_builtin_help);
     RUN_TEST(test_shell_builtin_help_executes);
+    RUN_TEST(test_shell_arg_completer_unique_match_completes);
+    RUN_TEST(test_shell_arg_completer_multi_match_keeps_buffer);
+    RUN_TEST(test_shell_arg_no_completer_bells_unchanged);
+    RUN_TEST(test_shell_arg_completer_argv_idx_and_prefix);
+    RUN_TEST(test_shell_arg_completer_trailing_space_empty_prefix);
     return UNITY_END();
 }

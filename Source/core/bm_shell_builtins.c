@@ -10,8 +10,8 @@
  * -1 不补 NUL 的坑）。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-07-11
+ * @version 1.2
+ * @date 2026-07-18
  *
  * @par 修改日志:
  *
@@ -19,6 +19,12 @@
  * 2026-07-11       1.0            zeh            正式发布（批 P：shell 内建命令组）
  * 2026-07-11       1.1            zeh            set 越界提示区分 BM_ERR_INVALID；
  *                                                 list 每行追加有界参数的 [min..max]
+ * 2026-07-18       1.2            zeh            shell 交互批③：param 命令挂 Tab
+ *                                                 补全器——argv_idx==1 补子命令关键字
+ *                                                 （list/get/set/save/reset），
+ *                                                 argv_idx==2 补参数名（动态取自
+ *                                                 bm_param_count/bm_param_desc_at，
+ *                                                 非写死列表）
  *
  */
 #include "bm/core/bm_shell_builtins.h"
@@ -158,6 +164,53 @@ static int cmd_param(int argc, char *argv[])
 }
 
 /**
+ * @brief "param" 命令 Tab 补全器：子命令关键字 + 参数名（动态取自 bm_param）。
+ *
+ * argv_idx==1（"param <Tab>"）：补子命令关键字 list/get/set/save/reset
+ * （静态表，命令集固定）；argv_idx==2（"param set/get <Tab>"）：补参数名，
+ * 逐条经 bm_param_count()/bm_param_desc_at() 动态枚举当前登记表（不写死
+ * 名字列表，表变化自动跟随）。按约定自行做前缀过滤（strncmp），只 emit
+ * 满足 prefix 的候选；其余 argv_idx（如 list/save/reset 之后，本无需
+ * 参数）不产生候选，交由上层判 0 候选响铃。
+ *
+ * @param argv_idx   当前词参数序号（1=子命令，2=参数名）
+ * @param prefix     当前词已输入前缀
+ * @param prefix_len 前缀长度
+ * @param emit       候选发射回调
+ * @param emit_ctx   透传给 emit 的收集器上下文
+ * @param user_ctx   未使用（NULL）
+ */
+static void complete_param(uint8_t argv_idx, const char *prefix, uint8_t prefix_len,
+                           bm_shell_complete_emit_fn_t emit, void *emit_ctx, void *user_ctx)
+{
+    (void)user_ctx;
+
+    if (argv_idx == 1u) {
+        static const char *const k_sub[] = { "list", "get", "set", "save", "reset" };
+        uint8_t i;
+
+        for (i = 0u; i < (uint8_t)(sizeof(k_sub) / sizeof(k_sub[0])); ++i) {
+            if (strncmp(k_sub[i], prefix, (size_t)prefix_len) == 0) {
+                emit(emit_ctx, k_sub[i]);
+            }
+        }
+        return;
+    }
+
+    if (argv_idx == 2u) {
+        uint16_t i, n = bm_param_count();
+
+        for (i = 0u; i < n; ++i) {
+            const bm_param_desc_t *d = bm_param_desc_at(i);
+
+            if (d != NULL && strncmp(d->name, prefix, (size_t)prefix_len) == 0) {
+                emit(emit_ctx, d->name);
+            }
+        }
+    }
+}
+
+/**
  * @brief 解析日志级别字面量：先试 5 个级别名，再试单字符 '0'..'4'。
  *
  * @param s   待解析字符串
@@ -258,6 +311,10 @@ int bm_shell_register_builtins(bm_shell_t *shell)
     }
     rc = bm_shell_register(shell, "param", cmd_param,
                            "param <list|get|set|save|reset>: 运行期参数表（整定操作台）");
+    if (rc != BM_OK) {
+        return rc;
+    }
+    rc = bm_shell_set_completer(shell, "param", complete_param, NULL);
     if (rc != BM_OK) {
         return rc;
     }
