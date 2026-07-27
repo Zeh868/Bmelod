@@ -17,6 +17,7 @@
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补全 Doxygen 中文注释；添加 SPDX 头
  * 2026-07-27       0.3            zeh            新增 bm_exec_ops_t 生命周期封装
+ * 2026-07-27       0.4            zeh            init/validate/reset 复用 bm_component_common.h 公共宏
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

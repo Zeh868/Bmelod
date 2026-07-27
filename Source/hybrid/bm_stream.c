@@ -18,6 +18,7 @@
  * 2026-06-14       1.2            zeh            按 CPU 约束 on_ready/drain 同步路径
  * 2026-06-15       1.4            zeh            默认禁用 ready 回调并清理旧时间戳
  * 2026-07-15       1.5            zeh            drain 无 handler 分支的 pending_drain 清零收进临界区，消除与 ISR commit 竞态
+ * 2026-07-27       1.6            zeh            struct bm_stream 定义下沉到本文件；新增内部字段 accessor 实现
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -28,6 +29,107 @@
 #include "bm/core/bm_cpu_local.h"
 
 #include <string.h>
+
+/* 不透明结构体定义：外部仅通过 accessor 访问 */
+struct bm_stream {
+    bm_block_t          *blocks;
+    uint32_t             block_count;
+    uint32_t             block_capacity;
+    bm_stream_policy_t   policy;
+    bm_stream_stats_t    stats;
+    bm_stream_ready_fn_t on_ready;
+    void                *on_ready_context;
+    int                  initialized;
+    uint32_t             next_sequence;
+    uint8_t              owner_cpu;
+    volatile uint8_t     pending_drain;
+};
+
+/* -------------------------------------------------------------------------
+ * 内部字段 accessor 实现
+ * ------------------------------------------------------------------------- */
+
+bm_block_t *bm_stream_blocks(const bm_stream_t *stream) {
+    return (stream != NULL) ? stream->blocks : NULL;
+}
+
+uint32_t bm_stream_block_count(const bm_stream_t *stream) {
+    return (stream != NULL) ? stream->block_count : 0u;
+}
+
+uint32_t bm_stream_block_capacity(const bm_stream_t *stream) {
+    return (stream != NULL) ? stream->block_capacity : 0u;
+}
+
+bm_stream_policy_t bm_stream_policy_value(const bm_stream_t *stream) {
+    return (stream != NULL) ? stream->policy : BM_STREAM_POLICY_DROP_NEWEST;
+}
+
+bm_stream_ready_fn_t bm_stream_on_ready(const bm_stream_t *stream) {
+    return (stream != NULL) ? stream->on_ready : NULL;
+}
+
+void *bm_stream_on_ready_context(const bm_stream_t *stream) {
+    return (stream != NULL) ? stream->on_ready_context : NULL;
+}
+
+int bm_stream_initialized(const bm_stream_t *stream) {
+    return (stream != NULL) ? stream->initialized : 0;
+}
+
+uint32_t bm_stream_next_sequence(const bm_stream_t *stream) {
+    return (stream != NULL) ? stream->next_sequence : 0u;
+}
+
+uint8_t bm_stream_owner_cpu(const bm_stream_t *stream) {
+    return (stream != NULL) ? stream->owner_cpu : 0u;
+}
+
+uint8_t bm_stream_pending_drain(const bm_stream_t *stream) {
+    return (stream != NULL) ? stream->pending_drain : 0u;
+}
+
+void bm_stream_set_blocks(bm_stream_t *stream, bm_block_t *blocks) {
+    if (stream != NULL) {
+        stream->blocks = blocks;
+    }
+}
+
+void bm_stream_set_block_count(bm_stream_t *stream, uint32_t count) {
+    if (stream != NULL) {
+        stream->block_count = count;
+    }
+}
+
+void bm_stream_set_block_capacity(bm_stream_t *stream, uint32_t cap) {
+    if (stream != NULL) {
+        stream->block_capacity = cap;
+    }
+}
+
+void bm_stream_set_initialized(bm_stream_t *stream, int initialized) {
+    if (stream != NULL) {
+        stream->initialized = initialized;
+    }
+}
+
+void bm_stream_set_next_sequence(bm_stream_t *stream, uint32_t seq) {
+    if (stream != NULL) {
+        stream->next_sequence = seq;
+    }
+}
+
+void bm_stream_set_owner_cpu(bm_stream_t *stream, uint8_t cpu) {
+    if (stream != NULL) {
+        stream->owner_cpu = cpu;
+    }
+}
+
+void bm_stream_set_pending_drain(bm_stream_t *stream, uint8_t pending) {
+    if (stream != NULL) {
+        stream->pending_drain = pending;
+    }
+}
 
 /*
  * Stream 临界区使用全关中断（bm_hal_critical_enter），而非

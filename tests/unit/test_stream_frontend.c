@@ -16,6 +16,7 @@
 #include "unity.h"
 #include "bm/component/stream_frontend.h"
 #include "bm/common/bm_types.h"
+#include "bm/hybrid/bm_stream_impl.h"
 
 #include <string.h>
 
@@ -29,9 +30,9 @@ static bm_stream_t s_stream;
 
 void setUp(void) {
     memset(&s_stream, 0, sizeof(s_stream));
-    s_stream.blocks = s_blocks;
-    s_stream.block_count = 2u;
-    s_stream.block_capacity = 2u;
+    bm_stream_set_blocks(&s_stream, s_blocks);
+    bm_stream_set_block_count(&s_stream, 2u);
+    bm_stream_set_block_capacity(&s_stream, 2u);
     TEST_ASSERT_EQUAL(BM_OK,
                       bm_stream_init(&s_stream, s_payloads, 2u,
                                      sizeof(test_payload_t)));

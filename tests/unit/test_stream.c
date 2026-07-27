@@ -15,6 +15,7 @@
  */
 #include "unity.h"
 #include "bm_stream.h"
+#include "bm/hybrid/bm_stream_impl.h"
 #include "bm_config.h"
 
 #include <string.h>
@@ -41,10 +42,10 @@ void setUp(void) {
     g_ready_count = 0u;
     g_last_sequence = 0u;
     memset(&s_stream, 0, sizeof(s_stream));
-    s_stream.blocks = s_blocks;
-    s_stream.block_count = 2u;
-    s_stream.block_capacity = 2u;
-    s_stream.policy = BM_STREAM_POLICY_DROP_NEWEST;
+    bm_stream_set_blocks(&s_stream, s_blocks);
+    bm_stream_set_block_count(&s_stream, 2u);
+    bm_stream_set_block_capacity(&s_stream, 2u);
+    bm_stream_set_policy(&s_stream, BM_STREAM_POLICY_DROP_NEWEST);
     TEST_ASSERT_EQUAL(BM_OK,
                       bm_stream_init(&s_stream, s_payloads, 2u,
                                      sizeof(test_payload_t)));
@@ -76,7 +77,7 @@ void test_stream_ready_handler_rejected_by_default(void) {
     bm_block_t *prod;
 
     bm_stream_set_ready_handler(&s_stream, on_ready, NULL);
-    TEST_ASSERT_NULL(s_stream.on_ready);
+    TEST_ASSERT_NULL(bm_stream_on_ready(&s_stream));
 
     TEST_ASSERT_EQUAL(BM_OK, bm_stream_producer_acquire(&s_stream, &prod));
     TEST_ASSERT_EQUAL(BM_OK,
@@ -168,9 +169,9 @@ void test_stream_init_rejects_missing_or_insufficient_descriptors(void) {
                       bm_stream_init(&invalid_stream, s_payloads, 2u,
                                      sizeof(test_payload_t)));
 
-    invalid_stream.blocks = one_block;
-    invalid_stream.block_count = 1u;
-    invalid_stream.block_capacity = 1u;
+    bm_stream_set_blocks(&invalid_stream, one_block);
+    bm_stream_set_block_count(&invalid_stream, 1u);
+    bm_stream_set_block_capacity(&invalid_stream, 1u);
     TEST_ASSERT_EQUAL(BM_ERR_INVALID,
                       bm_stream_init(&invalid_stream, s_payloads, 2u,
                                      sizeof(test_payload_t)));

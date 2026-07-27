@@ -26,6 +26,7 @@
 #include "bm_log.h"
 #include "bm_module.h"
 #include "bm_stream.h"
+#include "bm/hybrid/bm_stream_impl.h"
 #include "bm/hybrid/bm_stream_relay.h"
 #include "bm/mp/bm_mp.h"
 #include "bm/mp/bm_mp_schedule.h"
@@ -389,7 +390,7 @@ static int axis_init(const bm_exec_t *inst) {
     axis->enabled = 1;
     axis->bms_voltage = 4.0f;
     if (inst->owner_cpu == 0u) {
-        g_stream0.owner_cpu = 0u;
+        bm_stream_set_owner_cpu(&g_stream0, 0u);
         return bm_stream_init(&g_stream0, _bm_stream_payload_g_stream0, 4u,
                               sizeof(mp_relay_pcm_t));
     }
@@ -633,7 +634,7 @@ int mp_relay_algo_demo_main(void) {
 #ifdef BM_EXAMPLE_QEMU_SMP
     hybrid_print("EXAMPLE_RELAY_ALGO: start\n");
 #endif
-    g_stream0.owner_cpu = 0u;
+    bm_stream_set_owner_cpu(&g_stream0, 0u);
     (void)bm_module_boot();
     (void)bm_hal_timer_init(1000000u / BM_CONFIG_HRT_TICK_US);
 

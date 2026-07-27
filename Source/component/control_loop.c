@@ -16,6 +16,7 @@
  * 2026-06-17       0.1            zeh            初始 K1 骨架
  * 2026-06-23       0.2            zeh            补 bm_exec_ops_t 标准调度封装接口
  * 2026-07-27       0.3            zeh            新增 bm_control_loop_init 四段式入口；exec_init 复用之
+ * 2026-07-27       0.4            zeh            init/validate 复用 bm_component_common.h 公共宏
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

@@ -7,6 +7,7 @@
 #include "bm_log.h"
 #include "bm_module.h"
 #include "bm_stream.h"
+#include "bm/hybrid/bm_stream_impl.h"
 #include "bm/hybrid/bm_stream_relay.h"
 #include "bm/mp/bm_mp.h"
 #include "bm/mp/bm_mp_schedule.h"
@@ -104,8 +105,8 @@ BM_STREAM_BLOCKS(g_stream1, 4u);
 BM_STREAM_INSTANCE(g_stream1, 4u);
 
 static void streams_bind_owners(void) {
-    g_stream0.owner_cpu = 0u;
-    g_stream1.owner_cpu = 1u;
+    bm_stream_set_owner_cpu(&g_stream0, 0u);
+    bm_stream_set_owner_cpu(&g_stream1, 1u);
 }
 
 BM_STREAM_RELAY_SLOTS(g_relay_slots, 4u, sizeof(relay_summary_t));
@@ -303,11 +304,11 @@ static int axis_init(const bm_exec_t *inst) {
     if (inst->owner_cpu == 0u) {
         stream = &g_stream0;
         payloads = _bm_stream_payload_g_stream0;
-        stream->owner_cpu = 0u;
+        bm_stream_set_owner_cpu(stream, 0u);
     } else {
         stream = &g_stream1;
         payloads = _bm_stream_payload_g_stream1;
-        stream->owner_cpu = 1u;
+        bm_stream_set_owner_cpu(stream, 1u);
     }
     return bm_stream_init(stream, payloads, 4u, sizeof(pcm_block_t));
 }

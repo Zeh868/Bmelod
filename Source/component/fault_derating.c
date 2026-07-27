@@ -12,6 +12,7 @@
  * 2026-06-23       0.2            zeh            补全 Doxygen 中文注释；添加 SPDX 头
  * 2026-06-23       0.3            zeh            恢复计时比较加半个 dt 容差，消除浮点边界差一拍
  * 2026-07-27       0.4            zeh            新增 bm_exec_ops_t 生命周期封装
+ * 2026-07-27       0.5            zeh            init/validate/reset 复用 bm_component_common.h 公共宏
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

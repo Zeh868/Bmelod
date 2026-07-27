@@ -14,6 +14,7 @@
 #include "bm_hrt.h"
 #include "bm/core/bm_cpu_local.h"
 #include "bm/hybrid/bm_timestamp.h"
+#include "bm/hybrid/bm_stream_impl.h"
 #include "bm_hal_adc_sim.h"
 #include "bm_hal_pwm_sim.h"
 #include "bm_hal_timer_native.h"
@@ -119,10 +120,10 @@ static void hardware_step(const bm_exec_t *instance) {
 static int stream_init(const bm_exec_t *instance) {
     (void)instance;
     memset(&g_stream, 0, sizeof(g_stream));
-    g_stream.blocks = g_stream_blocks;
-    g_stream.block_count = 2u;
-    g_stream.block_capacity = 2u;
-    g_stream.policy = BM_STREAM_POLICY_DROP_NEWEST;
+    bm_stream_set_blocks(&g_stream, g_stream_blocks);
+    bm_stream_set_block_count(&g_stream, 2u);
+    bm_stream_set_block_capacity(&g_stream, 2u);
+    bm_stream_set_policy(&g_stream, BM_STREAM_POLICY_DROP_NEWEST);
     return bm_stream_init(&g_stream, g_stream_payloads, 2u,
                           sizeof(exec_test_payload_t));
 }
@@ -130,11 +131,11 @@ static int stream_init(const bm_exec_t *instance) {
 static int stream_init_wrong_owner(const bm_exec_t *instance) {
     (void)instance;
     memset(&g_stream, 0, sizeof(g_stream));
-    g_stream.blocks = g_stream_blocks;
-    g_stream.block_count = 2u;
-    g_stream.block_capacity = 2u;
-    g_stream.policy = BM_STREAM_POLICY_DROP_NEWEST;
-    g_stream.owner_cpu = 0u;
+    bm_stream_set_blocks(&g_stream, g_stream_blocks);
+    bm_stream_set_block_count(&g_stream, 2u);
+    bm_stream_set_block_capacity(&g_stream, 2u);
+    bm_stream_set_policy(&g_stream, BM_STREAM_POLICY_DROP_NEWEST);
+    bm_stream_set_owner_cpu(&g_stream, 0u);
     return bm_stream_init(&g_stream, g_stream_payloads, 2u,
                           sizeof(exec_test_payload_t));
 }
@@ -233,7 +234,7 @@ static int stream_init_with_on_ready(const bm_exec_t *instance) {
     if (rc != BM_OK) {
         return rc;
     }
-    g_stream.on_ready = mock_ready_handler;
+    bm_stream_set_ready_handler(&g_stream, mock_ready_handler, NULL);
     return BM_OK;
 }
 
@@ -504,7 +505,7 @@ void setUp(void) {
     g_fire_hardware_during_stop = 0u;
     g_wrong_safe_stop_count = 0u;
     g_block_run_count = 0u;
-    g_stream.on_ready = NULL;
+    bm_stream_set_ready_handler(&g_stream, NULL, NULL);
     bm_hal_uptime_native_reset();
     (void)bm_hal_timer_init(1000000u / BM_CONFIG_HRT_TICK_US);
     bm_hal_timer_native_reset_ticks();

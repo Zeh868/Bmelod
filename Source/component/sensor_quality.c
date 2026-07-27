@@ -15,6 +15,7 @@
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 exec_ops 封装；Doxygen；SPDX
  * 2026-07-27       0.3            zeh            init/reset 签名统一为四段式范式；initial 移入 config
+ * 2026-07-27       0.4            zeh            init/validate/reset 复用 bm_component_common.h 公共宏
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
