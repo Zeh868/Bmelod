@@ -461,6 +461,7 @@ if(BM_ENABLE_COMPONENT_DIAGNOSTICS)
         Source/component/fault_derating.c
         Source/component/sensor_quality.c
         Source/component/spectral_diagnostics.c
+        Source/component/health_monitor.c
         Source/component/daq_frontend.c
     )
     if(BM_ENABLE_COMPONENT_STREAM OR BM_BUILD_TESTS)

@@ -557,6 +557,7 @@ if(TARGET bm_component_diagnostics AND (BM_ENABLE_COMPONENT_STREAM OR BM_BUILD_T
     endif()
     bm_add_test(test_fault_derating test_fault_derating.c bm_component_diagnostics)
     bm_add_test(test_sensor_quality test_sensor_quality.c bm_component_diagnostics)
+    bm_add_test(test_health_monitor test_health_monitor.c bm_component_diagnostics)
     bm_add_test(test_spectral_diagnostics test_spectral_diagnostics.c bm_component_diagnostics)
     if(NOT MSVC)
         target_link_libraries(test_spectral_diagnostics PRIVATE m)
