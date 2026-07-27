@@ -20,7 +20,7 @@
  *
  */
 #include "unity.h"
-#include "bm/core/bm_bus.h"
+#include "bm/core/bm_bus_impl.h"
 #include <string.h>
 
 /* ---- snapshot → LATEST 迁移 ---- */

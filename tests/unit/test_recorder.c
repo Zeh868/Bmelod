@@ -10,7 +10,7 @@
  */
 
 #include "unity.h"
-#include "bm/hybrid/bm_recorder.h"
+#include "bm/hybrid/bm_recorder_impl.h"
 
 #include <string.h>
 

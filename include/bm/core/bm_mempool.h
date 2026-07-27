@@ -16,6 +16,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
+ * 2026-07-27       1.1            zeh            将 BM_MEMPOOL_DEFINE 迁到 bm_mempool_impl.h
  *
  */
 #ifndef BM_MEMPOOL_H
@@ -36,20 +37,6 @@ typedef struct {
     uint32_t  bitmap_words;
     bm_atomic_ipc_u32_t lock;
 } bm_mempool_t;
-
-/** 静态定义内存池实例
- *  示例：BM_MEMPOOL_DEFINE(my_pool, my_type_t, 16); */
-#define BM_MEMPOOL_DEFINE(name, type, cnt) \
-    static uint32_t _bm_pool_bitmap_##name[((cnt) + 31U) / 32U] = {0}; \
-    static type _bm_pool_storage_##name[(cnt)]; \
-    static bm_mempool_t name = { \
-        .bitmap = _bm_pool_bitmap_##name, \
-        .pool = _bm_pool_storage_##name, \
-        .obj_size = sizeof(type), \
-        .count = (cnt), \
-        .bitmap_words = ((cnt) + 31U) / 32U, \
-        .lock = BM_ATOMIC_IPC_U32_INIT(0u) \
-    }
 
 /**
  * @brief 从内存池分配一个对象

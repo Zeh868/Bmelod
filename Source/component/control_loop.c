@@ -21,11 +21,11 @@
  */
 #include "bm/component/control_loop.h"
 #include "bm/common/bm_types.h"
+#include "bm/component/bm_component_common.h"
 
 int bm_control_loop_validate_config(const bm_control_loop_config_t *config) {
-    if (config == NULL || config->dt_s <= 0.0f) {
-        return BM_ERR_INVALID;
-    }
+    BM_COMPONENT_RETURN_IF_NULL(config);
+    BM_COMPONENT_VALIDATE_POSITIVE_FLOAT(config->dt_s);
     if (bm_algo_pi_validate_config(&config->outer_pi) != BM_OK ||
         bm_algo_pi_validate_config(&config->inner_pi) != BM_OK) {
         return BM_ERR_INVALID;
@@ -45,12 +45,8 @@ void bm_control_loop_reset(bm_control_loop_axis_t *axis) {
 }
 
 int bm_control_loop_init(bm_control_loop_axis_t *axis) {
-    if (axis == NULL ||
-        bm_control_loop_validate_config(&axis->config) != BM_OK) {
-        return BM_ERR_INVALID;
-    }
-    bm_control_loop_reset(axis);
-    return BM_OK;
+    BM_COMPONENT_INIT(axis, bm_control_loop_validate_config,
+                      bm_control_loop_reset);
 }
 
 void bm_control_loop_step(bm_control_loop_axis_t *axis) {

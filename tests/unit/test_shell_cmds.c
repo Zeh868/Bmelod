@@ -30,7 +30,7 @@
 #include "shell_cmds.h"
 #include "app_bus_servo.h"   /* bus_servo_command_t, BUS_SERVO_CMD_STATUS_* */
 #include "bm_shell.h"
-#include "bm_bus.h"
+#include "bm/core/bm_bus_impl.h"
 #include "bm_log.h"
 
 #include <string.h>

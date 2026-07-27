@@ -13,14 +13,15 @@
  * @core_affinity 生产者与消费者固定在 owner_cpu（同核 SPSC）。
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-21
+ * @version 1.2
+ * @date 2026-07-27
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-21       1.0            zeh            正式发布
  * 2026-06-21       1.1            zeh            收敛为同核 SPSC 实现
+ * 2026-07-27       1.2            zeh            将 BM_RECORDER_DEFINE 迁到 bm_recorder_impl.h
  *
  */
 #ifndef BM_RECORDER_H
@@ -45,23 +46,6 @@ typedef struct {
     uint32_t dropped;    /**< 累计因覆盖被消费者丢弃的帧数（SRT 侧维护） */
     uint8_t  owner_cpu;  /**< 生产者与消费者所在 CPU（约束读写只在该核调用） */
 } bm_recorder_t;
-
-/**
- * @brief 静态定义录波环实例及 backing buffer（编译期校验 depth 为 2 的幂）
- *
- * depth 必须满足 depth>=2 且为 2 的幂，否则触发负数组下标编译错误。
- * 示例：BM_RECORDER_DEFINE(foc_rec, foc_bb_frame_t, 1024);
- *
- * @param name  实例标识符
- * @param type  单帧类型
- * @param depth 帧深（2 的幂，>=2）
- */
-#define BM_RECORDER_DEFINE(name, type, depth)                                  \
-    typedef char _bm_rec_chk_##name[((depth) >= 2 &&                           \
-        (((depth) & ((depth) - 1u)) == 0u)) ? 1 : -1];                         \
-    static uint8_t _bm_rec_buf_##name[(depth) * sizeof(type)];                 \
-    static bm_recorder_t name = { _bm_rec_buf_##name, sizeof(type),            \
-        (depth), (depth) - 1u, 0, 0, 0u, 0u }
 
 /**
  * @brief 运行时初始化录波环

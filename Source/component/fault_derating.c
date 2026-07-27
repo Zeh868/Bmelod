@@ -20,8 +20,6 @@
 #include "bm/common/bm_types.h"
 #include "bm/component/bm_component_common.h"
 
-#include <string.h>
-
 /**
  * @brief 校验故障降额配置合法性
  *
@@ -36,11 +34,14 @@
  * @return BM_OK 合法；BM_ERR_INVALID 任一字段不合法
  */
 int bm_fault_derating_validate_config(const bm_fault_derating_config_t *config) {
-    if (config == NULL ||
-        !bm_algo_is_finite_f(config->dt_s) || config->dt_s <= 0.0f ||
-        !bm_algo_is_finite_f(config->derate_ramp.rate_per_s) ||
-        config->derate_ramp.rate_per_s <= 0.0f ||
-        config->recovery_time_s < 0.0f ||
+    BM_COMPONENT_RETURN_IF_NULL(config);
+    if (!bm_algo_is_finite_f(config->dt_s) ||
+        !bm_algo_is_finite_f(config->derate_ramp.rate_per_s)) {
+        return BM_ERR_INVALID;
+    }
+    BM_COMPONENT_VALIDATE_POSITIVE_FLOAT(config->dt_s);
+    BM_COMPONENT_VALIDATE_POSITIVE_FLOAT(config->derate_ramp.rate_per_s);
+    if (config->recovery_time_s < 0.0f ||
         config->derate_target < 0.0f || config->derate_target > 1.0f) {
         return BM_ERR_INVALID;
     }
@@ -56,12 +57,8 @@ int bm_fault_derating_validate_config(const bm_fault_derating_config_t *config) 
  * @return BM_OK 成功；BM_ERR_INVALID 参数/配置非法
  */
 int bm_fault_derating_init(bm_fault_derating_axis_t *axis) {
-    if (axis == NULL ||
-        bm_fault_derating_validate_config(&axis->config) != BM_OK) {
-        return BM_ERR_INVALID;
-    }
-    bm_fault_derating_reset(axis);
-    return BM_OK;
+    BM_COMPONENT_INIT(axis, bm_fault_derating_validate_config,
+                      bm_fault_derating_reset);
 }
 
 /**
@@ -81,7 +78,7 @@ void bm_fault_derating_reset(bm_fault_derating_axis_t *axis) {
     axis->state.derate_factor = 1.0f;
     axis->state.recovery_elapsed_s = 0.0f;
     axis->state.step_count = 0u;
-    memset(&axis->state.telemetry, 0, sizeof(axis->state.telemetry));
+    BM_COMPONENT_RESET_TELEMETRY(axis);
     axis->state.telemetry.derate_factor = 1.0f;
 }
 

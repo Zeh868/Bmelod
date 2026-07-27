@@ -8,7 +8,7 @@
  * 编译时须定义 BM_CONFIG_CPU_COUNT=2u（2×2 矩阵，source/target 均有效）。
  */
 #include "unity.h"
-#include "bm/core/bm_bus.h"
+#include "bm/core/bm_bus_impl.h"
 #include "bm/mp/bm_mp_ipc_backend.h"
 #include "bm/common/bm_types.h"
 #include <string.h>

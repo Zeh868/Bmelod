@@ -20,6 +20,7 @@
  *    Date         Version        Author          Description
  * 2026-06-12       1.0            zeh            正式发布
  * 2026-06-14       1.1            zeh            commit/drain 解耦；owner_cpu / pending_drain
+ * 2026-07-27       1.2            zeh            将 BM_STREAM_* 静态分配宏迁到 bm_stream_impl.h
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -69,21 +70,6 @@ struct bm_stream {
     uint8_t              owner_cpu;
     volatile uint8_t     pending_drain;
 };
-
-#define BM_STREAM_PAYLOADS(name, type, depth) \
-    static type _bm_stream_payload_##name[(depth)]
-
-#define BM_STREAM_BLOCKS(name, depth) \
-    static bm_block_t _bm_stream_blocks_##name[(depth)]
-
-#define BM_STREAM_INSTANCE(name, depth) \
-    static bm_stream_t name = { \
-        .blocks = _bm_stream_blocks_##name, \
-        .block_count = (depth), \
-        .block_capacity = (depth), \
-        .policy = BM_STREAM_POLICY_DROP_NEWEST, \
-        .owner_cpu = 0u \
-    }
 
 void bm_stream_mark_late(bm_stream_t *stream);
 

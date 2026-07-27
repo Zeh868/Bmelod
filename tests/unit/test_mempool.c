@@ -12,6 +12,7 @@
 #include "unity.h"
 #include "bm_core.h"
 #include "bm_log.h"
+#include "bm/core/bm_mempool_impl.h"
 
 #include <string.h>
 

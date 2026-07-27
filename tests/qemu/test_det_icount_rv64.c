@@ -21,7 +21,7 @@
 #define BM_ENABLE_PROBE 1
 #include "bm_probe.h"
 #include "bm/algorithm/bm_algo_motor.h"
-#include "bm/core/bm_bus.h"
+#include "bm/core/bm_bus_impl.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>

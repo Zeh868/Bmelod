@@ -18,7 +18,7 @@
 #include "bm/hybrid/bm_hrt.h"
 #include "bm/hybrid/bm_ticker.h"
 #include "bm/core/bm_event.h"
-#include "bm/core/bm_bus.h"
+#include "bm/core/bm_bus_impl.h"
 #include "bm_log.h"
 #include "bm_hal_timer_native.h"
 #include "bm_hal_uptime_native.h"

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /** @file test_bus_ipc_mode.c @brief BM_BUS_IPC 模式 + native 桩后端契约测试。 */
 #include "unity.h"
-#include "bm/core/bm_bus.h"
+#include "bm/core/bm_bus_impl.h"
 #include "support/ipc_stub_backend.h"
 #include "bm/common/bm_types.h"
 

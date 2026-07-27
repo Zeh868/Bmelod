@@ -49,6 +49,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "bm/core/bm_bus_impl.h"
 
 #define TAG "bus_servo"
 

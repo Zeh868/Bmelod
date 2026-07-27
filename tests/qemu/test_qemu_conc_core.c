@@ -20,7 +20,7 @@
 #include "bm/common/bm_critical_wrap.h"
 #include "bm/core/bm_event.h"
 #include "bm/core/bm_cpu_local.h"
-#include "bm/core/bm_mempool.h"
+#include "bm/core/bm_mempool_impl.h"
 #include "hal/bm_hal_cpu.h"
 #include "hal/bm_hal_timer.h"
 

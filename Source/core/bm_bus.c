@@ -30,7 +30,7 @@
  *                                                （acquire_read 置位、release 检查前移）
  *
  */
-#include "bm/core/bm_bus.h"
+#include "bm/core/bm_bus_impl.h"
 #include "bm/core/bm_cpu_local.h"
 #include "bm_critical_wrap.h"
 #include "bm_log.h"

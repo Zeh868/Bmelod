@@ -17,7 +17,7 @@
  */
 #include "bm_qemu_tap.h"
 #include "bm/common/bm_atomic_ipc.h"
-#include "bm/hybrid/bm_stream.h"
+#include "bm/hybrid/bm_stream_impl.h"
 #include "hal/bm_hal_cpu.h"
 #include "hal/bm_hal_timer.h"
 

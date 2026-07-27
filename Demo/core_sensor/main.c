@@ -7,7 +7,7 @@
 #include "hal/bm_hal_uart.h"
 #include "bm_log.h"
 #include "bm_module.h"
-#include "bm_mempool.h"
+#include "bm/core/bm_mempool_impl.h"
 #include "example_support.h"
 
 #define TAG "core_sensor"

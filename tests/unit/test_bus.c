@@ -19,8 +19,8 @@
  */
 
 #include "unity.h"
-#include "bm/core/bm_bus.h"
-#include "bm/hybrid/bm_stream.h"
+#include "bm/core/bm_bus_impl.h"
+#include "bm/hybrid/bm_stream_impl.h"
 #include <string.h>
 
 BM_BUS_DEFINE(tb_q, uint32_t, 4u, 1u, BM_BUS_QUEUE);

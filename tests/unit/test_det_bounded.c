@@ -14,7 +14,7 @@
  */
 #include "unity.h"
 #include "bm/core/bm_event.h"
-#include "bm/core/bm_mempool.h"
+#include "bm/core/bm_mempool_impl.h"
 #include "bm/common/bm_atomic.h"
 #include "bm/common/bm_types.h"
 #include <stdint.h>

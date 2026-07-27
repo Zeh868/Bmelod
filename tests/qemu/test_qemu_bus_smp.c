@@ -38,8 +38,8 @@
  *                                                 未 bind 错误、多核 owner_cpu 透传测试
  *
  */
-#include "bm/core/bm_bus.h"
-#include "bm/hybrid/bm_stream.h"
+#include "bm/core/bm_bus_impl.h"
+#include "bm/hybrid/bm_stream_impl.h"
 #include "bm/common/bm_atomic_ipc.h"
 #include "hal/bm_hal_cpu.h"
 #include "hal/bm_hal_timer.h"

@@ -24,11 +24,11 @@
 #include "bm/component/bm_component_common.h"
 
 #include <math.h>
-#include <string.h>
 
 int bm_sensor_quality_validate_config(const bm_sensor_quality_config_t *config) {
-    if (config == NULL || config->dt_s <= 0.0f ||
-        config->monitor.min_v >= config->monitor.max_v) {
+    BM_COMPONENT_RETURN_IF_NULL(config);
+    BM_COMPONENT_VALIDATE_POSITIVE_FLOAT(config->dt_s);
+    if (config->monitor.min_v >= config->monitor.max_v) {
         return BM_ERR_INVALID;
     }
     return BM_OK;
@@ -48,17 +48,13 @@ void bm_sensor_quality_reset(bm_sensor_quality_axis_t *axis) {
     axis->state.fault_flags = 0u;
     axis->state.last_value = initial;
     axis->state.step_count = 0u;
-    memset(&axis->state.telemetry, 0, sizeof(axis->state.telemetry));
+    BM_COMPONENT_RESET_TELEMETRY(axis);
     axis->state.telemetry.value = initial;
 }
 
 int bm_sensor_quality_init(bm_sensor_quality_axis_t *axis) {
-    if (axis == NULL ||
-        bm_sensor_quality_validate_config(&axis->config) != BM_OK) {
-        return BM_ERR_INVALID;
-    }
-    bm_sensor_quality_reset(axis);
-    return BM_OK;
+    BM_COMPONENT_INIT(axis, bm_sensor_quality_validate_config,
+                      bm_sensor_quality_reset);
 }
 
 void bm_sensor_quality_step(bm_sensor_quality_axis_t *axis) {

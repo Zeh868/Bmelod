@@ -18,9 +18,9 @@
 #include "unity.h"
 #include "bm/algorithm/bm_algo_motor.h"
 #include "bm/algorithm/bm_algo_filter.h"
-#include "bm/core/bm_bus.h"
+#include "bm/core/bm_bus_impl.h"
 #include "bm/core/bm_event.h"
-#include "bm/core/bm_mempool.h"
+#include "bm/core/bm_mempool_impl.h"
 #include "bm/hybrid/bm_hrt.h"
 #include <stdint.h>
 #include <string.h>

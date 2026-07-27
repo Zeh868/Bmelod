@@ -6,6 +6,7 @@
 #include "hal/bm_hal_uart.h"
 #include "example_support.h"
 #include "bmelod.h"
+#include "bm/core/bm_mempool_impl.h"
 
 #define TAG "full_system"
 

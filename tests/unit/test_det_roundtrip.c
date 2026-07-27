@@ -11,7 +11,7 @@
  * @date 2026-06-30
  */
 #include "unity.h"
-#include "bm/core/bm_bus.h"
+#include "bm/core/bm_bus_impl.h"
 #include "bm/core/bm_event.h"
 #include <stdint.h>
 #include <string.h>
