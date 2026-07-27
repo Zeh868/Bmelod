@@ -20,10 +20,7 @@
 
 #include "bm/mp/bm_mp_types.h"
 #include "bm/common/bm_types.h"
-#include "hal/bm_hal_cpu.h"
-
-/** 当前逻辑 CPU 索引（须与分区表 owner 校验一致） */
-#define BM_CPU_THIS()  bm_hal_cpu_id()
+#include "bm/core/bm_cpu_local.h"
 
 /**
  * @brief 当前 CPU 索引是否在配置范围内

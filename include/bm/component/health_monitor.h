@@ -43,7 +43,7 @@
 #ifndef BM_HEALTH_MONITOR_H
 #define BM_HEALTH_MONITOR_H
 
-#include "bm/component/bm_fault.h"
+#include "bm/common/bm_fault.h"
 
 #include <stdint.h>
 

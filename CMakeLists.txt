@@ -28,10 +28,10 @@ option(BM_ENABLE_EXTENSIONS "Enable K3 extension adapters (bm_extensions)" OFF)
 option(BM_ENABLE_COMPONENT_MOTOR "Enable motor domain components" OFF)
 option(BM_ENABLE_COMPONENT_BMS "Enable BMS domain components" OFF)
 option(BM_ENABLE_COMPONENT_POWER "Enable power domain components" OFF)
-option(BM_ENABLE_COMPONENT_DIAGNOSTICS "Enable diagnostics domain components (fault_derating, sensor_quality, spectral_diagnostics)" OFF)
+option(BM_ENABLE_COMPONENT_DIAGNOSTICS "Enable diagnostics domain components (fault_derating, sensor_quality, spectral_diagnostics, health_monitor, daq_frontend; stream/audio/radar frontends when BM_ENABLE_COMPONENT_STREAM)" OFF)
 option(BM_ENABLE_COMPONENT_STREAM "Enable stream/audio/radar frontends in diagnostics" OFF)
 option(BM_ENABLE_COMPONENT_FUSION "Enable fusion domain components (estimation_fusion)" OFF)
-option(BM_ENABLE_COMPONENT_PROCESS "Enable process domain components (process_control, grid_control, motion_coordination, transport_qos, bms_supervision)" OFF)
+option(BM_ENABLE_COMPONENT_PROCESS "Enable process domain components (process_control, grid_control, motion_coordination, motion_profile, process_sequence, transport_qos, bms_supervision, navigation_frontend, solar_control, mobile_base_control, additive_motion)" OFF)
 option(BM_ENABLE_COMPONENT_CONTROL_LOOP "Enable cascade PI control_loop component" OFF)
 option(BM_ENABLE_COMPONENT_TINYML "Enable TinyML static arena adapter component" OFF)
 option(BM_BUILD_ALL_COMPONENTS "Enable all domain component libraries" OFF)
@@ -82,6 +82,8 @@ if(BM_BUILD_ALL_COMPONENTS)
     set(BM_ENABLE_COMPONENT_FUSION ON CACHE BOOL "" FORCE)
     set(BM_ENABLE_COMPONENT_PROCESS ON CACHE BOOL "" FORCE)
     set(BM_ENABLE_COMPONENT_CONTROL_LOOP ON CACHE BOOL "" FORCE)
+    set(BM_ENABLE_COMPONENT_STREAM ON CACHE BOOL "" FORCE)
+    set(BM_ENABLE_COMPONENT_TINYML ON CACHE BOOL "" FORCE)
 endif()
 
 if(BM_BUILD_TESTS)
@@ -176,6 +178,9 @@ add_library(bm_hal STATIC
     Source/hal/bm_hal_uptime.c
     Source/hal/bm_persist.c          # #10 持久化 KV 层
     Source/hal/bm_hal_cpu_freq.c     # CPU 主频开机对账
+    Source/hal/bm_cpu_id.c           # CPU ID 核心抽象接口实现
+    Source/hal/bm_log_output.c       # 默认日志输出（转发 Console LOG 通道）
+    Source/hal/bm_shell_port.c       # shell CLI 通道 HAL 端口
 )
 option(BM_HAL_USE_CPU_STUB "Link bm_hal_cpu_stub.c into bm_hal" ON)
 if(BM_HAL_USE_CPU_STUB)
@@ -202,7 +207,6 @@ add_library(bm_core STATIC
     Source/core/bm_critical.c
     Source/core/bm_event.c
     Source/core/bm_log.c
-    Source/core/bm_log_output.c
     Source/core/bm_ultra.c
     Source/core/bm_idle.c
     Source/hybrid/bm_recorder.c

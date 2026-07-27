@@ -7,28 +7,33 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.2
- * @date 2026-06-13
+ * @version 0.3
+ * @date 2026-07-27
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 exec_ops 声明；补全公共函数 Doxygen；SPDX 头
+ * 2026-07-27       0.3            zeh            解耦 fault_derating：内嵌轴改为 resources 指针，
+ *                                                 头文件不再 include fault_derating.h
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_BMS_SUPERVISION_H
 #define BM_BMS_SUPERVISION_H
 
-#include "bm/component/fault_derating.h"
 #include "bm/hybrid/bm_exec.h"
+#include "bm/algorithm/bm_algo_profile.h"
 
 #include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/** @brief fault_derating 组件轴（前向声明，避免组件头互相 include） */
+typedef struct bm_fault_derating_axis bm_fault_derating_axis_t;
 
 #define BM_BMS_SUP_TEL_VALID    (1u << 0u)
 #define BM_BMS_SUP_TEL_DERATED  (1u << 1u)
@@ -58,6 +63,7 @@ typedef struct {
     void                             *read_sample_user;
     bm_bms_supervision_publish_fn     publish_telemetry;
     void                             *publish_telemetry_user;
+    bm_fault_derating_axis_t         *derating; /**< 外部 fault_derating 轴实例，须非空 */
 } bm_bms_supervision_resources_t;
 
 #define BM_BMS_SUP_LIMIT_VOLTAGE_HIGH (1u << 0u)
@@ -77,7 +83,6 @@ typedef struct {
 } bm_bms_supervision_config_t;
 
 typedef struct {
-    bm_fault_derating_axis_t derating;
     uint32_t                 limit_flags;
     float                    pack_voltage_v;
     float                    pack_current_a;
@@ -106,17 +111,18 @@ int  bm_bms_supervision_validate_config(const bm_bms_supervision_config_t *confi
 /**
  * @brief 初始化 BMS 监督轴（校验配置、同步降额参数、复位状态）
  *
- * @param axis 轴实例指针，NULL 或配置非法时返回 BM_ERR_INVALID
- * @return BM_OK 成功；BM_ERR_INVALID 参数或配置非法
+ * @param axis 轴实例指针，resources.derating 须指向已分配的外部
+ *             fault_derating 轴实例；NULL 或配置非法时返回 BM_ERR_INVALID
+ * @return BM_OK 成功；BM_ERR_INVALID 参数、resources.derating 为 NULL 或配置非法
  */
 int  bm_bms_supervision_init(bm_bms_supervision_axis_t *axis);
 
 /**
  * @brief 复位 BMS 监督轴运行状态（不修改 config/resources）
  *
- * 复位 fault_derating 子组件，清零所有状态字段。
+ * 复位 resources.derating 指向的 fault_derating 子组件，清零所有状态字段。
  *
- * @param axis 轴实例指针；为 NULL 时静默返回
+ * @param axis 轴实例指针；为 NULL 或 derating 为 NULL 时静默返回
  */
 void bm_bms_supervision_reset(bm_bms_supervision_axis_t *axis);
 

@@ -176,7 +176,6 @@ The [`Demo/`](Demo/) directory contains progressive demonstrations:
 | [`hrt_servo_stub`](Demo/hrt_servo_stub) | Hybrid-domain servo (current HRT + speed HRT + position SRT) | Control | `D0` |
 | [`hrt_bms_coulomb`](Demo/hrt_bms_coulomb) | BMS pack sampler (ADC HRT) + cell coulomb counting (SRT) | Control | `D0` |
 | [`multi_axis_sync`](Demo/multi_axis_sync) | Multi-instance control with synchronization domain | Control | `D0` |
-| [`multi_channel_bms`](Demo/multi_channel_bms) | Multi-channel BMS instance model | Control | `D0` |
 
 `D0` means mechanism demonstration. It does not claim product-ready or industrially
 mature servo, FOC, BMS, or synchronization algorithms. See the

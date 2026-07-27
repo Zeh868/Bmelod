@@ -33,7 +33,7 @@ typedef enum {
     BM_BLOCK_STATE_OUTPUT_READY
 } bm_block_state_t;
 
-typedef struct {
+typedef struct bm_block {
     void              *data;
     uint32_t           capacity_bytes;
     uint32_t           valid_bytes;

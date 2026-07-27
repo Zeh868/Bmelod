@@ -6,30 +6,35 @@
  * 并提供 bm_exec_ops_t 调度封装以接入 bm_exec 生命周期管理。
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.2
- * @date 2026-06-13
+ * @version 0.3
+ * @date 2026-07-27
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 exec_ops 封装；补全公共函数 Doxygen；SPDX 头
+ * 2026-07-27       0.3            zeh            解耦 fault_derating：使用 resources.derating
+ *                                                 指针；.c 内 include fault_derating.h
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/component/bms_supervision.h"
 #include "bm/common/bm_types.h"
 #include "bm/component/bm_component_common.h"
+#include "bm/component/fault_derating.h"
 
 #include <math.h>
 #include <string.h>
 
 static void bms_supervision_sync_derating_config(
     bm_bms_supervision_axis_t *axis) {
-    axis->state.derating.config.derate_ramp = axis->config.derate_ramp;
-    axis->state.derating.config.recovery_time_s = axis->config.recovery_time_s;
-    axis->state.derating.config.derate_target = axis->config.derate_target;
-    axis->state.derating.config.dt_s = axis->config.dt_s;
+    bm_fault_derating_axis_t *der = axis->resources.derating;
+
+    der->config.derate_ramp = axis->config.derate_ramp;
+    der->config.recovery_time_s = axis->config.recovery_time_s;
+    der->config.derate_target = axis->config.derate_target;
+    der->config.dt_s = axis->config.dt_s;
 }
 
 int bm_bms_supervision_validate_config(const bm_bms_supervision_config_t *config) {
@@ -44,11 +49,11 @@ int bm_bms_supervision_validate_config(const bm_bms_supervision_config_t *config
 }
 
 void bm_bms_supervision_reset(bm_bms_supervision_axis_t *axis) {
-    if (axis == NULL) {
+    if (axis == NULL || axis->resources.derating == NULL) {
         return;
     }
 
-    bm_fault_derating_reset(&axis->state.derating);
+    bm_fault_derating_reset(axis->resources.derating);
     axis->state.limit_flags = 0u;
     axis->state.pack_voltage_v = 0.0f;
     axis->state.pack_current_a = 0.0f;
@@ -58,12 +63,12 @@ void bm_bms_supervision_reset(bm_bms_supervision_axis_t *axis) {
 }
 
 int bm_bms_supervision_init(bm_bms_supervision_axis_t *axis) {
-    if (axis == NULL ||
+    if (axis == NULL || axis->resources.derating == NULL ||
         bm_bms_supervision_validate_config(&axis->config) != BM_OK) {
         return BM_ERR_INVALID;
     }
     bms_supervision_sync_derating_config(axis);
-    if (bm_fault_derating_init(&axis->state.derating) != BM_OK) {
+    if (bm_fault_derating_init(axis->resources.derating) != BM_OK) {
         return BM_ERR_INVALID;
     }
     bm_bms_supervision_reset(axis);
@@ -78,7 +83,7 @@ void bm_bms_supervision_step(bm_bms_supervision_axis_t *axis) {
     float current_a = 0.0f;
     float temp_c = 25.0f;
 
-    if (axis == NULL) {
+    if (axis == NULL || axis->resources.derating == NULL) {
         return;
     }
 
@@ -94,7 +99,7 @@ void bm_bms_supervision_step(bm_bms_supervision_axis_t *axis) {
         st->telemetry.pack_voltage_v = st->pack_voltage_v;
         st->telemetry.pack_current_a = st->pack_current_a;
         st->telemetry.temp_c = st->temp_c;
-        st->telemetry.derate_factor = st->derating.state.derate_factor;
+        st->telemetry.derate_factor = axis->resources.derating->state.derate_factor;
         st->telemetry.limit_flags = st->limit_flags;
         BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
         return;
@@ -119,24 +124,24 @@ void bm_bms_supervision_step(bm_bms_supervision_axis_t *axis) {
 
     st->limit_flags = flags;
     if (flags != 0u) {
-        bm_fault_derating_latch(&st->derating);
+        bm_fault_derating_latch(axis->resources.derating);
     } else {
-        bm_fault_derating_clear_request(&st->derating);
+        bm_fault_derating_clear_request(axis->resources.derating);
     }
 
     bms_supervision_sync_derating_config(axis);
-    bm_fault_derating_step(&st->derating);
+    bm_fault_derating_step(axis->resources.derating);
 
     st->step_count++;
     st->telemetry.sequence = st->step_count;
     st->telemetry.status = BM_BMS_SUP_TEL_VALID;
-    if (st->derating.state.derate_factor < 1.0f) {
+    if (axis->resources.derating->state.derate_factor < 1.0f) {
         st->telemetry.status |= BM_BMS_SUP_TEL_DERATED;
     }
     st->telemetry.pack_voltage_v = voltage_v;
     st->telemetry.pack_current_a = current_a;
     st->telemetry.temp_c = temp_c;
-    st->telemetry.derate_factor = st->derating.state.derate_factor;
+    st->telemetry.derate_factor = axis->resources.derating->state.derate_factor;
     st->telemetry.limit_flags = flags;
 
     BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
@@ -174,7 +179,9 @@ void bm_bms_supervision_exec_safe_stop(const bm_exec_t *instance) {
     }
     axis = (bm_bms_supervision_axis_t *)instance->state;
     /* 安全停止：重置降额状态，使对外输出因子恢复为 1.0 */
-    bm_fault_derating_reset(&axis->state.derating);
+    if (axis->resources.derating != NULL) {
+        bm_fault_derating_reset(axis->resources.derating);
+    }
 }
 
 const bm_exec_ops_t bm_bms_supervision_exec_ops = {

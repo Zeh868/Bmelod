@@ -23,7 +23,6 @@
 #include "bm/common/bm_profile_epoch.h"
 #include "bm/common/bm_atomic_ipc.h"
 #include "bm/core/bm_cpu_local.h"
-#include "hal/bm_hal_cpu.h"
 
 #include <stddef.h>
 
@@ -44,7 +43,7 @@ static bm_profile_epoch_query_fn_t volatile s_query[BM_CONFIG_CPU_COUNT];
  * @param fn 查询函数指针
  */
 void bm_profile_epoch_register(bm_profile_epoch_query_fn_t fn) {
-    uint32_t cpu = bm_hal_cpu_id();
+    uint32_t cpu = BM_CPU_THIS();
 
     if (cpu >= BM_CONFIG_CPU_COUNT) {
         return;
@@ -62,7 +61,7 @@ void bm_profile_epoch_register(bm_profile_epoch_query_fn_t fn) {
  * @return 当前代际；未注册时返回 0
  */
 uint32_t bm_profile_epoch_current(void) {
-    uint32_t cpu = bm_hal_cpu_id();
+    uint32_t cpu = BM_CPU_THIS();
     bm_profile_epoch_query_fn_t fn;
 
     if (cpu >= BM_CONFIG_CPU_COUNT) {

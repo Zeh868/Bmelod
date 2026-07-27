@@ -11,6 +11,6 @@ cmake --build "$BUILD" --target qemu_smoke_cm0.elf qemu_hybrid_smoke_cm0.elf
 
 "$ROOT/tests/qemu/run_hybrid_smoke.sh"
 
-for ex in hrt_servo_stub hrt_bms_coulomb stream_block_rms stream_fft stream_bms_pipeline multi_axis_sync multi_channel_bms; do
+for ex in hrt_servo_stub hrt_bms_coulomb stream_block_rms stream_fft stream_bms_pipeline multi_axis_sync; do
     "$ROOT/tools/demo/run_qemu.sh" "$ex"
 done

@@ -24,8 +24,7 @@
 #include "bm_config.h"
 #include "bm/common/bm_atomic_ipc.h"
 #include "bm/common/bm_critical_wrap.h"
-#include "hal/bm_hal_cpu.h"
-#include "hal/bm_hal_critical.h"
+#include "bm/core/bm_cpu_local.h"
 
 #if BM_CONFIG_ENABLE_LOG && !BM_CONFIG_HARD_RT_PROFILE
 #include <stdarg.h>
@@ -99,7 +98,7 @@ typedef struct {
 static bm_log_ring_t s_log_ring[BM_CONFIG_CPU_COUNT];
 
 static bm_log_ring_t *log_ring_this(void) {
-    uint32_t cpu = bm_hal_cpu_id();
+    uint32_t cpu = BM_CPU_THIS();
 
     /* CPU 越界时回退到 0 号环，避免空指针崩溃（fail-operational） */
     return (cpu < BM_CONFIG_CPU_COUNT) ? &s_log_ring[cpu] : &s_log_ring[0];
@@ -183,7 +182,7 @@ uint32_t bm_log_drain_cpu(uint32_t cpu, uint32_t budget) {
      * 生产者仅推进 head，仅该消费者推进 tail。
      */
     if (cpu >= BM_CONFIG_CPU_COUNT || budget == 0u ||
-        !bm_hal_cpu_is_bootstrap()) {
+        !bm_cpu_is_bootstrap()) {
         return 0u;
     }
     ring = &s_log_ring[cpu];
@@ -218,8 +217,8 @@ uint32_t bm_log_drain_cpu(uint32_t cpu, uint32_t budget) {
  * @return 实际 drain 条数
  */
 uint32_t bm_log_drain_on_this_cpu(uint32_t budget) {
-    return bm_hal_cpu_is_bootstrap() ?
-        bm_log_drain_cpu(bm_hal_cpu_id(), budget) : 0u;
+    return bm_cpu_is_bootstrap() ?
+        bm_log_drain_cpu(BM_CPU_THIS(), budget) : 0u;
 }
 
 /**

@@ -23,7 +23,32 @@
 #define BM_CPU_LOCAL_H
 
 #include "bm/common/bm_types.h"
-#include "hal/bm_hal_cpu.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * @brief 查询当前逻辑 CPU 编号
+ *
+ * 由 HAL 层实现，映射到平台相关的 CPU ID 原语。单核配置下通常返回 0。
+ *
+ * @return 当前 CPU 编号
+ */
+extern uint32_t bm_cpu_id(void);
+
+/**
+ * @brief 当前 CPU 是否为 bootstrap/主核
+ *
+ * 由 HAL 层实现。单核配置下恒为真。
+ *
+ * @return 非 0 表示当前核是 bootstrap 核
+ */
+extern int bm_cpu_is_bootstrap(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 /**
  * @brief 是否启用按 CPU 路由的本地访问路径
@@ -78,7 +103,7 @@
 
 /** @brief 当前逻辑 CPU。 */
 #ifndef BM_CPU_THIS
-#define BM_CPU_THIS()  bm_hal_cpu_id()
+#define BM_CPU_THIS()  bm_cpu_id()
 #endif
 
 /** @brief 任意 CPU owner 标记。 */

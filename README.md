@@ -185,7 +185,6 @@ bmelod-baremetal/
 | [`hrt_servo_stub`](Demo/hrt_servo_stub) | 混合域伺服 | Control | `D0` |
 | [`hrt_bms_coulomb`](Demo/hrt_bms_coulomb) | BMS 混合域 | Control | `D0` |
 | [`multi_axis_sync`](Demo/multi_axis_sync) | 同步域多轴 | Control | `D0` |
-| [`multi_channel_bms`](Demo/multi_channel_bms) | 多通道 BMS | Control | `D0` |
 
 `D0` 表示机制演示，不代表相关领域算法达到产品或工业成熟度。示例说明见
 [01-Demo示例与运行路径](docs/01-应用开发/01-Demo示例与运行路径.md)。

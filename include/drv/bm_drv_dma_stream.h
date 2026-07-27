@@ -16,12 +16,13 @@
 #define BM_DRV_DMA_STREAM_H
 
 #include "drv/bm_drv.h"
-#include "bm/hybrid/bm_block.h"
 
-struct bm_hal_dma_stream;
 #include "bm/common/bm_types.h"
 
 #include <stdint.h>
+
+/** @brief 流式数据块描述符（bm/hybrid/bm_block.h 中完整定义） */
+typedef struct bm_block bm_block_t;
 
 struct bm_hal_dma_stream;
 struct bm_hal_dma_stream_binding;

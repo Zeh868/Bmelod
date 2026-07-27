@@ -25,10 +25,14 @@
  *
  */
 #include "bm_shell.h"
-#include "hal/bm_hal_console.h"
 #include "bm_log.h"
 
+#include <stddef.h>
 #include <string.h>
+
+/* shell CLI 通道端口函数（由 HAL 层实现，避免 core 直接依赖 Console HAL） */
+extern int    bm_shell_port_write(const uint8_t *data, size_t len);
+extern size_t bm_shell_port_read(uint8_t *data, size_t max_len);
 
 /**
  * @brief 简易字符串比较（减少对完整 libc 的依赖）
@@ -43,14 +47,13 @@ static int _strcmp(const char *a, const char *b) {
 }
 
 /**
- * @brief 经 Console CLI 通道发送以 NUL 结尾的字符串
+ * @brief 经 shell CLI 端口发送以 NUL 结尾的字符串
  *
  * @param s 字符串指针
  */
 static void _puts(const char *s) {
     if (s) {
-        (void)bm_hal_console_write(BM_CONSOLE_CLI,
-                                   (const uint8_t *)s, strlen(s));
+        (void)bm_shell_port_write((const uint8_t *)s, strlen(s));
     }
 }
 
@@ -270,7 +273,7 @@ static void _complete_unique(bm_shell_t *shell, const char *match, uint8_t prefi
     const char *rest = match + prefix_len;
     while (*rest && shell->cursor < BM_CONFIG_SHELL_BUF_SIZE - 1) {
         shell->buf[shell->cursor++] = *rest;
-        (void)bm_hal_console_write(BM_CONSOLE_CLI, (const uint8_t *)rest, 1u);
+        (void)bm_shell_port_write((const uint8_t *)rest, 1u);
         rest++;
     }
 }
@@ -664,10 +667,10 @@ void bm_shell_feed(bm_shell_t *shell, char c) {
             shell->hist_nav = 0u; /* 编辑输入复位浏览态（buf 保留当前内容） */
 #endif
             shell->buf[shell->cursor++] = c;
-            (void)bm_hal_console_write(BM_CONSOLE_CLI, (const uint8_t *)&c, 1u);
+            (void)bm_shell_port_write((const uint8_t *)&c, 1u);
         } else {
             BM_LOGW("shell", "line buffer full");
-            (void)bm_hal_console_write(BM_CONSOLE_CLI,
+            (void)bm_shell_port_write(
                                        (const uint8_t *)"\a", 1u);
         }
         return;
@@ -714,7 +717,7 @@ void bm_shell_poll(bm_shell_t *shell) {
     uint8_t c;
     uint32_t remaining = BM_CONFIG_SHELL_MAX_CHARS_PER_POLL;
     while (remaining > 0u &&
-           bm_hal_console_read(BM_CONSOLE_CLI, &c, 1u) == 1u) {
+           bm_shell_port_read(&c, 1u) == 1u) {
         bm_shell_feed(shell, (char)c);
         remaining--;
     }

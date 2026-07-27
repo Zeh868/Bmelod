@@ -23,7 +23,6 @@
 #include "bm_critical_wrap.h"
 #include "bm_safety.h"
 #include "bm/core/bm_cpu_local.h"
-#include "hal/bm_hal_cpu.h"
 
 #include <string.h>
 
@@ -62,7 +61,7 @@ bm_ultra_cpu_storage_t g_ultra_cpu[BM_CONFIG_CPU_COUNT];
  * @return 状态指针；CPU 越界时返回 NULL（fail-closed）
  */
 static bm_ultra_cpu_state_t *ultra_this(void) {
-    uint32_t cpu = bm_hal_cpu_id();
+    uint32_t cpu = BM_CPU_THIS();
 
     /* CPU 越界时返回 NULL，调用方统一 fail-closed */
     if (cpu >= BM_CONFIG_CPU_COUNT) {

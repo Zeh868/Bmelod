@@ -88,7 +88,7 @@ typedef struct {
 /**
  * @brief 故障降额轴聚合对象
  */
-typedef struct {
+typedef struct bm_fault_derating_axis {
     bm_fault_derating_config_t    config;    /**< 轴配置（用户填写） */
     bm_fault_derating_resources_t resources; /**< 外部资源绑定 */
     bm_fault_derating_state_t     state;     /**< 运行状态（由组件维护） */

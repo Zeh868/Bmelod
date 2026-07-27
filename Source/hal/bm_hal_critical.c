@@ -108,3 +108,27 @@ void bm_hal_critical_exit_below(bm_irq_state_t previous_state) {
 int bm_hal_in_isr(void) {
     return BM_CRITICAL_DRV->in_isr ? BM_CRITICAL_DRV->in_isr() : 0;
 }
+
+/* ---------- core 层抽象接口实现 ---------- */
+
+bm_irq_state_t bm_critical_enter(void) {
+    return bm_hal_critical_enter();
+}
+
+void bm_critical_exit(bm_irq_state_t state) {
+    bm_hal_critical_exit(state);
+}
+
+int bm_in_isr(void) {
+    return bm_hal_in_isr();
+}
+
+#if BM_HAL_HAS_PRIORITY_MASK
+bm_irq_state_t bm_critical_enter_below(uint8_t threshold) {
+    return bm_hal_critical_enter_below(threshold);
+}
+
+void bm_critical_exit_below(bm_irq_state_t previous_state) {
+    bm_hal_critical_exit_below(previous_state);
+}
+#endif

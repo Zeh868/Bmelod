@@ -32,7 +32,6 @@
  * 仅 Bootstrap CPU 调用 bm_wdg_register / bm_wdg_feed_module /
  * bm_wdg_feed。Bootstrap 在 bm_wdg_feed() 内通过放行钩子聚合检查。
  */
-#include "hal/bm_hal_cpu.h"
 
 #include <stdbool.h>
 #include <string.h>
@@ -140,7 +139,7 @@ int bm_wdg_register(const char *name) {
     int result;
 
 #if BM_CPU_LOCAL_ENABLE_ROUTE
-    if (!bm_hal_cpu_is_bootstrap()) {
+    if (!bm_cpu_is_bootstrap()) {
         return BM_ERR_INVALID;
     }
 #endif
@@ -212,7 +211,7 @@ void bm_wdg_feed_module(const char *name) {
     bool found;
 
 #if BM_CPU_LOCAL_ENABLE_ROUTE
-    if (!bm_hal_cpu_is_bootstrap()) {
+    if (!bm_cpu_is_bootstrap()) {
         BM_LOGW("wdg", "feed_module rejected on non-bootstrap cpu");
         return;
     }
@@ -266,7 +265,7 @@ void bm_wdg_feed(void) {
     bm_irq_state_t s;
 
 #if BM_CPU_LOCAL_ENABLE_ROUTE
-    if (!bm_hal_cpu_is_bootstrap()) {
+    if (!bm_cpu_is_bootstrap()) {
         BM_LOGW("wdg", "hardware feed rejected on non-bootstrap cpu");
         return;
     }
@@ -297,14 +296,14 @@ void bm_wdg_feed(void) {
     }
 
     if (count == 0u) {
-        s = bm_hal_critical_enter();
+        s = bm_critical_enter();
         if (_wdg_generation != generation || _wdg_module_count != 0u) {
-            bm_hal_critical_exit(s);
+            bm_critical_exit(s);
             BM_LOGD("wdg", "hw feed blocked: module table changed");
             return;
         }
         bm_hal_wdg_feed();
-        bm_hal_critical_exit(s);
+        bm_critical_exit(s);
         BM_LOGT("wdg", "hw feed (no modules)");
         return;
     }
@@ -324,16 +323,16 @@ void bm_wdg_feed(void) {
     }
 
     /* 最终复核与硬件提交使用全 IRQ 屏蔽，避免优先级掩码允许 HRT 抢占。 */
-    s = bm_hal_critical_enter();
+    s = bm_critical_enter();
     if (_wdg_generation != generation || _wdg_module_count != count) {
-        bm_hal_critical_exit(s);
+        bm_critical_exit(s);
         BM_LOGD("wdg", "hw feed blocked: module state changed");
         return;
     }
     now_us = bm_uptime_us();
     for (i = 0u; i < count; i++) {
         if (!wdg_module_fresh(&_wdg_modules[i], now_us, timeout_us)) {
-            bm_hal_critical_exit(s);
+            bm_critical_exit(s);
             BM_LOGD("wdg", "hw feed blocked: module became stale");
             return;
         }
@@ -344,7 +343,7 @@ void bm_wdg_feed(void) {
     }
     _wdg_generation++;
     bm_hal_wdg_feed();
-    bm_hal_critical_exit(s);
+    bm_critical_exit(s);
     BM_LOGT("wdg", "hw feed all modules ok");
 }
 
@@ -353,7 +352,7 @@ void bm_wdg_feed(void) {
  */
 void bm_wdg_reset(void) {
 #if BM_CPU_LOCAL_ENABLE_ROUTE
-    if (!bm_hal_cpu_is_bootstrap()) {
+    if (!bm_cpu_is_bootstrap()) {
         return;
     }
 #endif

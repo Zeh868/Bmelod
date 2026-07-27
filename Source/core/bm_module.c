@@ -23,7 +23,6 @@
 #include "bm_event.h"
 #include "bm_log.h"
 #include "bm/core/bm_cpu_local.h"
-#include "hal/bm_hal_cpu.h"
 
 #include <stdbool.h>
 #include <string.h>
@@ -947,7 +946,7 @@ int bm_module_init_on_this_cpu(void) {
             uint8_t owner = s_owner_resolver(i);
             /* BM_CPU_ANY 表示“在所有 CPU 上运行”；每个 CPU 均应包含该模块。 */
             if (owner != BM_CPU_ANY &&
-                owner != (uint8_t)bm_hal_cpu_id()) {
+                owner != (uint8_t)BM_CPU_THIS()) {
                 continue;
             }
         }

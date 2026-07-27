@@ -19,8 +19,8 @@
  */
 #include "bm_drv_timer.h"
 #include "bm_hal_timer.h"
-#include "bm/hybrid/bm_timestamp.h"
-#include "bm/core/bm_cpu_local.h"
+#include "bm/common/bm_timestamp.h"
+#include "bm_hal_cpu.h"
 #include "bm_types.h"
 #include "hal/bm_hal_cache.h"
 #include "bm/common/bm_atomic_ipc.h"
@@ -118,8 +118,8 @@ uint16_t bm_hal_timer_clock_id_for_cpu(uint32_t cpu) {
 }
 
 uint32_t bm_hal_timer_get_ticks_on_cpu(uint32_t cpu) {
-#if BM_CPU_LOCAL_ENABLE_ROUTE
-    if (cpu == BM_CPU_THIS()) {
+#if defined(BM_CONFIG_CPU_COUNT) && (BM_CONFIG_CPU_COUNT > 1u)
+    if (cpu == bm_hal_cpu_id()) {
         return bm_hal_timer_get_ticks();
     }
 #if defined(BM_NATIVE_SIM_TIMER_CPU_LOCAL)
@@ -134,8 +134,8 @@ uint32_t bm_hal_timer_get_ticks_on_cpu(uint32_t cpu) {
 #endif
 }
 uint32_t bm_hal_timer_get_freq_on_cpu(uint32_t cpu) {
-#if BM_CPU_LOCAL_ENABLE_ROUTE
-    if (cpu == BM_CPU_THIS()) {
+#if defined(BM_CONFIG_CPU_COUNT) && (BM_CONFIG_CPU_COUNT > 1u)
+    if (cpu == bm_hal_cpu_id()) {
         return bm_hal_timer_get_freq();
     }
 #if defined(BM_NATIVE_SIM_TIMER_CPU_LOCAL)

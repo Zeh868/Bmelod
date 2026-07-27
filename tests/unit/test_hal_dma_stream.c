@@ -10,6 +10,7 @@
  */
 #include "unity.h"
 #include "hal/bm_hal_dma_stream.h"
+#include "bm/hybrid/bm_block.h"
 #include "bm_hal_dma_stream_sim.h"
 #include "bm/common/bm_types.h"
 

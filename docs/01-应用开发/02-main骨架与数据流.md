@@ -149,7 +149,6 @@ ISR:  Hardware 环（ADC 等） | Scheduled 环（bm_hrt tick）
 |------|--------|
 | `hrt_servo_stub` | ADC IRQ→`current_step`；TIM→`speed_step`；ticker→`EVENT_POSITION`→`process`；仿真用 `fire_complete` 模拟 ADC |
 | `hrt_bms_coulomb` | Pack Hardware `SNAPSHOT_PUBLISH` 电流 → 电芯 Scheduled `READ` 积分 |
-| `multi_channel_bms` | Pack 写 16 路 snapshot → ticker 事件 → SRT `READ` 过压判断 |
 | `multi_axis_sync` | `sync_trigger` 后各轴 Scheduled `axis_step` 同 tick 记录 `start_tick` |
 | `stream_fft` | DMA 块 → `bm_stream` → Block 槽 RFFT |
 | `interrupt_demo` | `TIMER1_IRQHandler`→回调→`publish_from_isr`→`process` |

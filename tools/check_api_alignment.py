@@ -46,7 +46,7 @@ EXPECTED_APIS = {
 
 def extract_apis(header_dir):
     apis = {}
-    for hdr in Path(header_dir).glob("*.h"):
+    for hdr in Path(header_dir).rglob("*.h"):
         text = hdr.read_text(encoding="utf-8")
         for name, expected in EXPECTED_APIS.items():
             if name in text:

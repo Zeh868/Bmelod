@@ -28,7 +28,6 @@ Control 级示例的 `main` 均遵循 [02-main §5.2](02-main骨架与数据流.
 | `stream_fft` | DSP | `E1` | DMA 块流 + RFFT 频谱峰 |
 | `stream_bms_pipeline` | DSP/BMS | `E1` | `bm_stream` + `bm_pipeline` 线性链 + 库仑 SOC |
 | `multi_axis_sync` | Control | `D0` | `bm_sync` |
-| `multi_channel_bms` | Control | `D0` | 多路 snapshot |
 
 这里的 `D0` 表示机制演示：示例验证框架接线和执行路径，不表示伺服、FOC、
 BMS 或同步控制算法可用于产品。算法成熟度定义与晋级门槛见

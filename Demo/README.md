@@ -20,7 +20,6 @@ Bmelod 示例源码（类比 FreeRTOS/Demo/）。**仅含应用代码与 `CMakeL
 | [power_buck_loop](power_buck_loop/README.md) | Control | Buck 双环电源 |
 | [bms_estimation_loop](bms_estimation_loop/README.md) | Control | BMS SOC 估算 |
 | [multi_axis_sync](multi_axis_sync/README.md) | Control | 多轴同步 |
-| [multi_channel_bms](multi_channel_bms/README.md) | Control | 多通道 BMS |
 | [stream_block_rms](stream_block_rms/README.md) | DSP | 块流 RMS |
 | [daq_frontend](daq_frontend/README.md) | DSP | DAQ 触发采集 |
 | [stream_fft](stream_fft/README.md) | DSP | 块流 FFT |
