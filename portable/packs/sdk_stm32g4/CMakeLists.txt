@@ -15,4 +15,15 @@ target_link_libraries(bm_backend_sdk_stm32g4 INTERFACE
     bm_vendor_stm32g4)
 bm_sdk_stm32g4_apply(bm_vendor_stm32g4)
 
+# BM_HAL_CPU_HAS_PORT_FREQ：vendor/stm32g4 自带 bm_hal_cpu_freq_stm32g4.c
+# （freq_hz/freq_points/freq_set 真机实现），须令桩 Source/hal/bm_hal_cpu_stub.c
+# 让出同名符号。该宏必须到达桩所在编译单元（bm_hal 目标）；bm_hal 不依赖
+# vendor，vendor 侧 PUBLIC 定义传不过来（机制见
+# docs/03-移植与IDE集成/01-HAL契约与移植要点.md 133-148 行）。
+# 此处 bm_hal 已由框架根 CMakeLists 在本 pack add_subdirectory 之前创建，
+# 直接对其加 PRIVATE 定义即可（CMake 路径下的可靠途径）。
+if(TARGET bm_hal)
+    target_compile_definitions(bm_hal PRIVATE BM_HAL_CPU_HAS_PORT_FREQ)
+endif()
+
 add_library(bm_hal_stm32g4 ALIAS bm_backend_sdk_stm32g4)

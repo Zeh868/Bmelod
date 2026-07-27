@@ -1,0 +1,211 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/**
+ * @file bm_hal_instances_stm32g4.h
+ * @brief STM32G474xB 板级实例绑定头（默认 NUCLEO-G474RE 参考板）
+ *
+ * 本头集中保存全部实例特定默认值（外设实例 / GPIO / 通道 / AF），
+ * vendor .c 文件一律经这些宏取硬件绑定，不写死任何 GPIO 或通道号。
+ * 应用工程可在包含本头前（或经编译期 -D）覆盖任意宏以适配自有板卡。
+ *
+ * 不直接依赖 CMSIS 头：寄存器指针型默认值（TIM6 等）在 .c 内结合
+ * stm32g4xx.h 使用，本头只放可独立包含的宏常量。
+ *
+ * @author zeh (china_qzh@163.com)
+ * @version 1.1
+ * @date 2026-07-27
+ *
+ * @par 修改日志:
+ *
+ *    Date         Version        Author          Description
+ * 2026-07-27       1.0            zeh            新增（STM32G474xB 移植）
+ * 2026-07-27       1.1            zeh            修正 BM_STM32G4_ADC_JEXTSEL 默认值 2→8（TIM1_TRGO2
+ *                                                正确编码，LL 常量佐证）；新增 PWM/ENC GPIO AF 宏
+ *
+ */
+#ifndef BM_HAL_INSTANCES_STM32G4_H
+#define BM_HAL_INSTANCES_STM32G4_H
+
+/* ---------- 系统 tick（默认 TIM6 基本定时器，APB1 定时器时钟 170MHz） ---------- */
+
+/**
+ * @brief tick 定时器选择：默认 TIM6。
+ *
+ * 若板卡 TIM6 已被 DAC 等占用，定义 BM_STM32G4_TICK_USE_TIM7 切到 TIM7
+ * （寄存器布局与 TIM6 一致）。ISR 入口与 RCC 使能位由 singleton 按此宏切换。
+ */
+/* #define BM_STM32G4_TICK_USE_TIM7 */
+
+/** @brief tick ISR 的 NVIC 优先级（数值越小优先级越高，默认 2）。 */
+#ifndef BM_STM32G4_TICK_IRQ_PRIORITY
+#define BM_STM32G4_TICK_IRQ_PRIORITY  2u
+#endif
+
+/* ---------- Console UART（默认 LPUART1，NUCLEO-G474RE ST-LINK VCP：PA2/PA3） ---------- */
+
+/** @brief console 串口波特率。 */
+#ifndef BM_STM32G4_UART_BAUD
+#define BM_STM32G4_UART_BAUD  115200u
+#endif
+/** @brief console TX 引脚：PA2（LPUART1_TX，AF12）。 */
+#ifndef BM_STM32G4_UART_TX_PIN
+#define BM_STM32G4_UART_TX_PIN  2u
+#endif
+/** @brief console RX 引脚：PA3（LPUART1_RX，AF12）。 */
+#ifndef BM_STM32G4_UART_RX_PIN
+#define BM_STM32G4_UART_RX_PIN  3u
+#endif
+/** @brief console TX/RX 复用功能号（LPUART1 @ PA2/PA3 = AF12）。 */
+#ifndef BM_STM32G4_UART_GPIO_AF
+#define BM_STM32G4_UART_GPIO_AF  12u
+#endif
+/** @brief UART RX 中断 NVIC 优先级。 */
+#ifndef BM_STM32G4_UART_IRQ_PRIORITY
+#define BM_STM32G4_UART_IRQ_PRIORITY  3u
+#endif
+
+/* ---------- 三相 PWM（默认 TIM1 三相互补，NUCLEO-G474RE：PA8/PA9/PA10 + PB13/PB14/PB15） ---------- */
+
+/** @brief PWM 载波频率（Hz），中心对齐。 */
+#ifndef BM_STM32G4_PWM_FREQ_HZ
+#define BM_STM32G4_PWM_FREQ_HZ  20000u
+#endif
+/** @brief PWM 占空比满量程（set_duty 入参量程 0..MAX，内部按比例映射到 ARR）。 */
+#ifndef BM_STM32G4_PWM_DUTY_MAX
+#define BM_STM32G4_PWM_DUTY_MAX  1000u
+#endif
+/** @brief 互补输出死区时间（ns），写入 TIM1 BDTR.DTG。 */
+#ifndef BM_STM32G4_PWM_DEADTIME_NS
+#define BM_STM32G4_PWM_DEADTIME_NS  100u
+#endif
+/** @brief PWM 高边 GPIO 引脚号（A/B/C 相：PA8/PA9/PA10，AF6）。 */
+#ifndef BM_STM32G4_PWM_GPIO_AF
+#define BM_STM32G4_PWM_GPIO_AF  6u
+#endif
+#ifndef BM_STM32G4_PWM_UH_PIN
+#define BM_STM32G4_PWM_UH_PIN  8u
+#endif
+#ifndef BM_STM32G4_PWM_VH_PIN
+#define BM_STM32G4_PWM_VH_PIN  9u
+#endif
+#ifndef BM_STM32G4_PWM_WH_PIN
+#define BM_STM32G4_PWM_WH_PIN  10u
+#endif
+/** @brief PWM 低边 GPIO 引脚号（A/B/C 相：PB13/PB14/PB15，AF6）。 */
+#ifndef BM_STM32G4_PWM_UL_PIN
+#define BM_STM32G4_PWM_UL_PIN  13u
+#endif
+#ifndef BM_STM32G4_PWM_VL_PIN
+#define BM_STM32G4_PWM_VL_PIN  14u
+#endif
+#ifndef BM_STM32G4_PWM_WL_PIN
+#define BM_STM32G4_PWM_WL_PIN  15u
+#endif
+/** @brief TIM1 update 中断（电流环回调）NVIC 优先级。 */
+#ifndef BM_STM32G4_PWM_IRQ_PRIORITY
+#define BM_STM32G4_PWM_IRQ_PRIORITY  1u
+#endif
+
+/* ---------- 相电流 ADC（默认 ADC1 injected 双 rank，TIM1 TRGO2 触发） ---------- */
+
+/** @brief ADC 注入序列 rank 数（ia/ib 两路，第三相由基尔霍夫定律重构）。 */
+#ifndef BM_STM32G4_ADC_RANK_COUNT
+#define BM_STM32G4_ADC_RANK_COUNT  2u
+#endif
+/** @brief ia 采样通道（默认 ADC1_IN1 @ PA0 模拟输入）。 */
+#ifndef BM_STM32G4_ADC_CH_IA
+#define BM_STM32G4_ADC_CH_IA  1u
+#endif
+/** @brief ib 采样通道（默认 ADC1_IN2 @ PA1 模拟输入）。 */
+#ifndef BM_STM32G4_ADC_CH_IB
+#define BM_STM32G4_ADC_CH_IB  2u
+#endif
+/** @brief ia GPIO 引脚号（GPIOA）。 */
+#ifndef BM_STM32G4_ADC_IA_PIN
+#define BM_STM32G4_ADC_IA_PIN  0u
+#endif
+/** @brief ib GPIO 引脚号（GPIOA）。 */
+#ifndef BM_STM32G4_ADC_IB_PIN
+#define BM_STM32G4_ADC_IB_PIN  1u
+#endif
+/**
+ * @brief ADC 注入外部触发源（ADC_JSQR.JEXTSEL 5bit 编码）。
+ *
+ * 默认 8 = TIM1_TRGO2（RM0440 ADC1/2 注入触发源表；与 LL 常量
+ * LL_ADC_INJ_TRIG_EXT_TIM1_TRGO2 = ADC_JSQR_JEXTSEL_3 编码一致）。
+ * 与 PWM 侧 TRGO2 联动——TIM1 update 事件经 TRGO2 触发注入采样，
+ * 中心对齐模式下 update 位于计数谷底=低边采样窗口。
+ * 改触发源时须与 PWM 侧 TRGO2 配置一并核对 RM0440 编码表（实机验收项）。
+ */
+#ifndef BM_STM32G4_ADC_JEXTSEL
+#define BM_STM32G4_ADC_JEXTSEL  8u
+#endif
+/** @brief ADC 注入通道采样时间（ADC_SMPRx.SMPx 编码，默认 12.5 周期=010b）。 */
+#ifndef BM_STM32G4_ADC_SMP
+#define BM_STM32G4_ADC_SMP  2u
+#endif
+/** @brief ADC JEOS 中断 NVIC 优先级（与 PWM update 同级，避免嵌套打断 FPU 现场）。 */
+#ifndef BM_STM32G4_ADC_IRQ_PRIORITY
+#define BM_STM32G4_ADC_IRQ_PRIORITY  1u
+#endif
+
+/* ---------- 编码器（默认 TIM3 正交编码器模式，PA6/PA7 AF2） ---------- */
+
+/** @brief 编码器线数（CPR），TIM3 计数一圈 = 4×CPR。 */
+#ifndef BM_STM32G4_ENC_CPR
+#define BM_STM32G4_ENC_CPR  4096u
+#endif
+/** @brief 编码器 A/B 相 GPIO 引脚号（GPIOA：PA6/PA7，AF2）。 */
+#ifndef BM_STM32G4_ENC_GPIO_AF
+#define BM_STM32G4_ENC_GPIO_AF  2u
+#endif
+#ifndef BM_STM32G4_ENC_A_PIN
+#define BM_STM32G4_ENC_A_PIN  6u
+#endif
+#ifndef BM_STM32G4_ENC_B_PIN
+#define BM_STM32G4_ENC_B_PIN  7u
+#endif
+
+/* ---------- 过流比较器（默认 COMP1 输出内部直连 TIM1_BKIN） ---------- */
+
+/**
+ * @brief COMP1 同相输入选择（CSR.INPSEL）：0=PA1，1=PB1。
+ * 默认 0（PA1，与 ib 采样共用引脚拓扑，板级按实际布线覆盖）。
+ */
+#ifndef BM_STM32G4_COMP_INPSEL
+#define BM_STM32G4_COMP_INPSEL  0u
+#endif
+/**
+ * @brief COMP1 反相输入选择（CSR.INMSEL，4bit 编码）。
+ * 默认 1 = 1/2 VREFINT；DAC 门限等其它选项按 RM0440 COMP1 INMSEL 表覆盖。
+ */
+#ifndef BM_STM32G4_COMP_INMSEL
+#define BM_STM32G4_COMP_INMSEL  1u
+#endif
+/** @brief COMP1 迟滞（CSR.HYST 编码，0=无迟滞；默认 2 档抗噪）。 */
+#ifndef BM_STM32G4_COMP_HYST
+#define BM_STM32G4_COMP_HYST  2u
+#endif
+/** @brief COMP1 输出极性（CSR.POLARITY：0=不反相，触发 TIM1 break 高有效）。 */
+#ifndef BM_STM32G4_COMP_POLARITY
+#define BM_STM32G4_COMP_POLARITY  0u
+#endif
+/** @brief COMP1 blanking 源（CSR.BLANKING 编码，默认 0=不 blanking）。 */
+#ifndef BM_STM32G4_COMP_BLANKING
+#define BM_STM32G4_COMP_BLANKING  0u
+#endif
+
+/* ---------- 看门狗（IWDG，独立 LSI ~32kHz） ---------- */
+
+/** @brief IWDG 时钟（LSI 典型值 32kHz，实机按实测 LSI 频偏校准）。 */
+#ifndef BM_STM32G4_LSI_HZ
+#define BM_STM32G4_LSI_HZ  32000u
+#endif
+
+/* ---------- 时间基（DWT CYCCNT） ---------- */
+
+/** @brief CPU 标称主频（Hz），uptime 纳秒换算与 cpu_freq points 单点共用。 */
+#ifndef BM_STM32G4_CPU_FREQ_HZ
+#define BM_STM32G4_CPU_FREQ_HZ  170000000u
+#endif
+
+#endif /* BM_HAL_INSTANCES_STM32G4_H */

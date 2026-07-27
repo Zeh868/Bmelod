@@ -3,7 +3,9 @@
 Phase 3 布局与 BM_BACKEND 解析烟雾检查（无需 Xtensa 工具链）。
 
 验证 sdk_esp32_idf → arch/xtensa + vendor/esp32_idf + packs/sdk_esp32_idf 路径存在，
-且 bm_port_resolve.cmake 映射正确。Nordic/NXP 等其它 vendor 暂缓，不要求骨架存在。
+且 bm_port_resolve.cmake 映射正确。stm32g4 已正式实施（packs/sdk_stm32g4 =
+arch/armv7em + vendor/stm32g4），要求骨架存在；ch32v003/Nordic/NXP 等其它
+vendor 暂缓，不要求骨架存在。
 """
 
 from __future__ import annotations
@@ -23,10 +25,14 @@ REQUIRED = [
     "portable/vendor/esp32_idf/idf_component.yml",
     "portable/vendor/esp32_idf/README.md",
     "portable/packs/sdk_esp32_idf/CMakeLists.txt",
+    "portable/vendor/stm32g4/CMakeLists.txt",
+    "portable/vendor/stm32g4/bm_vendor_singleton_stm32g4.c",
+    "portable/vendor/stm32g4/bm_hal_instances_stm32g4.h",
+    "portable/vendor/stm32g4/README.md",
+    "portable/packs/sdk_stm32g4/CMakeLists.txt",
 ]
 
 DEFERRED_VENDOR_DIRS = [
-    "portable/vendor/stm32g4",
     "portable/vendor/ch32v003",
     "portable/vendor/nordic_nrf52",
     "portable/vendor/nxp_kinetis",
@@ -115,7 +121,7 @@ def main() -> int:
             print(f"FAIL: {err}", file=sys.stderr)
         return 1
 
-    print("PASS: Phase 3 layout and resolve checks (ESP32-WROOM-32E only)")
+    print("PASS: Phase 3 layout and resolve checks (esp32_idf + stm32g4)")
     return 0
 
 

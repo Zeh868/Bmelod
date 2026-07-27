@@ -34,7 +34,7 @@ portable/template/          量产 Port 模板
 |----------|------|
 | `portable/sim/native` | PC 测试与示例（`packs/native_sim` = arch/host + sim/native） |
 | `portable/vendor/esp32_idf` | 灯哥平衡车主控板 ESP32-WROOM-32E（`packs/sdk_esp32_idf` = arch/xtensa + vendor）；**集成步骤** → [08-ESP-IDF与灯哥平衡车集成](08-ESP-IDF与灯哥平衡车集成.md) |
-| `portable/vendor/stm32g4` | **暂缓** — STM32G4 CMSIS 外设（后续恢复 `packs/sdk_stm32g4`） |
+| `portable/vendor/stm32g4` | STM32G474xB（NUCLEO-G474RE 参考板）STM32 LL 库外设（`packs/sdk_stm32g4` = arch/armv7em + vendor/stm32g4）；成熟度 E1，细节 → [vendor README](../../portable/vendor/stm32g4/README.md) |
 | `portable/vendor/ch32v003` | **暂缓** — CH32V003 外设（后续恢复 `packs/register_ch32v003`） |
 | `portable/vendor/nordic_nrf52` | **暂缓** — nRF52 外设桩（链 `arch/armv7em`，无 pack） |
 | `portable/vendor/nxp_kinetis` | **暂缓** — Kinetis 外设桩（链 `arch/armv7em`，无 pack） |
@@ -63,7 +63,8 @@ target_link_libraries(my_app PRIVATE bm_framework bm_hal_esp32wroom32e)  # 灯�
 | `native_sim` | `packs/native_sim` |
 | `sdk_esp32_idf` | `arch/xtensa` + `vendor/esp32_idf` |
 | `arch_stub` | 仅 `arch/stub`，HAL 烟雾 |
-| `sdk_stm32g4` / `register_ch32v003` | 暂缓，当前不随 `portable/vendor` 提供 |
+| `sdk_stm32g4` | `arch/armv7em` + `vendor/stm32g4`（CMSIS 经 `BM_STM32_CUBE_PATH` 注入） |
+| `register_ch32v003` | 暂缓，当前不随 `portable/vendor` 提供 |
 
 详见 [03-Port移植层bm_port](03-Port移植层bm_port.md)。
 

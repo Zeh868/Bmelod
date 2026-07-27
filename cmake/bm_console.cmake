@@ -35,6 +35,10 @@ function(bm_console_apply_defaults config_target)
         # 非实时冒烟工程可在 add_subdirectory 之前 set(BM_CONSOLE_LOG_BACKEND 2) 切换为 UART。
         set(_log_default 3)
         set(_cli_default 2)
+    elseif(_backend STREQUAL "sdk_stm32g4")
+        # stm32g4 LOG/CLI 均默认走 UART（LPUART1，经 bm_drv_uart_api 单例）。
+        set(_log_default 2)
+        set(_cli_default 2)
     else()
         return()
     endif()
