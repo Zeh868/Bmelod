@@ -40,9 +40,10 @@ void test_transport_qos_enqueue_token_bucket(void) {
     axis.config.token_burst_bytes = 100u;
 
     TEST_ASSERT_EQUAL(BM_OK, bm_transport_qos_init(&axis));
-    TEST_ASSERT_EQUAL(0, bm_transport_qos_enqueue(&axis, 50u));
-    TEST_ASSERT_EQUAL(0, bm_transport_qos_enqueue(&axis, 50u));
-    TEST_ASSERT_EQUAL(-1, bm_transport_qos_enqueue(&axis, 1u));
+    TEST_ASSERT_EQUAL(BM_OK, bm_transport_qos_enqueue(&axis, 50u));
+    TEST_ASSERT_EQUAL(BM_OK, bm_transport_qos_enqueue(&axis, 50u));
+    TEST_ASSERT_EQUAL(BM_ERR_WOULD_BLOCK,
+                      bm_transport_qos_enqueue(&axis, 1u));
 }
 
 /*
@@ -62,20 +63,23 @@ void test_transport_qos_token_refill_over_time(void) {
     TEST_ASSERT_EQUAL(BM_OK, bm_transport_qos_init(&axis));
 
     /* 烧空初始 100 令牌（首次 enqueue 登记时间基准，不补充） */
-    TEST_ASSERT_EQUAL(0, bm_transport_qos_enqueue(&axis, 100u));
+    TEST_ASSERT_EQUAL(BM_OK, bm_transport_qos_enqueue(&axis, 100u));
     /* 同一时刻再入队：无补充，桶空拒绝 */
-    TEST_ASSERT_EQUAL(-1, bm_transport_qos_enqueue(&axis, 1u));
+    TEST_ASSERT_EQUAL(BM_ERR_WOULD_BLOCK,
+                      bm_transport_qos_enqueue(&axis, 1u));
 
     /* 推进 50ms：补充 50 令牌，恰好接受 50 字节 */
     g_now_ms = 50u;
-    TEST_ASSERT_EQUAL(0, bm_transport_qos_enqueue(&axis, 50u));
+    TEST_ASSERT_EQUAL(BM_OK, bm_transport_qos_enqueue(&axis, 50u));
     /* 桶再次空 */
-    TEST_ASSERT_EQUAL(-1, bm_transport_qos_enqueue(&axis, 1u));
+    TEST_ASSERT_EQUAL(BM_ERR_WOULD_BLOCK,
+                      bm_transport_qos_enqueue(&axis, 1u));
 
     /* 推进很久：补充被 burst(100) 封顶，可接受但不超过 100 */
     g_now_ms = 100000u;
-    TEST_ASSERT_EQUAL(0, bm_transport_qos_enqueue(&axis, 100u));
-    TEST_ASSERT_EQUAL(-1, bm_transport_qos_enqueue(&axis, 1u));
+    TEST_ASSERT_EQUAL(BM_OK, bm_transport_qos_enqueue(&axis, 100u));
+    TEST_ASSERT_EQUAL(BM_ERR_WOULD_BLOCK,
+                      bm_transport_qos_enqueue(&axis, 1u));
 }
 
 /*

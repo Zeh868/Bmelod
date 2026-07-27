@@ -95,7 +95,8 @@ void test_sensor_quality_range_fault_over(void) {
     bm_sensor_quality_axis_t axis;
 
     make_axis(&axis);
-    TEST_ASSERT_EQUAL(BM_OK, bm_sensor_quality_init(&axis, 0.0f));
+    axis.config.initial_value = 0.0f;
+    TEST_ASSERT_EQUAL(BM_OK, bm_sensor_quality_init(&axis));
 
     g_sample_value = 15.0f; /* > max_v=10 */
     bm_sensor_quality_step(&axis);
@@ -115,7 +116,8 @@ void test_sensor_quality_range_fault_under(void) {
     bm_sensor_quality_axis_t axis;
 
     make_axis(&axis);
-    TEST_ASSERT_EQUAL(BM_OK, bm_sensor_quality_init(&axis, 0.0f));
+    axis.config.initial_value = 0.0f;
+    TEST_ASSERT_EQUAL(BM_OK, bm_sensor_quality_init(&axis));
 
     g_sample_value = -15.0f; /* < min_v=-10 */
     bm_sensor_quality_step(&axis);
@@ -137,7 +139,8 @@ void test_sensor_quality_frozen_detection(void) {
 
     make_axis(&axis);
     axis.config.frozen_count_required = 3u;
-    TEST_ASSERT_EQUAL(BM_OK, bm_sensor_quality_init(&axis, 0.0f));
+    axis.config.initial_value = 0.0f;
+    TEST_ASSERT_EQUAL(BM_OK, bm_sensor_quality_init(&axis));
 
     g_sample_value = 5.0f; /* 合法，但保持不变 */
     /* 推进足够步数让冻结计数器达到阈值 */
@@ -159,7 +162,8 @@ void test_sensor_quality_frozen_clears_on_change(void) {
 
     make_axis(&axis);
     axis.config.frozen_count_required = 3u;
-    TEST_ASSERT_EQUAL(BM_OK, bm_sensor_quality_init(&axis, 0.0f));
+    axis.config.initial_value = 0.0f;
+    TEST_ASSERT_EQUAL(BM_OK, bm_sensor_quality_init(&axis));
 
     g_sample_value = 5.0f;
     for (i = 0u; i < 5u; i++) {
@@ -185,7 +189,8 @@ void test_sensor_quality_normal_path_no_fault(void) {
     uint32_t i;
 
     make_axis(&axis);
-    TEST_ASSERT_EQUAL(BM_OK, bm_sensor_quality_init(&axis, 0.0f));
+    axis.config.initial_value = 0.0f;
+    TEST_ASSERT_EQUAL(BM_OK, bm_sensor_quality_init(&axis));
 
     /* 在合法范围内变化采样，不会冻结也不会越限 */
     for (i = 0u; i < 10u; i++) {
@@ -208,7 +213,8 @@ void test_sensor_quality_stale_on_read_fail(void) {
     bm_sensor_quality_axis_t axis;
 
     make_axis(&axis);
-    TEST_ASSERT_EQUAL(BM_OK, bm_sensor_quality_init(&axis, 3.0f));
+    axis.config.initial_value = 3.0f;
+    TEST_ASSERT_EQUAL(BM_OK, bm_sensor_quality_init(&axis));
 
     /* 先正常步进一次建立 last_value */
     g_sample_value = 3.0f;
@@ -231,7 +237,7 @@ void test_sensor_quality_null_safety(void) {
     TEST_ASSERT_NOT_EQUAL(BM_OK, bm_sensor_quality_validate_config(NULL));
 
     /* 其余接口静默返回 */
-    bm_sensor_quality_reset(NULL, 0.0f);
+    bm_sensor_quality_reset(NULL);
     bm_sensor_quality_step(NULL);
 
     /* exec_ops NULL 安全 */

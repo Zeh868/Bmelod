@@ -6,7 +6,7 @@
  * exec_ops 封装提供 bm_exec 周期调度接入点。
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.2
+ * @version 0.3
  * @date 2026-06-13
  *
  * @par 修改日志:
@@ -14,6 +14,7 @@
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 exec_ops 封装；Doxygen；SPDX
+ * 2026-07-27       0.3            zeh            init/reset 签名统一为四段式范式；initial 移入 config
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -33,11 +34,14 @@ int bm_sensor_quality_validate_config(const bm_sensor_quality_config_t *config) 
     return BM_OK;
 }
 
-void bm_sensor_quality_reset(bm_sensor_quality_axis_t *axis, float initial) {
+void bm_sensor_quality_reset(bm_sensor_quality_axis_t *axis) {
+    float initial;
+
     if (axis == NULL) {
         return;
     }
 
+    initial = axis->config.initial_value;
     bm_algo_range_monitor_reset(&axis->state.monitor, initial);
     axis->state.frozen_prev = initial;
     axis->state.frozen_count = 0u;
@@ -48,12 +52,12 @@ void bm_sensor_quality_reset(bm_sensor_quality_axis_t *axis, float initial) {
     axis->state.telemetry.value = initial;
 }
 
-int bm_sensor_quality_init(bm_sensor_quality_axis_t *axis, float initial) {
+int bm_sensor_quality_init(bm_sensor_quality_axis_t *axis) {
     if (axis == NULL ||
         bm_sensor_quality_validate_config(&axis->config) != BM_OK) {
         return BM_ERR_INVALID;
     }
-    bm_sensor_quality_reset(axis, initial);
+    bm_sensor_quality_reset(axis);
     return BM_OK;
 }
 
@@ -137,7 +141,9 @@ void bm_sensor_quality_exec_run(const bm_exec_t *instance) {
 }
 
 /**
- * @brief exec_ops.init 实现：校验配置并以 0.0f 为初始值复位状态
+ * @brief exec_ops.init 实现：校验配置并复位状态
+ *
+ * 初始值使用 axis->config.initial_value，由调用方在配置阶段填入。
  *
  * @param instance bm_exec 实例
  * @return BM_OK 成功；BM_ERR_INVALID 参数非法或配置校验失败
@@ -152,7 +158,7 @@ int bm_sensor_quality_exec_init(const bm_exec_t *instance) {
     if (bm_sensor_quality_validate_config(&axis->config) != BM_OK) {
         return BM_ERR_INVALID;
     }
-    bm_sensor_quality_reset(axis, 0.0f);
+    bm_sensor_quality_reset(axis);
     return BM_OK;
 }
 

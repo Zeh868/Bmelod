@@ -6,8 +6,8 @@
  * 通过 bm_robot_joint_control_exec_ops 接入 bm_exec 生命周期。
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.3
- * @date 2026-07-14
+ * @version 0.4
+ * @date 2026-07-27
  *
  * @par 修改日志:
  *
@@ -17,6 +17,9 @@
  * 2026-07-14       0.3            zeh            Medium-6 修复：read_joint 反馈
  *                                                非有限时拒绝进入 PI/friction，
  *                                                输出 0 力矩，避免 NaN 力矩下发
+ * 2026-07-27       0.4            zeh            validate_config 中
+ *                                                bm_algo_pi_validate_config
+ *                                                结果比较改为 BM_OK
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -36,7 +39,7 @@ int bm_robot_joint_control_validate_config(
         config->velocity_max_rad_s <= 0.0f) {
         return BM_ERR_INVALID;
     }
-    if (bm_algo_pi_validate_config(&config->pi) != 0) {
+    if (bm_algo_pi_validate_config(&config->pi) != BM_OK) {
         return BM_ERR_INVALID;
     }
     if (config->position_min_rad > config->position_max_rad) {

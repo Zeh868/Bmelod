@@ -6,8 +6,8 @@
  * 并提供 bm_exec_ops_t 调度封装。
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.5
- * @date 2026-07-13
+ * @version 0.6
+ * @date 2026-07-27
  *
  * @par 修改日志:
  *
@@ -20,6 +20,9 @@
  * 2026-07-13       0.5            zeh            validate_config 显式拒绝 delay_steps==0
  *                                                 （底层 smith_predictor_init 本就拒绝，
  *                                                 原注释误称合法），注释与契约对齐
+ * 2026-07-27       0.6            zeh            validate_config 中
+ *                                                 bm_algo_pid_validate_config
+ *                                                 结果比较改为 BM_OK
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -36,8 +39,8 @@ int bm_process_control_validate_config(const bm_process_control_config_t *config
         return BM_ERR_INVALID;
     }
     /* 外环/内环 PID 参数须通过算法层校验，避免 NaN/Inf 增益污染控制律 */
-    if (bm_algo_pid_validate_config(&config->outer_pid) != 0 ||
-        bm_algo_pid_validate_config(&config->inner_pid) != 0) {
+    if (bm_algo_pid_validate_config(&config->outer_pid) != BM_OK ||
+        bm_algo_pid_validate_config(&config->inner_pid) != BM_OK) {
         return BM_ERR_INVALID;
     }
     /* 延迟线缓冲区须有效 */

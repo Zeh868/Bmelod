@@ -8,14 +8,15 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.2
- * @date 2026-06-13
+ * @version 0.3
+ * @date 2026-07-27
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补全 Doxygen 中文注释；添加 SPDX 头
+ * 2026-07-27       0.3            zeh            新增 bm_exec_ops_t 生命周期封装
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -23,6 +24,7 @@
 #define BM_FAULT_DERATING_H
 
 #include "bm/algorithm/bm_algo_profile.h"
+#include "bm/hybrid/bm_exec.h"
 
 #include <stdint.h>
 
@@ -141,6 +143,49 @@ void bm_fault_derating_clear_request(bm_fault_derating_axis_t *axis);
  * @param axis 轴实例指针，NULL 时静默返回
  */
 void bm_fault_derating_step(bm_fault_derating_axis_t *axis);
+
+/* ---------- exec_ops 封装（bm_exec 周期调度接口） ---------- */
+
+/**
+ * @brief exec 周期步函数：转发至 bm_fault_derating_step
+ *
+ * @param instance bm_exec 实例；instance->state 须指向
+ *                 bm_fault_derating_axis_t
+ */
+void bm_fault_derating_exec_step(const bm_exec_t *instance);
+
+/**
+ * @brief exec 生命周期：初始化
+ *
+ * 校验配置合法性并复位状态。
+ *
+ * @param instance bm_exec 实例
+ * @return BM_OK 成功；BM_ERR_INVALID 参数或配置非法
+ */
+int  bm_fault_derating_exec_init(const bm_exec_t *instance);
+
+/**
+ * @brief exec 生命周期：启动
+ *
+ * 当前无额外启动动作，始终返回 BM_OK。
+ *
+ * @param instance bm_exec 实例（未使用）
+ * @return BM_OK
+ */
+int  bm_fault_derating_exec_start(const bm_exec_t *instance);
+
+/**
+ * @brief exec 生命周期：安全停止
+ *
+ * 调用 bm_fault_derating_reset 清零状态与遥测。
+ *
+ * @param instance bm_exec 实例；instance->state 须指向
+ *                 bm_fault_derating_axis_t
+ */
+void bm_fault_derating_exec_safe_stop(const bm_exec_t *instance);
+
+/** @brief fault_derating 标准 exec 生命周期操作表 */
+extern const bm_exec_ops_t bm_fault_derating_exec_ops;
 
 #ifdef __cplusplus
 }

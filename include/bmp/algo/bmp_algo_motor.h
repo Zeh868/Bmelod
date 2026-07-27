@@ -24,10 +24,18 @@ typedef struct {
     uint8_t reserved[3];
 } bmp_motor_state_t;
 
+/**
+ * @brief 初始化电机速度观测器状态
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效
+ */
 int bmp_motor_observer_init(bmp_motor_state_t *state,
                             const bmp_motor_config_t *config,
                             float speed_init);
 
+/**
+ * @brief 执行一步电机速度观测
+ * @return BM_OK 成功；BM_ERR_INVALID 参数或状态无效
+ */
 int bmp_motor_observer_step(bmp_motor_state_t *state,
                             const bmp_motor_config_t *config,
                             float speed_meas,

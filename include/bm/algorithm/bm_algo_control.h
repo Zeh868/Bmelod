@@ -6,8 +6,8 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.3
- * @date 2026-07-09
+ * @version 1.4
+ * @date 2026-07-27
  *
  * @par 修改日志:
  *
@@ -18,6 +18,9 @@
  *                                                返回值补 k+p==0 语义说明；
  *                                                新增 bm_algo_pid2_validate_config，
  *                                                与 pi/pid 家族的校验函数对齐
+ * 2026-07-27       1.4            zeh            pi/pid/pid2 validate_config
+ *                                                返回值统一为 BM_OK /
+ *                                                BM_ERR_INVALID
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -79,6 +82,12 @@ typedef struct {
     float output;
 } bm_algo_pi_state_t;
 
+/**
+ * @brief 校验 PI 控制器配置
+ *
+ * @param config PI 配置指针
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效
+ */
 int bm_algo_pi_validate_config(const bm_algo_pi_config_t *config);
 void bm_algo_pi_reset(bm_algo_pi_state_t *state, float output);
 float bm_algo_pi_step(bm_algo_pi_state_t *state,
@@ -108,6 +117,12 @@ typedef struct {
     float output;
 } bm_algo_pid_state_t;
 
+/**
+ * @brief 校验 PID 控制器配置
+ *
+ * @param config PID 配置指针
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效
+ */
 int bm_algo_pid_validate_config(const bm_algo_pid_config_t *config);
 void bm_algo_pid_reset(bm_algo_pid_state_t *state, float output);
 float bm_algo_pid_step(bm_algo_pid_state_t *state,
@@ -220,7 +235,7 @@ typedef struct {
  *        提前拒绝，只能在 bm_algo_clamp_f 内静默产出意义不明的钳位结果）
  *
  * @param config 待校验配置指针
- * @return 0 合法；BM_ALGO_ERR_INVALID 参数无效
+ * @return BM_OK 合法；BM_ERR_INVALID 参数无效
  */
 int bm_algo_pid2_validate_config(const bm_algo_pid2_config_t *config);
 void bm_algo_pid2_reset(bm_algo_pid2_state_t *state, float output);

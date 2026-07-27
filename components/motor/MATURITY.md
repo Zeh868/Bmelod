@@ -13,6 +13,7 @@ Not validated: 实机 HAL、电流采样极性校准、WCET、多轴、弱磁
 - 电流环 10 kHz + 速度环 1 kHz（Scheduled HRT）
 - `bm_algorithm` Clarke/Park、SVPWM、PI、编码器、ramp
 - 命令/遥测经 snapshot + `bm_module` 监督层
+- `motor_current_sense` 提供遥测发布与 `bm_motor_current_sense_exec_ops`；FOC 组件返回值统一为 `BM_ERR_*`
 
 ## 已知限制
 

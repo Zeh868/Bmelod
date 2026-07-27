@@ -244,32 +244,32 @@ void bm_transport_qos_step(bm_transport_qos_axis_t *axis) {
 /**
  * @brief token bucket 入队整形（消耗令牌）
  *
- * 先按经过时间补充令牌，若令牌充足则扣除 bytes 令牌后返回 0（接受）；
- * 若 token_rate/burst 未配置则直接放行（返回 0）。
+ * 先按经过时间补充令牌，若令牌充足则扣除 bytes 令牌后返回 BM_OK（接受）；
+ * 若 token_rate/burst 未配置则直接放行（返回 BM_OK）。
  *
  * @param axis  QoS 轴实例（不可为 NULL）
  * @param bytes 待发送字节数（不可为 0）
- * @return 0 接受；-1 丢弃（桶空或参数无效）
+ * @return BM_OK 接受；BM_ERR_INVALID 参数无效；BM_ERR_WOULD_BLOCK 桶空（丢弃）
  */
 int bm_transport_qos_enqueue(bm_transport_qos_axis_t *axis, uint32_t bytes) {
     const bm_transport_qos_config_t *cfg;
 
     if (axis == NULL || bytes == 0u) {
-        return -1;
+        return BM_ERR_INVALID;
     }
 
     cfg = &axis->config;
     if (cfg->token_rate_bytes_per_ms <= 0.0f ||
         cfg->token_burst_bytes == 0u) {
-        return 0;
+        return BM_OK;
     }
 
     token_refill(axis);
 
     if (axis->state.tokens < (float)bytes) {
-        return -1;
+        return BM_ERR_WOULD_BLOCK;
     }
 
     axis->state.tokens -= (float)bytes;
-    return 0;
+    return BM_OK;
 }

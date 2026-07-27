@@ -6,6 +6,7 @@
 #include "bmp/algo/bmp_algo_bms.h"
 
 #include "bm/algorithm/bm_algo_battery.h"
+#include "bm/common/bm_types.h"
 
 #include <string.h>
 
@@ -35,7 +36,7 @@ int bmp_bms_fusion_init(bmp_bms_state_t *state,
                         const bmp_bms_config_t *config,
                         float soc_init) {
     if (state == NULL || config == NULL || config->nominal_capacity_ah <= 0.0f) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     memset(state, 0, sizeof(*state));
     if (soc_init < 0.0f) {
@@ -46,7 +47,7 @@ int bmp_bms_fusion_init(bmp_bms_state_t *state,
     }
     state->soc_coulomb = soc_init;
     state->initialized = 1u;
-    return 0;
+    return BM_OK;
 }
 
 int bmp_bms_fusion_step(bmp_bms_state_t *state,
@@ -63,7 +64,7 @@ int bmp_bms_fusion_step(bmp_bms_state_t *state,
 
     if (state == NULL || config == NULL || soc_out == NULL ||
         state->initialized == 0u || dt_s <= 0.0f) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     coulomb_cfg.nominal_capacity_ah = config->nominal_capacity_ah;
     coulomb_cfg.coulomb_efficiency = 1.0f;
@@ -78,5 +79,5 @@ int bmp_bms_fusion_step(bmp_bms_state_t *state,
     fusion_cfg.ocv_weight = config->ocv_weight;
     fused = bm_algo_soc_fusion_step(state->soc_coulomb, soc_ocv, &fusion_cfg);
     *soc_out = fused;
-    return 0;
+    return BM_OK;
 }

@@ -11,6 +11,7 @@
 
 #include "bm/algorithm/bm_algo_fft.h"
 #include "bm/algorithm/bm_algo_spectral.h"
+#include "bm/common/bm_types.h"
 
 #include <string.h>
 
@@ -19,12 +20,12 @@ int bmp_fft_enhanced_init(bmp_fft_state_t *state, const bmp_fft_config_t *config
     uint32_t size;
 
     if (state == NULL || config == NULL) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     size = config->fft_size;
     if (size == 0u || size > BMP_FFT_MAX_SIZE ||
         bm_algo_fft_is_supported_size(size) == 0) {
-        return -2;
+        return BM_ERR_NOT_SUPPORTED;
     }
     memset(state, 0, sizeof(*state));
     state->fft_size = size;
@@ -37,11 +38,11 @@ int bmp_fft_enhanced_init(bmp_fft_state_t *state, const bmp_fft_config_t *config
     rfft.twiddle_count = 0u;
     if (bm_algo_rfft_f32_init(&rfft, size, state->work,
                               (uint32_t)(sizeof(state->work) /
-                                         sizeof(state->work[0]))) != 0) {
-        return -3;
+                                         sizeof(state->work[0]))) != BM_OK) {
+        return BM_ERR_INVALID;
     }
     state->initialized = 1u;
-    return 0;
+    return BM_OK;
 }
 
 int bmp_fft_enhanced_step(bmp_fft_state_t *state,
@@ -54,11 +55,11 @@ int bmp_fft_enhanced_step(bmp_fft_state_t *state,
 
     if (state == NULL || samples == NULL || out == NULL ||
         state->initialized == 0u) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     size = state->fft_size;
     if (sample_count < size) {
-        return -2;
+        return BM_ERR_NOT_SUPPORTED;
     }
     for (i = 0u; i < size; i++) {
         state->windowed[i] = samples[i] * state->window[i];
@@ -72,14 +73,14 @@ int bmp_fft_enhanced_step(bmp_fft_state_t *state,
     rfft.work_count = size * 2u;
     rfft.twiddle = NULL;
     rfft.twiddle_count = 0u;
-    if (bm_algo_rfft_f32_execute(&rfft, state->windowed, state->spectrum) != 0) {
-        return -4;
+    if (bm_algo_rfft_f32_execute(&rfft, state->windowed, state->spectrum) != BM_OK) {
+        return BM_ERR_INVALID;
     }
     if (bm_algo_find_peak_bin(state->spectrum, 1u, size / 2u,
-                              &out->peak_bin, &out->peak_mag) != 0) {
+                              &out->peak_bin, &out->peak_mag) != BM_OK) {
         out->peak_bin = 0u;
         out->peak_mag = 0.0f;
-        return -5;
+        return BM_ERR_NOT_FOUND;
     }
-    return 0;
+    return BM_OK;
 }

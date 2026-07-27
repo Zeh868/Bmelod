@@ -23,11 +23,14 @@
  * 2026-07-16       1.5            zeh            imu_calib_accumulator_feed 改先校验
  *                                                后提交：三轴任一非有限即整帧拒绝，
  *                                                消除中途失败的半更新状态
+ * 2026-07-27       1.6            zeh            complementary_step 的 alpha
+ *                                                改用 bm_algo_lpf1_alpha_saturate
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_fusion.h"
 #include "bm/algorithm/bm_algo_errors.h"
+#include "bm/algorithm/bm_algo_filter.h"
 #include "bm/algorithm/bm_algo_common.h"
 #include <stddef.h>
 
@@ -97,7 +100,7 @@ void bm_algo_complementary_step(bm_algo_complementary_state_t *state,
     state->roll_rad += gx * dt_s;
     state->pitch_rad += gy * dt_s;
 
-    alpha = config->alpha;
+    alpha = bm_algo_lpf1_alpha_saturate(config->alpha);
     state->roll_rad = alpha * state->roll_rad + (1.0f - alpha) * roll_acc;
     state->pitch_rad = alpha * state->pitch_rad + (1.0f - alpha) * pitch_acc;
 }

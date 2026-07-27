@@ -6,7 +6,7 @@
  * 并覆盖 exec 生命周期（init → start → step → safe_stop）路径。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-06-17
  *
  * @par 修改日志:
@@ -14,6 +14,7 @@
  *    Date         Version        Author          Description
  * 2026-06-17       1.0            zeh            正式发布
  * 2026-06-23       1.1            zeh            补 exec 生命周期测试
+ * 2026-07-27       1.2            zeh            新增 bm_control_loop_init 直接入口测试
  */
 #include "unity.h"
 #include "bm/component/control_loop.h"
@@ -112,6 +113,30 @@ static void make_valid_axis(bm_control_loop_axis_t *axis) {
     axis->config.inner_pi.integrator_max = 10.0f;
     axis->resources.read_plant = read_plant;
     axis->resources.write_output = write_output;
+}
+
+/**
+ * @brief bm_control_loop_init 对 NULL 应返回 BM_ERR_INVALID
+ */
+static void test_init_null_returns_invalid(void) {
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_control_loop_init(NULL));
+}
+
+/**
+ * @brief bm_control_loop_init 对有效配置应返回 BM_OK 并复位状态
+ */
+static void test_init_valid_resets_state(void) {
+    bm_control_loop_axis_t axis;
+
+    make_valid_axis(&axis);
+    /* 故意置入非零脏值 */
+    axis.state.step_count = 99u;
+    axis.state.outer_out = 3.14f;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_control_loop_init(&axis));
+    TEST_ASSERT_EQUAL_UINT32(0u, axis.state.step_count);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, axis.state.outer_out);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, axis.state.inner_out);
 }
 
 /* ---------------------------------------------------------------------------
@@ -277,6 +302,8 @@ static void test_exec_full_lifecycle(void) {
 void test_control_loop(void) {
     RUN_TEST(test_validate_config_rejects_bad_dt);
     RUN_TEST(test_cascade_pi_moves_toward_setpoint);
+    RUN_TEST(test_init_null_returns_invalid);
+    RUN_TEST(test_init_valid_resets_state);
     /* exec 生命周期 */
     RUN_TEST(test_exec_init_null_returns_invalid);
     RUN_TEST(test_exec_init_bad_config_returns_invalid);

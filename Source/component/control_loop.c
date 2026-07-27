@@ -7,7 +7,7 @@
  * 可直接接入调度框架；bm_control_loop_step() 直接调用路径保持不变。
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.2
+ * @version 0.3
  * @date 2026-06-17
  *
  * @par 修改日志:
@@ -15,6 +15,7 @@
  *    Date         Version        Author          Description
  * 2026-06-17       0.1            zeh            初始 K1 骨架
  * 2026-06-23       0.2            zeh            补 bm_exec_ops_t 标准调度封装接口
+ * 2026-07-27       0.3            zeh            新增 bm_control_loop_init 四段式入口；exec_init 复用之
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -25,8 +26,8 @@ int bm_control_loop_validate_config(const bm_control_loop_config_t *config) {
     if (config == NULL || config->dt_s <= 0.0f) {
         return BM_ERR_INVALID;
     }
-    if (bm_algo_pi_validate_config(&config->outer_pi) != 0 ||
-        bm_algo_pi_validate_config(&config->inner_pi) != 0) {
+    if (bm_algo_pi_validate_config(&config->outer_pi) != BM_OK ||
+        bm_algo_pi_validate_config(&config->inner_pi) != BM_OK) {
         return BM_ERR_INVALID;
     }
     return BM_OK;
@@ -41,6 +42,15 @@ void bm_control_loop_reset(bm_control_loop_axis_t *axis) {
     axis->state.outer_out = 0.0f;
     axis->state.inner_out = 0.0f;
     axis->state.step_count = 0u;
+}
+
+int bm_control_loop_init(bm_control_loop_axis_t *axis) {
+    if (axis == NULL ||
+        bm_control_loop_validate_config(&axis->config) != BM_OK) {
+        return BM_ERR_INVALID;
+    }
+    bm_control_loop_reset(axis);
+    return BM_OK;
 }
 
 void bm_control_loop_step(bm_control_loop_axis_t *axis) {
@@ -119,17 +129,10 @@ void bm_control_loop_exec_step(const bm_exec_t *instance) {
  * @return BM_OK 成功；BM_ERR_INVALID 配置非法或指针为空
  */
 int bm_control_loop_exec_init(const bm_exec_t *instance) {
-    bm_control_loop_axis_t *axis;
-
     if (instance == NULL || instance->state == NULL) {
         return BM_ERR_INVALID;
     }
-    axis = (bm_control_loop_axis_t *)instance->state;
-    if (bm_control_loop_validate_config(&axis->config) != BM_OK) {
-        return BM_ERR_INVALID;
-    }
-    bm_control_loop_reset(axis);
-    return BM_OK;
+    return bm_control_loop_init((bm_control_loop_axis_t *)instance->state);
 }
 
 /**

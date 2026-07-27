@@ -38,8 +38,16 @@ typedef struct {
     uint8_t reserved[3];
 } bmp_audio_state_t;
 
+/**
+ * @brief 初始化音频 AGC 状态
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效
+ */
 int bmp_audio_agc_init(bmp_audio_state_t *state, const bmp_audio_config_t *config);
 
+/**
+ * @brief 执行一步音频 AGC
+ * @return BM_OK 成功；BM_ERR_INVALID 参数或状态无效
+ */
 int bmp_audio_agc_step(bmp_audio_state_t *state,
                        const bmp_audio_config_t *config,
                        const float *in,

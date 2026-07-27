@@ -11,6 +11,7 @@ Not validated: 多级降额曲线、实机故障证据快照、WCET
 - `bm_fault_derating_latch`：触发锁存并沿降额曲线斜坡下降
 - `bm_fault_derating_clear_request`：清除锁存后计时恢复满功率
 - K0：`bm_algo_ramp`
+- 四段式 API：`config` / `resources` / `state` / `axis`，提供 `bm_fault_derating_exec_ops`
 
 ## 已知限制
 

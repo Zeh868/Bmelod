@@ -75,7 +75,7 @@ static float read_theta_elec(const bm_motor_foc_sensored_axis_t *axis) {
  * @param[out] ib         换算后 ib（A）。
  * @param[out] raw_ia_out B3 诊断：原始 ia ADC 计数（可为 NULL）。
  * @param[out] raw_ib_out B3 诊断：原始 ib ADC 计数（可为 NULL）。
- * @return 0 成功；-1 失败（ADC 为空 / scale 非法 / HAL 错误）。
+ * @return BM_OK 成功；BM_ERR_INVALID 参数/资源配置非法；BM_ERR_IO HAL 读取失败。
  */
 static int read_current_ab(const bm_motor_foc_sensored_axis_t *axis,
                            float *ia,
@@ -88,20 +88,20 @@ static int read_current_ab(const bm_motor_foc_sensored_axis_t *axis,
 
     if (res->adc == NULL || res->current_adc_scale <= 0.0f ||
         ia == NULL || ib == NULL) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     if (bm_hal_adc_read_injected(res->adc, res->adc_rank_ia, &raw_ia) != BM_OK) {
-        return -1;
+        return BM_ERR_IO;
     }
     if (bm_hal_adc_read_injected(res->adc, res->adc_rank_ib, &raw_ib) != BM_OK) {
-        return -1;
+        return BM_ERR_IO;
     }
     *ia = bm_component_adc_to_current(res->current_adc_scale, raw_ia);
     *ib = bm_component_adc_to_current(res->current_adc_scale, raw_ib);
     /* B3 诊断：可选回传原始计数（NULL 则跳过）。 */
     if (raw_ia_out != NULL) { *raw_ia_out = raw_ia; }
     if (raw_ib_out != NULL) { *raw_ib_out = raw_ib; }
-    return 0;
+    return BM_OK;
 }
 
 /**
@@ -116,7 +116,7 @@ static int read_current_ab(const bm_motor_foc_sensored_axis_t *axis,
  * @param[out] iq         q 轴实测电流（A）。
  * @param[out] raw_ia_out B3 诊断：原始 ia ADC 计数（可为 NULL）。
  * @param[out] raw_ib_out B3 诊断：原始 ib ADC 计数（可为 NULL）。
- * @return 0 成功；-1 失败。
+ * @return BM_OK 成功；read_current_ab 的错误码透传。
  */
 static int read_id_iq_feedback(const bm_motor_foc_sensored_axis_t *axis,
                                float theta_elec,
@@ -134,22 +134,24 @@ static int read_id_iq_feedback(const bm_motor_foc_sensored_axis_t *axis,
         /* sim_fb 路径无真实 ADC，raw 置 0。 */
         if (raw_ia_out != NULL) { *raw_ia_out = 0u; }
         if (raw_ib_out != NULL) { *raw_ib_out = 0u; }
-        return 0;
+        return BM_OK;
     }
 
     {
         float ia;
         float ib;
+        int rc;
 
-        if (read_current_ab(axis, &ia, &ib, raw_ia_out, raw_ib_out) != 0) {
-            return -1;
+        rc = read_current_ab(axis, &ia, &ib, raw_ia_out, raw_ib_out);
+        if (rc != BM_OK) {
+            return rc;
         }
         bm_algo_clarke_2shunt(ia, ib, &i_ab);
         bm_algo_park(&i_ab, theta_elec, &i_dq);
         *id = i_dq.id;
         *iq = i_dq.iq;
     }
-    return 0;
+    return BM_OK;
 }
 
 static void latch_fault(bm_motor_foc_sensored_axis_t *axis) {
@@ -310,7 +312,7 @@ void bm_motor_foc_sensored_current_step(bm_motor_foc_sensored_axis_t *axis) {
         uint16_t raw_ia = 0u;
         uint16_t raw_ib = 0u;
         if (read_id_iq_feedback(axis, theta_elec, &id_meas, &iq_meas,
-                                &raw_ia, &raw_ib) != 0) {
+                                &raw_ia, &raw_ib) != BM_OK) {
             latch_fault(axis);
             set_fault_telemetry(st);
             st->current.loop_count++;

@@ -20,12 +20,17 @@
  *                                                differentiator/pr/lead_lag
  *                                                step 补输入/系数有限性护栏，
  *                                                与 pi/pid/pid2 对齐
+ * 2026-07-27       1.5            zeh            differentiator/pid/pid2 的
+ *                                                LPF alpha 改用
+ *                                                bm_algo_lpf1_alpha_saturate
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_control.h"
 #include "bm/algorithm/bm_algo_errors.h"
 #include "bm/algorithm/bm_algo_common.h"
+#include "bm/algorithm/bm_algo_filter.h"
+#include "bm/common/bm_types.h"
 #include <stddef.h>
 
 #include <math.h>
@@ -80,26 +85,26 @@ float bm_algo_differentiator_step(bm_algo_differentiator_state_t *state,
     raw_d = (input - state->prev_input) / dt_s;
     state->prev_input = input;
 
-    alpha = bm_algo_clamp_f(config->coeff, 0.0f, 1.0f);
+    alpha = bm_algo_lpf1_alpha_saturate(config->coeff);
     state->derivative += alpha * (raw_d - state->derivative);
     return state->derivative;
 }
 
 int bm_algo_pi_validate_config(const bm_algo_pi_config_t *config) {
     if (config == NULL) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     /* 配置增益非有限（NaN/Inf）会污染 step 中的每一次乘加，此前无校验 */
     if (!bm_algo_is_finite_f(config->kp) || !bm_algo_is_finite_f(config->ki)) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     if (config->out_min > config->out_max) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     if (config->integrator_min > config->integrator_max) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
-    return 0;
+    return BM_OK;
 }
 
 void bm_algo_pi_reset(bm_algo_pi_state_t *state, float output) {
@@ -170,17 +175,17 @@ float bm_algo_pi_step(bm_algo_pi_state_t *state,
 
 int bm_algo_pid_validate_config(const bm_algo_pid_config_t *config) {
     if (config == NULL) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     /* 配置增益非有限（NaN/Inf）会污染 step 中的每一次乘加，此前无校验 */
     if (!bm_algo_is_finite_f(config->kp) || !bm_algo_is_finite_f(config->ki) ||
         !bm_algo_is_finite_f(config->kd)) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     if (config->out_min > config->out_max) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
-    return 0;
+    return BM_OK;
 }
 
 void bm_algo_pid_reset(bm_algo_pid_state_t *state, float output) {
@@ -221,7 +226,7 @@ float bm_algo_pid_step(bm_algo_pid_state_t *state,
     d_raw = (error - state->prev_error) / dt_s;
     state->prev_error = error;
 
-    alpha = bm_algo_clamp_f(config->d_filter_coeff, 0.0f, 1.0f);
+    alpha = bm_algo_lpf1_alpha_saturate(config->d_filter_coeff);
     state->d_filtered += alpha * (d_raw - state->d_filtered);
     d_term = config->kd * state->d_filtered;
 
@@ -421,24 +426,24 @@ float bm_algo_feedforward_step(float reference, float gain, float bias) {
  * 会静默返回意义不明的钳位结果而不报错。
  *
  * @param config 待校验配置指针
- * @return 0 合法；BM_ALGO_ERR_INVALID 参数无效
+ * @return BM_OK 合法；BM_ERR_INVALID 参数无效
  */
 int bm_algo_pid2_validate_config(const bm_algo_pid2_config_t *config) {
     if (config == NULL) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     /* 配置增益非有限（NaN/Inf）会污染 step 中的每一次乘加，此前无校验 */
     if (!bm_algo_is_finite_f(config->kp) || !bm_algo_is_finite_f(config->ki) ||
         !bm_algo_is_finite_f(config->kd)) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     if (config->out_min > config->out_max) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     if (config->integrator_min > config->integrator_max) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
-    return 0;
+    return BM_OK;
 }
 
 void bm_algo_pid2_reset(bm_algo_pid2_state_t *state, float output) {
@@ -483,7 +488,7 @@ float bm_algo_pid2_step(bm_algo_pid2_state_t *state,
 
     d_raw = -(measurement - state->prev_measurement) / dt_s;
     state->prev_measurement = measurement;
-    alpha = bm_algo_clamp_f(config->d_filter_coeff, 0.0f, 1.0f);
+    alpha = bm_algo_lpf1_alpha_saturate(config->d_filter_coeff);
     state->d_filtered += alpha * (d_raw - state->d_filtered);
     d_term = config->kd * state->d_filtered;
 

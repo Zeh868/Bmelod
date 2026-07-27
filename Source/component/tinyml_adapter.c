@@ -5,7 +5,7 @@
  * bump pointer 分配，tensor 元数据委托 bm_algo_features 量化。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.4
+ * @version 1.5
  * @date 2026-07-15
  *
  * @par 修改日志:
@@ -29,12 +29,14 @@
  *                                                 乘积补 u32 溢出防护（mul_u32_checked），
  *                                                 补齐 1.2 漏修的两处同类缺口
  * 2026-07-15       1.4            zeh            maxpool 补读侧输入容量校验（含 h*w 溢出防护）
+ * 2026-07-27       1.5            zeh            统一返回码：裸魔术数替换为 BM_OK/BM_ERR_*
  * 2026-07-16       1.5            zeh            FLATTEN dims 乘积补 u32 溢出防护
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/component/tinyml_adapter.h"
 #include "bm/algorithm/bm_algo_features.h"
+#include "bm/common/bm_types.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -74,14 +76,14 @@ static int8_t clamp_i8(int32_t value) {
  * @param a   乘数
  * @param b   乘数
  * @param out 输出乘积（仅成功时写入，不可为 NULL）
- * @return 0 成功；-1 乘积溢出 uint32_t
+ * @return BM_OK 成功；BM_ERR_OVERFLOW 乘积溢出 uint32_t
  */
 static int mul_u32_checked(uint32_t a, uint32_t b, uint32_t *out) {
     if (a != 0u && b > UINT32_MAX / a) {
-        return -1;
+        return BM_ERR_OVERFLOW;
     }
     *out = a * b;
-    return 0;
+    return BM_OK;
 }
 
 /**
@@ -154,7 +156,7 @@ void *bm_tinyml_arena_alloc(bm_tinyml_arena_t *arena,
  * @param dims   各维度大小数组（不可为 NULL；每个维度须 ≥1）
  * @param ndim   维度数，范围 [1, 4]
  * @param quant  量化参数（可为 NULL，则 scale=1.0 zero_point=0）
- * @return 0 成功；-1 参数无效或 arena 空间不足
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效，BM_ERR_NO_MEM arena 空间不足，BM_ERR_OVERFLOW 维度乘积溢出
  */
 int bm_tinyml_tensor_alloc_i8(bm_tinyml_arena_t *arena,
                               bm_tinyml_tensor_t *tensor,
@@ -167,23 +169,23 @@ int bm_tinyml_tensor_alloc_i8(bm_tinyml_arena_t *arena,
 
     if (arena == NULL || tensor == NULL || dims == NULL ||
         ndim == 0u || ndim > 4u) {
-        return -1;
+        return BM_ERR_INVALID;
     }
 
     for (i = 0u; i < ndim; ++i) {
         if (dims[i] == 0u) {
-            return -1;
+            return BM_ERR_INVALID;
         }
         /* 维度乘积 u32 溢出防护（P2-8）：乘前判 count > UINT32_MAX/dims[i] */
         if (count > UINT32_MAX / dims[i]) {
-            return -1;
+            return BM_ERR_OVERFLOW;
         }
         count *= dims[i];
     }
 
     buf = (int8_t *)bm_tinyml_arena_alloc(arena, count, 4u);
     if (buf == NULL) {
-        return -1;
+        return BM_ERR_NO_MEM;
     }
 
     memset(tensor, 0, sizeof(*tensor));
@@ -200,7 +202,7 @@ int bm_tinyml_tensor_alloc_i8(bm_tinyml_arena_t *arena,
         tensor->scale = 1.0f;
         tensor->zero_point = 0;
     }
-    return 0;
+    return BM_OK;
 }
 
 /**
@@ -209,21 +211,21 @@ int bm_tinyml_tensor_alloc_i8(bm_tinyml_arena_t *arena,
  * @param tensor 目标 tensor（不可为 NULL；data 须已分配）
  * @param src    源 float32 缓冲（不可为 NULL）
  * @param count  量化元素数，须 ≤ tensor->byte_count
- * @return 0 成功；-1 参数无效
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效
  */
 int bm_tinyml_tensor_quantize_f32(const bm_tinyml_tensor_t *tensor,
                                   const float *src,
                                   uint32_t count) {
     if (tensor == NULL || src == NULL || tensor->data == NULL) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     if (count > tensor->byte_count) {
-        return -1;
+        return BM_ERR_INVALID;
     }
 
     bm_algo_quantize_buffer_f32_i8(src, tensor->data, count,
                                    tensor->scale, tensor->zero_point);
-    return 0;
+    return BM_OK;
 }
 
 /**
@@ -232,7 +234,7 @@ int bm_tinyml_tensor_quantize_f32(const bm_tinyml_tensor_t *tensor,
  * @param tensor 源 tensor（不可为 NULL；data 须已分配）
  * @param dst    目标 float32 缓冲（不可为 NULL）
  * @param count  反量化元素数，须 ≤ tensor->byte_count
- * @return 0 成功；-1 参数无效
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效
  */
 int bm_tinyml_tensor_dequantize_f32(const bm_tinyml_tensor_t *tensor,
                                     float *dst,
@@ -240,10 +242,10 @@ int bm_tinyml_tensor_dequantize_f32(const bm_tinyml_tensor_t *tensor,
     uint32_t i;
 
     if (tensor == NULL || dst == NULL || tensor->data == NULL) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     if (count > tensor->byte_count) {
-        return -1;
+        return BM_ERR_INVALID;
     }
 
     for (i = 0u; i < count; ++i) {
@@ -251,7 +253,7 @@ int bm_tinyml_tensor_dequantize_f32(const bm_tinyml_tensor_t *tensor,
                                               tensor->scale,
                                               tensor->zero_point);
     }
-    return 0;
+    return BM_OK;
 }
 
 /**
@@ -276,15 +278,17 @@ static int run_fc_node(const bm_tinyml_graph_node_t *node,
     if (node == NULL || in_tensor == NULL || out_tensor == NULL ||
         node->fc_weights == NULL || in_tensor->data == NULL ||
         out_tensor->data == NULL) {
-        return -1;
+        return BM_ERR_INVALID;
     }
 
     in_dim = node->fc_in_dim;
     out_dim = node->fc_out_dim;
     if (in_dim == 0u || out_dim == 0u ||
-        in_tensor->byte_count < in_dim ||
-        out_tensor->byte_count < out_dim) {
-        return -1;
+        in_tensor->byte_count < in_dim) {
+        return BM_ERR_INVALID;
+    }
+    if (out_tensor->byte_count < out_dim) {
+        return BM_ERR_NO_MEM;
     }
 
     for (i = 0u; i < out_dim; ++i) {
@@ -296,7 +300,7 @@ static int run_fc_node(const bm_tinyml_graph_node_t *node,
         }
         out_tensor->data[i] = clamp_i8(acc >> 7);
     }
-    return 0;
+    return BM_OK;
 }
 
 /**
@@ -306,7 +310,7 @@ static int run_relu_node(bm_tinyml_tensor_t *tensor) {
     uint32_t i;
 
     if (tensor == NULL || tensor->data == NULL) {
-        return -1;
+        return BM_ERR_INVALID;
     }
 
     for (i = 0u; i < tensor->byte_count; ++i) {
@@ -314,7 +318,7 @@ static int run_relu_node(bm_tinyml_tensor_t *tensor) {
             tensor->data[i] = 0;
         }
     }
-    return 0;
+    return BM_OK;
 }
 
 #define BM_TINYML_SOFTMAX_MAX  16u
@@ -330,11 +334,11 @@ static int run_softmax_node(bm_tinyml_tensor_t *tensor) {
     int32_t exp_vals[BM_TINYML_SOFTMAX_MAX];
 
     if (tensor == NULL || tensor->data == NULL) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     n = tensor->byte_count;
     if (n == 0u || n > BM_TINYML_SOFTMAX_MAX) {
-        return -1;
+        return BM_ERR_INVALID;
     }
 
     max_v = tensor->data[0];
@@ -363,14 +367,14 @@ static int run_softmax_node(bm_tinyml_tensor_t *tensor) {
         exp_sum += e;
     }
     if (exp_sum <= 0) {
-        return -1;
+        return BM_ERR_INVALID;
     }
 
     for (i = 0u; i < n; ++i) {
         int32_t scaled = (exp_vals[i] * 127) / exp_sum;
         tensor->data[i] = clamp_i8(scaled);
     }
-    return 0;
+    return BM_OK;
 }
 
 /**
@@ -383,15 +387,15 @@ static int run_flatten_node(bm_tinyml_tensor_t *in_tensor,
 
     if (in_tensor == NULL || out_tensor == NULL ||
         in_tensor->data == NULL) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     if (in_tensor->ndim == 0u) {
-        return -1;
+        return BM_ERR_INVALID;
     }
 
     for (i = 0u; i < in_tensor->ndim; ++i) {
-        if (mul_u32_checked(total, in_tensor->dims[i], &total) != 0) {
-            return -1;
+        if (mul_u32_checked(total, in_tensor->dims[i], &total) != BM_OK) {
+            return BM_ERR_OVERFLOW;
         }
     }
 
@@ -404,7 +408,7 @@ static int run_flatten_node(bm_tinyml_tensor_t *in_tensor,
     out_tensor->dims[1] = total;
     out_tensor->dims[2] = 0u;
     out_tensor->dims[3] = 0u;
-    return 0;
+    return BM_OK;
 }
 
 /**
@@ -418,19 +422,19 @@ static int run_add_node(const bm_tinyml_graph_node_t *node,
 
     if (node == NULL || in_a == NULL || in_b == NULL || out_tensor == NULL ||
         in_a->data == NULL || in_b->data == NULL || out_tensor->data == NULL) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     if (in_a->byte_count != in_b->byte_count ||
         in_a->byte_count != out_tensor->byte_count ||
         in_a->ndim != in_b->ndim) {
-        return -1;
+        return BM_ERR_INVALID;
     }
 
     for (i = 0u; i < in_a->byte_count; ++i) {
         out_tensor->data[i] = clamp_i8((int32_t)in_a->data[i] +
                                        (int32_t)in_b->data[i]);
     }
-    return 0;
+    return BM_OK;
 }
 
 /**
@@ -444,19 +448,19 @@ static int run_mul_node(const bm_tinyml_graph_node_t *node,
 
     if (node == NULL || in_a == NULL || in_b == NULL || out_tensor == NULL ||
         in_a->data == NULL || in_b->data == NULL || out_tensor->data == NULL) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     if (in_a->byte_count != in_b->byte_count ||
         in_a->byte_count != out_tensor->byte_count ||
         in_a->ndim != in_b->ndim) {
-        return -1;
+        return BM_ERR_INVALID;
     }
 
     for (i = 0u; i < in_a->byte_count; ++i) {
         int32_t prod = (int32_t)in_a->data[i] * (int32_t)in_b->data[i];
         out_tensor->data[i] = clamp_i8(prod >> 7);
     }
-    return 0;
+    return BM_OK;
 }
 
 /**
@@ -475,24 +479,24 @@ static int run_maxpool_2x2_node(const bm_tinyml_tensor_t *in_tensor,
 
     if (in_tensor == NULL || out_tensor == NULL ||
         in_tensor->data == NULL || out_tensor->data == NULL) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     if (in_tensor->ndim != 2u) {
-        return -1;
+        return BM_ERR_INVALID;
     }
 
     h = in_tensor->dims[0];
     w = in_tensor->dims[1];
     if (h == 0u || w == 0u || (h & 1u) != 0u || (w & 1u) != 0u) {
-        return -1;
+        return BM_ERR_INVALID;
     }
 
     /* 读侧校验：输入 tensor 容量须覆盖 h*w，并防 h*w 乘法溢出。 */
     if (w > UINT32_MAX / h) {
-        return -1;
+        return BM_ERR_OVERFLOW;
     }
     if (in_tensor->byte_count < h * w) {
-        return -1;
+        return BM_ERR_INVALID;
     }
 
     oh = h / 2u;
@@ -500,10 +504,10 @@ static int run_maxpool_2x2_node(const bm_tinyml_tensor_t *in_tensor,
     /* 写入前校验输出缓冲容量（照兄弟算子 depthwise/conv2d 的约定），
      * 并防 oh*ow 的乘法溢出。 */
     if (oh > 0u && ow > UINT32_MAX / oh) {
-        return -1;
+        return BM_ERR_OVERFLOW;
     }
     if (out_tensor->byte_count < oh * ow) {
-        return -1;
+        return BM_ERR_NO_MEM;
     }
 
     for (y = 0u; y < oh; ++y) {
@@ -526,7 +530,7 @@ static int run_maxpool_2x2_node(const bm_tinyml_tensor_t *in_tensor,
     out_tensor->dims[0] = oh;
     out_tensor->dims[1] = ow;
     out_tensor->byte_count = oh * ow;
-    return 0;
+    return BM_OK;
 }
 
 /**
@@ -541,14 +545,14 @@ static int run_depthwise_conv2d_node(const bm_tinyml_graph_node_t *node,
     if (node == NULL || in_tensor == NULL || out_tensor == NULL ||
         node->fc_weights == NULL || in_tensor->data == NULL ||
         out_tensor->data == NULL) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     if (in_tensor->ndim != 2u || in_tensor->dims[0] != 3u ||
         in_tensor->dims[1] != 3u || node->fc_in_dim != 9u) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     if (out_tensor->byte_count < 1u) {
-        return -1;
+        return BM_ERR_NO_MEM;
     }
 
     acc = 0;
@@ -559,7 +563,7 @@ static int run_depthwise_conv2d_node(const bm_tinyml_graph_node_t *node,
     out_tensor->dims[0] = 1u;
     out_tensor->dims[1] = 1u;
     out_tensor->byte_count = 1u;
-    return 0;
+    return BM_OK;
 }
 
 /**
@@ -583,10 +587,10 @@ static int run_conv2d_1x1_node(const bm_tinyml_graph_node_t *node,
     if (node == NULL || in_tensor == NULL || out_tensor == NULL ||
         node->fc_weights == NULL || in_tensor->data == NULL ||
         out_tensor->data == NULL) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     if (in_tensor->ndim != 4u) {
-        return -1;
+        return BM_ERR_INVALID;
     }
 
     n_dim = in_tensor->dims[0];
@@ -596,7 +600,7 @@ static int run_conv2d_1x1_node(const bm_tinyml_graph_node_t *node,
     if (c_in_dim != node->fc_in_dim || c_in_dim == 0u ||
         node->fc_out_dim == 0u ||
         n_dim == 0u || h_dim == 0u || w_dim == 0u) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     /* 维度乘积 u32 溢出防护（C10，照 maxpool/arena_alloc 先例）：裸乘回绕成
      * 小值会让下方容量校验误通过，嵌套循环随后按真实乘积索引越界写。 */
@@ -604,17 +608,19 @@ static int run_conv2d_1x1_node(const bm_tinyml_graph_node_t *node,
         uint32_t in_elems;
         uint32_t out_elems;
 
-        if (mul_u32_checked(n_dim, c_in_dim, &in_elems) != 0 ||
-            mul_u32_checked(in_elems, h_dim, &in_elems) != 0 ||
-            mul_u32_checked(in_elems, w_dim, &in_elems) != 0 ||
-            mul_u32_checked(n_dim, node->fc_out_dim, &out_elems) != 0 ||
-            mul_u32_checked(out_elems, h_dim, &out_elems) != 0 ||
-            mul_u32_checked(out_elems, w_dim, &out_elems) != 0) {
-            return -1;
+        if (mul_u32_checked(n_dim, c_in_dim, &in_elems) != BM_OK ||
+            mul_u32_checked(in_elems, h_dim, &in_elems) != BM_OK ||
+            mul_u32_checked(in_elems, w_dim, &in_elems) != BM_OK ||
+            mul_u32_checked(n_dim, node->fc_out_dim, &out_elems) != BM_OK ||
+            mul_u32_checked(out_elems, h_dim, &out_elems) != BM_OK ||
+            mul_u32_checked(out_elems, w_dim, &out_elems) != BM_OK) {
+            return BM_ERR_OVERFLOW;
         }
-        if (in_tensor->byte_count < in_elems ||
-            out_tensor->byte_count < out_elems) {
-            return -1;
+        if (in_tensor->byte_count < in_elems) {
+            return BM_ERR_INVALID;
+        }
+        if (out_tensor->byte_count < out_elems) {
+            return BM_ERR_NO_MEM;
         }
     }
 
@@ -645,7 +651,7 @@ static int run_conv2d_1x1_node(const bm_tinyml_graph_node_t *node,
     out_tensor->dims[2] = h_dim;
     out_tensor->dims[3] = w_dim;
     out_tensor->byte_count = n_dim * node->fc_out_dim * h_dim * w_dim;
-    return 0;
+    return BM_OK;
 }
 
 /**
@@ -671,7 +677,7 @@ static int run_conv2d_1x1_node(const bm_tinyml_graph_node_t *node,
  * @param node       图节点（含超参与权重指针）
  * @param in_tensor  输入 tensor，ndim==4，NCHW i8
  * @param out_tensor 输出 tensor，预分配缓冲需足够容纳结果
- * @return 0 成功；-1 参数无效或缓冲不足
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效或缓冲不足
  */
 static int run_conv2d_node(const bm_tinyml_graph_node_t *node,
                            const bm_tinyml_tensor_t *in_tensor,
@@ -702,10 +708,10 @@ static int run_conv2d_node(const bm_tinyml_graph_node_t *node,
     if (node == NULL || in_tensor == NULL || out_tensor == NULL ||
         node->fc_weights == NULL || in_tensor->data == NULL ||
         out_tensor->data == NULL) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     if (in_tensor->ndim != 4u) {
-        return -1;
+        return BM_ERR_INVALID;
     }
 
     n_dim    = in_tensor->dims[0];
@@ -727,28 +733,28 @@ static int run_conv2d_node(const bm_tinyml_graph_node_t *node,
         pad_bottom > UINT32_MAX - ih_dim - pad_top ||
         pad_left > UINT32_MAX - iw_dim ||
         pad_right > UINT32_MAX - iw_dim - pad_left) {
-        return -1;
+        return BM_ERR_OVERFLOW;
     }
 
     /* 参数合法性校验 */
     if (c_in_dim == 0u || c_out_dim == 0u || n_dim == 0u ||
         ih_dim == 0u || iw_dim == 0u ||
         kh == 0u || kw == 0u || sh == 0u || sw == 0u) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     if (c_in_dim != node->fc_in_dim) {
-        return -1;
+        return BM_ERR_INVALID;
     }
 
     /* 输出尺寸：oh = (ih + pad_top + pad_bottom - kh) / sh + 1 */
     if ((ih_dim + pad_top + pad_bottom) < kh ||
         (iw_dim + pad_left + pad_right) < kw) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     oh = ((ih_dim + pad_top + pad_bottom) - kh) / sh + 1u;
     ow = ((iw_dim + pad_left + pad_right) - kw) / sw + 1u;
     if (oh == 0u || ow == 0u) {
-        return -1;
+        return BM_ERR_INVALID;
     }
 
     /* 缓冲足够性校验——维度乘积 u32 溢出防护（C10，同 conv2d_1x1）：
@@ -757,17 +763,19 @@ static int run_conv2d_node(const bm_tinyml_graph_node_t *node,
         uint32_t in_elems;
         uint32_t out_elems;
 
-        if (mul_u32_checked(n_dim, c_in_dim, &in_elems) != 0 ||
-            mul_u32_checked(in_elems, ih_dim, &in_elems) != 0 ||
-            mul_u32_checked(in_elems, iw_dim, &in_elems) != 0 ||
-            mul_u32_checked(n_dim, c_out_dim, &out_elems) != 0 ||
-            mul_u32_checked(out_elems, oh, &out_elems) != 0 ||
-            mul_u32_checked(out_elems, ow, &out_elems) != 0) {
-            return -1;
+        if (mul_u32_checked(n_dim, c_in_dim, &in_elems) != BM_OK ||
+            mul_u32_checked(in_elems, ih_dim, &in_elems) != BM_OK ||
+            mul_u32_checked(in_elems, iw_dim, &in_elems) != BM_OK ||
+            mul_u32_checked(n_dim, c_out_dim, &out_elems) != BM_OK ||
+            mul_u32_checked(out_elems, oh, &out_elems) != BM_OK ||
+            mul_u32_checked(out_elems, ow, &out_elems) != BM_OK) {
+            return BM_ERR_OVERFLOW;
         }
-        if (in_tensor->byte_count < in_elems ||
-            out_tensor->byte_count < out_elems) {
-            return -1;
+        if (in_tensor->byte_count < in_elems) {
+            return BM_ERR_INVALID;
+        }
+        if (out_tensor->byte_count < out_elems) {
+            return BM_ERR_NO_MEM;
         }
     }
 
@@ -829,7 +837,7 @@ static int run_conv2d_node(const bm_tinyml_graph_node_t *node,
     out_tensor->dims[2] = oh;
     out_tensor->dims[3] = ow;
     out_tensor->byte_count = n_dim * c_out_dim * oh * ow;
-    return 0;
+    return BM_OK;
 }
 
 int bm_tinyml_graph_init(bm_tinyml_graph_t *graph) {
@@ -838,7 +846,7 @@ int bm_tinyml_graph_init(bm_tinyml_graph_t *graph) {
     if (graph == NULL || graph->nodes == NULL || graph->arena == NULL ||
         graph->tensors == NULL || graph->node_count == 0u ||
         graph->tensor_count == 0u) {
-        return -1;
+        return BM_ERR_INVALID;
     }
 
     for (i = 0u; i < graph->node_count; ++i) {
@@ -846,39 +854,39 @@ int bm_tinyml_graph_init(bm_tinyml_graph_t *graph) {
 
         if (!graph_tensor_valid(graph, node->input_tensor) ||
             !graph_tensor_valid(graph, node->output_tensor)) {
-            return -1;
+            return BM_ERR_INVALID;
         }
         if (node->op == BM_TINYML_OP_FC &&
             (node->fc_weights == NULL || node->fc_in_dim == 0u ||
              node->fc_out_dim == 0u)) {
-            return -1;
+            return BM_ERR_INVALID;
         }
         if (node->op == BM_TINYML_OP_ADD &&
             !graph_tensor_valid(graph, node->input_tensor_b)) {
-            return -1;
+            return BM_ERR_INVALID;
         }
         if (node->op == BM_TINYML_OP_MUL &&
             !graph_tensor_valid(graph, node->input_tensor_b)) {
-            return -1;
+            return BM_ERR_INVALID;
         }
         if (node->op == BM_TINYML_OP_DEPTHWISE_CONV2D &&
             (node->fc_weights == NULL || node->fc_in_dim != 9u)) {
-            return -1;
+            return BM_ERR_INVALID;
         }
         if (node->op == BM_TINYML_OP_CONV2D_1X1 &&
             (node->fc_weights == NULL || node->fc_in_dim == 0u ||
              node->fc_out_dim == 0u)) {
-            return -1;
+            return BM_ERR_INVALID;
         }
         if (node->op == BM_TINYML_OP_CONV2D &&
             (node->fc_weights == NULL || node->fc_in_dim == 0u ||
              node->fc_out_dim == 0u ||
              node->conv_kh == 0u || node->conv_kw == 0u ||
              node->conv_sh == 0u || node->conv_sw == 0u)) {
-            return -1;
+            return BM_ERR_INVALID;
         }
     }
-    return 0;
+    return BM_OK;
 }
 
 int bm_tinyml_graph_run(bm_tinyml_graph_t *graph,
@@ -887,9 +895,10 @@ int bm_tinyml_graph_run(bm_tinyml_graph_t *graph,
                         float *float_outputs,
                         uint32_t float_output_count) {
     uint32_t i;
+    int rc;
 
-    if (graph == NULL || bm_tinyml_graph_init(graph) != 0) {
-        return -1;
+    if (graph == NULL || bm_tinyml_graph_init(graph) != BM_OK) {
+        return BM_ERR_INVALID;
     }
 
     for (i = 0u; i < graph->node_count; ++i) {
@@ -905,101 +914,113 @@ int bm_tinyml_graph_run(bm_tinyml_graph_t *graph,
              * 仍放行，读越界 float_inputs。 */
             if (float_inputs == NULL ||
                 float_input_count < out_tensor->byte_count) {
-                return -1;
+                return BM_ERR_INVALID;
             }
-            if (bm_tinyml_tensor_quantize_f32(out_tensor, float_inputs,
-                                              out_tensor->byte_count) != 0) {
-                return -1;
+            rc = bm_tinyml_tensor_quantize_f32(out_tensor, float_inputs,
+                                               out_tensor->byte_count);
+            if (rc != BM_OK) {
+                return rc;
             }
             break;
         case BM_TINYML_OP_FC:
-            if (run_fc_node(node, in_tensor, out_tensor) != 0) {
-                return -1;
+            rc = run_fc_node(node, in_tensor, out_tensor);
+            if (rc != BM_OK) {
+                return rc;
             }
             break;
         case BM_TINYML_OP_DEQUANTIZE:
             if (float_outputs == NULL ||
                 float_output_count < out_tensor->byte_count) {
-                return -1;
+                return BM_ERR_NO_MEM;
             }
-            if (bm_tinyml_tensor_dequantize_f32(in_tensor, float_outputs,
-                                                out_tensor->byte_count) != 0) {
-                return -1;
+            rc = bm_tinyml_tensor_dequantize_f32(in_tensor, float_outputs,
+                                                 out_tensor->byte_count);
+            if (rc != BM_OK) {
+                return rc;
             }
             break;
         case BM_TINYML_OP_RELU:
-            if (run_relu_node(in_tensor) != 0) {
-                return -1;
+            rc = run_relu_node(in_tensor);
+            if (rc != BM_OK) {
+                return rc;
             }
             if (out_tensor != in_tensor) {
                 /* 疑似-10：非原地 RELU 写出前须判空且校验 out_tensor 容量，
                  * 否则 out_tensor->data 为 NULL 或容量不足时会崩溃/越界写。 */
                 if (out_tensor->data == NULL ||
                     out_tensor->byte_count < in_tensor->byte_count) {
-                    return -1;
+                    return BM_ERR_NO_MEM;
                 }
                 memcpy(out_tensor->data, in_tensor->data,
                        in_tensor->byte_count);
             }
             break;
         case BM_TINYML_OP_SOFTMAX:
-            if (run_softmax_node(in_tensor) != 0) {
-                return -1;
+            rc = run_softmax_node(in_tensor);
+            if (rc != BM_OK) {
+                return rc;
             }
             if (out_tensor != in_tensor) {
                 /* 疑似-11：此前只判空未校验容量，容量不足时仍会越界写。 */
                 if (out_tensor->data == NULL ||
                     out_tensor->byte_count < in_tensor->byte_count) {
-                    return -1;
+                    return BM_ERR_NO_MEM;
                 }
                 memcpy(out_tensor->data, in_tensor->data,
                        in_tensor->byte_count);
             }
             break;
         case BM_TINYML_OP_FLATTEN:
-            if (run_flatten_node(in_tensor, out_tensor) != 0) {
-                return -1;
+            rc = run_flatten_node(in_tensor, out_tensor);
+            if (rc != BM_OK) {
+                return rc;
             }
             break;
         case BM_TINYML_OP_ADD: {
             const bm_tinyml_tensor_t *in_b =
                 &graph->tensors[node->input_tensor_b];
-            if (run_add_node(node, in_tensor, in_b, out_tensor) != 0) {
-                return -1;
+            rc = run_add_node(node, in_tensor, in_b, out_tensor);
+            if (rc != BM_OK) {
+                return rc;
             }
             break;
         }
         case BM_TINYML_OP_MUL: {
             const bm_tinyml_tensor_t *in_b =
                 &graph->tensors[node->input_tensor_b];
-            if (run_mul_node(node, in_tensor, in_b, out_tensor) != 0) {
-                return -1;
+            rc = run_mul_node(node, in_tensor, in_b, out_tensor);
+            if (rc != BM_OK) {
+                return rc;
             }
             break;
         }
         case BM_TINYML_OP_MAXPOOL_2X2:
-            if (run_maxpool_2x2_node(in_tensor, out_tensor) != 0) {
-                return -1;
+            rc = run_maxpool_2x2_node(in_tensor, out_tensor);
+            if (rc != BM_OK) {
+                return rc;
             }
             break;
         case BM_TINYML_OP_DEPTHWISE_CONV2D:
-            if (run_depthwise_conv2d_node(node, in_tensor, out_tensor) != 0) {
-                return -1;
+            rc = run_depthwise_conv2d_node(node, in_tensor, out_tensor);
+            if (rc != BM_OK) {
+                return rc;
             }
             break;
         case BM_TINYML_OP_CONV2D_1X1:
-            if (run_conv2d_1x1_node(node, in_tensor, out_tensor) != 0) {
-                return -1;
+            rc = run_conv2d_1x1_node(node, in_tensor, out_tensor);
+            if (rc != BM_OK) {
+                return rc;
             }
             break;
         case BM_TINYML_OP_CONV2D:
-            if (run_conv2d_node(node, in_tensor, out_tensor) != 0) {
-                return -1;
+            rc = run_conv2d_node(node, in_tensor, out_tensor);
+            if (rc != BM_OK) {
+                return rc;
             }
             break;
         default:
-            return -1;
+            return BM_ERR_INVALID;
         }
     }
-    return 0;
+    return BM_OK;
 }

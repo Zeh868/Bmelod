@@ -10,6 +10,7 @@ Not validated: 时钟同步、多流聚合、协议栈集成
 
 - `bm_transport_qos_on_tx/on_rx` 事件 + 周期 `step` 告警判定
 - 应用注入 `now_ms` 单调时钟
+- 返回值统一为 `BM_ERR_*`（如参数非法返回 `BM_ERR_INVALID`）
 
 ## 已知限制
 

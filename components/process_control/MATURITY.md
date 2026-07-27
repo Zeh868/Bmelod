@@ -10,6 +10,7 @@ Not validated: 被控对象建模、抗饱和、实机 HVAC/灌溉 Demo
 
 - 外环 PID → Smith 预估 → 内环 PID → 执行器回调
 - 应用提供 Smith 延迟线缓冲
+- 算法 `validate_config` 返回值已对齐 `BM_OK` / `BM_ERR_INVALID`
 
 ## 已知限制
 

@@ -18,6 +18,7 @@
 
 #include "unity.h"
 #include "bm_algorithm.h"
+#include "bm/common/bm_types.h"
 
 #include <math.h>
 #include <string.h>
@@ -590,7 +591,7 @@ static void test_medium7_dob_step_rejects_nan_inputs(void) {
 /**
  * @brief 疑似-8 回归：bm_algo_pid2_validate_config 须与 pi/pid 家族对齐，
  *        对 out_min>out_max、integrator_min>integrator_max 拒绝为
- *        BM_ALGO_ERR_INVALID，对合法配置放行。
+ *        BM_ERR_INVALID，对合法配置放行。
  */
 static void test_suspect8_pid2_validate_config_rejects_min_greater_than_max(void) {
     bm_algo_pid2_config_t ok_cfg = {
@@ -607,10 +608,10 @@ static void test_suspect8_pid2_validate_config_rejects_min_greater_than_max(void
     bad_integrator_cfg.integrator_min = 1.0f;
     bad_integrator_cfg.integrator_max = -1.0f;
 
-    TEST_ASSERT_EQUAL(0, bm_algo_pid2_validate_config(&ok_cfg));
-    TEST_ASSERT_EQUAL(BM_ALGO_ERR_INVALID,
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_pid2_validate_config(&ok_cfg));
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID,
                       bm_algo_pid2_validate_config(&bad_out_cfg));
-    TEST_ASSERT_EQUAL(BM_ALGO_ERR_INVALID,
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID,
                       bm_algo_pid2_validate_config(&bad_integrator_cfg));
 }
 

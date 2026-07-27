@@ -58,7 +58,7 @@ static int param_find(const char *name)
             return (int)i;
         }
     }
-    return -1;
+    return BM_ERR_NOT_FOUND;
 }
 
 /**

@@ -2,8 +2,8 @@
  * @file motor_current_sense.c
  * @brief 2/3 分流电流重构组件实现
  * @author zeh (china_qzh@163.com)
- * @version 0.4
- * @date 2026-07-09
+ * @version 0.6
+ * @date 2026-07-27
  *
  * @par 修改日志:
  *
@@ -16,6 +16,9 @@
  *                                                ADC 的 ic，未考虑 ia/ib 已走仿真注入路径，
  *                                                导致真实 ic 与仿真 ia/ib 混用破坏 KCL；
  *                                                改为用 use_sim 统一判定
+ * 2026-07-27       0.5            zeh            补齐遥测发布能力与 bm_exec_ops_t 调度封装
+ * 2026-07-27       0.6            zeh            bm_motor_current_sense_step 返回类型改为 void，
+ *                                                错误通过 state.sample_valid/valid 表达并仍发布遥测
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -42,6 +45,14 @@ static float adc_to_current(float scale, uint16_t raw, float offset) {
     return bm_component_adc_to_current(scale, raw) - offset;
 }
 
+/**
+ * @brief 读取两相 ADC 并换算为电流
+ *
+ * @param axis 轴实例
+ * @param ia   A 相电流输出
+ * @param ib   B 相电流输出
+ * @return BM_OK 成功；BM_ERR_INVALID 资源配置非法；BM_ERR_IO HAL 读取失败
+ */
 static int read_adc_pair(const bm_motor_current_sense_axis_t *axis,
                          float *ia,
                          float *ib) {
@@ -50,17 +61,17 @@ static int read_adc_pair(const bm_motor_current_sense_axis_t *axis,
     uint16_t raw_ib = 0u;
 
     if (res->adc == NULL || res->adc_scale <= 0.0f) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     if (bm_hal_adc_read_injected(res->adc, res->rank_ia, &raw_ia) != BM_OK) {
-        return -1;
+        return BM_ERR_IO;
     }
     if (bm_hal_adc_read_injected(res->adc, res->rank_ib, &raw_ib) != BM_OK) {
-        return -1;
+        return BM_ERR_IO;
     }
     *ia = adc_to_current(res->adc_scale, raw_ia, axis->config.offset_a);
     *ib = adc_to_current(res->adc_scale, raw_ib, axis->config.offset_a);
-    return 0;
+    return BM_OK;
 }
 
 int bm_motor_current_sense_validate_config(
@@ -93,6 +104,7 @@ void bm_motor_current_sense_reset(bm_motor_current_sense_axis_t *axis) {
     memset(&axis->state.alphabeta, 0, sizeof(axis->state.alphabeta));
     axis->state.valid = 0;
     axis->state.sample_valid = 0;
+    memset(&axis->state.telemetry, 0, sizeof(axis->state.telemetry));
 }
 
 int bm_motor_current_sense_init(bm_motor_current_sense_axis_t *axis) {
@@ -112,7 +124,7 @@ int bm_motor_current_sense_init(bm_motor_current_sense_axis_t *axis) {
     return BM_OK;
 }
 
-int bm_motor_current_sense_step(bm_motor_current_sense_axis_t *axis) {
+void bm_motor_current_sense_step(bm_motor_current_sense_axis_t *axis) {
     const bm_motor_current_sense_resources_t *res;
     bm_algo_abc_t *abc;
     float ia = 0.0f;
@@ -120,8 +132,11 @@ int bm_motor_current_sense_step(bm_motor_current_sense_axis_t *axis) {
     float ic = 0.0f;
 
     if (axis == NULL) {
-        return BM_ERR_INVALID;
+        return;
     }
+
+    res = &axis->resources;
+    abc = &axis->state.abc;
 
     axis->state.sample_valid = 1;
     if (axis->config.sample_window_deg > 0.0f) {
@@ -131,12 +146,9 @@ int bm_motor_current_sense_step(bm_motor_current_sense_axis_t *axis) {
             axis->config.sample_window_deg);
         if (!axis->state.sample_valid) {
             axis->state.valid = 0;
-            return BM_ERR_INVALID;
+            goto publish;
         }
     }
-
-    res = &axis->resources;
-    abc = &axis->state.abc;
 
     /* 缺口 16：use_sim 记录本拍 ia/ib 是否来自仿真注入。此前 3-shunt 分支
      * 只看 res->adc 是否非空来决定要不要读真实 ADC 的 ic，与 ia/ib 是否走
@@ -154,9 +166,10 @@ int bm_motor_current_sense_step(bm_motor_current_sense_axis_t *axis) {
             } else {
                 ic = -(ia + ib);
             }
-        } else if (read_adc_pair(axis, &ia, &ib) != 0) {
+        } else if (read_adc_pair(axis, &ia, &ib) != BM_OK) {
+            axis->state.sample_valid = 0;
             axis->state.valid = 0;
-            return BM_ERR_INVALID;
+            goto publish;
         }
 
         if (axis->config.topology == BM_MOTOR_CS_2SHUNT) {
@@ -182,5 +195,87 @@ int bm_motor_current_sense_step(bm_motor_current_sense_axis_t *axis) {
     }
 
     axis->state.valid = 1;
+
+publish:
+    axis->state.telemetry.sequence++;
+    axis->state.telemetry.ia_a = abc->ia;
+    axis->state.telemetry.ib_a = abc->ib;
+    axis->state.telemetry.ic_a = abc->ic;
+    axis->state.telemetry.alpha_a = axis->state.alphabeta.i_alpha;
+    axis->state.telemetry.beta_a = axis->state.alphabeta.i_beta;
+    axis->state.telemetry.sample_valid = axis->state.sample_valid;
+
+    BM_COMPONENT_PUBLISH_TELEMETRY(axis, &axis->state.telemetry);
+}
+
+/* ---------- exec_ops 封装 ---------- */
+
+/**
+ * @brief exec 周期步函数：转发至 bm_motor_current_sense_step
+ *
+ * @param instance bm_exec 实例；instance->state 须指向
+ *                 bm_motor_current_sense_axis_t
+ */
+void bm_motor_current_sense_exec_step(const bm_exec_t *instance) {
+    if (instance != NULL && instance->state != NULL) {
+        bm_motor_current_sense_step(
+            (bm_motor_current_sense_axis_t *)instance->state);
+    }
+}
+
+/**
+ * @brief exec 生命周期：初始化
+ *
+ * 校验配置合法性并复位状态。
+ *
+ * @param instance bm_exec 实例
+ * @return BM_OK 成功；BM_ERR_INVALID 参数或配置非法
+ */
+int bm_motor_current_sense_exec_init(const bm_exec_t *instance) {
+    bm_motor_current_sense_axis_t *axis;
+
+    if (instance == NULL || instance->state == NULL) {
+        return BM_ERR_INVALID;
+    }
+    axis = (bm_motor_current_sense_axis_t *)instance->state;
+    if (bm_motor_current_sense_validate_config(&axis->config) != BM_OK) {
+        return BM_ERR_INVALID;
+    }
+    bm_motor_current_sense_reset(axis);
     return BM_OK;
 }
+
+/**
+ * @brief exec 生命周期：启动
+ *
+ * 当前无额外启动动作，始终返回 BM_OK。
+ *
+ * @param instance bm_exec 实例（未使用）
+ * @return BM_OK
+ */
+int bm_motor_current_sense_exec_start(const bm_exec_t *instance) {
+    (void)instance;
+    return BM_OK;
+}
+
+/**
+ * @brief exec 生命周期：安全停止
+ *
+ * 调用 bm_motor_current_sense_reset 清零电流状态与遥测。
+ *
+ * @param instance bm_exec 实例；instance->state 须指向
+ *                 bm_motor_current_sense_axis_t
+ */
+void bm_motor_current_sense_exec_safe_stop(const bm_exec_t *instance) {
+    if (instance != NULL && instance->state != NULL) {
+        bm_motor_current_sense_reset(
+            (bm_motor_current_sense_axis_t *)instance->state);
+    }
+}
+
+/** @brief motor_current_sense 标准 exec 生命周期操作表 */
+const bm_exec_ops_t bm_motor_current_sense_exec_ops = {
+    bm_motor_current_sense_exec_init,
+    bm_motor_current_sense_exec_start,
+    bm_motor_current_sense_exec_safe_stop
+};

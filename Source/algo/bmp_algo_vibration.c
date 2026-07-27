@@ -7,6 +7,7 @@
 
 #include "bm/algorithm/bm_algo_spectral.h"
 #include "bm/algorithm/bm_algo_statistics.h"
+#include "bm/common/bm_types.h"
 
 #include <string.h>
 
@@ -14,12 +15,12 @@ int bmp_vib_diag_init(bmp_vib_state_t *state, const bmp_vib_config_t *config) {
     if (state == NULL || config == NULL || config->block_size == 0u ||
         config->block_size > BMP_VIB_MAX_BLOCK ||
         config->sample_hz <= 0.0f || config->target_freq_hz <= 0.0f) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     memset(state, 0, sizeof(*state));
     state->cfg = *config;
     state->initialized = 1u;
-    return 0;
+    return BM_OK;
 }
 
 int bmp_vib_diag_step(bmp_vib_state_t *state,
@@ -35,18 +36,18 @@ int bmp_vib_diag_step(bmp_vib_state_t *state,
 
     if (state == NULL || samples == NULL || out == NULL ||
         state->initialized == 0u) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     if (sample_count != state->cfg.block_size) {
-        return -2;
+        return BM_ERR_INVALID;
     }
     rms = bm_algo_array_rms(samples, sample_count);
     gz_cfg.target_freq_hz = state->cfg.target_freq_hz;
     gz_cfg.sample_hz = state->cfg.sample_hz;
     gz_cfg.block_size = sample_count;
     gz_cfg.coeff = 0.0f;
-    if (bm_algo_goertzel_init(&gz_st, &gz_cfg) != 0) {
-        return -3;
+    if (bm_algo_goertzel_init(&gz_st, &gz_cfg) != BM_OK) {
+        return BM_ERR_INVALID;
     }
     for (i = 0u; i < sample_count; i++) {
         (void)bm_algo_goertzel_feed(&gz_st, &gz_cfg, samples[i]);
@@ -59,5 +60,5 @@ int bmp_vib_diag_step(bmp_vib_state_t *state,
     out->rms = rms;
     out->tone_mag = tone_mag;
     out->fault_score = fault;
-    return 0;
+    return BM_OK;
 }

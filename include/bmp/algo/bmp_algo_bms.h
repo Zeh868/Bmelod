@@ -35,10 +35,18 @@ typedef struct {
     uint8_t reserved[3];
 } bmp_bms_state_t;
 
+/**
+ * @brief 初始化 BMS SOC 融合状态
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效
+ */
 int bmp_bms_fusion_init(bmp_bms_state_t *state,
                         const bmp_bms_config_t *config,
                         float soc_init);
 
+/**
+ * @brief 执行一步 BMS SOC 融合
+ * @return BM_OK 成功；BM_ERR_INVALID 参数或状态无效
+ */
 int bmp_bms_fusion_step(bmp_bms_state_t *state,
                         const bmp_bms_config_t *config,
                         float current_a,

@@ -6,6 +6,7 @@
 #include "bmp/algo/bmp_algo_motor.h"
 
 #include "bm/algorithm/bm_algo_estimator.h"
+#include "bm/common/bm_types.h"
 
 #include <string.h>
 
@@ -13,13 +14,13 @@ int bmp_motor_observer_init(bmp_motor_state_t *state,
                             const bmp_motor_config_t *config,
                             float speed_init) {
     if (state == NULL || config == NULL) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     memset(state, 0, sizeof(*state));
     state->speed_est = speed_init;
     state->covariance = 1.0f;
     state->initialized = 1u;
-    return 0;
+    return BM_OK;
 }
 
 int bmp_motor_observer_step(bmp_motor_state_t *state,
@@ -33,7 +34,7 @@ int bmp_motor_observer_step(bmp_motor_state_t *state,
     (void)dt_s;
     if (state == NULL || config == NULL || speed_est_out == NULL ||
         state->initialized == 0u) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     kf_cfg.q = config->process_noise;
     kf_cfg.r = config->measure_noise;
@@ -43,5 +44,5 @@ int bmp_motor_observer_step(bmp_motor_state_t *state,
     state->speed_est = bm_algo_kalman1d_update(&kf_st, &kf_cfg, speed_meas);
     state->covariance = kf_st.p;
     *speed_est_out = state->speed_est;
-    return 0;
+    return BM_OK;
 }

@@ -51,7 +51,7 @@ typedef struct {
  *
  * @param state 状态对象，不可为 NULL
  * @param config 配置，不可为 NULL；ls_h 须 > 0
- * @return 0 成功；-1 参数无效
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效
  */
 int bmp_motor_ekf_init(bmp_motor_ekf_state_t *state,
                        const bmp_motor_ekf_config_t *config);
@@ -66,7 +66,7 @@ int bmp_motor_ekf_init(bmp_motor_ekf_state_t *state,
  * @param i_alpha_meas α 轴电流测量（A）
  * @param i_beta_meas β 轴电流测量（A）
  * @param dt_s 步进周期（s），须 > 0
- * @return 0 成功；-1 参数无效或未初始化
+ * @return BM_OK 成功；BM_ERR_INVALID 参数或状态无效
  */
 int bmp_motor_ekf_step(bmp_motor_ekf_state_t *state,
                        const bmp_motor_ekf_config_t *config,

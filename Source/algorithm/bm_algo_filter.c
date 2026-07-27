@@ -11,6 +11,8 @@
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-23       1.1            zeh            修正 BIQUAD_BPF 系数：去除误混入的 peaking 增益因子 A，改回标准恒幅 BPF
+ * 2026-07-27       1.2            zeh            新增 bm_algo_lpf1_alpha_saturate；
+ *                                                LPF/HPF step 改用公共饱和函数
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -64,9 +66,19 @@ float bm_algo_lpf1_step(bm_algo_lpf1_state_t *state,
         return state->output;
     }
 
-    alpha = bm_algo_clamp_f(config->alpha, 0.0f, 1.0f);
+    alpha = bm_algo_lpf1_alpha_saturate(config->alpha);
     state->output += alpha * (input - state->output);
     return state->output;
+}
+
+float bm_algo_lpf1_alpha_saturate(float alpha) {
+    if (!bm_algo_is_finite_f(alpha) || alpha <= 0.0f) {
+        return BM_ALGO_LPF1_ALPHA_MIN;
+    }
+    if (alpha > 1.0f) {
+        return 1.0f;
+    }
+    return alpha;
 }
 
 int bm_algo_hpf1_init_from_cutoff(bm_algo_hpf1_config_t *config,
@@ -109,7 +121,7 @@ float bm_algo_hpf1_step(bm_algo_hpf1_state_t *state,
         return state->prev_output;
     }
 
-    alpha = bm_algo_clamp_f(config->alpha, 0.0f, 1.0f);
+    alpha = bm_algo_lpf1_alpha_saturate(config->alpha);
     out = alpha * (state->prev_output + input - state->prev_input);
     state->prev_input = input;
     state->prev_output = out;

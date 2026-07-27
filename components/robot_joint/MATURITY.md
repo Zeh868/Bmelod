@@ -11,6 +11,7 @@ Not validated: 实机关节动力学、双编码器、碰撞检测
 - resources 读位置/速度、写力矩
 - PI 位置环 + 摩擦补偿 `bm_algo_friction_comp`
 - 位置/速度/力矩限幅
+- 算法 `validate_config` 返回值已对齐 `BM_OK` / `BM_ERR_INVALID`
 
 ## 已知限制
 

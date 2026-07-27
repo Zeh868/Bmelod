@@ -5,13 +5,14 @@
  * 覆盖 ramp-down 降额、恢复计时、故障锁存与 NULL 边界。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-23
+ * @version 1.1
+ * @date 2026-07-27
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-23       1.0            zeh            正式发布
+ * 2026-07-27       1.1            zeh            新增 bm_fault_derating_exec_ops 测试
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -245,6 +246,85 @@ void test_fault_derating_null_safe_ops(void) {
     TEST_PASS();
 }
 
+/* ---------- exec_ops 测试 ---------- */
+
+/**
+ * @brief exec_init 校验配置并复位；exec_start 返回 BM_OK
+ */
+void test_fault_derating_exec_init_and_start(void) {
+    bm_fault_derating_axis_t axis;
+    bm_exec_t instance;
+
+    make_axis(&axis, 10.0f, 0.1f, 0.5f, 0.01f);
+    memset(&instance, 0, sizeof(instance));
+    instance.state = &axis;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_fault_derating_exec_init(&instance));
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 1.0f, axis.state.derate_factor);
+    TEST_ASSERT_EQUAL(0, axis.state.fault_latched);
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_fault_derating_exec_start(&instance));
+}
+
+/**
+ * @brief exec_step 转发至 bm_fault_derating_step 并更新状态与遥测
+ */
+void test_fault_derating_exec_step_forwards(void) {
+    bm_fault_derating_axis_t axis;
+    bm_exec_t instance;
+
+    make_axis(&axis, 10.0f, 0.1f, 0.5f, 0.01f);
+    memset(&instance, 0, sizeof(instance));
+    instance.state = &axis;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_fault_derating_exec_init(&instance));
+    bm_fault_derating_latch(&axis);
+    bm_fault_derating_exec_step(&instance);
+
+    TEST_ASSERT_EQUAL(1u, axis.state.step_count);
+    TEST_ASSERT_EQUAL(1u, axis.state.telemetry.sequence);
+    TEST_ASSERT_TRUE(axis.state.telemetry.derate_factor < 1.0f);
+    TEST_ASSERT_NOT_EQUAL(0u,
+                          axis.state.telemetry.status &
+                              BM_FAULT_DERATING_TEL_LATCHED);
+}
+
+/**
+ * @brief exec_safe_stop 调用 reset，状态回到全额
+ */
+void test_fault_derating_exec_safe_stop_resets(void) {
+    bm_fault_derating_axis_t axis;
+    bm_exec_t instance;
+
+    make_axis(&axis, 10.0f, 0.1f, 0.0f, 0.01f);
+    memset(&instance, 0, sizeof(instance));
+    instance.state = &axis;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_fault_derating_exec_init(&instance));
+    bm_fault_derating_latch(&axis);
+    for (uint32_t i = 0u; i < 20u; i++) {
+        bm_fault_derating_exec_step(&instance);
+    }
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, axis.state.derate_factor);
+
+    bm_fault_derating_exec_safe_stop(&instance);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 1.0f, axis.state.derate_factor);
+    TEST_ASSERT_EQUAL(0, axis.state.fault_latched);
+    TEST_ASSERT_EQUAL(0u, axis.state.telemetry.sequence);
+}
+
+/**
+ * @brief exec_ops 表包含预期的生命周期钩子
+ */
+void test_fault_derating_exec_ops_table(void) {
+    TEST_ASSERT_EQUAL_PTR(bm_fault_derating_exec_init,
+                          bm_fault_derating_exec_ops.init);
+    TEST_ASSERT_EQUAL_PTR(bm_fault_derating_exec_start,
+                          bm_fault_derating_exec_ops.start);
+    TEST_ASSERT_EQUAL_PTR(bm_fault_derating_exec_safe_stop,
+                          bm_fault_derating_exec_ops.safe_stop);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_fault_derating_init_ok);
@@ -258,5 +338,9 @@ int main(void) {
     RUN_TEST(test_fault_derating_validate_null);
     RUN_TEST(test_fault_derating_validate_bad_dt);
     RUN_TEST(test_fault_derating_null_safe_ops);
+    RUN_TEST(test_fault_derating_exec_init_and_start);
+    RUN_TEST(test_fault_derating_exec_step_forwards);
+    RUN_TEST(test_fault_derating_exec_safe_stop_resets);
+    RUN_TEST(test_fault_derating_exec_ops_table);
     return UNITY_END();
 }

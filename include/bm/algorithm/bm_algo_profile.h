@@ -4,13 +4,16 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-13
+ * @version 1.1
+ * @date 2026-07-27
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
+ * 2026-07-27       1.1            zeh            ramp/trapezoid/scurve
+ *                                                validate_config 返回值统一为
+ *                                                BM_OK / BM_ERR_INVALID
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -46,7 +49,7 @@ typedef struct {
  * @brief 校验斜坡限速配置
  *
  * @param config 斜坡配置指针
- * @return 0 合法；BM_ALGO_ERR_INVALID 参数无效
+ * @return BM_OK 合法；BM_ERR_INVALID 参数无效
  */
 int bm_algo_ramp_validate_config(const bm_algo_ramp_config_t *config);
 
@@ -90,7 +93,7 @@ typedef struct {
  * @brief 校验梯形速度轨迹配置
  *
  * @param config 梯形配置指针
- * @return 0 合法；BM_ALGO_ERR_INVALID 参数无效
+ * @return BM_OK 合法；BM_ERR_INVALID 参数无效
  */
 int bm_algo_trapezoid_validate_config(const bm_algo_trapezoid_config_t *config);
 
@@ -154,7 +157,7 @@ typedef struct {
  * @brief 校验 S 曲线轨迹配置
  *
  * @param config S 曲线配置指针
- * @return 0 合法；BM_ALGO_ERR_INVALID 参数无效
+ * @return BM_OK 合法；BM_ERR_INVALID 参数无效
  */
 int bm_algo_scurve_validate_config(const bm_algo_scurve_config_t *config);
 

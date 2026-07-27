@@ -11,6 +11,7 @@ Not validated: 实机 HAL、多轴调度、WCET、前馈与扰动观测
 - 外环 PI 跟踪设定、输出作内环设定
 - 内环 PI 跟踪外环输出
 - 饱和与积分抗饱和复用 `bm_algo_pi`
+- 四段式 API：`config` / `resources` / `state` / `axis`，提供 `bm_control_loop_init` 与 `bm_control_loop_exec_ops`
 
 ## 已知限制
 

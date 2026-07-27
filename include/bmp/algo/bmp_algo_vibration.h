@@ -36,8 +36,16 @@ typedef struct {
     uint8_t          reserved[3];
 } bmp_vib_state_t;
 
+/**
+ * @brief 初始化振动诊断状态
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效
+ */
 int bmp_vib_diag_init(bmp_vib_state_t *state, const bmp_vib_config_t *config);
 
+/**
+ * @brief 执行一步振动诊断
+ * @return BM_OK 成功；BM_ERR_INVALID 参数或状态无效
+ */
 int bmp_vib_diag_step(bmp_vib_state_t *state,
                       const float *samples,
                       uint32_t sample_count,

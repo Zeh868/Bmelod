@@ -21,6 +21,57 @@ function(bm_add_test TEST_NAME TEST_SRC TEST_LIBRARY)
     add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
 endfunction()
 
+#
+# @brief 封装需要手写链接组 / 额外源文件 / 额外宏定义 / 额外头文件路径的单测
+#
+# 收敛 test_persist_no_nvs、test_bus_ipc_mode、test_mp_ipc_backend、test_sync、
+# test_recorder、test_priority_mask、test_arch_port、test_log_mp 等原本各自
+# 手写 add_executable + target_link_libraries 的重复样板。
+#
+# @param NAME          测试目标名（必填）
+# @param SRCS          源文件列表（可含绝对路径的额外 .c）
+# @param LIBS          链接库列表
+# @param DEFS          编译宏定义列表
+# @param INCLUDES      额外 include 目录列表
+# @param LINK_OPTIONS  链接选项列表
+#
+function(bm_add_test_special)
+    set(options "")
+    set(oneValueArgs NAME)
+    set(multiValueArgs SRCS LIBS DEFS INCLUDES LINK_OPTIONS)
+    cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+
+    if(NOT ARG_NAME)
+        message(FATAL_ERROR "bm_add_test_special: NAME is required")
+    endif()
+
+    add_executable(${ARG_NAME} ${ARG_SRCS})
+
+    if(ARG_DEFS)
+        target_compile_definitions(${ARG_NAME} PRIVATE ${ARG_DEFS})
+    endif()
+
+    bm_target_internal_includes(${ARG_NAME})
+    target_include_directories(${ARG_NAME} PRIVATE
+        ${CMAKE_SOURCE_DIR}/tests/unit/unity
+        ${ARG_INCLUDES})
+
+    if(ARG_LINK_OPTIONS)
+        target_link_options(${ARG_NAME} PRIVATE ${ARG_LINK_OPTIONS})
+    endif()
+
+    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        target_link_libraries(${ARG_NAME} PRIVATE
+            "-Wl,--start-group"
+            unity ${ARG_LIBS}
+            "-Wl,--end-group")
+    else()
+        target_link_libraries(${ARG_NAME} PRIVATE unity ${ARG_LIBS})
+    endif()
+
+    add_test(NAME ${ARG_NAME} COMMAND ${ARG_NAME})
+endfunction()
+
 bm_add_test(test_skeleton test_skeleton.c bm_core)
 bm_add_test(test_critical test_critical.c bm_core)
 bm_add_test(test_log test_log.c bm_core)
@@ -36,15 +87,11 @@ target_include_directories(test_persist PRIVATE
 
 # 有一般 backend、无 NVS capability 路径：独立编译 bm_persist.c，
 # 不链接 native NVS 源，同时验证链接无未定义 NVS 符号和 RAM + commit no-op 行为。
-add_executable(test_persist_no_nvs
-    test_persist_no_nvs.c
-    ${CMAKE_SOURCE_DIR}/Source/hal/bm_persist.c)
-target_link_libraries(test_persist_no_nvs PRIVATE unity bm_config)
-target_compile_definitions(test_persist_no_nvs PRIVATE BM_DRV_HAS_BACKEND)
-bm_target_internal_includes(test_persist_no_nvs)
-target_include_directories(test_persist_no_nvs PRIVATE
-    ${CMAKE_SOURCE_DIR}/tests/unit/unity)
-add_test(NAME test_persist_no_nvs COMMAND test_persist_no_nvs)
+bm_add_test_special(
+    NAME test_persist_no_nvs
+    SRCS test_persist_no_nvs.c ${CMAKE_SOURCE_DIR}/Source/hal/bm_persist.c
+    LIBS bm_config
+    DEFS BM_DRV_HAS_BACKEND)
 
 # 批 P：bm_param 参数注册表测试（persist 依赖 native_sim 文件仿真 NVS）
 if(BM_ENABLE_PARAM)
@@ -99,45 +146,23 @@ if(BM_ENABLE_BUS)
 
     # BM_BUS_IPC 模式契约测试：native 桩后端（fifo_stub + latest_stub）覆盖 FIFO 保序/满/空、
     # LATEST 最新值覆盖、未绑定 INVALID、错误模式 bind；不依赖 bm_mp/SMP。
-    add_executable(test_bus_ipc_mode
-        test_bus_ipc_mode.c
-        ${CMAKE_SOURCE_DIR}/tests/unit/support/ipc_stub_backend.c)
-    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
-        target_link_libraries(test_bus_ipc_mode PRIVATE
-            "-Wl,--start-group"
-            unity bm_core bm_hal bm_hal_native
-            "-Wl,--end-group")
-    else()
-        target_link_libraries(test_bus_ipc_mode PRIVATE
-            unity bm_core bm_hal bm_hal_native)
-    endif()
-    bm_target_internal_includes(test_bus_ipc_mode)
-    target_include_directories(test_bus_ipc_mode PRIVATE
-        ${CMAKE_SOURCE_DIR}/tests/unit/unity
-        ${CMAKE_SOURCE_DIR}/tests/unit)
-    add_test(NAME test_bus_ipc_mode COMMAND test_bus_ipc_mode)
+    bm_add_test_special(
+        NAME test_bus_ipc_mode
+        SRCS test_bus_ipc_mode.c
+             ${CMAKE_SOURCE_DIR}/tests/unit/support/ipc_stub_backend.c
+        LIBS bm_core bm_hal bm_hal_native
+        INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit)
 
     # mp IPC backend adapter 契约测试：matrix cmd_ring（FIFO）+ tel_channel（LATEST）
     # 不链接 bm_mp；adapter 自包含；BM_CONFIG_CPU_COUNT=2u 构造 2×2 矩阵使
     # cmd_ring[0][1] 与 tel_channel[1][0] 索引有效（SMP=OFF 默认 CPU_COUNT=1 仅有 [0][0]）
-    add_executable(test_mp_ipc_backend
-        test_mp_ipc_backend.c
-        ${CMAKE_SOURCE_DIR}/Source/mp/bm_mp_ipc_backend.c)
-    target_compile_definitions(test_mp_ipc_backend PRIVATE BM_CONFIG_CPU_COUNT=2u)
-    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
-        target_link_libraries(test_mp_ipc_backend PRIVATE
-            "-Wl,--start-group"
-            unity bm_core bm_hal bm_hal_native
-            "-Wl,--end-group")
-    else()
-        target_link_libraries(test_mp_ipc_backend PRIVATE
-            unity bm_core bm_hal bm_hal_native)
-    endif()
-    bm_target_internal_includes(test_mp_ipc_backend)
-    target_include_directories(test_mp_ipc_backend PRIVATE
-        ${CMAKE_SOURCE_DIR}/tests/unit/unity
-        ${CMAKE_SOURCE_DIR}/include/bm/mp)
-    add_test(NAME test_mp_ipc_backend COMMAND test_mp_ipc_backend)
+    bm_add_test_special(
+        NAME test_mp_ipc_backend
+        SRCS test_mp_ipc_backend.c
+             ${CMAKE_SOURCE_DIR}/Source/mp/bm_mp_ipc_backend.c
+        LIBS bm_core bm_hal bm_hal_native
+        DEFS BM_CONFIG_CPU_COUNT=2u
+        INCLUDES ${CMAKE_SOURCE_DIR}/include/bm/mp)
 endif()
 
 if(BM_ENABLE_SHELL)
@@ -610,74 +635,36 @@ if(TARGET bm_component_control_loop)
 endif()
 
 if(BM_ENABLE_SYNC)
-    add_executable(test_sync test_sync.c)
-    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
-        target_link_libraries(test_sync PRIVATE
-            "-Wl,--start-group"
-            unity bm_exec bm_hrt bm_resource bm_core bm_hal bm_hal_native
-            "-Wl,--end-group")
-    else()
-        target_link_libraries(test_sync PRIVATE
-            unity bm_exec bm_hal bm_hal_native)
-    endif()
-    bm_target_internal_includes(test_sync)
-    target_include_directories(test_sync PRIVATE
-        ${CMAKE_SOURCE_DIR}/tests/unit/unity
-        ${CMAKE_SOURCE_DIR}/portable/sim/native)
-    add_test(NAME test_sync COMMAND test_sync)
+    bm_add_test_special(
+        NAME test_sync
+        SRCS test_sync.c
+        LIBS bm_exec bm_hrt bm_resource bm_core bm_hal bm_hal_native
+        INCLUDES ${CMAKE_SOURCE_DIR}/portable/sim/native)
 endif()
 
 if(BM_BUILD_TESTS)
-    add_executable(test_recorder test_recorder.c)
-    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
-        target_link_libraries(test_recorder PRIVATE
-            "-Wl,--start-group"
-            unity bm_core bm_hal bm_hal_native
-            "-Wl,--end-group")
-    else()
-        target_link_libraries(test_recorder PRIVATE
-            unity bm_core bm_hal bm_hal_native)
-    endif()
-    bm_target_internal_includes(test_recorder)
-    target_include_directories(test_recorder PRIVATE
-        ${CMAKE_SOURCE_DIR}/tests/unit/unity
-        ${CMAKE_SOURCE_DIR}/portable/sim/native)
-    add_test(NAME test_recorder COMMAND test_recorder)
+    bm_add_test_special(
+        NAME test_recorder
+        SRCS test_recorder.c
+        LIBS bm_core bm_hal bm_hal_native
+        INCLUDES ${CMAKE_SOURCE_DIR}/portable/sim/native)
 
-    add_executable(test_priority_mask
-        test_priority_mask.c
-        fakes/bm_hal_priority_mask_fake.c
-    )
-    target_compile_definitions(test_priority_mask PRIVATE
-        BM_CONFIG_ENABLE_PRIORITY_MASK=1
-        BM_HAL_HAS_PRIORITY_MASK=1
-    )
-    target_link_libraries(test_priority_mask PRIVATE unity bm_config)
-    bm_target_internal_includes(test_priority_mask)
-    target_include_directories(test_priority_mask PRIVATE
-        ${CMAKE_SOURCE_DIR}/tests/unit/unity
-        ${CMAKE_SOURCE_DIR}/tests/unit/fakes)
-    add_test(NAME test_priority_mask COMMAND test_priority_mask)
+    bm_add_test_special(
+        NAME test_priority_mask
+        SRCS test_priority_mask.c fakes/bm_hal_priority_mask_fake.c
+        LIBS bm_config
+        DEFS BM_CONFIG_ENABLE_PRIORITY_MASK=1 BM_HAL_HAS_PRIORITY_MASK=1
+        INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/fakes)
 
     if(NOT TARGET bm_port_arch_stub)
         add_subdirectory(${CMAKE_SOURCE_DIR}/portable/arch/stub
             _bm_unit_arch_stub EXCLUDE_FROM_ALL)
     endif()
-    add_executable(test_arch_port test_arch_port.c)
-    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
-        target_link_libraries(test_arch_port PRIVATE
-            "-Wl,--start-group"
-            unity bm_port_arch_stub
-            "-Wl,--end-group")
-    else()
-        target_link_libraries(test_arch_port PRIVATE
-            unity bm_port_arch_stub)
-    endif()
-    bm_target_internal_includes(test_arch_port)
-    target_include_directories(test_arch_port PRIVATE
-        ${CMAKE_SOURCE_DIR}/tests/unit/unity
-        ${CMAKE_SOURCE_DIR}/portable/arch)
-    add_test(NAME test_arch_port COMMAND test_arch_port)
+    bm_add_test_special(
+        NAME test_arch_port
+        SRCS test_arch_port.c
+        LIBS bm_port_arch_stub
+        INCLUDES ${CMAKE_SOURCE_DIR}/portable/arch)
 
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_FOUND)
@@ -753,22 +740,12 @@ if(BM_CONFIG_SMP AND TARGET bm_mp)
     endif()
 
     # test_log_mp 需要额外库链接
-    add_executable(test_log_mp test_log_mp.c)
-    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
-        target_link_libraries(test_log_mp PRIVATE
-            "-Wl,--start-group"
-            unity bm_mp bm_core bm_hal bm_hal_native
-            "-Wl,--end-group")
-    else()
-        target_link_libraries(test_log_mp PRIVATE
-            unity bm_mp bm_core bm_hal bm_hal_native)
-    endif()
-    bm_target_internal_includes(test_log_mp)
-    target_include_directories(test_log_mp PRIVATE
-        ${CMAKE_SOURCE_DIR}/tests/unit/unity
-        ${CMAKE_SOURCE_DIR}/portable/sim/native_mp
-        ${CMAKE_SOURCE_DIR}/portable/sim/native)
-    add_test(NAME test_log_mp COMMAND test_log_mp)
+    bm_add_test_special(
+        NAME test_log_mp
+        SRCS test_log_mp.c
+        LIBS bm_mp bm_core bm_hal bm_hal_native
+        INCLUDES ${CMAKE_SOURCE_DIR}/portable/sim/native_mp
+                 ${CMAKE_SOURCE_DIR}/portable/sim/native)
 
     bm_mp_add_test(test_console test_console.c)
 endif()

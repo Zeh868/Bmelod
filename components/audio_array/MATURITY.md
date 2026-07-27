@@ -12,6 +12,7 @@ Not validated: 实机麦克风阵列标定、宽带 GCC-PHAT 鲁棒性、完整�
 - 可选 `bm_algo_gcc_phat_delay` 或配置 `fixed_delay_samples`
 - `beam_mode`：`BM_AUDIO_BEAM_DAS` / `BM_AUDIO_BEAM_MVDR`
 - 每步输出单通道能量
+- 四段式 API：`config` / `resources` / `state` / `axis`，提供 `bm_audio_array_frontend_exec_ops`
 
 ## 已知限制
 

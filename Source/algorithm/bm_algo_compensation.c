@@ -19,10 +19,13 @@
  * 2026-07-14       1.5            zeh            Medium-6 修复：friction_comp
  *                                                对非有限 velocity 返回 0，
  *                                                避免 NaN 力矩穿透到执行器
+ * 2026-07-27       1.6            zeh            dob_step 的 lpf_alpha 改用
+ *                                                bm_algo_lpf1_alpha_saturate
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_compensation.h"
+#include "bm/algorithm/bm_algo_filter.h"
 #include "bm/algorithm/bm_algo_common.h"
 #include <stddef.h>
 
@@ -98,13 +101,7 @@ float bm_algo_dob_step(bm_algo_dob_state_t *state,
 
     state->y_hat = config->plant_gain * u;
     residual = y - state->y_hat;
-    alpha = config->lpf_alpha;
-    if (!bm_algo_is_finite_f(alpha) || alpha < 0.0f) {
-        alpha = 0.0f;
-    }
-    if (alpha > 1.0f) {
-        alpha = 1.0f;
-    }
+    alpha = bm_algo_lpf1_alpha_saturate(config->lpf_alpha);
     state->disturbance = alpha * residual +
                          (1.0f - alpha) * state->disturbance;
 

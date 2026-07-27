@@ -173,7 +173,7 @@ static int _tokenize(char *line, char *argv[], int max_argv) {
         while (*p == ' ' || *p == '\t') *p++ = '\0';
         if (!*p) break;
         if (argc >= max_argv) {
-            return -1;
+            return BM_ERR_INVALID;
         }
         argv[argc++] = p;
         while (*p && *p != ' ' && *p != '\t') p++;

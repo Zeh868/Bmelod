@@ -3,7 +3,7 @@
  * @brief 麦克风阵列 DAS/MVDR 波束成形实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.3
+ * @version 0.5
  * @date 2026-06-17
  *
  * @par 修改日志:
@@ -12,12 +12,15 @@
  * 2026-06-17       0.1            zeh            初始骨架
  * 2026-06-17       0.2            zeh            MVDR 波束模式
  * 2026-06-23       0.3            zeh            补 SPDX 与函数级 Doxygen
+ * 2026-07-27       0.4            zeh            四段式重构：resources/state/axis + exec_ops
+ * 2026-07-27       0.5            zeh            step 返回 void，NULL 入参静默返回
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/component/audio_array_frontend.h"
 #include "bm/algorithm/bm_algo_audio.h"
 #include "bm/common/bm_types.h"
+#include "bm/component/bm_component_common.h"
 
 #include <math.h>
 #include <string.h>
@@ -56,6 +59,7 @@ static float compute_energy(const float *samples, uint32_t n) {
 static void update_delays(bm_audio_array_frontend_axis_t *axis,
                           const float *channels[BM_AUDIO_ARRAY_MAX_CHANNELS]) {
     const bm_audio_array_frontend_config_t *cfg = &axis->config;
+    const bm_audio_array_frontend_resources_t *res = &axis->resources;
     bm_audio_array_frontend_state_t *st = &axis->state;
     uint32_t ch;
     uint32_t n = cfg->block_samples;
@@ -67,8 +71,8 @@ static void update_delays(bm_audio_array_frontend_axis_t *axis,
         return;
     }
 
-    if (cfg->num_channels < 2u || st->gcc_work == NULL ||
-        st->gcc_work_count == 0u) {
+    if (cfg->num_channels < 2u || res->gcc_work == NULL ||
+        res->gcc_work_count == 0u) {
         memset(st->active_delays, 0, sizeof(st->active_delays));
         return;
     }
@@ -77,7 +81,7 @@ static void update_delays(bm_audio_array_frontend_axis_t *axis,
     for (ch = 1u; ch < cfg->num_channels; ++ch) {
         int32_t lag = bm_algo_gcc_phat_delay(
             channels[0], channels[ch], n, cfg->max_gcc_lag,
-            st->gcc_work, st->gcc_work_count);
+            res->gcc_work, res->gcc_work_count);
         st->active_delays[ch] = (lag != BM_ALGO_GCC_PHAT_DELAY_INVALID)
                                    ? lag
                                    : 0;
@@ -107,36 +111,36 @@ void bm_audio_array_frontend_reset(bm_audio_array_frontend_axis_t *axis) {
     memset(&axis->state.telemetry, 0, sizeof(axis->state.telemetry));
 }
 
-int bm_audio_array_frontend_init(bm_audio_array_frontend_axis_t *axis,
-                                 float *beam_buffer,
-                                 uint32_t beam_buffer_len,
-                                 float *gcc_work,
-                                 uint32_t gcc_work_count) {
-    if (axis == NULL || beam_buffer == NULL ||
-        beam_buffer_len < axis->config.block_samples ||
+int bm_audio_array_frontend_init(bm_audio_array_frontend_axis_t *axis) {
+    const bm_audio_array_frontend_resources_t *res;
+
+    if (axis == NULL ||
         bm_audio_array_frontend_validate_config(&axis->config) != BM_OK) {
         return BM_ERR_INVALID;
     }
+
+    res = &axis->resources;
+    if (res->beam_buffer == NULL ||
+        res->beam_buffer_len < axis->config.block_samples) {
+        return BM_ERR_INVALID;
+    }
+
     if (!axis->config.use_fixed_delay) {
         uint32_t need = bm_algo_gcc_phat_work_count(
             axis->config.block_samples, axis->config.max_gcc_lag);
-        if (gcc_work == NULL || gcc_work_count < need) {
+        if (res->gcc_work == NULL || res->gcc_work_count < need) {
             return BM_ERR_INVALID;
         }
     }
 
-    axis->state.beam_buffer = beam_buffer;
-    axis->state.beam_buffer_len = beam_buffer_len;
-    axis->state.gcc_work = gcc_work;
-    axis->state.gcc_work_count = gcc_work_count;
     bm_audio_array_frontend_reset(axis);
     return BM_OK;
 }
 
-int bm_audio_array_frontend_step(bm_audio_array_frontend_axis_t *axis,
-                                 const float *channels[BM_AUDIO_ARRAY_MAX_CHANNELS],
-                                 float *mono_out,
-                                 uint32_t out_cap) {
+void bm_audio_array_frontend_step(bm_audio_array_frontend_axis_t *axis,
+                                  const float *channels[BM_AUDIO_ARRAY_MAX_CHANNELS],
+                                  float *mono_out,
+                                  uint32_t out_cap) {
     const bm_audio_array_frontend_config_t *cfg;
     bm_audio_array_frontend_state_t *st;
     uint32_t n;
@@ -144,21 +148,21 @@ int bm_audio_array_frontend_step(bm_audio_array_frontend_axis_t *axis,
     float energy;
 
     if (axis == NULL || channels == NULL || mono_out == NULL) {
-        return BM_ERR_INVALID;
+        return;
     }
     if (bm_audio_array_frontend_validate_config(&axis->config) != BM_OK) {
-        return BM_ERR_INVALID;
+        return;
     }
 
     cfg = &axis->config;
     st = &axis->state;
     n = cfg->block_samples;
     if (out_cap < n) {
-        return BM_ERR_INVALID;
+        return;
     }
     for (ch = 0u; ch < cfg->num_channels; ++ch) {
         if (channels[ch] == NULL) {
-            return BM_ERR_INVALID;
+            return;
         }
     }
 
@@ -186,5 +190,43 @@ int bm_audio_array_frontend_step(bm_audio_array_frontend_axis_t *axis,
     for (ch = 0u; ch < BM_AUDIO_ARRAY_MAX_CHANNELS; ++ch) {
         st->telemetry.delay_samples[ch] = st->active_delays[ch];
     }
+
+    BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
+}
+
+/* ---------- exec_ops 封装 ---------- */
+
+int bm_audio_array_frontend_exec_init(const bm_exec_t *instance) {
+    bm_audio_array_frontend_axis_t *axis;
+
+    if (instance == NULL || instance->state == NULL) {
+        return BM_ERR_INVALID;
+    }
+    axis = (bm_audio_array_frontend_axis_t *)instance->state;
+    if (bm_audio_array_frontend_validate_config(&axis->config) != BM_OK) {
+        return BM_ERR_INVALID;
+    }
+    bm_audio_array_frontend_reset(axis);
     return BM_OK;
 }
+
+int bm_audio_array_frontend_exec_start(const bm_exec_t *instance) {
+    (void)instance;
+    return BM_OK;
+}
+
+void bm_audio_array_frontend_exec_safe_stop(const bm_exec_t *instance) {
+    bm_audio_array_frontend_axis_t *axis;
+
+    if (instance == NULL || instance->state == NULL) {
+        return;
+    }
+    axis = (bm_audio_array_frontend_axis_t *)instance->state;
+    bm_audio_array_frontend_reset(axis);
+}
+
+const bm_exec_ops_t bm_audio_array_frontend_exec_ops = {
+    bm_audio_array_frontend_exec_init,
+    bm_audio_array_frontend_exec_start,
+    bm_audio_array_frontend_exec_safe_stop
+};

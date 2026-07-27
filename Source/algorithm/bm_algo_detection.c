@@ -12,11 +12,14 @@
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-13       1.0            zeh            增加超声 ToF 检测
  * 2026-06-23       1.0            zeh            补齐 Doxygen 注释
+ * 2026-07-27       1.1            zeh            matched_filter_feed 的 alpha
+ *                                                改用 bm_algo_lpf1_alpha_saturate
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_detection.h"
 #include "bm/algorithm/bm_algo_errors.h"
+#include "bm/algorithm/bm_algo_filter.h"
 #include "bm/algorithm/bm_algo_common.h"
 #include <stddef.h>
 
@@ -95,14 +98,7 @@ void bm_algo_sync_demod_feed(bm_algo_sync_demod_state_t *state,
     }
 
     {
-        float alpha = state->alpha;
-
-        /* Batch-3：alpha 契约为 [0,1] 一阶平滑系数；越界/非有限会失控 */
-        if (!bm_algo_is_finite_f(alpha) || alpha < 0.0f) {
-            alpha = 0.0f;
-        } else if (alpha > 1.0f) {
-            alpha = 1.0f;
-        }
+        float alpha = bm_algo_lpf1_alpha_saturate(state->alpha);
 
         i_inst = sample * ref_cos;
         q_inst = sample * ref_sin;

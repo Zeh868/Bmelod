@@ -13,11 +13,14 @@
  * 2026-06-13       1.1            zeh            增加 STFT 幅度谱与阶次换算
  * 2026-06-17       1.2            zeh            增加重叠 STFT 状态机
  * 2026-06-23       1.3            zeh            bm_algo_stft_overlap_init 增加 frame_size>64 上限校验，与 feed 内栈帧约束一致
+ * 2026-07-27       1.4            zeh            order_track 的 lpf_alpha
+ *                                                改用 bm_algo_lpf1_alpha_saturate
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_spectral.h"
 #include "bm/algorithm/bm_algo_errors.h"
+#include "bm/algorithm/bm_algo_filter.h"
 #include "bm/algorithm/bm_algo_common.h"
 #include <stddef.h>
 
@@ -368,13 +371,7 @@ void bm_algo_order_tracker_feed(bm_algo_order_tracker_state_t *state,
         raw_order = 1.0f;
     }
 
-    alpha = config->lpf_alpha;
-    if (!bm_algo_is_finite_f(alpha) || alpha < 0.0f) {
-        alpha = 0.0f;
-    }
-    if (alpha > 1.0f) {
-        alpha = 1.0f;
-    }
+    alpha = bm_algo_lpf1_alpha_saturate(config->lpf_alpha);
     state->filtered_order = alpha * raw_order +
                             (1.0f - alpha) * state->filtered_order;
 }

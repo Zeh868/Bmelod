@@ -17,6 +17,7 @@
 #include "bm/algorithm/bm_algo_profile.h"
 #include "bm/algorithm/bm_algo_common.h"
 #include "bm/algorithm/bm_algo_errors.h"
+#include "bm/common/bm_types.h"
 #include <stddef.h>
 
 #include <math.h>
@@ -25,9 +26,9 @@ int bm_algo_ramp_validate_config(const bm_algo_ramp_config_t *config) {
     if (config == NULL ||
         !bm_algo_is_finite_f(config->rate_per_s) ||
         config->rate_per_s <= 0.0f) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
-    return 0;
+    return BM_OK;
 }
 
 int bm_algo_trapezoid_validate_config(const bm_algo_trapezoid_config_t *config) {
@@ -35,9 +36,9 @@ int bm_algo_trapezoid_validate_config(const bm_algo_trapezoid_config_t *config) 
         !bm_algo_is_finite_f(config->max_vel) || config->max_vel <= 0.0f ||
         !bm_algo_is_finite_f(config->max_accel) || config->max_accel <= 0.0f ||
         !bm_algo_is_finite_f(config->max_decel) || config->max_decel <= 0.0f) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
-    return 0;
+    return BM_OK;
 }
 
 int bm_algo_scurve_validate_config(const bm_algo_scurve_config_t *config) {
@@ -45,9 +46,9 @@ int bm_algo_scurve_validate_config(const bm_algo_scurve_config_t *config) {
         !bm_algo_is_finite_f(config->max_vel) || config->max_vel <= 0.0f ||
         !bm_algo_is_finite_f(config->max_accel) || config->max_accel <= 0.0f ||
         !bm_algo_is_finite_f(config->max_jerk) || config->max_jerk <= 0.0f) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
-    return 0;
+    return BM_OK;
 }
 
 void bm_algo_ramp_reset(bm_algo_ramp_state_t *state, float output) {
@@ -65,7 +66,7 @@ float bm_algo_ramp_step(bm_algo_ramp_state_t *state,
     float step;
 
     if (state == NULL || config == NULL || dt_s <= 0.0f ||
-        bm_algo_ramp_validate_config(config) != 0) {
+        bm_algo_ramp_validate_config(config) != BM_OK) {
         return target;
     }
     /* target 非有限（NaN/Inf）时 delta 比较恒为 false，会落入 else 分支
@@ -242,7 +243,7 @@ float bm_algo_scurve_step(bm_algo_scurve_state_t *state,
 
     if (state == NULL || config == NULL ||
         !bm_algo_is_finite_f(dt_s) || dt_s <= 0.0f ||
-        bm_algo_scurve_validate_config(config) != 0) {
+        bm_algo_scurve_validate_config(config) != BM_OK) {
         return 0.0f;
     }
 

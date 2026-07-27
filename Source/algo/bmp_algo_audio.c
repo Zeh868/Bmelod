@@ -6,6 +6,7 @@
 #include "bmp/algo/bmp_algo_audio.h"
 
 #include "bm/algorithm/bm_algo_audio.h"
+#include "bm/common/bm_types.h"
 
 #include <string.h>
 
@@ -25,12 +26,12 @@ static float bmp_audio_cfg_or(float cfg_val, float def_val) {
 
 int bmp_audio_agc_init(bmp_audio_state_t *state, const bmp_audio_config_t *config) {
     if (state == NULL || config == NULL || config->sample_hz <= 0.0f) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     memset(state, 0, sizeof(*state));
     state->gain = 1.0f;
     state->initialized = 1u;
-    return 0;
+    return BM_OK;
 }
 
 int bmp_audio_agc_step(bmp_audio_state_t *state,
@@ -46,7 +47,7 @@ int bmp_audio_agc_step(bmp_audio_state_t *state,
     if (state == NULL || config == NULL || in == NULL || out == NULL ||
         state->initialized == 0u || sample_count == 0u ||
         sample_count > BMP_AUDIO_MAX_BLOCK) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     block_ms = ((float)sample_count * 1000.0f) / config->sample_hz;
     fast_attack_ms = bmp_audio_cfg_or(config->fast_attack_ms,
@@ -70,5 +71,5 @@ int bmp_audio_agc_step(bmp_audio_state_t *state,
     agc_st.gain = state->gain;
     bm_algo_agc_process(&agc_st, &agc_cfg, in, out, sample_count);
     state->gain = agc_st.gain;
-    return 0;
+    return BM_OK;
 }

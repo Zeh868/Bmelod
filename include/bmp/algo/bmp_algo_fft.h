@@ -54,7 +54,7 @@ typedef struct {
  *
  * @param state 状态对象，不可为 NULL
  * @param config 配置，不可为 NULL
- * @return 0 成功；负值为错误码
+ * @return BM_OK 成功；BM_ERR_INVALID/BM_ERR_NOT_SUPPORTED 失败
  */
 int bmp_fft_enhanced_init(bmp_fft_state_t *state, const bmp_fft_config_t *config);
 
@@ -65,7 +65,7 @@ int bmp_fft_enhanced_init(bmp_fft_state_t *state, const bmp_fft_config_t *config
  * @param samples 时域样本，长度须 >= fft_size
  * @param sample_count 样本数
  * @param out 输出主峰信息，不可为 NULL
- * @return 0 成功；负值为错误码
+ * @return BM_OK 成功；BM_ERR_INVALID/BM_ERR_NOT_SUPPORTED/BM_ERR_NOT_FOUND 失败
  */
 int bmp_fft_enhanced_step(bmp_fft_state_t *state,
                           const float *samples,

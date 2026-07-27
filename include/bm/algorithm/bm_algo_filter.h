@@ -12,6 +12,7 @@
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-17       1.1            zeh            动态 notch 系数更新
+ * 2026-07-27       1.2            zeh            新增 bm_algo_lpf1_alpha_saturate
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -42,6 +43,20 @@ void bm_algo_lpf1_reset(bm_algo_lpf1_state_t *state, float value);
 float bm_algo_lpf1_step(bm_algo_lpf1_state_t *state,
                         const bm_algo_lpf1_config_t *config,
                         float input);
+
+/** @brief 一阶 LPF alpha 下界（<=0 时取该极小正值，保证滤波器仍有跟踪能力） */
+#define BM_ALGO_LPF1_ALPHA_MIN 1e-6f
+
+/**
+ * @brief 将一阶 LPF 的 alpha 系数饱和到 (0, 1]
+ *
+ * 收敛各算法中手动 clamp 到 [0,1] 的重复代码；非有限值或 alpha <= 0 时
+ * 取极小值 BM_ALGO_LPF1_ALPHA_MIN，alpha > 1 时截断至 1.0。
+ *
+ * @param alpha 输入 alpha 系数
+ * @return 饱和后的 alpha 系数，范围 (0, 1]
+ */
+float bm_algo_lpf1_alpha_saturate(float alpha);
 
 /* ---------- 一阶高通（由低通推导） ---------- */
 typedef struct {

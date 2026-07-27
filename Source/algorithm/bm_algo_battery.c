@@ -16,10 +16,13 @@
  * 2026-07-09       1.2            zeh            H9：coulomb_step 补 NaN/Inf
  *                                                输入护栏，避免一次毛刺永久
  *                                                污染 charge_ah/soc 持久状态
+ * 2026-07-27       1.3            zeh            soh_update 的 smooth_alpha 改用
+ *                                                bm_algo_lpf1_alpha_saturate
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_battery.h"
+#include "bm/algorithm/bm_algo_filter.h"
 #include "bm/algorithm/bm_algo_common.h"
 #include <stddef.h>
 
@@ -161,8 +164,7 @@ float bm_algo_soh_update(bm_algo_soh_state_t *state,
     /* 读取配置，若字段为 0 则使用安全默认值 */
     threshold_ratio = (config->cycle_threshold_ratio > 0.0f)
                       ? config->cycle_threshold_ratio : 0.5f;
-    alpha           = (config->smooth_alpha > 0.0f && config->smooth_alpha <= 1.0f)
-                      ? config->smooth_alpha : 0.1f;
+    alpha           = bm_algo_lpf1_alpha_saturate(config->smooth_alpha);
 
     threshold_ah = config->initial_capacity_ah * threshold_ratio;
 

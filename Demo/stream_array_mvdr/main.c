@@ -214,12 +214,9 @@ static void array_consumer_block(const bm_exec_t *instance, bm_block_t *block) {
     channels[0] = raw->ch0;
     channels[1] = raw->ch1;
 
-    if (bm_audio_array_frontend_step(&g_array_frontend, channels,
-                                     mono.samples,
-                                     ARRAY_MVDR_SAMPLES_PER_BLOCK) != BM_OK) {
-        (void)bm_stream_consumer_release(&g_array_raw_stream, block);
-        return;
-    }
+    bm_audio_array_frontend_step(&g_array_frontend, channels,
+                                 mono.samples,
+                                 ARRAY_MVDR_SAMPLES_PER_BLOCK);
 
     for (i = 0u; i < ARRAY_MVDR_SAMPLES_PER_BLOCK; ++i) {
         sum_sq += mono.samples[i] * mono.samples[i];
@@ -288,9 +285,14 @@ static int array_exec_init(const bm_exec_t *instance) {
     g_array_frontend.config.beam_mode = BM_AUDIO_BEAM_MVDR;
     g_array_frontend.config.mvdr_diagonal_load = 1e-3f;
 
-    if (bm_audio_array_frontend_init(&g_array_frontend, g_beam_buffer,
-                                     ARRAY_MVDR_SAMPLES_PER_BLOCK,
-                                     NULL, 0u) != BM_OK) {
+    g_array_frontend.resources.beam_buffer = g_beam_buffer;
+    g_array_frontend.resources.beam_buffer_len = ARRAY_MVDR_SAMPLES_PER_BLOCK;
+    g_array_frontend.resources.gcc_work = NULL;
+    g_array_frontend.resources.gcc_work_count = 0u;
+    g_array_frontend.resources.publish_telemetry = NULL;
+    g_array_frontend.resources.publish_telemetry_user = NULL;
+
+    if (bm_audio_array_frontend_init(&g_array_frontend) != BM_OK) {
         return BM_ERR_INVALID;
     }
 

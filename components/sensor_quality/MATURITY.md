@@ -10,6 +10,7 @@ Not validated: 多通道聚合、自适应阈值、实机噪声模型
 
 - `bm_sensor_quality_step`：采样回调 + `bm_algo_range_monitor`
 - 冻结值：连续 N 次变化低于 epsilon 置 `BM_ALGO_FAULT_FROZEN`
+- 四段式 API：`config` / `resources` / `state` / `axis`，`initial_value` 纳入 `config_t`；提供 `bm_sensor_quality_exec_ops`
 
 ## 已知限制
 

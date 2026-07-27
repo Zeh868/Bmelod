@@ -174,13 +174,14 @@ static void sync_command(bm_motor_foc_sensorless_axis_t *axis) {
 /**
  * @brief 从 ADC 读取 A/B 相电流（静态辅助）
  *
- * 仿真反馈激活时直接返回 -1 通知调用方使用仿真值；
- * ADC 句柄为 NULL 或 scale ≤ 0 时同样返回 -1。
+ * 仿真反馈激活时返回 BM_ERR_NOT_SUPPORTED（调用方已在外层判定 use_sim，
+ * 此处为防御性检查）；ADC 句柄为 NULL 或 scale ≤ 0 时返回 BM_ERR_INVALID；
+ * HAL 读取失败时返回 BM_ERR_IO。
  *
  * @param axis 实例指针（只读）
  * @param ia   输出：A 相电流（A）
  * @param ib   输出：B 相电流（A）
- * @return 0 成功；-1 应使用仿真反馈或 ADC 不可用
+ * @return BM_OK 成功；BM_ERR_INVALID/BM_ERR_NOT_SUPPORTED/BM_ERR_IO 失败
  */
 static int read_current_ab(const bm_motor_foc_sensorless_axis_t *axis,
                            float *ia,
@@ -190,20 +191,20 @@ static int read_current_ab(const bm_motor_foc_sensorless_axis_t *axis,
     uint16_t raw_ib = 0u;
 
     if (sim_feedback_active(res)) {
-        return -1;
+        return BM_ERR_NOT_SUPPORTED;
     }
     if (res->adc == NULL || res->current_adc_scale <= 0.0f) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     if (bm_hal_adc_read_injected(res->adc, res->adc_rank_ia, &raw_ia) != BM_OK) {
-        return -1;
+        return BM_ERR_IO;
     }
     if (bm_hal_adc_read_injected(res->adc, res->adc_rank_ib, &raw_ib) != BM_OK) {
-        return -1;
+        return BM_ERR_IO;
     }
     *ia = bm_component_adc_to_current(res->current_adc_scale, raw_ia);
     *ib = bm_component_adc_to_current(res->current_adc_scale, raw_ib);
-    return 0;
+    return BM_OK;
 }
 
 /**
@@ -218,7 +219,7 @@ static int read_current_ab(const bm_motor_foc_sensorless_axis_t *axis,
  * @param ib         B 相电流（A），仿真模式下忽略
  * @param id         输出：d 轴电流（A）
  * @param iq         输出：q 轴电流（A）
- * @return 始终返回 0
+ * @return BM_OK
  */
 static int read_id_iq(const bm_motor_foc_sensorless_axis_t *axis,
                       float theta_elec,
@@ -233,13 +234,13 @@ static int read_id_iq(const bm_motor_foc_sensorless_axis_t *axis,
     if (res->sim_fb.id_a != NULL && res->sim_fb.iq_a != NULL) {
         *id = *res->sim_fb.id_a;
         *iq = *res->sim_fb.iq_a;
-        return 0;
+        return BM_OK;
     }
     bm_algo_clarke_2shunt(ia, ib, &i_ab);
     bm_algo_park(&i_ab, theta_elec, &i_dq);
     *id = i_dq.id;
     *iq = i_dq.iq;
-    return 0;
+    return BM_OK;
 }
 
 /**
@@ -408,7 +409,7 @@ void bm_motor_foc_sensorless_current_step(bm_motor_foc_sensorless_axis_t *axis) 
      * （见 read_id_iq），此处跳过 ADC 采样以保持注入缝语义不变。
      */
     if (!use_sim) {
-        if (read_current_ab(axis, &ia, &ib) != 0) {
+        if (read_current_ab(axis, &ia, &ib) != BM_OK) {
             latch_fault(axis);
             tel->status = BM_MOTOR_SL_TEL_FAULT;
             tel->phase = BM_MOTOR_SL_PHASE_FAULT;
@@ -499,7 +500,7 @@ void bm_motor_foc_sensorless_current_step(bm_motor_foc_sensorless_axis_t *axis) 
         break;
     }
 
-    if (read_id_iq(axis, theta_elec, ia, ib, &id_meas, &iq_meas) != 0) {
+    if (read_id_iq(axis, theta_elec, ia, ib, &id_meas, &iq_meas) != BM_OK) {
         latch_fault(axis);
         tel->status = BM_MOTOR_SL_TEL_FAULT;
         tel->phase = BM_MOTOR_SL_PHASE_FAULT;

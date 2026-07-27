@@ -16,6 +16,7 @@
 #include "bmp/algo/bmp_algo_motor_ekf.h"
 
 #include "bm/algorithm/bm_algo_common.h"
+#include "bm/common/bm_types.h"
 
 #include <math.h>
 #include <string.h>
@@ -206,7 +207,7 @@ static void bmp_motor_ekf_update_covariance(float p[4][4],
 int bmp_motor_ekf_init(bmp_motor_ekf_state_t *state,
                        const bmp_motor_ekf_config_t *config) {
     if (state == NULL || config == NULL || config->ls_h <= 0.0f) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     memset(state, 0, sizeof(*state));
     state->p[0][0] = 1.0f;
@@ -214,7 +215,7 @@ int bmp_motor_ekf_init(bmp_motor_ekf_state_t *state,
     state->p[2][2] = 1.0f;
     state->p[3][3] = 1.0f;
     state->initialized = 1u;
-    return 0;
+    return BM_OK;
 }
 
 int bmp_motor_ekf_step(bmp_motor_ekf_state_t *state,
@@ -246,7 +247,7 @@ int bmp_motor_ekf_step(bmp_motor_ekf_state_t *state,
 
     if (state == NULL || config == NULL || state->initialized == 0u ||
         !bm_algo_is_finite_f(dt_s) || dt_s <= 0.0f) {
-        return -1;
+        return BM_ERR_INVALID;
     }
 
     rs = config->rs_ohm;
@@ -256,12 +257,12 @@ int bmp_motor_ekf_step(bmp_motor_ekf_state_t *state,
         !bm_algo_is_finite_f(config->ke_v_rad_s) ||
         !bm_algo_is_finite_f(config->q_covariance) ||
         !bm_algo_is_finite_f(config->r_covariance)) {
-        return -1;
+        return BM_ERR_INVALID;
     }
 
     if (!bm_algo_is_finite_f(v_alpha) || !bm_algo_is_finite_f(v_beta) ||
         !bm_algo_is_finite_f(i_alpha_meas) || !bm_algo_is_finite_f(i_beta_meas)) {
-        return -1;
+        return BM_ERR_INVALID;
     }
     inv_ls = 1.0f / ls;
     q_diag = (config->q_covariance > 0.0f) ?
@@ -308,5 +309,5 @@ int bmp_motor_ekf_step(bmp_motor_ekf_state_t *state,
         state->omega_rad_s = (cross_prod > 0.0f) ? speed : -speed;
     }
 
-    return 0;
+    return BM_OK;
 }

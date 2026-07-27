@@ -7,8 +7,8 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.3
- * @date 2026-06-23
+ * @version 0.5
+ * @date 2026-07-27
  *
  * @par 修改日志:
  *
@@ -16,6 +16,9 @@
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-17       0.2            zeh            PWM 扇区采样窗口判定
  * 2026-06-23       0.3            zeh            validate_config 字段校验；公共 API Doxygen；SPDX
+ * 2026-07-27       0.4            zeh            补齐遥测发布能力与 bm_exec_ops_t 调度封装
+ * 2026-07-27       0.5            zeh            bm_motor_current_sense_step 返回类型改为 void，
+ *                                                内部错误通过 sample_valid/valid 状态位表达
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -23,6 +26,8 @@
 #define BM_MOTOR_CURRENT_SENSE_H
 
 #include "bm/algorithm/bm_algo_motor.h"
+#include "bm/component/bm_component_common.h"
+#include "bm/hybrid/bm_exec.h"
 #include "hal/bm_hal_adc.h"
 
 #include <stdint.h>
@@ -30,6 +35,16 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+typedef struct {
+    uint32_t sequence;
+    float    ia_a;
+    float    ib_a;
+    float    ic_a;
+    float    alpha_a;
+    float    beta_a;
+    int      sample_valid;
+} bm_motor_current_sense_telemetry_t;
 
 typedef enum {
     BM_MOTOR_CS_2SHUNT = 0,
@@ -42,13 +57,19 @@ typedef struct {
     float *ic_a;
 } bm_motor_current_sense_sim_fb_t;
 
+typedef void (*bm_motor_current_sense_publish_telemetry_fn)(
+    void *user,
+    const bm_motor_current_sense_telemetry_t *telemetry);
+
 typedef struct {
-    bm_hal_adc_t *adc;
-    uint32_t      rank_ia;
-    uint32_t      rank_ib;
-    uint32_t      rank_ic;
-    float         adc_scale;
+    const bm_hal_adc_t *adc;
+    uint32_t            rank_ia;
+    uint32_t            rank_ib;
+    uint32_t            rank_ic;
+    float               adc_scale;
     bm_motor_current_sense_sim_fb_t sim_fb;
+    bm_motor_current_sense_publish_telemetry_fn publish_telemetry;
+    void *publish_telemetry_user;
 } bm_motor_current_sense_resources_t;
 
 typedef struct {
@@ -64,6 +85,7 @@ typedef struct {
     bm_algo_alphabeta_t alphabeta;
     int                valid;
     int                sample_valid;
+    bm_motor_current_sense_telemetry_t telemetry;
 } bm_motor_current_sense_state_t;
 
 typedef struct {
@@ -105,12 +127,57 @@ void bm_motor_current_sense_reset(bm_motor_current_sense_axis_t *axis);
  * @brief 执行一次电流采样步骤
  *
  * 依次进行采样窗口判断（若 sample_window_deg > 0）、ADC 或 sim_fb
- * 读取、Clarke 变换，结果写入 axis->state。
+ * 读取、Clarke 变换，结果写入 axis->state，并发布遥测。
  *
- * @param axis 轴实例指针，不得为 NULL
- * @return BM_OK 成功；BM_ERR_INVALID 窗口无效或 ADC 读取失败
+ * 窗口无效或 ADC 读取失败时，将 axis->state.sample_valid 与 valid 置 0，
+ * 并继续发布遥测（telemetry.sample_valid 同步为 0），不会断言或崩溃。
+ *
+ * @param axis 轴实例指针；NULL 时静默返回
  */
-int  bm_motor_current_sense_step(bm_motor_current_sense_axis_t *axis);
+void bm_motor_current_sense_step(bm_motor_current_sense_axis_t *axis);
+
+/* ---------- exec_ops 封装（bm_exec 周期调度接口） ---------- */
+
+/**
+ * @brief exec 周期步函数：转发至 bm_motor_current_sense_step
+ *
+ * @param instance bm_exec 实例；instance->state 须指向
+ *                 bm_motor_current_sense_axis_t
+ */
+void bm_motor_current_sense_exec_step(const bm_exec_t *instance);
+
+/**
+ * @brief exec 生命周期：初始化
+ *
+ * 校验配置合法性并复位状态。
+ *
+ * @param instance bm_exec 实例
+ * @return BM_OK 成功；BM_ERR_INVALID 参数或配置非法
+ */
+int  bm_motor_current_sense_exec_init(const bm_exec_t *instance);
+
+/**
+ * @brief exec 生命周期：启动
+ *
+ * 当前无额外启动动作，始终返回 BM_OK。
+ *
+ * @param instance bm_exec 实例（未使用）
+ * @return BM_OK
+ */
+int  bm_motor_current_sense_exec_start(const bm_exec_t *instance);
+
+/**
+ * @brief exec 生命周期：安全停止
+ *
+ * 调用 bm_motor_current_sense_reset 清零电流状态与遥测。
+ *
+ * @param instance bm_exec 实例；instance->state 须指向
+ *                 bm_motor_current_sense_axis_t
+ */
+void bm_motor_current_sense_exec_safe_stop(const bm_exec_t *instance);
+
+/** @brief motor_current_sense 标准 exec 生命周期操作表 */
+extern const bm_exec_ops_t bm_motor_current_sense_exec_ops;
 
 #ifdef __cplusplus
 }

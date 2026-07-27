@@ -14,7 +14,7 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.2
+ * @version 0.3
  * @date 2026-06-13
  *
  * @par 修改日志:
@@ -22,6 +22,7 @@
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 exec_ops 封装；Doxygen；SPDX
+ * 2026-07-27       0.3            zeh            init/reset 签名统一为四段式范式；initial 移入 config
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -65,6 +66,7 @@ typedef struct {
     float                          frozen_epsilon;
     uint32_t                       frozen_count_required;
     float                          dt_s;
+    float                          initial_value;
 } bm_sensor_quality_config_t;
 
 typedef struct {
@@ -94,19 +96,21 @@ int  bm_sensor_quality_validate_config(const bm_sensor_quality_config_t *config)
 /**
  * @brief 初始化轴并复位内部状态
  *
- * @param axis    轴实例指针，NULL 时返回 BM_ERR_INVALID
- * @param initial 复位时的初始采样值（用于冻结基准与范围监控起点）
+ * 复位初始值取自 axis->config.initial_value，调用前请先设置该字段。
+ *
+ * @param axis 轴实例指针，NULL 时返回 BM_ERR_INVALID
  * @return BM_OK 成功；BM_ERR_INVALID 配置非法或 axis 为 NULL
  */
-int  bm_sensor_quality_init(bm_sensor_quality_axis_t *axis, float initial);
+int  bm_sensor_quality_init(bm_sensor_quality_axis_t *axis);
 
 /**
  * @brief 复位内部状态（不重新校验配置）
  *
- * @param axis    轴实例指针，NULL 时静默返回
- * @param initial 复位时的初始采样值
+ * 复位初始值取自 axis->config.initial_value。
+ *
+ * @param axis 轴实例指针，NULL 时静默返回
  */
-void bm_sensor_quality_reset(bm_sensor_quality_axis_t *axis, float initial);
+void bm_sensor_quality_reset(bm_sensor_quality_axis_t *axis);
 
 /**
  * @brief 周期执行单步：读采样、范围/变化率/冻结检测、发布遥测

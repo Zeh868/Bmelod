@@ -14,6 +14,7 @@ Not validated: 实机 TFLite Micro 运行时链接、DMA 零拷贝、完整 TFLM
 - 最小算子图顺序执行：**quantize / fc / dequantize / relu / softmax / flatten / add / mul / maxpool_2x2 / depthwise_conv2d / conv2d_1x1**
 - `tinyml_tflm_bridge.h`：TFLM BuiltinOperator 占位映射、POOL/DEPTHWISE/CONV 占位、arena 导出与 **5 步对接清单**（无 TFLM 库依赖）
 - `tinyml_tflm_runtime.h/.c`：TFLM 运行时 E1 stub、`bm_tinyml_tflm_register_ops` 回调表；默认 `invoke` 返回 BM_ERR_NOT_SUPPORTED
+- 算子图/运行时返回值统一为 `BM_ERR_*`，替代原有裸负数
 
 ## 已知限制
 

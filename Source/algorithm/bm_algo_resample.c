@@ -12,11 +12,14 @@
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-13       1.1            zeh            增加多相 FIR 抽取
  * 2026-06-23       1.1            zeh            补齐 Doxygen 注释
+ * 2026-07-27       1.2            zeh            linear_resampler_step 的 alpha
+ *                                                改用 bm_algo_lpf1_alpha_saturate
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/algorithm/bm_algo_resample.h"
 #include "bm/algorithm/bm_algo_errors.h"
+#include "bm/algorithm/bm_algo_filter.h"
 #include "bm/algorithm/bm_algo_common.h"
 #include <stddef.h>
 
@@ -209,13 +212,7 @@ void bm_algo_clock_drift_feed(bm_algo_clock_drift_state_t *state,
     }
 
     measured = actual_dt_s / expected_dt_s - 1.0f;
-    alpha = config->alpha;
-    if (!bm_algo_is_finite_f(alpha) || alpha < 1e-6f) {
-        alpha = 1e-6f;
-    }
-    if (alpha > 1.0f) {
-        alpha = 1.0f;
-    }
+    alpha = bm_algo_lpf1_alpha_saturate(config->alpha);
     state->ratio_error = alpha * measured +
                          (1.0f - alpha) * state->ratio_error;
 }
