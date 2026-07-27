@@ -26,4 +26,7 @@ if(TARGET bm_hal)
     target_compile_definitions(bm_hal PRIVATE BM_HAL_CPU_HAS_PORT_FREQ)
 endif()
 
+# 当前 G4 pack 未编入 bm_hal_nvs_load/save 实现，故不得向 bm_hal 或消费者
+# 定义 BM_DRV_HAS_NVS_BACKEND；bm_persist 保持 RAM KV + commit 成功 no-op。
+
 add_library(bm_hal_stm32g4 ALIAS bm_backend_sdk_stm32g4)

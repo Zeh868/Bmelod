@@ -17,8 +17,16 @@ add_subdirectory(${BM_FRAMEWORK_ROOT}/portable/arch/host
 target_link_libraries(bm_backend_native_sim PUBLIC bm_port_arch_host)
 target_include_directories(bm_backend_native_sim PUBLIC
     ${_BM_SIM_NATIVE})
-target_compile_definitions(bm_backend_native_sim PUBLIC BM_DRV_HAS_BACKEND)
+target_compile_definitions(bm_backend_native_sim PUBLIC
+    BM_DRV_HAS_BACKEND
+    BM_DRV_HAS_NVS_BACKEND)
 target_link_libraries(bm_backend_native_sim PUBLIC bm_config)
 bm_target_internal_includes(bm_backend_native_sim)
+
+# bm_persist.c 属父目录已创建的 bm_hal，backend 的 PUBLIC 定义不会逆向
+# 传播到该编译单元；在实际编入 native NVS 源时显式注入 capability。
+if(TARGET bm_hal)
+    target_compile_definitions(bm_hal PRIVATE BM_DRV_HAS_NVS_BACKEND)
+endif()
 
 add_library(bm_hal_native ALIAS bm_backend_native_sim)

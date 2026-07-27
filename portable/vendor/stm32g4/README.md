@@ -103,7 +103,8 @@ target_link_libraries(my_app PRIVATE bm_framework bm_hal_stm32g4)
 
 已知缺口：
 
-- NVS/flash 持久化无后端（`bm_persist` 安全 no-op）；
+- NVS/flash 持久化无后端；pack 不声明 `BM_DRV_HAS_NVS_BACKEND`，
+  `bm_persist` 保持 RAM KV，commit 为成功 no-op；
 - DMA stream、I2C/SPI 传感器挂接未实现（实际需要再补；批 2 I2C/DAC/CAN
   为后续独立方案）；
 - GPIO 中断绑定与 AF 配置不在 bm_drv_gpio 契约内（AF 属各外设 vendor

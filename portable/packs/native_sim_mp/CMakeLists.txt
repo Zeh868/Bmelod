@@ -1,4 +1,4 @@
-﻿# BM_BACKEND=native_sim_mp：arch/host + native_mp 多核仿真层
+# BM_BACKEND=native_sim_mp：arch/host + native_mp 多核仿真层
 # 所有路径均以合并后的 BM_FRAMEWORK_ROOT 为根
 
 set(_BM_SIM_NATIVE ${BM_FRAMEWORK_ROOT}/portable/sim/native)
@@ -19,7 +19,8 @@ add_library(bm_backend_native_sim_mp STATIC
 target_compile_definitions(bm_backend_native_sim_mp PUBLIC
     BM_NATIVE_SIM_CPU_LOCAL_CRITICAL=1
     BM_NATIVE_SIM_TIMER_CPU_LOCAL=1
-    BM_DRV_HAS_BACKEND)
+    BM_DRV_HAS_BACKEND
+    BM_DRV_HAS_NVS_BACKEND)
 target_compile_options(bm_backend_native_sim_mp PUBLIC
     "$<$<C_COMPILER_ID:MSVC>:/utf-8>")
 target_include_directories(bm_backend_native_sim_mp PUBLIC
@@ -49,6 +50,12 @@ else()
 endif()
 if(COMMAND bm_target_internal_includes)
     bm_target_internal_includes(bm_backend_native_sim_mp)
+endif()
+
+# 与 native_sim 相同：本 pack 实际编入 native NVS 源，须把 capability
+# 直接注入已创建的 bm_hal，不能依赖 backend PUBLIC 定义逆向传播。
+if(TARGET bm_hal)
+    target_compile_definitions(bm_hal PRIVATE BM_DRV_HAS_NVS_BACKEND)
 endif()
 
 add_library(bm_hal_native ALIAS bm_backend_native_sim_mp)

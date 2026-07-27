@@ -13,6 +13,8 @@
  * - `bm_persist_set()` / `bm_persist_erase()`：仅更新 RAM 表；
  * - `bm_persist_commit()`：将 RAM 表序列化并写入 NVS 后端（落盘）；
  * - `bm_persist_get()`：从 RAM 表读取。
+ * - 后端未声明 `BM_DRV_HAS_NVS_BACKEND` 时，RAM KV 仍可用，
+ *   `bm_persist_commit()` 成功 no-op。
  *
  * @warning 并发契约：本模块内部无任何并发保护（无锁、无临界区）。
  *          全部 API 共享一张全局 RAM 表与序列化缓冲区，调用方须保证所有
@@ -37,13 +39,15 @@
  * @endcode
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-26
+ * @version 1.1
+ * @date 2026-07-27
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-26       1.0            zeh            正式发布（路线图 #10 参数/配置持久化）
+ * 2026-07-27       1.1            zeh            明确无 NVS capability 时的 RAM
+ *                                                与 commit no-op 语义
  *
  */
 #ifndef BM_PERSIST_H
@@ -106,7 +110,7 @@ int bm_persist_erase(const char *key);
 /**
  * @brief 将 RAM 表中的所有 KV 条目序列化并写入 NVS 后端（落盘）
  *
- * 无后端（无 BM_DRV_HAS_BACKEND）时为 no-op，返回 BM_OK。
+ * 后端未声明 `BM_DRV_HAS_NVS_BACKEND` 时为 no-op，返回 BM_OK。
  *
  * @return BM_OK 成功；BM_ERR_NOT_INIT 未初始化；其他 BM_ERR_* 写入失败
  */

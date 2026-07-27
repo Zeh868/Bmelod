@@ -8,8 +8,9 @@
  *
  * 分层说明：
  * - KV 逻辑（set/get/erase）始终可用，操作 RAM 表；
- * - init / commit 在有 BM_DRV_HAS_BACKEND 时调用真实 NVS 后端；
- *   无后端时 init 从空表启动，commit 为 no-op（RAM KV 正常，掉电不保存）。
+ * - init / commit 在有 BM_DRV_HAS_NVS_BACKEND 时调用真实 NVS 后端；
+ *   无 NVS capability 时 init 从空表启动，commit 为 no-op
+ *   （RAM KV 正常，掉电不保存）。
  *
  * 序列化 blob 格式（版本 0x02）：
  * @code
@@ -24,8 +25,8 @@
  * 格式变更时版本号递增（0x01→0x02），旧版本 blob 经版本不匹配自然拒绝。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.2
- * @date 2026-07-09
+ * @version 1.3
+ * @date 2026-07-27
  *
  * @par 修改日志:
  *
@@ -35,6 +36,8 @@
  * 2026-07-09       1.2            zeh            H4：get/erase 的 strncmp 比较长度
  *                                                改为 KEY_MAX+1，修复已存 key 恰为
  *                                                KEY_MAX 长时被更长前缀 key 误匹配
+ * 2026-07-27       1.3            zeh            NVS 门控改用独立 capability，
+ *                                                一般 backend 不再隐含 NVS 实现
  *
  */
 #include "bm/common/bm_persist.h"
@@ -42,7 +45,7 @@
 #include "bm/common/bm_crc32.h"
 #include "bm_config.h"
 
-#ifdef BM_DRV_HAS_BACKEND
+#ifdef BM_DRV_HAS_NVS_BACKEND
 #include "hal/bm_hal_nvs.h"
 #endif
 
@@ -104,8 +107,10 @@ typedef struct {
 /** @brief RAM KV 表（全局，BSS 零初始化） */
 static bm_persist_entry_t g_store[BM_CONFIG_PERSIST_MAX_ENTRIES];
 
+#ifdef BM_DRV_HAS_NVS_BACKEND
 /** @brief 序列化/反序列化临时缓冲区（BSS 分配，避免大栈使用） */
 static uint8_t s_blob[PERSIST_BLOB_SIZE];
+#endif
 
 /** @brief 初始化完成标志（0=未调用 init） */
 static uint8_t g_initialized;
@@ -133,6 +138,7 @@ static uint16_t persist_key_len(const char *key, uint16_t max) {
     return n;
 }
 
+#ifdef BM_DRV_HAS_NVS_BACKEND
 /**
  * @brief 将 RAM 表序列化为 blob
  *
@@ -231,6 +237,7 @@ static int persist_deserialize(const uint8_t *buf) {
     }
     return BM_OK;
 }
+#endif /* BM_DRV_HAS_NVS_BACKEND */
 
 /* -------------------------------------------------------------------------- */
 /*  公共 API                                                                    */
@@ -240,7 +247,7 @@ int bm_persist_init(void) {
     (void)memset(g_store, 0, sizeof(g_store));
     g_initialized = 1u;
 
-#ifdef BM_DRV_HAS_BACKEND
+#ifdef BM_DRV_HAS_NVS_BACKEND
     {
         int rc = bm_hal_nvs_load(s_blob, (uint16_t)PERSIST_BLOB_SIZE);
 
@@ -250,7 +257,7 @@ int bm_persist_init(void) {
         }
         /* BM_ERR_NOT_FOUND（首次上电无文件）属正常情况，不视为错误 */
     }
-#endif /* BM_DRV_HAS_BACKEND */
+#endif /* BM_DRV_HAS_NVS_BACKEND */
 
     return BM_OK;
 }
@@ -360,11 +367,11 @@ int bm_persist_commit(void) {
         return BM_ERR_NOT_INIT;
     }
 
-#ifdef BM_DRV_HAS_BACKEND
+#ifdef BM_DRV_HAS_NVS_BACKEND
     persist_serialize(s_blob);
     return bm_hal_nvs_save(s_blob, (uint16_t)PERSIST_BLOB_SIZE);
 #else
-    /* 无后端：RAM KV 正常，commit 为 no-op */
+    /* 无 NVS capability：RAM KV 正常，commit 为 no-op */
     return BM_OK;
-#endif /* BM_DRV_HAS_BACKEND */
+#endif /* BM_DRV_HAS_NVS_BACKEND */
 }

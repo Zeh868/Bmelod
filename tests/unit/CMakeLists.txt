@@ -34,6 +34,18 @@ bm_add_test(test_persist test_persist.c bm_core)
 target_include_directories(test_persist PRIVATE
     ${CMAKE_SOURCE_DIR}/portable/sim/native)
 
+# 有一般 backend、无 NVS capability 路径：独立编译 bm_persist.c，
+# 不链接 native NVS 源，同时验证链接无未定义 NVS 符号和 RAM + commit no-op 行为。
+add_executable(test_persist_no_nvs
+    test_persist_no_nvs.c
+    ${CMAKE_SOURCE_DIR}/Source/hal/bm_persist.c)
+target_link_libraries(test_persist_no_nvs PRIVATE unity bm_config)
+target_compile_definitions(test_persist_no_nvs PRIVATE BM_DRV_HAS_BACKEND)
+bm_target_internal_includes(test_persist_no_nvs)
+target_include_directories(test_persist_no_nvs PRIVATE
+    ${CMAKE_SOURCE_DIR}/tests/unit/unity)
+add_test(NAME test_persist_no_nvs COMMAND test_persist_no_nvs)
+
 # 批 P：bm_param 参数注册表测试（persist 依赖 native_sim 文件仿真 NVS）
 if(BM_ENABLE_PARAM)
     bm_add_test(test_param test_param.c bm_param)
