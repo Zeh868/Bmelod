@@ -170,6 +170,8 @@ add_library(bm_hal STATIC
     Source/hal/bm_hal_adc.c
     Source/hal/bm_hal_comp.c
     Source/hal/bm_hal_encoder.c
+    Source/hal/bm_hal_gpio.c         # 接口批 1：GPIO 设备契约分发
+    Source/hal/bm_hal_spi.c          # 接口批 1：SPI 设备契约分发
     Source/hal/bm_hal_dma_stream.c
     Source/hal/bm_hal_uptime.c
     Source/hal/bm_persist.c          # #10 持久化 KV 层
@@ -418,6 +420,9 @@ if(BM_ENABLE_COMPONENT_MOTOR)
         Source/component/motor_foc_sensorless.c
         Source/component/motor_current_sense.c
         Source/component/robot_joint_control.c
+        Source/component/stepper_pulse.c    # 接口批 1：STEP/DIR 步进
+        Source/component/tmc2209.c          # 接口批 1：TMC2209 单线 UART
+        Source/component/abs_encoder.c      # 接口批 1：绝对编码器（AS5047P）
     )
     target_link_libraries(bm_component_motor PUBLIC bm_algorithm bm_hal bm_config)
     bm_target_internal_includes(bm_component_motor)

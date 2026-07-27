@@ -19,6 +19,7 @@
  */
 #include "bm_drv_timer.h"
 #include "bm_drv_uart.h"
+#include "bm_hal_uart.h"
 #include "bm_drv_wdg.h"
 #include "bm_log.h"
 #include "bm_types.h"
@@ -252,13 +253,16 @@ void bm_qemu_cortexa_irq_dispatch(void) {
     }
 }
 
-static int cortexa_uart_init(void *config) {
+static int cortexa_uart_init(const struct bm_hal_uart *dev, void *config) {
+    (void)dev;
     (void)config;
     BM_LOGI(TAG_UART, "init: PL011 @0x%08X", (unsigned)UART_BASE);
     return BM_OK;
 }
 
-static int cortexa_uart_send(const uint8_t *data, size_t len) {
+static int cortexa_uart_send(const struct bm_hal_uart *dev,
+                            const uint8_t *data, size_t len) {
+    (void)dev;
     size_t i;
 
     if (!data && len > 0u) {
@@ -273,22 +277,29 @@ static int cortexa_uart_send(const uint8_t *data, size_t len) {
     return BM_OK;
 }
 
-static size_t cortexa_uart_recv(uint8_t *data, size_t max_len) {
+static size_t cortexa_uart_recv(const struct bm_hal_uart *dev,
+                               uint8_t *data, size_t max_len) {
+    (void)dev;
     (void)data;
     (void)max_len;
     return 0u;
 }
 
-static void cortexa_uart_set_rx_callback(void (*cb)(uint8_t c)) {
+static void cortexa_uart_set_rx_callback(const struct bm_hal_uart *dev,
+                                        void (*cb)(uint8_t c)) {
+    (void)dev;
     (void)cb;
 }
 
-const struct bm_uart_driver_api bm_drv_uart_api = {
+static const struct bm_uart_driver_api g_uart_api = {
     cortexa_uart_init,
     cortexa_uart_send,
     cortexa_uart_recv,
     cortexa_uart_set_rx_callback,
 };
+
+/** @brief 默认控制台 UART 设备（统一实例模型，见 bm_hal_uart.h）。 */
+const bm_hal_uart_t bm_uart_default = { &g_uart_api, NULL };
 
 static int cortexa_wdg_init(uint32_t timeout_ms) {
     (void)timeout_ms;

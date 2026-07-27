@@ -17,6 +17,7 @@
  */
 #include "bm_drv_timer.h"
 #include "bm_drv_uart.h"
+#include "bm_hal_uart.h"
 #include "bm_drv_wdg.h"
 #include "bm_log.h"
 #include "bm_types.h"
@@ -175,13 +176,16 @@ void qemu_rv64_smp_on_software_irq(void) {
     CLINT_MSIP(cpu) = 0u;
 }
 
-static int rv64_smp_uart_init(void *config) {
+static int rv64_smp_uart_init(const struct bm_hal_uart *dev, void *config) {
+    (void)dev;
     (void)config;
     BM_LOGI(TAG_UART, "init: ns16550a");
     return BM_OK;
 }
 
-static int rv64_smp_uart_send(const uint8_t *data, size_t len) {
+static int rv64_smp_uart_send(const struct bm_hal_uart *dev,
+                            const uint8_t *data, size_t len) {
+    (void)dev;
     size_t i;
 
     if (!data || len == 0u) {
@@ -195,22 +199,29 @@ static int rv64_smp_uart_send(const uint8_t *data, size_t len) {
     return BM_OK;
 }
 
-static size_t rv64_smp_uart_recv(uint8_t *data, size_t max_len) {
+static size_t rv64_smp_uart_recv(const struct bm_hal_uart *dev,
+                               uint8_t *data, size_t max_len) {
+    (void)dev;
     (void)data;
     (void)max_len;
     return 0u;
 }
 
-static void rv64_smp_uart_set_rx_callback(void (*cb)(uint8_t c)) {
+static void rv64_smp_uart_set_rx_callback(const struct bm_hal_uart *dev,
+                                        void (*cb)(uint8_t c)) {
+    (void)dev;
     (void)cb;
 }
 
-const struct bm_uart_driver_api bm_drv_uart_api = {
+static const struct bm_uart_driver_api g_uart_api = {
     rv64_smp_uart_init,
     rv64_smp_uart_send,
     rv64_smp_uart_recv,
     rv64_smp_uart_set_rx_callback,
 };
+
+/** @brief 默认控制台 UART 设备（统一实例模型，见 bm_hal_uart.h）。 */
+const bm_hal_uart_t bm_uart_default = { &g_uart_api, NULL };
 
 static int rv64_smp_wdg_init(uint32_t timeout_ms) {
     (void)timeout_ms;

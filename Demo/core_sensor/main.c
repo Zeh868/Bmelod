@@ -39,7 +39,7 @@ static int publish_sensor_sample(uint32_t cycle) {
 }
 
 int main(void) {
-    bm_hal_uart_init(NULL);
+    bm_hal_uart_init(&bm_uart_default, NULL);
     example_print("Bmelod Example: core_sensor\n");
     BM_LOGI(TAG, "core_sensor example start");
 

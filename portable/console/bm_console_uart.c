@@ -26,7 +26,7 @@ int bm_console_uart_init(void) {
     if (g_uart_inited) {
         return BM_OK;
     }
-    rc = bm_hal_uart_init(NULL);
+    rc = bm_hal_uart_init(&bm_uart_default, NULL);
     if (rc == BM_OK || rc == BM_ERR_NOT_INIT) {
         g_uart_inited = 1;
         return BM_OK;
@@ -41,7 +41,7 @@ int bm_console_uart_write(const uint8_t *data, size_t len) {
     if (!data || len == 0u) {
         return BM_ERR_INVALID;
     }
-    return bm_hal_uart_send(data, len);
+    return bm_hal_uart_send(&bm_uart_default, data, len);
 }
 
 /**
@@ -51,5 +51,5 @@ size_t bm_console_uart_read(uint8_t *data, size_t max_len) {
     if (!data || max_len == 0u) {
         return 0u;
     }
-    return bm_hal_uart_recv(data, max_len);
+    return bm_hal_uart_recv(&bm_uart_default, data, max_len);
 }

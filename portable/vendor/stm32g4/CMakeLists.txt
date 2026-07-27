@@ -21,6 +21,10 @@ add_library(bm_vendor_stm32g4 STATIC
     bm_vendor_adc_stm32g4.c
     bm_vendor_encoder_stm32g4.c
     bm_vendor_comp_stm32g4.c
+    bm_vendor_gpio_stm32g4.c
+    bm_vendor_spi_stm32g4.c
+    bm_vendor_uart_dev_stm32g4.c
+    bm_vendor_dma_usart2_rx_stm32g4.c
     bm_hal_cpu_freq_stm32g4.c
 )
 

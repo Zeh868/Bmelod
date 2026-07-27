@@ -11,7 +11,7 @@
  * stm32g4xx.h 使用，本头只放可独立包含的宏常量。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-27
  *
  * @par 修改日志:
@@ -20,6 +20,7 @@
  * 2026-07-27       1.0            zeh            新增（STM32G474xB 移植）
  * 2026-07-27       1.1            zeh            修正 BM_STM32G4_ADC_JEXTSEL 默认值 2→8（TIM1_TRGO2
  *                                                正确编码，LL 常量佐证）；新增 PWM/ENC GPIO AF 宏
+ * 2026-07-27       1.2            zeh            接口批 1：新增 SPI1/USART2 设备实例宏
  *
  */
 #ifndef BM_HAL_INSTANCES_STM32G4_H
@@ -199,6 +200,96 @@
 /** @brief IWDG 时钟（LSI 典型值 32kHz，实机按实测 LSI 频偏校准）。 */
 #ifndef BM_STM32G4_LSI_HZ
 #define BM_STM32G4_LSI_HZ  32000u
+#endif
+
+/* ---------- SPI1（编码器等，SCK/MISO/MOSI + 软件 CS） ---------- */
+
+/** @brief SPI1 时钟（Hz），vendor 按 PCLK2 就近取分频档。 */
+#ifndef BM_STM32G4_SPI1_CLOCK_HZ
+#define BM_STM32G4_SPI1_CLOCK_HZ  1000000u
+#endif
+/** @brief SPI1 模式（BM_SPI_MODE_0..3；AS5047P 为模式 1）。 */
+#ifndef BM_STM32G4_SPI1_MODE
+#define BM_STM32G4_SPI1_MODE  1u
+#endif
+/** @brief SPI1 GPIO AF 编码（PA5/PA6/PA7 = AF5）。 */
+#ifndef BM_STM32G4_SPI1_GPIO_AF
+#define BM_STM32G4_SPI1_GPIO_AF  5u
+#endif
+/** @brief SPI1 SCK/MISO/MOSI 引脚号（GPIOA，默认 PA5/PA6/PA7）。 */
+#ifndef BM_STM32G4_SPI1_SCK_PIN
+#define BM_STM32G4_SPI1_SCK_PIN   5u
+#endif
+#ifndef BM_STM32G4_SPI1_MISO_PIN
+#define BM_STM32G4_SPI1_MISO_PIN  6u
+#endif
+#ifndef BM_STM32G4_SPI1_MOSI_PIN
+#define BM_STM32G4_SPI1_MOSI_PIN  7u
+#endif
+/** @brief SPI1 软件 CS 引脚号（GPIOA，默认 PA4；CS 由 GPIO 设备操作）。 */
+#ifndef BM_STM32G4_SPI1_CS_PIN
+#define BM_STM32G4_SPI1_CS_PIN  4u
+#endif
+
+/* ---------- USART2 设备实例（TMC2209 等，支持单线半双工） ---------- */
+
+/** @brief USART2 波特率（TMC2209 常用 115200）。 */
+#ifndef BM_STM32G4_USART2_BAUD
+#define BM_STM32G4_USART2_BAUD  115200u
+#endif
+/** @brief USART2 单线半双工使能（非零：HDSEL，仅 TX 脚，TMC 单线拓扑）。 */
+#ifndef BM_STM32G4_USART2_SINGLE_WIRE
+#define BM_STM32G4_USART2_SINGLE_WIRE  1u
+#endif
+/** @brief USART2 GPIO AF 编码（PA9/PA10 = AF7）。 */
+#ifndef BM_STM32G4_USART2_GPIO_AF
+#define BM_STM32G4_USART2_GPIO_AF  7u
+#endif
+/** @brief USART2 TX/RX 引脚号（GPIOA，默认 PA9/PA10；与 PWM 高边默认脚
+ * 冲突，同用 PWM 与 USART2 的板级须覆盖其一）。 */
+#ifndef BM_STM32G4_USART2_TX_PIN
+#define BM_STM32G4_USART2_TX_PIN  9u
+#endif
+#ifndef BM_STM32G4_USART2_RX_PIN
+#define BM_STM32G4_USART2_RX_PIN  10u
+#endif
+/** @brief USART2 RX 中断 NVIC 优先级。 */
+#ifndef BM_STM32G4_USART2_IRQ_PRIORITY
+#define BM_STM32G4_USART2_IRQ_PRIORITY  3u
+#endif
+
+/* ---------- DMA 通道/请求（SPI1 异步 DMA、USART2 RX DMA；G4 DMAMUX 请求号） ---------- */
+
+/** @brief SPI1 DMA RX 通道号（1-based，默认 DMA1_CH1；改通道须同步 vendor 内 ISR 映射注释）。 */
+#ifndef BM_STM32G4_SPI1_DMA_RX_CH
+#define BM_STM32G4_SPI1_DMA_RX_CH  1u
+#endif
+/** @brief SPI1 DMA TX 通道号（1-based，默认 DMA1_CH2）。 */
+#ifndef BM_STM32G4_SPI1_DMA_TX_CH
+#define BM_STM32G4_SPI1_DMA_TX_CH  2u
+#endif
+/** @brief SPI1 DMAMUX 请求号（RM0440 DMAMUX 表：SPI1_RX=10，SPI1_TX=11）。 */
+#ifndef BM_STM32G4_SPI1_DMA_RX_REQ
+#define BM_STM32G4_SPI1_DMA_RX_REQ  10u
+#endif
+#ifndef BM_STM32G4_SPI1_DMA_TX_REQ
+#define BM_STM32G4_SPI1_DMA_TX_REQ  11u
+#endif
+/** @brief USART2 RX DMA 通道号（1-based，默认 DMA1_CH3）。 */
+#ifndef BM_STM32G4_USART2_RX_DMA_CH
+#define BM_STM32G4_USART2_RX_DMA_CH  3u
+#endif
+/** @brief USART2 RX DMAMUX 请求号（RM0440：USART2_RX=26）。 */
+#ifndef BM_STM32G4_USART2_RX_DMA_REQ
+#define BM_STM32G4_USART2_RX_DMA_REQ  26u
+#endif
+/** @brief SPI1 RX DMA 完成中断 NVIC 优先级。 */
+#ifndef BM_STM32G4_SPI1_DMA_IRQ_PRIORITY
+#define BM_STM32G4_SPI1_DMA_IRQ_PRIORITY  2u
+#endif
+/** @brief USART2 RX DMA 半满/全满中断 NVIC 优先级。 */
+#ifndef BM_STM32G4_USART2_RX_DMA_IRQ_PRIORITY
+#define BM_STM32G4_USART2_RX_DMA_IRQ_PRIORITY  3u
 #endif
 
 /* ---------- 时间基（DWT CYCCNT） ---------- */

@@ -636,7 +636,7 @@ int main(void) {
     bm_bus_cfg_t bus_cfg = { .owner_cpu = 0u };
 
     BM_LOGI(TAG, "bus_servo example start");
-    bm_hal_uart_init(NULL);
+    bm_hal_uart_init(&bm_uart_default, NULL);
 
     /* --- Step 1：初始化 bm_bus 三 mode --- */
 

@@ -10,7 +10,8 @@
  * 组成：
  *   - bm_drv_timer_api：TIM6（可切 TIM7）周期 update 中断，ISR 内派发 tick
  *     回调，派发前后加 bm_arch_isr_fpu_enter/exit 守卫（armv7em 上 no-op）。
- *   - bm_drv_uart_api：LPUART1（ST-LINK VCP）轮询收发 + RX 中断回调。
+ *   - 默认控制台 UART 设备 bm_uart_default：LPUART1（ST-LINK VCP）
+ *     轮询收发 + RX 中断回调（统一实例模型，见 bm_hal_uart.h）。
  *   - bm_drv_wdg_api：IWDG（独立 LSI ~32kHz）。
  *   - bm_hal_uptime_ns_raw()：DWT CYCCNT @170MHz，32 位计数器溢出做 64 位扩展
  *     （CMSIS Core 原语，不属外设寄存器、LL 不覆盖，保留 CMSIS 写法）。
@@ -24,7 +25,7 @@
  *   - DWT CYCCNT 时间基（CoreDebug/DWT 属 CMSIS Core 外设，LL 不覆盖）。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-27
  *
  * @par 修改日志:
@@ -32,10 +33,13 @@
  *    Date         Version        Author          Description
  * 2026-07-27       1.0            zeh            新增（STM32G474xB 移植）
  * 2026-07-27       1.1            zeh            寄存器级改写为 STM32 LL 库实现（决策变更：提高可读性）
+ * 2026-07-27       1.2            zeh            UART 统一实例化：单例 bm_drv_uart_api 改为
+ *                                                默认控制台设备 bm_uart_default（统一实例模型）
  *
  */
 #include "bm_drv_timer.h"
 #include "bm_drv_uart.h"
+#include "bm_hal_uart.h"
 #include "bm_drv_wdg.h"
 #include "bm_hal_instances_stm32g4.h"
 #include "bm_hal_uptime.h"
@@ -260,8 +264,9 @@ const struct bm_timer_driver_api bm_drv_timer_api = {
  * @param config 未使用（NULL）。
  * @return BM_OK。
  */
-static int stm32g4_uart_init(void *config)
+static int stm32g4_uart_init(const struct bm_hal_uart *dev, void *config)
 {
+    (void)dev;
     (void)config;
 
     LL_AHB2_GRP1_EnableClock(LL_AHB2_GRP1_PERIPH_GPIOA);
@@ -287,9 +292,12 @@ static int stm32g4_uart_init(void *config)
  * @param len  数据长度。
  * @return BM_OK 成功；BM_ERR_INVALID 参数无效；BM_ERR_NOT_INIT 未初始化。
  */
-static int stm32g4_uart_send(const uint8_t *data, size_t len)
+static int stm32g4_uart_send(const struct bm_hal_uart *dev,
+                             const uint8_t *data, size_t len)
 {
     size_t i;
+
+    (void)dev;
 
     if (data == NULL) {
         return BM_ERR_INVALID;
@@ -311,9 +319,12 @@ static int stm32g4_uart_send(const uint8_t *data, size_t len)
  * @param max_len 缓冲区容量（字节）。
  * @return 实际读出的字节数；无数据/未初始化/参数无效时为 0。
  */
-static size_t stm32g4_uart_recv(uint8_t *data, size_t max_len)
+static size_t stm32g4_uart_recv(const struct bm_hal_uart *dev,
+                                  uint8_t *data, size_t max_len)
 {
     size_t n = 0u;
+
+    (void)dev;
 
     if (data == NULL || max_len == 0u) {
         return 0u;
@@ -344,8 +355,10 @@ void LPUART1_IRQHandler(void)
  * @brief 注册 RX 回调；设置时打开 RXNE 中断源，NULL 时先关中断源再清回调。
  * @param cb RX 回调；NULL 取消注册。
  */
-static void stm32g4_uart_set_rx_callback(void (*cb)(uint8_t c))
+static void stm32g4_uart_set_rx_callback(const struct bm_hal_uart *dev,
+                                         void (*cb)(uint8_t c))
 {
+    (void)dev;
     if (cb == NULL) {
         LL_LPUART_DisableIT_RXNE_RXFNE(LPUART1);
         NVIC_DisableIRQ(LPUART1_IRQn); /* NVIC 无 LL API，用 CMSIS core 函数 */
@@ -359,12 +372,15 @@ static void stm32g4_uart_set_rx_callback(void (*cb)(uint8_t c))
 }
 
 /** @brief UART 驱动 API 表。 */
-const struct bm_uart_driver_api bm_drv_uart_api = {
+static const struct bm_uart_driver_api g_uart_api = {
     stm32g4_uart_init,
     stm32g4_uart_send,
     stm32g4_uart_recv,
     stm32g4_uart_set_rx_callback,
 };
+
+/** @brief 默认控制台 UART 设备（LPUART1，统一实例模型，见 bm_hal_uart.h）。 */
+const bm_hal_uart_t bm_uart_default = { &g_uart_api, NULL };
 
 /* ---------- WDG 驱动实现（IWDG，独立 LSI ~32kHz） ---------- */
 

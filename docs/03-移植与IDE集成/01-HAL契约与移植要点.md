@@ -84,6 +84,22 @@ target_link_libraries(my_app PRIVATE bm_framework bm_hal_esp32wroom32e)  # 灯�
 | 绑定 | **不得**隐式使能 PWM 输出或启动 ADC 序列 |
 
 PWM/ADC/COMP/Encoder 契约头文件：`bm_hal_pwm.h`、`bm_hal_adc.h` 等。
+接口批 1 新增：`bm_hal_gpio.h`（整芯片单设备，pin 编码 `(port<<4)|num`，
+无中断/AF 配置）、`bm_hal_spi.h`（阻塞全双工 transfer + 可选
+`transfer_async`，config 含时钟/模式/CS GPIO）。
+
+**UART 统一实例模型**：`bm_hal_uart_init(const bm_hal_uart_t *uart, …)`
+四函数全部实例化，无单例全局符号；每个后端导出一个默认控制台设备
+`bm_uart_default`（native_sim/qemu 各 sim/esp32/stm32g4 各一，声明在
+`bm_hal_uart.h`、仅 `BM_DRV_HAS_BACKEND` 时可见），console 与既有调用点
+统一迁移到 `&bm_uart_default`；其余 UART（TMC2209/RS485）由 vendor 以
+同型设备导出（如 stm32g4 的 `bm_stm32g4_uart_dev_usart2`）。
+
+**DMA 语义**：SPI `transfer_async` 为可选成员（NULL = 分发层返回
+`BM_ERR_NOT_SUPPORTED`），done_cb 于 ISR 上下文触发（FPU 守卫包裹），
+回调时 tx/rx 缓冲区所有权归还调用方；UART RX DMA 复用既有
+`bm_hal_dma_stream` 契约（bind_rx/submit_rx/detach_rx + half/full 回调），
+stm32g4 导出 `bm_stm32g4_usart2_rx_dma`；UART TX DMA 暂无实现（登记缺口）。
 
 移植检查：实现本应用用到的 API → `native_sim` 单测 → 真机时序。
 

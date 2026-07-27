@@ -448,6 +448,9 @@ bm_add_test(test_hal_dma_stream test_hal_dma_stream.c bm_core)
 target_include_directories(test_hal_dma_stream PRIVATE
     ${CMAKE_SOURCE_DIR}/portable/sim/native)
 
+# 接口批 1 分发层边界（GPIO/SPI/UART-dev：无后端 NOT_INIT + 参数校验）
+bm_add_test(test_hal_dispatch test_hal_dispatch.c bm_hal)
+
 # CPU 主频 HAL 接口机制单测（freq_hz/freq_points/freq_set）
 # 该测试验证的是单核桩（bm_hal_cpu_stub.c）的主频机制，三个符号仅由桩提供；
 # SMP/多核后端此时尚未实现 freq 接口（留给后续 port 任务），
@@ -494,6 +497,20 @@ if(TARGET bm_component_motor)
         ${CMAKE_SOURCE_DIR}/portable/sim/native)
     bm_add_test(test_motor_current_sense test_motor_current_sense.c bm_component_motor)
     bm_add_test(test_robot_joint_control test_robot_joint_control.c bm_component_motor)
+    # 接口批 1 步进伺服栈组件
+    bm_add_test(test_stepper_pulse test_stepper_pulse.c bm_component_motor)
+    bm_add_test(test_tmc2209 test_tmc2209.c bm_component_motor)
+    bm_add_test(test_abs_encoder test_abs_encoder.c bm_component_motor)
+endif()
+
+# 步进伺服集成：motion_profile → control_loop → stepper_pulse → 脉冲植物
+if(TARGET bm_component_motor AND TARGET bm_component_control_loop
+   AND TARGET bm_component_process)
+    bm_add_test(test_stepper_servo test_stepper_servo.c
+        "bm_component_motor;bm_component_control_loop;bm_component_process")
+    if(NOT MSVC)
+        target_link_libraries(test_stepper_servo PRIVATE m)
+    endif()
 endif()
 
 if(TARGET bm_component_bms)

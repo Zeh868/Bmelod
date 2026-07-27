@@ -124,7 +124,7 @@ int main(void) {
     int rc;
 
     BM_LOGI(TAG, "multi_axis_sync example start");
-    bm_hal_uart_init(NULL);
+    bm_hal_uart_init(&bm_uart_default, NULL);
     (void)bm_hal_timer_init(10000u);
 
     rc = bm_exec_init_all(g_instances, 3u);

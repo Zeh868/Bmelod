@@ -49,7 +49,7 @@ BM_ULTRA_CALLBACK_TABLE_DEFINE(
 );
 
 int main(void) {
-    bm_hal_uart_init(NULL);
+    bm_hal_uart_init(&bm_uart_default, NULL);
     bm_ultra_init();
     example_print("Bmelod Example: ultra_blink\n");
     BM_LOGI(TAG, "ultra_blink example start");

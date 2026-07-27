@@ -304,7 +304,7 @@ int main(void) {
     const bm_stream_stats_t *stats;
 
     BM_LOGI(TAG, "stream_fft 示例启动");
-    bm_hal_uart_init(NULL);
+    bm_hal_uart_init(&bm_uart_default, NULL);
 
     rc = bm_module_boot();
     if (rc != BM_OK) {

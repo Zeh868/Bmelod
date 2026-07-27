@@ -173,7 +173,7 @@ int main(void) {
     int rc;
 
     BM_LOGI(TAG, "HRT servo stub example start");
-    bm_hal_uart_init(NULL);
+    bm_hal_uart_init(&bm_uart_default, NULL);
 
     if (bm_module_boot() != BM_OK) {
         BM_LOGE(TAG, "module boot failed");

@@ -21,6 +21,9 @@ LL 头文件与所用 `.c` 由 `cmake/bm_sdk_stm32g4.cmake` 的
 | `ll_gpio` | 引脚模式/AF/上下拉 |
 | `ll_tim` | TIM6 tick、TIM1 三相互补 PWM（中心对齐/OC/死区/TRGO2/BKIN）、TIM3 编码器 |
 | `ll_lpuart` | LPUART1 波特率/收发/RXNE 中断 |
+| `ll_usart` | USART2 设备实例（HDSEL 单线半双工） |
+| `ll_dma` / `ll_dmamux` | SPI1 异步 DMA、USART2 RX DMA 通道/请求配置 |
+| `ll_spi` | SPI1 主机全双工（软件 NSS，同步 + DMA 异步） |
 | `ll_iwdg` | IWDG 预分频/重装载/启动/喂狗 |
 | `ll_adc` | ADC1 注入序列/触发源/校准/JEOS 中断 |
 | `ll_comp` | COMP1 输入选择/迟滞/极性/blanking |
@@ -39,10 +42,15 @@ LL 头文件与所用 `.c` 由 `cmake/bm_sdk_stm32g4.cmake` 的
 | `bm_vendor_adc_stm32g4.c` | 相电流 ADC（ADC1 注入组 ia/ib 双 rank，TIM1 TRGO2 硬件触发，JEOS ISR 缓存+回调） |
 | `bm_vendor_encoder_stm32g4.c` | 增量编码器（TIM3 正交编码器模式 3，4×CPR 计数） |
 | `bm_vendor_comp_stm32g4.c` | 过流比较器（COMP1，`clear_latch` 清 TIM1 break 锁存） |
+| `bm_vendor_gpio_stm32g4.c` | GPIO 设备（bm_drv_gpio 契约，全 GPIOA-G 口，pin 编码 (port<<4)\|num） |
+| `bm_vendor_spi_stm32g4.c` | SPI1 阻塞全双工（软件 CS 经 GPIO 设备，时钟/模式可配） |
+| `bm_vendor_uart_dev_stm32g4.c` | USART2 设备实例（统一 bm_hal_uart 实例契约，HDSEL 单线半双工，TMC2209 用） |
+| `bm_vendor_dma_usart2_rx_stm32g4.c` | USART2 RX DMA 块流设备（bm_drv_dma_stream 契约，DMA1 循环模式 + half/full 回调） |
 | `bm_hal_cpu_freq_stm32g4.c` | CPU 主频三接口（真机规则：`freq_hz()` 读 `SystemCoreClock`，单点 170MHz，`set` 恒 `BM_ERR_NOT_SUPPORTED`） |
 
 导出实例（对齐 esp32 vendor 命名）：`bm_hal_pwm_m0` / `bm_hal_adc_m0` /
-`bm_hal_encoder_m0` / `bm_hal_comp_m0`。
+`bm_hal_encoder_m0` / `bm_hal_comp_m0`；接口批 1 设备：`bm_stm32g4_gpio`
+（全芯片 GPIO）、`bm_stm32g4_spi1`、`bm_stm32g4_uart_dev_usart2`。
 
 ## 实例绑定
 
@@ -52,7 +60,7 @@ LL 头文件与所用 `.c` 由 `cmake/bm_sdk_stm32g4.cmake` 的
 | 信号 | 默认绑定 |
 |---|---|
 | tick | TIM6 update 中断（可 `BM_STM32G4_TICK_USE_TIM7` 切 TIM7） |
-| console | LPUART1 @ PA2/PA3（ST-LINK VCP，AF12，115200 8N1） |
+| console | LPUART1 @ PA2/PA3（ST-LINK VCP，AF12，115200 8N1），导出 `bm_uart_default` |
 | PWM 三相 | TIM1 CH1/2/3 + CH1N/2N/3N @ PA8/PA9/PA10 + PB13/PB14/PB15（AF6），20kHz 中心对齐 |
 | 相电流 | ADC1 注入 rank0=IN1(PA0) / rank1=IN2(PA1)，TIM1 TRGO2 触发 |
 | 编码器 | TIM3 CH1/CH2 @ PA6/PA7（AF2），CPR 4096 |
@@ -96,11 +104,20 @@ target_link_libraries(my_app PRIVATE bm_framework bm_hal_stm32g4)
 已知缺口：
 
 - NVS/flash 持久化无后端（`bm_persist` 安全 no-op）；
-- DMA stream、I2C/SPI 传感器挂接未实现（实际需要再补）；
+- DMA stream、I2C/SPI 传感器挂接未实现（实际需要再补；批 2 I2C/DAC/CAN
+  为后续独立方案）；
+- GPIO 中断绑定与 AF 配置不在 bm_drv_gpio 契约内（AF 属各外设 vendor
+  内部，限位开关 E1 走轮询）；定时器设备实例契约未建（stepper_pulse
+  经 resources 回调规避，实机由业务/vendor 绑一路 TIM）；
+- UART TX DMA 未实现（console 打印量小，登记缺口；RX DMA 已有
+  bm_stm32g4_usart2_rx_dma）；SPI DMA 仅 SPI1（transfer_async），
+  多设备 DMA 调度未做；
+- SPI1（PA5/6/7）与编码器 TIM3（PA6/7）、USART2（PA9/10）与 PWM 高边
+  （PA8/9/10）默认引脚冲突，同用须覆盖其一（instances 宏）；
 - COMP 门限/blanking 编码（`BM_STM32G4_COMP_*`）按 RM0440 表给出默认值，
   **实机须核对**；门限若改用 DAC 通道（INMSEL 编码 4/5），DAC 本体配置
   由板级自备；
 - ADC 读值为 12bit raw，板级零偏中心化/标定未做（对齐 esp32 vendor 的
   中心化机制待实机标定后补）；
 - PWM 死区仅支持 DTG 第一编码段（≤127 tDTS，约 ≤747ns @170MHz）；
-- LPUART 时钟源按默认 PCLK1 推算，改过 `CCIPR.LPUART1SEL` 的板级需实机核对。
+- LPUART/USART2 时钟源按默认 PCLK1 推算，改过 `CCIPR.LPUART1SEL` 的板级需实机核对。

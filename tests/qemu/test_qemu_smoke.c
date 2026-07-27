@@ -23,7 +23,7 @@ void cb(const bm_event_t *ev, void *ud) {
 
 int main(void) {
     BM_LOGI("qemu_smoke", "start event publish smoke test");
-    bm_hal_uart_init(NULL);
+    bm_hal_uart_init(&bm_uart_default, NULL);
 
     bm_event_register_type(1, "TEST");
     bm_event_subscriber_id_t id;
@@ -38,7 +38,7 @@ int main(void) {
     if (g_evt_count != 1) {
         BM_LOGE("qemu_smoke", "unexpected callback count: %d", g_evt_count);
     }
-    bm_hal_uart_send((const uint8_t *)pass, strlen(pass));
+    bm_hal_uart_send(&bm_uart_default, (const uint8_t *)pass, strlen(pass));
 
     while (1) {}
 }

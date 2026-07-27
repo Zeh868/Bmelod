@@ -282,7 +282,7 @@ int main(void) {
     float crest_err;
 
     BM_LOGI(TAG, "daq_frontend example start");
-    bm_hal_uart_init(NULL);
+    bm_hal_uart_init(&bm_uart_default, NULL);
 
     rc = bm_module_boot();
     if (rc != BM_OK) {

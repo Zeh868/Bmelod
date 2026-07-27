@@ -9,7 +9,8 @@
  * 1. **不要**在本文件定义 `bm_drv_critical_api` / `bm_drv_memory_api` — 由
  *    `portable/arch/<id>/`（`bm_arch_drv_bundle.c`）提供。
  * 2. 将 `portable/arch/<id>` 加入 include path，以便使用 `bm_arch_portmacro.h`。
- * 3. 下方 timer/uart/wdg 为弱符号示例；应用可提供强符号覆盖，或改用 vendor 单例。
+ * 3. 下方 timer/wdg 为弱符号示例、uart 为默认控制台设备示例（统一实例模型）；
+ *    应用可提供强符号覆盖，或改用 vendor 导出设备。
  * 4. 使用 `BM_BACKEND` pack 时通常无需本文件（pack 已链 arch + vendor）。
  * 5. 若定时器 ISR（`bm_port_timer_isr`）派发的用户回调可能包含浮点运算
  *    （例如电流环等控制律回调），必须在派发前后调用 `portable/arch/<id>/
@@ -35,6 +36,7 @@
 
 #include "bm_drv_timer.h"
 #include "bm_drv_uart.h"
+#include "bm_hal_uart.h"
 #include "bm_drv_wdg.h"
 #include "bm_types.h"
 
@@ -105,33 +107,43 @@ void bm_port_timer_isr(void) {
     }
 }
 
-static int port_uart_init(void *config) {
+static int port_uart_init(const struct bm_hal_uart *dev, void *config) {
+    (void)dev;
     (void)config;
     return BM_OK;
 }
 
-static int port_uart_send(const uint8_t *data, size_t len) {
+static int port_uart_send(const struct bm_hal_uart *dev,
+                          const uint8_t *data, size_t len) {
+    (void)dev;
     (void)data;
     (void)len;
     return BM_OK;
 }
 
-static size_t port_uart_recv(uint8_t *data, size_t max_len) {
+static size_t port_uart_recv(const struct bm_hal_uart *dev,
+                             uint8_t *data, size_t max_len) {
+    (void)dev;
     (void)data;
     (void)max_len;
     return 0u;
 }
 
-static void port_uart_set_rx_callback(void (*cb)(uint8_t c)) {
+static void port_uart_set_rx_callback(const struct bm_hal_uart *dev,
+                                      void (*cb)(uint8_t c)) {
+    (void)dev;
     (void)cb;
 }
 
-BM_PORT_WEAK const struct bm_uart_driver_api bm_drv_uart_api = {
+static const struct bm_uart_driver_api g_port_uart_api = {
     port_uart_init,
     port_uart_send,
     port_uart_recv,
     port_uart_set_rx_callback,
 };
+
+/** @brief 默认控制台 UART 设备（统一实例模型；应用可提供强符号覆盖）。 */
+BM_PORT_WEAK const bm_hal_uart_t bm_uart_default = { &g_port_uart_api, NULL };
 
 static int port_wdg_init(uint32_t timeout_ms) {
     (void)timeout_ms;

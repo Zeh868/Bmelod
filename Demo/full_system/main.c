@@ -60,7 +60,7 @@ int main(void) {
     uint8_t storm_published = 0;
     uint8_t pass_sent = 0;
 
-    bm_hal_uart_init(NULL);
+    bm_hal_uart_init(&bm_uart_default, NULL);
     example_print("Bmelod Example: full_system\n");
     BM_LOGI(TAG, "full_system example start");
 

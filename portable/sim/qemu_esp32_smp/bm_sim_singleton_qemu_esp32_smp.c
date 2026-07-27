@@ -18,6 +18,7 @@
  */
 #include "bm_drv_timer.h"
 #include "bm_drv_uart.h"
+#include "bm_hal_uart.h"
 #include "bm_drv_wdg.h"
 #include "bm_log.h"
 #include "bm_types.h"
@@ -239,13 +240,16 @@ void qemu_esp32_smp_on_timer_irq(void) {
     esp32_smp_timer_arm(0u);
 }
 
-static int esp32_smp_uart_init(void *config) {
+static int esp32_smp_uart_init(const struct bm_hal_uart *dev, void *config) {
+    (void)dev;
     (void)config;
     BM_LOGI(TAG_UART, "init: UART0");
     return BM_OK;
 }
 
-static int esp32_smp_uart_send(const uint8_t *data, size_t len) {
+static int esp32_smp_uart_send(const struct bm_hal_uart *dev,
+                            const uint8_t *data, size_t len) {
+    (void)dev;
     size_t i;
 
     if (!data || len == 0u) {
@@ -259,22 +263,29 @@ static int esp32_smp_uart_send(const uint8_t *data, size_t len) {
     return BM_OK;
 }
 
-static size_t esp32_smp_uart_recv(uint8_t *data, size_t max_len) {
+static size_t esp32_smp_uart_recv(const struct bm_hal_uart *dev,
+                               uint8_t *data, size_t max_len) {
+    (void)dev;
     (void)data;
     (void)max_len;
     return 0u;
 }
 
-static void esp32_smp_uart_set_rx_callback(void (*cb)(uint8_t c)) {
+static void esp32_smp_uart_set_rx_callback(const struct bm_hal_uart *dev,
+                                        void (*cb)(uint8_t c)) {
+    (void)dev;
     (void)cb;
 }
 
-const struct bm_uart_driver_api bm_drv_uart_api = {
+static const struct bm_uart_driver_api g_uart_api = {
     esp32_smp_uart_init,
     esp32_smp_uart_send,
     esp32_smp_uart_recv,
     esp32_smp_uart_set_rx_callback,
 };
+
+/** @brief 默认控制台 UART 设备（统一实例模型，见 bm_hal_uart.h）。 */
+const bm_hal_uart_t bm_uart_default = { &g_uart_api, NULL };
 
 static int esp32_smp_wdg_init(uint32_t timeout_ms) {
     (void)timeout_ms;

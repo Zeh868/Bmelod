@@ -34,7 +34,7 @@ int main(void) {
     uint8_t stats_sent = 0;
     uint8_t pass_sent = 0;
 
-    bm_hal_uart_init(NULL);
+    bm_hal_uart_init(&bm_uart_default, NULL);
     example_print("Bmelod Example: interrupt_demo\n");
     BM_LOGI(TAG, "interrupt_demo example start");
 

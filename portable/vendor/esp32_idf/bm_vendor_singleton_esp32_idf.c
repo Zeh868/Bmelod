@@ -60,6 +60,7 @@
  */
 #include "bm_drv_timer.h"
 #include "bm_drv_uart.h"
+#include "bm_hal_uart.h"
 #include "bm_drv_wdg.h"
 #include "bm_hal_instances_esp32wroom32e.h"
 #include "bm_vendor_esp32_idf_compat.h"
@@ -428,8 +429,9 @@ const struct bm_timer_driver_api bm_drv_timer_api = {
  * @param config 未使用。
  * @return BM_OK。
  */
-static int esp32_uart_init(void *config)
+static int esp32_uart_init(const struct bm_hal_uart *dev, void *config)
 {
+    (void)dev;
     (void)config;
     g_uart_ready = 1u;
     return BM_OK;
@@ -441,9 +443,12 @@ static int esp32_uart_init(void *config)
  * @param len  数据长度。
  * @return BM_OK 成功；BM_ERR_INVALID 参数无效；BM_ERR_NOT_INIT 未初始化。
  */
-static int esp32_uart_send(const uint8_t *data, size_t len)
+static int esp32_uart_send(const struct bm_hal_uart *dev,
+                           const uint8_t *data, size_t len)
 {
     size_t i;
+
+    (void)dev;
 
     if (data == NULL) {
         return BM_ERR_INVALID;
@@ -475,9 +480,12 @@ static int esp32_uart_send(const uint8_t *data, size_t len)
  * @param max_len 缓冲区容量（字节）。
  * @return 实际读出的字节数；无数据/未初始化/参数无效时为 0。
  */
-static size_t esp32_uart_recv(uint8_t *data, size_t max_len)
+static size_t esp32_uart_recv(const struct bm_hal_uart *dev,
+                              uint8_t *data, size_t max_len)
 {
     uint32_t avail;
+
+    (void)dev;
     uint32_t n;
 
     if (data == NULL || max_len == 0u) {
@@ -500,19 +508,24 @@ static size_t esp32_uart_recv(uint8_t *data, size_t max_len)
  * @brief 注册 RX 回调（裸机模式下保存但不主动触发）。
  * @param cb RX 回调。
  */
-static void esp32_uart_set_rx_callback(void (*cb)(uint8_t c))
+static void esp32_uart_set_rx_callback(const struct bm_hal_uart *dev,
+                                       void (*cb)(uint8_t c))
 {
+    (void)dev;
     g_rx_callback = cb;
     (void)g_rx_callback;
 }
 
 /** @brief UART 驱动 API 表。 */
-const struct bm_uart_driver_api bm_drv_uart_api = {
+static const struct bm_uart_driver_api g_uart_api = {
     esp32_uart_init,
     esp32_uart_send,
     esp32_uart_recv,
     esp32_uart_set_rx_callback,
 };
+
+/** @brief 默认控制台 UART 设备（统一实例模型，见 bm_hal_uart.h）。 */
+const bm_hal_uart_t bm_uart_default = { &g_uart_api, NULL };
 
 /* ---------- WDT 驱动实现（维持 Phase 1 实现，使用 TIMERG1） ---------- */
 

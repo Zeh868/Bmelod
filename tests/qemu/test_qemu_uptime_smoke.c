@@ -38,7 +38,7 @@ static void wait_ticks(uint32_t n) {
 
 /** @brief 向串口发送字符串 */
 static void uart_puts(const char *s) {
-    bm_hal_uart_send((const uint8_t *)s, strlen(s));
+    bm_hal_uart_send(&bm_uart_default, (const uint8_t *)s, strlen(s));
 }
 
 /** @brief 发送 TAP 行并等待串口刷新 */
@@ -60,7 +60,7 @@ int main(void) {
     uint64_t t0, t1, us;
     int pass_nonzero, pass_mono, pass_us;
 
-    bm_hal_uart_init(NULL);
+    bm_hal_uart_init(&bm_uart_default, NULL);
     BM_LOGI("uptime_smoke", "start uptime smoke test");
 
     /* 启动 TIMER1（1 kHz），使 bm_hal_uptime_ns_raw() 的 tick 开始递增 */

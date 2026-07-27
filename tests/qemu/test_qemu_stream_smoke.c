@@ -23,7 +23,7 @@ int main(void) {
     const char *line;
     int pass = 1;
 
-    bm_hal_uart_init(NULL);
+    bm_hal_uart_init(&bm_uart_default, NULL);
     BM_LOGI("qemu_stream", "start stream smoke test");
 
     if (bm_stream_init(&my_stream, _bm_stream_payload_my_stream, BLOCK_COUNT, PAYLOAD_SIZE) != BM_OK) {
@@ -61,7 +61,7 @@ int main(void) {
         line = "not ok 1 - qemu_stream_smoke\n";
     }
 
-    bm_hal_uart_send((const uint8_t *)line, strlen(line));
+    bm_hal_uart_send(&bm_uart_default, (const uint8_t *)line, strlen(line));
     while (1) {
     }
 }

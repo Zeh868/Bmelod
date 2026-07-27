@@ -573,7 +573,7 @@ int main(void) {
     bm_mp_ipc_matrix_t *matrix;
 
     BM_LOGI(TAG, "dual_core_stream start");
-    bm_hal_uart_init(NULL);
+    bm_hal_uart_init(&bm_uart_default, NULL);
 #ifdef BM_EXAMPLE_QEMU_SMP
     hybrid_print("EXAMPLE_DUAL_CORE_STREAM: start\n");
 #endif

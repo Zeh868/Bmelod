@@ -19,6 +19,7 @@
 #include "bm_drv_timer.h"
 #include "bm_drv_uart.h"
 #include "bm_drv_wdg.h"
+#include "bm_hal_uart.h"
 #include "bm_hal_timer_native.h"
 #include "bm_hal_wdg_native.h"
 #include "bm_sim_native_internal.h"
@@ -148,34 +149,44 @@ uint32_t bm_hal_timer_native_freq_on_cpu(uint32_t cpu) {
 /* --- uart --- */
 static void (*g_uart_rx_cb)(uint8_t c);
 
-static int native_uart_init(void *config) {
+static int native_uart_init(const struct bm_hal_uart *dev, void *config) {
+    (void)dev;
     (void)config;
     return BM_OK;
 }
 
-static int native_uart_send(const uint8_t *data, size_t len) {
+static int native_uart_send(const struct bm_hal_uart *dev,
+                            const uint8_t *data, size_t len) {
+    (void)dev;
     fwrite(data, 1, len, stdout);
     fflush(stdout);
     return BM_OK;
 }
 
-static size_t native_uart_recv(uint8_t *data, size_t max_len) {
+static size_t native_uart_recv(const struct bm_hal_uart *dev,
+                               uint8_t *data, size_t max_len) {
+    (void)dev;
     (void)data;
     (void)max_len;
     return 0u;
 }
 
-static void native_uart_set_rx_callback(void (*cb)(uint8_t c)) {
+static void native_uart_set_rx_callback(const struct bm_hal_uart *dev,
+                                        void (*cb)(uint8_t c)) {
+    (void)dev;
     g_uart_rx_cb = cb;
     (void)g_uart_rx_cb;
 }
 
-const struct bm_uart_driver_api bm_drv_uart_api = {
+static const struct bm_uart_driver_api g_native_uart_api = {
     native_uart_init,
     native_uart_send,
     native_uart_recv,
     native_uart_set_rx_callback,
 };
+
+/** @brief 默认控制台 UART 设备（统一实例模型，见 bm_hal_uart.h）。 */
+const bm_hal_uart_t bm_uart_default = { &g_native_uart_api, NULL };
 
 /* --- wdg --- */
 static uint32_t g_wdg_feed_count;

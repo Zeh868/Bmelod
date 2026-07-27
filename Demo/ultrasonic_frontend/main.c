@@ -319,7 +319,7 @@ int main(void) {
     }
 
     BM_LOGI(TAG, "ultrasonic_frontend example start");
-    bm_hal_uart_init(NULL);
+    bm_hal_uart_init(&bm_uart_default, NULL);
 
     rc = bm_module_boot();
     if (rc != BM_OK) {

@@ -34,12 +34,12 @@ int main(void) {
     slots[0].context = NULL;
     slots[0].name = "tick";
 
-    bm_hal_uart_init(NULL);
+    bm_hal_uart_init(&bm_uart_default, NULL);
 
     if (bm_hrt_init(slots, 1u) != BM_OK || bm_hrt_start() != BM_OK) {
         BM_LOGE("qemu_hybrid", "HRT init/start failed");
         line = "not ok 1 - bm_hrt_init\n";
-        bm_hal_uart_send((const uint8_t *)line, strlen(line));
+        bm_hal_uart_send(&bm_uart_default, (const uint8_t *)line, strlen(line));
         while (1) {
         }
     }
@@ -53,7 +53,7 @@ int main(void) {
     if (g_hits == 0u) {
         BM_LOGE("qemu_hybrid", "HRT slot did not fire");
     }
-    bm_hal_uart_send((const uint8_t *)line, strlen(line));
+    bm_hal_uart_send(&bm_uart_default, (const uint8_t *)line, strlen(line));
     while (1) {
     }
 }

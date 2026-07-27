@@ -629,7 +629,7 @@ int mp_relay_algo_demo_main(void) {
     (void)tag;
 
     BM_LOGI(tag, "relay algo demo start kind=%u", (unsigned)g_mp_relay_algo_params.kind);
-    bm_hal_uart_init(NULL);
+    bm_hal_uart_init(&bm_uart_default, NULL);
 #ifdef BM_EXAMPLE_QEMU_SMP
     hybrid_print("EXAMPLE_RELAY_ALGO: start\n");
 #endif

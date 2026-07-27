@@ -19,6 +19,7 @@
  */
 #include "bm_drv_timer.h"
 #include "bm_drv_uart.h"
+#include "bm_hal_uart.h"
 #include "bm_drv_wdg.h"
 #include "bm_log.h"
 #include "bm_types.h"
@@ -145,33 +146,43 @@ static void qemu_semihosting_write(const uint8_t *data, size_t len) {
     );
 }
 
-static int qemu_uart_init(void *config) {
+static int qemu_uart_init(const struct bm_hal_uart *dev, void *config) {
+    (void)dev;
     (void)config;
     BM_LOGI(TAG_UART, "init: semihosting backend");
     return BM_OK;
 }
 
-static int qemu_uart_send(const uint8_t *data, size_t len) {
+static int qemu_uart_send(const struct bm_hal_uart *dev,
+                            const uint8_t *data, size_t len) {
+    (void)dev;
     qemu_semihosting_write(data, len);
     return BM_OK;
 }
 
-static size_t qemu_uart_recv(uint8_t *data, size_t max_len) {
+static size_t qemu_uart_recv(const struct bm_hal_uart *dev,
+                               uint8_t *data, size_t max_len) {
+    (void)dev;
     (void)data;
     (void)max_len;
     return 0u;
 }
 
-static void qemu_uart_set_rx_callback(void (*cb)(uint8_t c)) {
+static void qemu_uart_set_rx_callback(const struct bm_hal_uart *dev,
+                                        void (*cb)(uint8_t c)) {
+    (void)dev;
     (void)cb;
 }
 
-const struct bm_uart_driver_api bm_drv_uart_api = {
+static const struct bm_uart_driver_api g_uart_api = {
     qemu_uart_init,
     qemu_uart_send,
     qemu_uart_recv,
     qemu_uart_set_rx_callback,
 };
+
+/** @brief 默认控制台 UART 设备（统一实例模型，见 bm_hal_uart.h）。 */
+const bm_hal_uart_t bm_uart_default = { &g_uart_api, NULL };
 
 static int qemu_wdg_init(uint32_t timeout_ms) {
     (void)timeout_ms;

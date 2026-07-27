@@ -46,7 +46,7 @@ void example_print(const char *text) {
 #if defined(BM_EXAMPLE_QEMU_SMP)
         example_qemu_uart_send((const uint8_t *)text, strlen(text));
 #else
-        bm_hal_uart_send((const uint8_t *)text, strlen(text));
+        bm_hal_uart_send(&bm_uart_default, (const uint8_t *)text, strlen(text));
 #endif
     }
 }
@@ -71,7 +71,7 @@ void example_print_u32(uint32_t value) {
 #if defined(BM_EXAMPLE_QEMU_SMP)
     example_qemu_uart_send((const uint8_t *)output, count);
 #else
-    bm_hal_uart_send((const uint8_t *)output, count);
+    bm_hal_uart_send(&bm_uart_default, (const uint8_t *)output, count);
 #endif
 }
 
