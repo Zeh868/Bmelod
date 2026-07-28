@@ -6,18 +6,16 @@
  * 设备未绑定后端（api 为 NULL）时返回 BM_ERR_NOT_INIT / 0。
  * hard RT 剖面下阻塞收发与 RX 用户回调均 fail-closed。
  * @author zeh (china_qzh@163.com)
- * @version 2.0
- * @date 2026-07-27
+ * @version 3.0
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布（单例分发）
  * 2026-06-15       1.1            zeh            hard RT 禁止阻塞 UART 路径
- * 2026-07-27       1.2            zeh            追加设备实例分发（过渡形态）
- * 2026-07-27       2.0            zeh            打破式全实例化：删除单例分发与过渡形态，
- *                                                统一 encoder 式设备分发
- *
+ * 2026-07-27       2.0            zeh            打破式全实例化，统一 encoder 式设备分发
+ * 2026-07-28       3.0            zeh            接口批 1 扩展 IDLE/环形缓冲/错误统计分发
  */
 #include "bm_hal_uart.h"
 #include "bm_config.h"
@@ -74,4 +72,85 @@ void bm_hal_uart_set_rx_callback(const bm_hal_uart_t *uart, void (*cb)(uint8_t c
     }
     uart->api->set_rx_callback(uart, cb);
 #endif
+}
+
+int bm_hal_uart_abort(const bm_hal_uart_t *uart) {
+#if BM_CONFIG_HARD_RT_PROFILE
+    (void)uart;
+    return BM_ERR_NOT_SUPPORTED;
+#else
+    if (!uart || !uart->api || !uart->api->abort) {
+        return BM_ERR_NOT_INIT;
+    }
+    return uart->api->abort(uart);
+#endif
+}
+
+int bm_hal_uart_flush(const bm_hal_uart_t *uart) {
+#if BM_CONFIG_HARD_RT_PROFILE
+    (void)uart;
+    return BM_ERR_NOT_SUPPORTED;
+#else
+    if (!uart || !uart->api || !uart->api->flush) {
+        return BM_ERR_NOT_INIT;
+    }
+    return uart->api->flush(uart);
+#endif
+}
+
+int bm_hal_uart_set_tx_complete_callback(const bm_hal_uart_t *uart,
+                                         bm_uart_tx_complete_callback_t cb,
+                                         void *user) {
+#if BM_CONFIG_HARD_RT_PROFILE
+    (void)uart;
+    (void)cb;
+    (void)user;
+    return BM_ERR_NOT_SUPPORTED;
+#else
+    if (!uart || !uart->api || !uart->api->set_tx_complete_callback) {
+        return BM_ERR_NOT_INIT;
+    }
+    return uart->api->set_tx_complete_callback(uart, cb, user);
+#endif
+}
+
+int bm_hal_uart_set_rx_frame_callback(const bm_hal_uart_t *uart,
+                                      bm_uart_rx_frame_callback_t cb,
+                                      void *user) {
+#if BM_CONFIG_HARD_RT_PROFILE
+    (void)uart;
+    (void)cb;
+    (void)user;
+    return BM_ERR_NOT_SUPPORTED;
+#else
+    if (!uart || !uart->api || !uart->api->set_rx_frame_callback) {
+        return BM_ERR_NOT_INIT;
+    }
+    return uart->api->set_rx_frame_callback(uart, cb, user);
+#endif
+}
+
+int bm_hal_uart_set_rx_buffer(const bm_hal_uart_t *uart,
+                              uint8_t *buf, size_t len) {
+#if BM_CONFIG_HARD_RT_PROFILE
+    (void)uart;
+    (void)buf;
+    (void)len;
+    return BM_ERR_NOT_SUPPORTED;
+#else
+    if (!uart || !uart->api || !uart->api->set_rx_buffer) {
+        return BM_ERR_NOT_INIT;
+    }
+    return uart->api->set_rx_buffer(uart, buf, len);
+#endif
+}
+
+int bm_hal_uart_get_stats(const bm_hal_uart_t *uart, bm_uart_stats_t *stats) {
+    if (!uart || !uart->api || !uart->api->get_stats) {
+        return BM_ERR_NOT_INIT;
+    }
+    if (!stats) {
+        return BM_ERR_INVALID;
+    }
+    return uart->api->get_stats(uart, stats);
 }

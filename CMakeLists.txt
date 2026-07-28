@@ -478,6 +478,7 @@ if(BM_ENABLE_COMPONENT_DIAGNOSTICS)
         Source/component/bm_limit_switch.c     # 限位开关
         Source/component/bm_tmc_diag.c         # TMC DIAG 输入
         Source/component/bm_estop_input.c      # 急停输入
+        Source/component/bm_rs485.c            # RS485 半双工链路包装
     )
     if(BM_ENABLE_COMPONENT_STREAM OR BM_BUILD_TESTS)
         list(APPEND _bm_diag_sources

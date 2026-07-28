@@ -152,12 +152,60 @@ static void stub_uart_rxcb(const struct bm_hal_uart *dev,
     (void)dev; (void)cb;
 }
 
+static int stub_uart_abort(const struct bm_hal_uart *dev) {
+    (void)dev;
+    return BM_OK;
+}
+
+static int stub_uart_flush(const struct bm_hal_uart *dev) {
+    (void)dev;
+    return BM_OK;
+}
+
+static int stub_uart_set_tx_complete(const struct bm_hal_uart *dev,
+                                     bm_uart_tx_complete_callback_t cb,
+                                     void *user) {
+    (void)dev; (void)cb; (void)user;
+    return BM_ERR_NOT_SUPPORTED;
+}
+
+static int stub_uart_set_rx_frame(const struct bm_hal_uart *dev,
+                                  bm_uart_rx_frame_callback_t cb,
+                                  void *user) {
+    (void)dev; (void)cb; (void)user;
+    return BM_ERR_NOT_SUPPORTED;
+}
+
+static void stub_uart_rx_frame_cb(const struct bm_hal_uart *dev,
+                                  uint32_t event, size_t len, void *user) {
+    (void)dev; (void)event; (void)len; (void)user;
+}
+
+static int stub_uart_set_rx_buffer(const struct bm_hal_uart *dev,
+                                   uint8_t *buf, size_t len) {
+    (void)dev; (void)buf; (void)len;
+    return BM_ERR_NOT_SUPPORTED;
+}
+
+static int stub_uart_get_stats(const struct bm_hal_uart *dev,
+                               bm_uart_stats_t *stats) {
+    (void)dev;
+    if (stats == NULL) {
+        return BM_ERR_INVALID;
+    }
+    return BM_OK;
+}
+
 void test_hal_uart_dev_dispatch_with_backend(void) {
     static const struct bm_uart_driver_api api = {
         stub_uart_init, stub_uart_send, stub_uart_recv, stub_uart_rxcb,
+        stub_uart_abort, stub_uart_flush,
+        stub_uart_set_tx_complete, stub_uart_set_rx_frame,
+        stub_uart_set_rx_buffer, stub_uart_get_stats,
     };
     bm_hal_uart_t dev = { &api, NULL };
     uint8_t           b = 0u;
+    bm_uart_stats_t stats;
 
     TEST_ASSERT_EQUAL(BM_OK, bm_hal_uart_init(&dev, NULL));
     TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_hal_uart_send(&dev, NULL, 1u));
@@ -165,6 +213,17 @@ void test_hal_uart_dev_dispatch_with_backend(void) {
     TEST_ASSERT_EQUAL_UINT(1u, bm_hal_uart_recv(&dev, &b, 1u));
     TEST_ASSERT_EQUAL_UINT(0u, bm_hal_uart_recv(&dev, NULL, 1u));
     bm_hal_uart_set_rx_callback(&dev, NULL);
+    TEST_ASSERT_EQUAL(BM_OK, bm_hal_uart_abort(&dev));
+    TEST_ASSERT_EQUAL(BM_OK, bm_hal_uart_flush(&dev));
+    TEST_ASSERT_EQUAL(BM_ERR_NOT_SUPPORTED,
+        bm_hal_uart_set_tx_complete_callback(&dev, NULL, NULL));
+    TEST_ASSERT_EQUAL(BM_ERR_NOT_SUPPORTED,
+        bm_hal_uart_set_rx_frame_callback(&dev, NULL, NULL));
+    TEST_ASSERT_EQUAL(BM_ERR_NOT_SUPPORTED,
+        bm_hal_uart_set_rx_buffer(&dev, NULL, 0u));
+    TEST_ASSERT_EQUAL(BM_OK, bm_hal_uart_get_stats(&dev, &stats));
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID,
+        bm_hal_uart_get_stats(&dev, NULL));
 }
 
 int main(void) {

@@ -231,6 +231,53 @@
 #define BM_STM32G4_SPI1_CS_PIN  4u
 #endif
 
+/* ---------- USART3 设备实例（RS485 等，支持 IDLE + DMA TX/RX） ---------- */
+
+/** @brief USART3 波特率。 */
+#ifndef BM_STM32G4_USART3_BAUD
+#define BM_STM32G4_USART3_BAUD  115200u
+#endif
+/** @brief USART3 GPIO AF 编码（默认 PB10/PB11 = AF7）。 */
+#ifndef BM_STM32G4_USART3_GPIO_AF
+#define BM_STM32G4_USART3_GPIO_AF  7u
+#endif
+/** @brief USART3 TX 引脚（GPIOB，默认 PB10）。 */
+#ifndef BM_STM32G4_USART3_TX_PIN
+#define BM_STM32G4_USART3_TX_PIN  10u
+#endif
+/** @brief USART3 RX 引脚（GPIOB，默认 PB11）。 */
+#ifndef BM_STM32G4_USART3_RX_PIN
+#define BM_STM32G4_USART3_RX_PIN  11u
+#endif
+/** @brief USART3 TX DMA 通道号（1-based，默认 DMA1_CH4）。 */
+#ifndef BM_STM32G4_USART3_TX_DMA_CH
+#define BM_STM32G4_USART3_TX_DMA_CH  4u
+#endif
+/** @brief USART3 TX DMAMUX 请求号（RM0440：USART3_TX=27）。 */
+#ifndef BM_STM32G4_USART3_TX_DMA_REQ
+#define BM_STM32G4_USART3_TX_DMA_REQ  27u
+#endif
+/** @brief USART3 RX DMA 通道号（1-based，默认 DMA1_CH5）。 */
+#ifndef BM_STM32G4_USART3_RX_DMA_CH
+#define BM_STM32G4_USART3_RX_DMA_CH  5u
+#endif
+/** @brief USART3 RX DMAMUX 请求号（RM0440：USART3_RX=28）。 */
+#ifndef BM_STM32G4_USART3_RX_DMA_REQ
+#define BM_STM32G4_USART3_RX_DMA_REQ  28u
+#endif
+/** @brief USART3 全局中断 NVIC 优先级。 */
+#ifndef BM_STM32G4_USART3_IRQ_PRIORITY
+#define BM_STM32G4_USART3_IRQ_PRIORITY  3u
+#endif
+/** @brief USART3 TX DMA 完成中断 NVIC 优先级。 */
+#ifndef BM_STM32G4_USART3_TX_DMA_IRQ_PRIORITY
+#define BM_STM32G4_USART3_TX_DMA_IRQ_PRIORITY  3u
+#endif
+/** @brief USART3 RX DMA 完成中断 NVIC 优先级。 */
+#ifndef BM_STM32G4_USART3_RX_DMA_IRQ_PRIORITY
+#define BM_STM32G4_USART3_RX_DMA_IRQ_PRIORITY  3u
+#endif
+
 /* ---------- USART2 设备实例（TMC2209 等，支持单线半双工） ---------- */
 
 /** @brief USART2 波特率（TMC2209 常用 115200）。 */

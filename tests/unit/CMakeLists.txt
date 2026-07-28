@@ -106,6 +106,16 @@ bm_add_test(test_hrtimer test_hrtimer.c bm_core)
 target_include_directories(test_hrtimer PRIVATE
     ${CMAKE_SOURCE_DIR}/portable/sim/native)
 
+# UART 多实例/IDLE/环形缓冲单测
+bm_add_test(test_uart test_uart.c bm_core)
+target_include_directories(test_uart PRIVATE
+    ${CMAKE_SOURCE_DIR}/portable/sim/native)
+
+# RS485 包装组件单测
+bm_add_test(test_rs485 test_rs485.c bm_component_diagnostics)
+target_include_directories(test_rs485 PRIVATE
+    ${CMAKE_SOURCE_DIR}/portable/sim/native)
+
 # 安全输入组件单测（消抖/限位开关/TMC DIAG/急停）
 bm_add_test(test_safety_inputs test_safety_inputs.c bm_component_diagnostics)
 target_include_directories(test_safety_inputs PRIVATE

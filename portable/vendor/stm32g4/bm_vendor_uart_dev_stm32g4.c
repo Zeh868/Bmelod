@@ -29,6 +29,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "stm32g4xx.h"
 #include "stm32g4xx_ll_bus.h"
@@ -187,12 +188,77 @@ static void bm_vendor_uart_dev_set_rx_callback(const struct bm_hal_uart *dev,
     NVIC_EnableIRQ(USART2_IRQn);
 }
 
+static int bm_vendor_uart_dev_abort(const struct bm_hal_uart *dev) {
+    (void)dev;
+    if (g_uart_ready == 0u) {
+        return BM_ERR_NOT_INIT;
+    }
+    LL_USART_DisableDirectionTx(USART2);
+    LL_USART_DisableDirectionRx(USART2);
+    LL_USART_EnableDirectionTx(USART2);
+    LL_USART_EnableDirectionRx(USART2);
+    return BM_OK;
+}
+
+static int bm_vendor_uart_dev_flush(const struct bm_hal_uart *dev) {
+    (void)dev;
+    if (g_uart_ready == 0u) {
+        return BM_ERR_NOT_INIT;
+    }
+    while (LL_USART_IsActiveFlag_TC(USART2) == 0u) {
+    }
+    return BM_OK;
+}
+
+static int bm_vendor_uart_dev_set_tx_complete_callback(
+    const struct bm_hal_uart *dev,
+    bm_uart_tx_complete_callback_t cb, void *user) {
+    (void)dev;
+    (void)cb;
+    (void)user;
+    return BM_ERR_NOT_SUPPORTED;
+}
+
+static int bm_vendor_uart_dev_set_rx_frame_callback(
+    const struct bm_hal_uart *dev,
+    bm_uart_rx_frame_callback_t cb, void *user) {
+    (void)dev;
+    (void)cb;
+    (void)user;
+    return BM_ERR_NOT_SUPPORTED;
+}
+
+
+static int bm_vendor_uart_dev_set_rx_buffer(const struct bm_hal_uart *dev,
+                                            uint8_t *buf, size_t len) {
+    (void)dev;
+    (void)buf;
+    (void)len;
+    return BM_ERR_NOT_SUPPORTED;
+}
+
+static int bm_vendor_uart_dev_get_stats(const struct bm_hal_uart *dev,
+                                        bm_uart_stats_t *stats) {
+    (void)dev;
+    if (stats == NULL) {
+        return BM_ERR_INVALID;
+    }
+    memset(stats, 0, sizeof(*stats));
+    return BM_OK;
+}
+
 /** @brief USART2 设备实例 API 表。 */
 static const struct bm_uart_driver_api g_uart_dev_api = {
     bm_vendor_uart_dev_init,
     bm_vendor_uart_dev_send,
     bm_vendor_uart_dev_recv,
     bm_vendor_uart_dev_set_rx_callback,
+    bm_vendor_uart_dev_abort,
+    bm_vendor_uart_dev_flush,
+    bm_vendor_uart_dev_set_tx_complete_callback,
+    bm_vendor_uart_dev_set_rx_frame_callback,
+    bm_vendor_uart_dev_set_rx_buffer,
+    bm_vendor_uart_dev_get_stats,
 };
 
 /** @brief STM32G4 USART2 设备实例。 */
