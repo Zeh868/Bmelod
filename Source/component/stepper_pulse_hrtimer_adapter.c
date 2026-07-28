@@ -4,7 +4,7 @@
  * @brief stepper_pulse 与高精度 Timer 的标准适配器实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -12,6 +12,7 @@
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 stepper_pulse hrtimer 适配器
  * 2026-07-28       1.1            zeh            修复 GPIO user 透传；移除调试 printf
+ * 2026-07-28       1.2            zeh            GPIO 回调改 int 返回；可选 en_set
  */
 #include "bm/component/stepper_pulse_hrtimer_adapter.h"
 
@@ -21,34 +22,49 @@
 /**
  * @brief GPIO 回调包装：STEP 拉高
  */
-static void bm_stepper_pulse_hrtimer_step_high(void *user) {
+static int bm_stepper_pulse_hrtimer_step_high(void *user) {
     bm_stepper_pulse_hrtimer_adapter_t *adapter = user;
 
-    if (adapter != NULL && adapter->app_step_high != NULL) {
-        adapter->app_step_high(adapter->app_user);
+    if (adapter == NULL || adapter->app_step_high == NULL) {
+        return BM_ERR_INVALID;
     }
+    return adapter->app_step_high(adapter->app_user);
 }
 
 /**
  * @brief GPIO 回调包装：STEP 拉低
  */
-static void bm_stepper_pulse_hrtimer_step_low(void *user) {
+static int bm_stepper_pulse_hrtimer_step_low(void *user) {
     bm_stepper_pulse_hrtimer_adapter_t *adapter = user;
 
-    if (adapter != NULL && adapter->app_step_low != NULL) {
-        adapter->app_step_low(adapter->app_user);
+    if (adapter == NULL || adapter->app_step_low == NULL) {
+        return BM_ERR_INVALID;
     }
+    return adapter->app_step_low(adapter->app_user);
 }
 
 /**
  * @brief GPIO 回调包装：DIR 电平设置
  */
-static void bm_stepper_pulse_hrtimer_dir_set(void *user, int level) {
+static int bm_stepper_pulse_hrtimer_dir_set(void *user, int level) {
     bm_stepper_pulse_hrtimer_adapter_t *adapter = user;
 
-    if (adapter != NULL && adapter->app_dir_set != NULL) {
-        adapter->app_dir_set(adapter->app_user, level);
+    if (adapter == NULL || adapter->app_dir_set == NULL) {
+        return BM_ERR_INVALID;
     }
+    return adapter->app_dir_set(adapter->app_user, level);
+}
+
+/**
+ * @brief GPIO 回调包装：EN 电平设置（可选）
+ */
+static int bm_stepper_pulse_hrtimer_en_set(void *user, int level) {
+    bm_stepper_pulse_hrtimer_adapter_t *adapter = user;
+
+    if (adapter == NULL || adapter->app_en_set == NULL) {
+        return BM_ERR_NOT_SUPPORTED;
+    }
+    return adapter->app_en_set(adapter->app_user, level);
 }
 
 /**
@@ -106,9 +122,10 @@ int bm_stepper_pulse_hrtimer_adapter_init(
     bm_stepper_pulse_hrtimer_adapter_t *adapter,
     const bm_stepper_pulse_config_t *config,
     const bm_hal_hrtimer_t *hrtimer,
-    void (*step_high)(void *user),
-    void (*step_low)(void *user),
-    void (*dir_set)(void *user, int level),
+    int (*step_high)(void *user),
+    int (*step_low)(void *user),
+    int (*dir_set)(void *user, int level),
+    int (*en_set)(void *user, int level),
     void *user) {
     int rc;
 
@@ -124,11 +141,14 @@ int bm_stepper_pulse_hrtimer_adapter_init(
     adapter->app_step_high = step_high;
     adapter->app_step_low  = step_low;
     adapter->app_dir_set   = dir_set;
+    adapter->app_en_set    = en_set;
 
     adapter->axis.config = *config;
     adapter->axis.resources.step_high = bm_stepper_pulse_hrtimer_step_high;
     adapter->axis.resources.step_low  = bm_stepper_pulse_hrtimer_step_low;
     adapter->axis.resources.dir_set   = bm_stepper_pulse_hrtimer_dir_set;
+    adapter->axis.resources.en_set    = (en_set != NULL)
+        ? bm_stepper_pulse_hrtimer_en_set : NULL;
     adapter->axis.resources.arm_timer = bm_stepper_pulse_hrtimer_arm;
     adapter->axis.resources.user      = adapter;
 

@@ -33,9 +33,9 @@ static uint32_t g_now_us;   /* 假平台当前时刻（µs） */
 static uint32_t g_due_us;   /* 定时器到期时刻（µs），g_timer_armed=1 时有效 */
 static int      g_timer_armed;
 
-static void sim_step_high(void *user) { (void)user; g_step_level = 1; }
-static void sim_step_low(void *user)  { (void)user; g_step_level = 0; }
-static void sim_dir_set(void *user, int level) { (void)user; g_dir_level = level; }
+static int sim_step_high(void *user) { (void)user; g_step_level = 1; return BM_OK; }
+static int sim_step_low(void *user)  { (void)user; g_step_level = 0; return BM_OK; }
+static int sim_dir_set(void *user, int level) { (void)user; g_dir_level = level; return BM_OK; }
 
 /**
  * @brief arm_timer 契约语义实现：到期时间上限——已武装且剩余更短则不动，

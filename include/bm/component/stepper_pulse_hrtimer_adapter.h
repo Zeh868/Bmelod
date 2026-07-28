@@ -9,7 +9,7 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -17,6 +17,7 @@
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 stepper_pulse hrtimer 适配器
  * 2026-07-28       1.1            zeh            分离 app_user 与 adapter 指针透传
+ * 2026-07-28       1.2            zeh            GPIO 回调改 int 返回；可选 en_set
  */
 #ifndef BM_STEPPER_PULSE_HRTIMER_ADAPTER_H
 #define BM_STEPPER_PULSE_HRTIMER_ADAPTER_H
@@ -42,9 +43,10 @@ typedef struct {
     const bm_hal_hrtimer_t     *hrtimer;    /**< 绑定的高精度 Timer */
     uint8_t                     started;    /**< Timer 已启动标志 */
     void                       *app_user;   /**< App GPIO 回调透传参数 */
-    void (*app_step_high)(void *user);      /**< App STEP 拉高回调 */
-    void (*app_step_low)(void *user);       /**< App STEP 拉低回调 */
-    void (*app_dir_set)(void *user, int level); /**< App DIR 电平回调 */
+    int (*app_step_high)(void *user);       /**< App STEP 拉高回调 */
+    int (*app_step_low)(void *user);        /**< App STEP 拉低回调 */
+    int (*app_dir_set)(void *user, int level); /**< App DIR 电平回调 */
+    int (*app_en_set)(void *user, int level);  /**< App EN 电平回调（可选） */
 } bm_stepper_pulse_hrtimer_adapter_t;
 
 /**
@@ -59,6 +61,7 @@ typedef struct {
  * @param step_high STEP 拉高回调
  * @param step_low  STEP 拉低回调
  * @param dir_set   DIR 电平设置回调
+ * @param en_set    EN 电平设置回调（可为 NULL）
  * @param user      GPIO 回调透传参数
  * @return BM_OK 成功；BM_ERR_INVALID 参数非法
  */
@@ -66,9 +69,10 @@ int bm_stepper_pulse_hrtimer_adapter_init(
     bm_stepper_pulse_hrtimer_adapter_t *adapter,
     const bm_stepper_pulse_config_t *config,
     const bm_hal_hrtimer_t *hrtimer,
-    void (*step_high)(void *user),
-    void (*step_low)(void *user),
-    void (*dir_set)(void *user, int level),
+    int (*step_high)(void *user),
+    int (*step_low)(void *user),
+    int (*dir_set)(void *user, int level),
+    int (*en_set)(void *user, int level),
     void *user);
 
 /**

@@ -3,13 +3,14 @@
  * @brief stepper_pulse 与高精度 Timer 适配器单元测试
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增适配器单测
+ * 2026-07-28       1.1            zeh            GPIO 回调改 int 返回；en_set 形参
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -26,19 +27,22 @@ static uint32_t g_step_high_count;
 static uint32_t g_step_low_count;
 static int      g_dir_level;
 
-static void fake_step_high(void *user) {
+static int fake_step_high(void *user) {
     (void)user;
     g_step_high_count++;
+    return BM_OK;
 }
 
-static void fake_step_low(void *user) {
+static int fake_step_low(void *user) {
     (void)user;
     g_step_low_count++;
+    return BM_OK;
 }
 
-static void fake_dir_set(void *user, int level) {
+static int fake_dir_set(void *user, int level) {
     (void)user;
     g_dir_level = level;
+    return BM_OK;
 }
 
 static void make_config(bm_stepper_pulse_config_t *config) {
@@ -66,7 +70,7 @@ void test_adapter_init_links_timer_and_axis(void) {
         bm_stepper_pulse_hrtimer_adapter_init(&adapter, &config,
                                               &bm_native_hrtimer0,
                                               fake_step_high, fake_step_low,
-                                              fake_dir_set, NULL));
+                                              fake_dir_set, NULL, NULL));
 
     axis = bm_stepper_pulse_hrtimer_adapter_axis(&adapter);
     TEST_ASSERT_NOT_NULL(axis);
@@ -83,7 +87,7 @@ void test_adapter_velocity_triggers_timer(void) {
         bm_stepper_pulse_hrtimer_adapter_init(&adapter, &config,
                                               &bm_native_hrtimer0,
                                               fake_step_high, fake_step_low,
-                                              fake_dir_set, NULL));
+                                              fake_dir_set, NULL, NULL));
     axis = bm_stepper_pulse_hrtimer_adapter_axis(&adapter);
 
     bm_stepper_pulse_set_velocity(axis, 1000.0f);
@@ -119,7 +123,7 @@ void test_adapter_stop_cancels_timer(void) {
         bm_stepper_pulse_hrtimer_adapter_init(&adapter, &config,
                                               &bm_native_hrtimer0,
                                               fake_step_high, fake_step_low,
-                                              fake_dir_set, NULL));
+                                              fake_dir_set, NULL, NULL));
     axis = bm_stepper_pulse_hrtimer_adapter_axis(&adapter);
 
     bm_stepper_pulse_set_velocity(axis, 1000.0f);
