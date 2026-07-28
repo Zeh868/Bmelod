@@ -346,4 +346,44 @@
 #define BM_STM32G4_CPU_FREQ_HZ  170000000u
 #endif
 
+/* ---------- FDCAN（默认 FDCAN1 PB8/PB9，FDCAN2 PB12/PB13，500k Classic CAN） ---------- */
+
+/** @brief FDCAN1 TX 引脚号（GPIOB，默认 PB8）。 */
+#ifndef BM_STM32G4_CAN1_TX_PIN
+#define BM_STM32G4_CAN1_TX_PIN  8u
+#endif
+/** @brief FDCAN1 RX 引脚号（GPIOB，默认 PB9）。 */
+#ifndef BM_STM32G4_CAN1_RX_PIN
+#define BM_STM32G4_CAN1_RX_PIN  9u
+#endif
+/** @brief FDCAN2 TX 引脚号（GPIOB，默认 PB12）。 */
+#ifndef BM_STM32G4_CAN2_TX_PIN
+#define BM_STM32G4_CAN2_TX_PIN  12u
+#endif
+/** @brief FDCAN2 RX 引脚号（GPIOB，默认 PB13）。 */
+#ifndef BM_STM32G4_CAN2_RX_PIN
+#define BM_STM32G4_CAN2_RX_PIN  13u
+#endif
+/** @brief FDCAN GPIO 复用功能号（PB8/PB9/PB12/PB13 均为 AF9）。 */
+#ifndef BM_STM32G4_CAN_GPIO_AF
+#define BM_STM32G4_CAN_GPIO_AF  9u
+#endif
+/** @brief FDCAN 中断 NVIC 优先级。 */
+#ifndef BM_STM32G4_CAN_IRQ_PRIORITY
+#define BM_STM32G4_CAN_IRQ_PRIORITY  2u
+#endif
+/** @brief FDCAN1 在全局 Message RAM 中的 32-bit word 偏移。 */
+#ifndef BM_STM32G4_CAN1_MSG_RAM_OFFSET
+#define BM_STM32G4_CAN1_MSG_RAM_OFFSET  0u
+#endif
+/** @brief FDCAN2 在全局 Message RAM 中的 32-bit word 偏移。
+ *  FDCAN1 区域预留 256 words。 */
+#ifndef BM_STM32G4_CAN2_MSG_RAM_OFFSET
+#define BM_STM32G4_CAN2_MSG_RAM_OFFSET  256u
+#endif
+/** @brief FDCAN 仲裁段位时序：500k @ 170MHz APB1（采样点 80%）。 */
+#ifndef BM_STM32G4_CAN_NBTR
+#define BM_STM32G4_CAN_NBTR  { .prescaler = 17u, .tseg1 = 15u, .tseg2 = 3u, .sjw = 1u }
+#endif
+
 #endif /* BM_HAL_INSTANCES_STM32G4_H */

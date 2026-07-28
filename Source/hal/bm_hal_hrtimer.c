@@ -16,6 +16,8 @@
 #include "hal/bm_hal_hrtimer.h"
 #include "bm/common/bm_types.h"
 
+#include <stddef.h>
+
 int bm_hal_hrtimer_init(const bm_hal_hrtimer_t *dev, void *config) {
     if (dev == NULL || dev->api == NULL || dev->api->init == NULL) {
         return BM_ERR_NOT_INIT;
