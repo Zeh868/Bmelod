@@ -11,7 +11,9 @@
 #include "hal/bm_hal_critical.h"
 #include "hal/bm_hal_memory.h"
 #include "hal/bm_hal_timer.h"
+#include "hal/bm_hal_hrtimer.h"   /* 接口批 1：高精度 Timer 设备 */
 #include "hal/bm_hal_uart.h"
+#include "hal/bm_hal_gpio.h"      /* 接口批 1：GPIO 设备 */
 #include "hal/bm_hal_console.h"
 #include "hal/bm_hal_wdg.h"
 

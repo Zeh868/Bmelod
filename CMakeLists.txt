@@ -174,6 +174,7 @@ add_library(bm_hal STATIC
     Source/hal/bm_hal_encoder.c
     Source/hal/bm_hal_gpio.c         # 接口批 1：GPIO 设备契约分发
     Source/hal/bm_hal_spi.c          # 接口批 1：SPI 设备契约分发
+    Source/hal/bm_hal_hrtimer.c      # 接口批 1：高精度 Timer 设备契约分发
     Source/hal/bm_hal_dma_stream.c
     Source/hal/bm_hal_uptime.c
     Source/hal/bm_persist.c          # #10 持久化 KV 层

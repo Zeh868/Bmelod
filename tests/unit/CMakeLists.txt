@@ -101,6 +101,11 @@ bm_add_test(test_gpio_exti test_gpio_exti.c bm_core)
 target_include_directories(test_gpio_exti PRIVATE
     ${CMAKE_SOURCE_DIR}/portable/sim/native)
 
+# 高精度 Timer HAL/drv 与 native_sim 后端单测
+bm_add_test(test_hrtimer test_hrtimer.c bm_core)
+target_include_directories(test_hrtimer PRIVATE
+    ${CMAKE_SOURCE_DIR}/portable/sim/native)
+
 # 安全输入组件单测（消抖/限位开关/TMC DIAG/急停）
 bm_add_test(test_safety_inputs test_safety_inputs.c bm_component_diagnostics)
 target_include_directories(test_safety_inputs PRIVATE

@@ -1,0 +1,575 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/**
+ * @file bm_vendor_hrtimer_stm32g4.c
+ * @brief STM32G4 LL 高精度 Timer 后端
+ *
+ * 支持多实例、周期/单次/Output Compare、动态改比较值、计数器回绕处理。
+ * App 通过 `bm_hrtimer_stm32g4_config_t` 指定 TIM/通道/IRQ，Bmelod 不固定 TIM 编号。
+ *
+ * ISR 有界：仅清除标志、更新 compare、递增统计、派发回调；不解析业务协议。
+ *
+ * @author zeh (china_qzh@163.com)
+ * @version 1.0
+ * @date 2026-07-28
+ *
+ * @par 修改日志:
+ *
+ *    Date         Version        Author          Description
+ * 2026-07-28       1.0            zeh            新增 STM32G4 高精度 Timer 后端
+ */
+#include "bm_vendor_hrtimer_stm32g4.h"
+#include "bm_hal_instances_stm32g4.h"
+#include "bm_types.h"
+
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+
+#include "stm32g4xx.h"
+#include "stm32g4xx_ll_bus.h"
+#include "stm32g4xx_ll_rcc.h"
+#include "stm32g4xx_ll_tim.h"
+
+/** @brief 最大 Timer 实例数。 */
+#define BM_VENDOR_HRTIMER_INSTANCE_COUNT 2u
+
+/** @brief 计数器满量程（32 位向上计数）。 */
+#define BM_HRTIMER_CNT_MAX 0xFFFFFFFFu
+
+/** @brief 单个 Timer 运行时上下文。 */
+typedef struct {
+    const struct bm_hal_hrtimer       *dev;
+    const bm_hrtimer_stm32g4_config_t *cfg;
+    uint32_t                           mode;
+    uint32_t                           period_ticks;
+    uint32_t                           next_compare;
+    bm_hrtimer_callback_t              callback;
+    void                              *user;
+    int                                running;
+    bm_hrtimer_stats_t                 stats;
+} bm_vendor_hrtimer_context_t;
+
+static bm_vendor_hrtimer_context_t g_hrtimer_ctx[BM_VENDOR_HRTIMER_INSTANCE_COUNT];
+
+/** @brief 默认 TIM2 配置（CH1，APB1）。 */
+static const bm_hrtimer_stm32g4_config_t g_hrtimer_cfg_0 = {
+    .tim = TIM2,
+    .channel = LL_TIM_CHANNEL_CH1,
+    .irqn = TIM2_IRQn,
+    .rcc_apb1 = LL_APB1_GRP1_PERIPH_TIM2,
+    .rcc_apb2 = 0u,
+    .prescaler = 0u,
+    .auto_reload = BM_HRTIMER_CNT_MAX,
+    .irq_priority = 2u,
+};
+
+/** @brief 默认 TIM3 配置（CH1，APB1）。 */
+static const bm_hrtimer_stm32g4_config_t g_hrtimer_cfg_1 = {
+    .tim = TIM3,
+    .channel = LL_TIM_CHANNEL_CH1,
+    .irqn = TIM3_IRQn,
+    .rcc_apb1 = LL_APB1_GRP1_PERIPH_TIM3,
+    .rcc_apb2 = 0u,
+    .prescaler = 0u,
+    .auto_reload = 0xFFFFu, /* TIM3 是 16 位 */
+    .irq_priority = 2u,
+};
+
+/**
+ * @brief 由设备实例获取运行时上下文。
+ */
+static bm_vendor_hrtimer_context_t *bm_vendor_hrtimer_ctx_for(
+    const struct bm_hal_hrtimer *dev) {
+    const bm_hrtimer_stm32g4_config_t *cfg;
+    bm_vendor_hrtimer_context_t *free_slot = NULL;
+    uint32_t i;
+
+    if (dev == NULL || dev->config == NULL) {
+        return NULL;
+    }
+    cfg = (const bm_hrtimer_stm32g4_config_t *)dev->config;
+    for (i = 0u; i < BM_VENDOR_HRTIMER_INSTANCE_COUNT; ++i) {
+        if (g_hrtimer_ctx[i].cfg == cfg) {
+            return &g_hrtimer_ctx[i];
+        }
+        if (free_slot == NULL && g_hrtimer_ctx[i].cfg == NULL) {
+            free_slot = &g_hrtimer_ctx[i];
+        }
+    }
+    return free_slot;
+}
+
+/**
+ * @brief 获取 Timer 输入时钟（Hz）。
+ *
+ * APB1/2 定时器时钟：当对应 APB 分频 >1 时倍频（RM0440 规则）。
+ */
+static uint32_t bm_vendor_hrtimer_tim_clk_hz(const bm_hrtimer_stm32g4_config_t *cfg) {
+    LL_RCC_ClocksTypeDef clocks;
+    uint32_t pclk;
+
+    LL_RCC_GetSystemClocksFreq(&clocks);
+    if (cfg->rcc_apb2 != 0u) {
+        pclk = clocks.PCLK2_Frequency;
+        return (LL_RCC_GetAPB2Prescaler() == LL_RCC_APB2_DIV_1) ? pclk : (pclk * 2u);
+    }
+    pclk = clocks.PCLK1_Frequency;
+    return (LL_RCC_GetAPB1Prescaler() == LL_RCC_APB1_DIV_1) ? pclk : (pclk * 2u);
+}
+
+/**
+ * @brief 计算当前有效计数频率（Hz）。
+ */
+static uint32_t bm_vendor_hrtimer_freq_hz(const bm_hrtimer_stm32g4_config_t *cfg) {
+    uint32_t clk = bm_vendor_hrtimer_tim_clk_hz(cfg);
+    uint32_t psc = cfg->prescaler + 1u;
+
+    return clk / psc;
+}
+
+/**
+ * @brief 将微秒转换为 tick 数（向上取整）。
+ */
+static uint32_t bm_vendor_hrtimer_us_to_ticks(const bm_hrtimer_stm32g4_config_t *cfg,
+                                              uint32_t us) {
+    uint64_t freq = bm_vendor_hrtimer_freq_hz(cfg);
+    uint64_t ticks = ((uint64_t)us * freq + 999999u) / 1000000u;
+
+    if (ticks > cfg->auto_reload) {
+        ticks = cfg->auto_reload;
+    }
+    if (ticks == 0u) {
+        ticks = 1u;
+    }
+    return (uint32_t)ticks;
+}
+
+/**
+ * @brief 将 tick 数转换为微秒（向下取整）。
+ */
+static uint32_t bm_vendor_hrtimer_ticks_to_us(const bm_hrtimer_stm32g4_config_t *cfg,
+                                              uint32_t ticks) {
+    uint64_t freq = bm_vendor_hrtimer_freq_hz(cfg);
+
+    return (uint32_t)((uint64_t)ticks * 1000000u / freq);
+}
+
+/**
+ * @brief 写指定通道的比较寄存器。
+ */
+static void bm_vendor_hrtimer_set_ccr(TIM_TypeDef *tim, uint32_t channel,
+                                      uint32_t value) {
+    switch (channel) {
+    case LL_TIM_CHANNEL_CH1:
+        LL_TIM_OC_SetCompareCH1(tim, value);
+        break;
+    case LL_TIM_CHANNEL_CH2:
+        LL_TIM_OC_SetCompareCH2(tim, value);
+        break;
+    case LL_TIM_CHANNEL_CH3:
+        LL_TIM_OC_SetCompareCH3(tim, value);
+        break;
+    case LL_TIM_CHANNEL_CH4:
+        LL_TIM_OC_SetCompareCH4(tim, value);
+        break;
+    default:
+        break;
+    }
+}
+
+/**
+ * @brief 读取指定通道的比较寄存器。
+ */
+static uint32_t bm_vendor_hrtimer_get_ccr(TIM_TypeDef *tim, uint32_t channel) {
+    switch (channel) {
+    case LL_TIM_CHANNEL_CH1:
+        return LL_TIM_OC_GetCompareCH1(tim);
+    case LL_TIM_CHANNEL_CH2:
+        return LL_TIM_OC_GetCompareCH2(tim);
+    case LL_TIM_CHANNEL_CH3:
+        return LL_TIM_OC_GetCompareCH3(tim);
+    case LL_TIM_CHANNEL_CH4:
+        return LL_TIM_OC_GetCompareCH4(tim);
+    default:
+        return 0u;
+    }
+}
+
+/**
+ * @brief 使能指定通道的比较中断。
+ */
+static void bm_vendor_hrtimer_enable_it_cc(TIM_TypeDef *tim, uint32_t channel) {
+    switch (channel) {
+    case LL_TIM_CHANNEL_CH1:
+        LL_TIM_EnableIT_CC1(tim);
+        break;
+    case LL_TIM_CHANNEL_CH2:
+        LL_TIM_EnableIT_CC2(tim);
+        break;
+    case LL_TIM_CHANNEL_CH3:
+        LL_TIM_EnableIT_CC3(tim);
+        break;
+    case LL_TIM_CHANNEL_CH4:
+        LL_TIM_EnableIT_CC4(tim);
+        break;
+    default:
+        break;
+    }
+}
+
+/**
+ * @brief 禁止指定通道的比较中断。
+ */
+static void bm_vendor_hrtimer_disable_it_cc(TIM_TypeDef *tim, uint32_t channel) {
+    switch (channel) {
+    case LL_TIM_CHANNEL_CH1:
+        LL_TIM_DisableIT_CC1(tim);
+        break;
+    case LL_TIM_CHANNEL_CH2:
+        LL_TIM_DisableIT_CC2(tim);
+        break;
+    case LL_TIM_CHANNEL_CH3:
+        LL_TIM_DisableIT_CC3(tim);
+        break;
+    case LL_TIM_CHANNEL_CH4:
+        LL_TIM_DisableIT_CC4(tim);
+        break;
+    default:
+        break;
+    }
+}
+
+/**
+ * @brief 清除指定通道的比较中断标志。
+ */
+static void bm_vendor_hrtimer_clear_flag_cc(TIM_TypeDef *tim, uint32_t channel) {
+    switch (channel) {
+    case LL_TIM_CHANNEL_CH1:
+        LL_TIM_ClearFlag_CC1(tim);
+        break;
+    case LL_TIM_CHANNEL_CH2:
+        LL_TIM_ClearFlag_CC2(tim);
+        break;
+    case LL_TIM_CHANNEL_CH3:
+        LL_TIM_ClearFlag_CC3(tim);
+        break;
+    case LL_TIM_CHANNEL_CH4:
+        LL_TIM_ClearFlag_CC4(tim);
+        break;
+    default:
+        break;
+    }
+}
+
+/**
+ * @brief 检测指定通道的比较中断是否 active。
+ */
+static uint32_t bm_vendor_hrtimer_is_active_flag_cc(TIM_TypeDef *tim,
+                                                    uint32_t channel) {
+    switch (channel) {
+    case LL_TIM_CHANNEL_CH1:
+        return LL_TIM_IsActiveFlag_CC1(tim);
+    case LL_TIM_CHANNEL_CH2:
+        return LL_TIM_IsActiveFlag_CC2(tim);
+    case LL_TIM_CHANNEL_CH3:
+        return LL_TIM_IsActiveFlag_CC3(tim);
+    case LL_TIM_CHANNEL_CH4:
+        return LL_TIM_IsActiveFlag_CC4(tim);
+    default:
+        return 0u;
+    }
+}
+
+/**
+ * @brief 使能 Timer 时钟。
+ */
+static void bm_vendor_hrtimer_enable_clock(const bm_hrtimer_stm32g4_config_t *cfg) {
+    if (cfg->rcc_apb1 != 0u) {
+        LL_APB1_GRP1_EnableClock(cfg->rcc_apb1);
+    }
+    if (cfg->rcc_apb2 != 0u) {
+        LL_APB2_GRP1_EnableClock(cfg->rcc_apb2);
+    }
+}
+
+/**
+ * @brief 初始化 Timer 硬件（幂等）。
+ */
+static int bm_vendor_hrtimer_hw_init(bm_vendor_hrtimer_context_t *ctx) {
+    const bm_hrtimer_stm32g4_config_t *cfg = ctx->cfg;
+
+    if (cfg == NULL || cfg->tim == NULL || cfg->channel == 0u) {
+        return BM_ERR_INVALID;
+    }
+
+    bm_vendor_hrtimer_enable_clock(cfg);
+
+    LL_TIM_SetPrescaler(cfg->tim, cfg->prescaler);
+    LL_TIM_SetAutoReload(cfg->tim, cfg->auto_reload);
+    LL_TIM_SetCounterMode(cfg->tim, LL_TIM_COUNTERMODE_UP);
+    LL_TIM_SetClockDivision(cfg->tim, LL_TIM_CLOCKDIVISION_DIV1);
+    LL_TIM_DisableARRPreload(cfg->tim);
+
+    LL_TIM_OC_SetMode(cfg->tim, cfg->channel, LL_TIM_OCMODE_ACTIVE);
+    LL_TIM_OC_DisablePreload(cfg->tim, cfg->channel);
+    bm_vendor_hrtimer_set_ccr(cfg->tim, cfg->channel, cfg->auto_reload);
+
+    LL_TIM_ClearFlag_UPDATE(cfg->tim);
+    LL_TIM_DisableIT_UPDATE(cfg->tim);
+
+    NVIC_SetPriority(cfg->irqn, cfg->irq_priority);
+    return BM_OK;
+}
+
+/**
+ * @brief 公共 ISR 处理。
+ */
+static void bm_vendor_hrtimer_isr(bm_vendor_hrtimer_context_t *ctx) {
+    TIM_TypeDef *tim;
+    uint32_t cnt;
+    uint32_t next;
+
+    if (ctx == NULL || ctx->cfg == NULL) {
+        return;
+    }
+    tim = ctx->cfg->tim;
+
+    if (bm_vendor_hrtimer_is_active_flag_cc(tim, ctx->cfg->channel) == 0u) {
+        return;
+    }
+    bm_vendor_hrtimer_clear_flag_cc(tim, ctx->cfg->channel);
+
+    ctx->stats.irq_count++;
+
+    cnt = LL_TIM_GetCounter(tim);
+    if (ctx->mode == BM_HRTIMER_MODE_PERIODIC && ctx->running != 0) {
+        /* 下一个比较点 = 当前计数器 + 周期；处理回绕 */
+        next = cnt + ctx->period_ticks;
+        ctx->next_compare = next;
+        bm_vendor_hrtimer_set_ccr(tim, ctx->cfg->channel, next);
+    } else {
+        ctx->running = 0;
+        bm_vendor_hrtimer_disable_it_cc(tim, ctx->cfg->channel);
+    }
+
+    if (ctx->callback != NULL) {
+        ctx->callback(ctx->dev, ctx->user);
+    }
+}
+
+/* ---------- IRQ handlers ---------- */
+
+void TIM2_IRQHandler(void) {
+    uint32_t i;
+
+    for (i = 0u; i < BM_VENDOR_HRTIMER_INSTANCE_COUNT; ++i) {
+        if (g_hrtimer_ctx[i].cfg != NULL && g_hrtimer_ctx[i].cfg->tim == TIM2) {
+            bm_vendor_hrtimer_isr(&g_hrtimer_ctx[i]);
+        }
+    }
+}
+
+void TIM3_IRQHandler(void) {
+    uint32_t i;
+
+    for (i = 0u; i < BM_VENDOR_HRTIMER_INSTANCE_COUNT; ++i) {
+        if (g_hrtimer_ctx[i].cfg != NULL && g_hrtimer_ctx[i].cfg->tim == TIM3) {
+            bm_vendor_hrtimer_isr(&g_hrtimer_ctx[i]);
+        }
+    }
+}
+
+/* ---------- HAL API 实现 ---------- */
+
+static int bm_vendor_hrtimer_init(const struct bm_hal_hrtimer *dev, void *config) {
+    bm_vendor_hrtimer_context_t *ctx;
+    const bm_hrtimer_stm32g4_config_t *cfg;
+
+    (void)config;
+    ctx = bm_vendor_hrtimer_ctx_for(dev);
+    if (ctx == NULL) {
+        return BM_ERR_INVALID;
+    }
+    cfg = (const bm_hrtimer_stm32g4_config_t *)dev->config;
+    ctx->dev = dev;
+    ctx->cfg = cfg;
+    ctx->running = 0;
+    ctx->mode = BM_HRTIMER_MODE_PERIODIC;
+    ctx->period_ticks = 0u;
+    ctx->next_compare = 0u;
+    ctx->callback = NULL;
+    ctx->user = NULL;
+    (void)memset(&ctx->stats, 0, sizeof(ctx->stats));
+    return bm_vendor_hrtimer_hw_init(ctx);
+}
+
+static int bm_vendor_hrtimer_start(const struct bm_hal_hrtimer *dev,
+                                   uint32_t mode, uint32_t period_us) {
+    bm_vendor_hrtimer_context_t *ctx;
+    const bm_hrtimer_stm32g4_config_t *cfg;
+    uint32_t ticks;
+    uint32_t cnt;
+
+    ctx = bm_vendor_hrtimer_ctx_for(dev);
+    if (ctx == NULL || ctx->cfg == NULL) {
+        return BM_ERR_INVALID;
+    }
+    if (mode != BM_HRTIMER_MODE_PERIODIC && mode != BM_HRTIMER_MODE_ONESHOT) {
+        return BM_ERR_INVALID;
+    }
+
+    cfg = ctx->cfg;
+    ticks = bm_vendor_hrtimer_us_to_ticks(cfg, period_us);
+    if (ticks == 0u || ticks > cfg->auto_reload) {
+        return BM_ERR_INVALID;
+    }
+
+    ctx->mode = mode;
+    ctx->period_ticks = ticks;
+
+    LL_TIM_SetCounter(cfg->tim, 0u);
+    cnt = LL_TIM_GetCounter(cfg->tim);
+    ctx->next_compare = cnt + ticks;
+    bm_vendor_hrtimer_set_ccr(cfg->tim, cfg->channel, ctx->next_compare);
+
+    bm_vendor_hrtimer_clear_flag_cc(cfg->tim, cfg->channel);
+    LL_TIM_EnableCounter(cfg->tim);
+    NVIC_EnableIRQ(cfg->irqn);
+    bm_vendor_hrtimer_enable_it_cc(cfg->tim, cfg->channel);
+
+    ctx->running = 1;
+    return BM_OK;
+}
+
+static int bm_vendor_hrtimer_stop(const struct bm_hal_hrtimer *dev) {
+    bm_vendor_hrtimer_context_t *ctx;
+
+    ctx = bm_vendor_hrtimer_ctx_for(dev);
+    if (ctx == NULL || ctx->cfg == NULL) {
+        return BM_ERR_INVALID;
+    }
+    ctx->running = 0;
+    bm_vendor_hrtimer_disable_it_cc(ctx->cfg->tim, ctx->cfg->channel);
+    return BM_OK;
+}
+
+static int bm_vendor_hrtimer_set_compare(const struct bm_hal_hrtimer *dev,
+                                         uint32_t compare_us) {
+    bm_vendor_hrtimer_context_t *ctx;
+    const bm_hrtimer_stm32g4_config_t *cfg;
+    uint32_t ticks;
+    uint32_t cnt;
+
+    ctx = bm_vendor_hrtimer_ctx_for(dev);
+    if (ctx == NULL || ctx->cfg == NULL) {
+        return BM_ERR_INVALID;
+    }
+    cfg = ctx->cfg;
+    ticks = bm_vendor_hrtimer_us_to_ticks(cfg, compare_us);
+    if (ticks == 0u || ticks > cfg->auto_reload) {
+        return BM_ERR_INVALID;
+    }
+
+    cnt = LL_TIM_GetCounter(cfg->tim);
+    ctx->next_compare = cnt + ticks;
+    bm_vendor_hrtimer_set_ccr(cfg->tim, cfg->channel, ctx->next_compare);
+
+    if (ctx->running == 0) {
+        LL_TIM_EnableCounter(cfg->tim);
+        NVIC_EnableIRQ(cfg->irqn);
+        bm_vendor_hrtimer_enable_it_cc(cfg->tim, cfg->channel);
+        ctx->running = 1;
+    }
+    return BM_OK;
+}
+
+static uint32_t bm_vendor_hrtimer_get_freq(const struct bm_hal_hrtimer *dev) {
+    bm_vendor_hrtimer_context_t *ctx;
+
+    ctx = bm_vendor_hrtimer_ctx_for(dev);
+    if (ctx == NULL || ctx->cfg == NULL) {
+        return 0u;
+    }
+    return bm_vendor_hrtimer_freq_hz(ctx->cfg);
+}
+
+static uint32_t bm_vendor_hrtimer_get_resolution_ns(
+    const struct bm_hal_hrtimer *dev) {
+    bm_vendor_hrtimer_context_t *ctx;
+    uint32_t freq;
+
+    ctx = bm_vendor_hrtimer_ctx_for(dev);
+    if (ctx == NULL || ctx->cfg == NULL) {
+        return 0u;
+    }
+    freq = bm_vendor_hrtimer_freq_hz(ctx->cfg);
+    if (freq == 0u) {
+        return 0u;
+    }
+    return 1000000000u / freq;
+}
+
+static uint32_t bm_vendor_hrtimer_get_max_period_us(
+    const struct bm_hal_hrtimer *dev) {
+    bm_vendor_hrtimer_context_t *ctx;
+
+    ctx = bm_vendor_hrtimer_ctx_for(dev);
+    if (ctx == NULL || ctx->cfg == NULL) {
+        return 0u;
+    }
+    return bm_vendor_hrtimer_ticks_to_us(ctx->cfg, ctx->cfg->auto_reload);
+}
+
+static uint32_t bm_vendor_hrtimer_get_min_period_us(
+    const struct bm_hal_hrtimer *dev) {
+    bm_vendor_hrtimer_context_t *ctx;
+
+    ctx = bm_vendor_hrtimer_ctx_for(dev);
+    if (ctx == NULL || ctx->cfg == NULL) {
+        return 0u;
+    }
+    return bm_vendor_hrtimer_ticks_to_us(ctx->cfg, 1u);
+}
+
+static int bm_vendor_hrtimer_get_stats(const struct bm_hal_hrtimer *dev,
+                                       bm_hrtimer_stats_t *stats) {
+    bm_vendor_hrtimer_context_t *ctx;
+
+    ctx = bm_vendor_hrtimer_ctx_for(dev);
+    if (ctx == NULL || stats == NULL) {
+        return BM_ERR_INVALID;
+    }
+    *stats = ctx->stats;
+    return BM_OK;
+}
+
+static int bm_vendor_hrtimer_set_callback(const struct bm_hal_hrtimer *dev,
+                                          bm_hrtimer_callback_t cb, void *user) {
+    bm_vendor_hrtimer_context_t *ctx;
+
+    ctx = bm_vendor_hrtimer_ctx_for(dev);
+    if (ctx == NULL) {
+        return BM_ERR_INVALID;
+    }
+    ctx->callback = cb;
+    ctx->user = user;
+    return BM_OK;
+}
+
+static const struct bm_hrtimer_driver_api g_hrtimer_stm32g4_api = {
+    bm_vendor_hrtimer_init,
+    bm_vendor_hrtimer_start,
+    bm_vendor_hrtimer_stop,
+    bm_vendor_hrtimer_set_compare,
+    bm_vendor_hrtimer_get_freq,
+    bm_vendor_hrtimer_get_resolution_ns,
+    bm_vendor_hrtimer_get_max_period_us,
+    bm_vendor_hrtimer_get_min_period_us,
+    bm_vendor_hrtimer_get_stats,
+    bm_vendor_hrtimer_set_callback,
+};
+
+const bm_hal_hrtimer_t bm_stm32g4_hrtimer0 = { &g_hrtimer_stm32g4_api,
+                                               &g_hrtimer_cfg_0 };
+const bm_hal_hrtimer_t bm_stm32g4_hrtimer1 = { &g_hrtimer_stm32g4_api,
+                                               &g_hrtimer_cfg_1 };
