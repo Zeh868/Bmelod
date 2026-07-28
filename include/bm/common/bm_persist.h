@@ -5,7 +5,8 @@
  *
  * 提供运行期可调参数的掉电保存能力。底层由 `bm_hal_nvs_load()`/
  * `bm_hal_nvs_save()` 后端支撑；native_sim 使用文件仿真非易失存储，
- * 嵌入式 flash/EEPROM 后端留桩待上板。
+ * STM32G4（`sdk_stm32g4`）提供双槽 Flash 后端，Board 须先调用
+ * `bm_nvs_stm32g4_set_layout()` 注入分区后再 `bm_persist_init()`。
  *
  * 使用语义：
  * - `bm_persist_init()`：从 NVS 后端加载持久化数据到 RAM 表；
@@ -40,7 +41,7 @@
  * @endcode
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.2
+ * @version 1.3
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -48,9 +49,10 @@
  *    Date         Version        Author          Description
  * 2026-06-26       1.0            zeh            正式发布（路线图 #10 参数/配置持久化）
  * 2026-07-27       1.1            zeh            明确无 NVS capability 时的 RAM
- *                                                与 commit no-op 语义
+ *                                                与 commit 语义
  * 2026-07-28       1.2            zeh            无 NVS 后端时 commit 返回
  *                                                BM_ERR_NOT_SUPPORTED
+ * 2026-07-28       1.3            zeh            文档对齐 STM32G4 双槽 NVS 后端
  *
  */
 #ifndef BM_PERSIST_H

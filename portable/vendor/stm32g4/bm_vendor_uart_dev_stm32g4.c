@@ -14,7 +14,7 @@
  * 的 NVIC_* 函数，逐处注释）。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -23,6 +23,7 @@
  * 2026-07-27       1.0            zeh            新增（接口批 1）
  * 2026-07-28       1.1            zeh            flush 加计数超时（原 TC 等待为无界自旋，
  *                                                超时返回 BM_ERR_TIMEOUT）
+ * 2026-07-28       1.2            zeh            支持 kernel_clock_hz（0=假定 PCLK1）
  *
  */
 #include "bm_vendor_uart_dev_stm32g4.h"
@@ -75,6 +76,7 @@ static int bm_vendor_uart_dev_init(const struct bm_hal_uart *dev,
     LL_RCC_ClocksTypeDef clocks;
     uint32_t baud        = BM_STM32G4_USART2_BAUD;
     uint8_t  single_wire = BM_STM32G4_USART2_SINGLE_WIRE;
+    uint32_t ker_hz;
 
     (void)dev;
     if (cfg != NULL) {
@@ -102,8 +104,13 @@ static int bm_vendor_uart_dev_init(const struct bm_hal_uart *dev,
     } else {
         LL_USART_DisableHalfDuplex(USART2);
     }
-    LL_RCC_GetSystemClocksFreq(&clocks);
-    LL_USART_SetBaudRate(USART2, clocks.PCLK1_Frequency,
+    if (cfg != NULL && cfg->kernel_clock_hz != 0u) {
+        ker_hz = cfg->kernel_clock_hz;
+    } else {
+        LL_RCC_GetSystemClocksFreq(&clocks);
+        ker_hz = clocks.PCLK1_Frequency;
+    }
+    LL_USART_SetBaudRate(USART2, ker_hz,
                          LL_USART_PRESCALER_DIV1, LL_USART_OVERSAMPLING_16,
                          baud);
     LL_USART_EnableDirectionTx(USART2);

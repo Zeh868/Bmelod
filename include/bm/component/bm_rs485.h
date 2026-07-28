@@ -10,9 +10,12 @@
  * 所有权：UART 硬件由 App Board 调用 `bm_hal_uart_init()` 完成初始化后，
  * 再调用 `bm_rs485_init()`；组件不再二次 init UART。
  *
+ * 发送缓冲：`bm_rs485_send()` 至方向切回 RX 前，调用方 `data` 必须保持有效
+ *（含 `pre_delay_us` / `post_delay_us` 与回显过滤阶段）；组件不做小帧拷贝。
+ *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.2
+ * @version 1.3
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -21,6 +24,7 @@
  * 2026-07-28       1.0            zeh            新增 RS485 包装组件
  * 2026-07-28       1.1            zeh            审查整改：独立帧拼装缓冲、UART 错误去重、TX 超时
  * 2026-07-28       1.2            zeh            UART 所有权归 Board；TX 错误立即回 RX
+ * 2026-07-28       1.3            zeh            文档强调 send 缓冲生命周期（含 pre_delay）
  */
 #ifndef BM_RS485_H
 #define BM_RS485_H

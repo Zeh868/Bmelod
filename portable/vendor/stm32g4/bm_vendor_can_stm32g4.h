@@ -16,7 +16,7 @@
  * started 态写入与硬件过滤并发，可能导致过滤器瞬时失效或帧被误收/误拒。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.3
+ * @version 1.4
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -28,6 +28,7 @@
  * 2026-07-28       1.2            zeh            契约注明 add/remove_filter 须在
  *                                                stop 状态调用（直写 Message RAM）
  * 2026-07-28       1.3            zeh            Message RAM 偏移固定 0/212；仅 IT0
+ * 2026-07-28       1.4            zeh            增加 kernel_clock_hz（0=假定 PCLK1）
  */
 #ifndef BM_VENDOR_CAN_STM32G4_H
 #define BM_VENDOR_CAN_STM32G4_H
@@ -78,6 +79,14 @@ typedef struct {
      * 请填 0；Board 资源表登记固定区间 [0,212)/[212,424) 即可。
      */
     uint32_t message_ram_offset;
+
+    /**
+     * @brief FDCAN 内核时钟（Hz）；0=假定等于 PCLK1（CCIPR 默认）。
+     *
+     * 仅用于 `bm_can_stm32g4_get_bitrate()` 等波特率推算；位时序寄存器仍由
+     * App 按实际内核时钟预计算。若改过 `RCC_CCIPR.FDCANSEL`，须填入实际值。
+     */
+    uint32_t kernel_clock_hz;
 
     uint32_t std_filter_count;  /**< 标准过滤器数量 */
     uint32_t ext_filter_count;  /**< 扩展过滤器数量 */

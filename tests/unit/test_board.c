@@ -370,7 +370,7 @@ static void test_board_init_devices_already(void) {
 
     /* board 已注册，init_devices 也应返回 ALREADY */
     TEST_ASSERT_EQUAL(BM_ERR_ALREADY,
-                      bm_board_init_devices(dev, 1u, 0u));
+                      bm_board_register_devices(dev, 1u, 0u));
 }
 
 /* -------------------------------------------------------------------------- */

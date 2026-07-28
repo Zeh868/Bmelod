@@ -7,23 +7,23 @@
  * Bmelod 不固定 USART3 与具体产品引脚。
  *
  * 当前实现覆盖 IDLE + DMA TX/RX 路径：
- * - RX 使用 DMA circular + 软件读指针，由上层通过 `bm_hal_uart_set_rx_buffer()`
- *   提供缓冲区；HT/TC/IDLE 均会触发 `rx_frame_callback`，并报告当前累计未读
- *   字节数。若软件读取不及时导致 DMA 覆盖旧数据，会记录 `BM_UART_ERR_OVERFLOW`。
+ * - RX 使用 DMA circular + 软件读指针；IDLE / RX_FULL 触发帧回调；HT 只维护
+ *   写指针，不交付 FRAME_END。
  * - TX 使用 DMA normal + USART TC：调用 `bm_hal_uart_send()` 须保证 `data` 在
  *   DMA 传输及 UART 移位器清空期间保持有效（至 `tx_complete_callback` 触发或
  *   `bm_hal_uart_flush()` 返回）。发送期间再次调用 `send()` 返回 `BM_ERR_BUSY`。
- * - 失败/abort 后会恢复 `tx_busy`，调用方可在 `tx_complete_callback` 中安全释放
- *   缓冲区或撤销 RS485 DE。
+ * - `kernel_clock_hz==0` 时波特率按 PCLK1 推算；改过 `CCIPR.USARTxSEL` 时须由
+ *   Board 填入实际内核时钟。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 STM32G4 USART3 后端
+ * 2026-07-28       1.1            zeh            HT 不交付 FRAME_END；kernel_clock_hz
  */
 #ifndef BM_VENDOR_USART3_STM32G4_H
 #define BM_VENDOR_USART3_STM32G4_H
@@ -48,6 +48,13 @@ typedef struct {
     uint32_t parity;          /**< BM_UART_PARITY_* */
     uint32_t stop_bits;       /**< BM_UART_STOPBITS_* */
     uint32_t data_bits;       /**< BM_UART_DATABITS_* */
+
+    /**
+     * @brief USART 内核时钟（Hz）；0=假定等于 PCLK1（CCIPR 默认）。
+     *
+     * 板级若改过 `RCC_CCIPR.USART3SEL`，须填入实际内核时钟，否则波特率错误。
+     */
+    uint32_t kernel_clock_hz;
 
     uint32_t tx_port;         /**< TX GPIO 端口（0=A,1=B,2=C,3=D,4=E,5=F,6=G） */
     uint32_t tx_pin;          /**< TX 引脚号（0..15） */

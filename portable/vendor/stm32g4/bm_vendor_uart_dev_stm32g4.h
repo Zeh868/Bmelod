@@ -4,13 +4,14 @@
  * @brief STM32G474xB USART2 设备实例声明（bm_drv_uart 实例契约）
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-07-27
+ * @version 1.1
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-27       1.0            zeh            新增（接口批 1）
+ * 2026-07-28       1.1            zeh            增加 kernel_clock_hz（0=假定 PCLK1）
  *
  */
 #ifndef BM_VENDOR_UART_DEV_STM32G4_H
@@ -23,8 +24,14 @@
  *        NULL 时全部取 instances 宏默认值）。
  */
 typedef struct bm_stm32g4_uart_dev_config {
-    uint32_t baud;         /**< 波特率；0 = BM_STM32G4_USART2_BAUD */
-    uint8_t  single_wire;  /**< 非零：HDSEL 单线半双工（仅 TX 脚）；0xff 内为“未指定”语义见 .c */
+    uint32_t baud;              /**< 波特率；0 = BM_STM32G4_USART2_BAUD */
+    uint8_t  single_wire;       /**< 非零：HDSEL 单线半双工（仅 TX 脚）；0xff 内为“未指定”语义见 .c */
+    /**
+     * @brief USART 内核时钟（Hz）；0=假定等于 PCLK1（CCIPR 默认）。
+     *
+     * 板级若改过 `RCC_CCIPR.USART2SEL`，须填入实际内核时钟。
+     */
+    uint32_t kernel_clock_hz;
 } bm_stm32g4_uart_dev_config_t;
 
 /** @brief STM32G4 USART2 设备实例（TMC2209 等用；console 仍走 LPUART1 单例）。 */

@@ -10,7 +10,7 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -18,6 +18,8 @@
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 Board 接入契约
  * 2026-07-28       1.1            zeh            增加 bm_board_init_devices()
+ * 2026-07-28       1.2            zeh            改名 bm_board_register_devices；
+ *                                                旧名保留为 deprecated 别名
  *
  */
 #ifndef BM_BOARD_H
@@ -53,11 +55,20 @@ int bm_board_register(const bm_board_table_t *table);
  * @brief 便捷注册：由设备数组与能力掩码直接注册 Board
  *
  * 等价于构造 `bm_board_table_t` 后调用 `bm_board_register()`。
+ * 本函数仅登记设备表与能力位，**不会**调用各 HAL 的 `init`；硬件初始化
+ * 仍由 App 显式调用（如 `bm_hal_uart_init`）。
  *
  * @param devices     设备数组（应用静态分配，生命周期须覆盖整个运行期）
  * @param count       设备数量，须 > 0
  * @param capabilities Board 级显式能力掩码
  * @return BM_OK 成功；BM_ERR_INVALID 参数非法或冲突；BM_ERR_ALREADY 已注册
+ */
+int bm_board_register_devices(const bm_board_device_t *devices, uint32_t count,
+                              uint32_t capabilities);
+
+/**
+ * @brief 同 `bm_board_register_devices`（历史名，已弃用）
+ * @deprecated 请改用 `bm_board_register_devices`
  */
 int bm_board_init_devices(const bm_board_device_t *devices, uint32_t count,
                           uint32_t capabilities);

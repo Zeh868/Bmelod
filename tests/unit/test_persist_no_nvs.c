@@ -1,13 +1,14 @@
 /* SPDX-License-Identifier: LGPL-3.0-or-later */
 /**
  * @file test_persist_no_nvs.c
- * @brief 无 NVS capability 时的 persist RAM 与 no-op 提交测试
+ * @brief 无 NVS capability 时的 persist RAM 与 commit 拒绝测试
  *
  * 本测试独立编译 bm_persist.c，不链接任何 NVS 后端，验证一般 backend
- * 即使没有 bm_hal_nvs_load/save 符号也能完成链接并保持 RAM KV 行为。
+ * 即使没有 bm_hal_nvs_load/save 符号也能完成链接并保持 RAM KV 行为；
+ * commit 须返回 BM_ERR_NOT_SUPPORTED（不得静默成功）。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -16,6 +17,7 @@
  * 2026-07-27       1.0            zeh            新增无 NVS capability 回归测试
  * 2026-07-28       1.1            zeh            commit 语义改为返回
  *                                                BM_ERR_NOT_SUPPORTED
+ * 2026-07-28       1.2            zeh            文件头去掉 “no-op 提交” 旧表述
  */
 #include "unity.h"
 #include "bm/common/bm_persist.h"

@@ -7,7 +7,7 @@
  * 资源冲突检查。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.3
+ * @version 1.4
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -18,6 +18,7 @@
  * 2026-07-28       1.2            zeh            MSG_RAM 冲突补 periph_id 比较与
  *                                                端点溢出防御；名称上限提取宏
  * 2026-07-28       1.3            zeh            MSG_RAM 按全局 word 区间重叠判冲突
+ * 2026-07-28       1.4            zeh            增加 register_devices；旧名保留
  *
  */
 #include "board/bm_board.h"
@@ -305,8 +306,8 @@ int bm_board_check_conflicts(void) {
     return bm_board_check_conflicts_impl(s_board_table);
 }
 
-int bm_board_init_devices(const bm_board_device_t *devices, uint32_t count,
-                          uint32_t capabilities) {
+int bm_board_register_devices(const bm_board_device_t *devices, uint32_t count,
+                              uint32_t capabilities) {
     static bm_board_table_t table;
 
     if (devices == NULL || count == 0u) {
@@ -317,6 +318,11 @@ int bm_board_init_devices(const bm_board_device_t *devices, uint32_t count,
     table.count = count;
     table.capabilities = capabilities;
     return bm_board_register(&table);
+}
+
+int bm_board_init_devices(const bm_board_device_t *devices, uint32_t count,
+                          uint32_t capabilities) {
+    return bm_board_register_devices(devices, count, capabilities);
 }
 
 uint32_t bm_board_device_count(void) {

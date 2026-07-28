@@ -28,7 +28,7 @@
  * Bmelod 不固定 FDCAN 编号与产品引脚。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.3
+ * @version 1.4
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -45,6 +45,7 @@
  *                                                recover 不再强制清 bus_off 软件标志
  * 2026-07-28       1.3            zeh            Message RAM 偏移按实例强制 0/212；
  *                                                忽略 App 可配 message_ram_offset
+ * 2026-07-28       1.4            zeh            bitrate 推算支持 kernel_clock_hz
  */
 #include "bm_vendor_can_stm32g4.h"
 #include "bm_hal_instances_stm32g4.h"
@@ -307,6 +308,7 @@ static const bm_can_stm32g4_config_t g_can_cfg_1 = {
     .dbtr = { .prescaler = 8u, .tseg1 = 7u, .tseg2 = 2u, .sjw = 1u },
     .fd_enabled = 0u,
     .message_ram_offset = 0u, /* 忽略；后端按 FDCAN1 强制 0 */
+    .kernel_clock_hz = 0u,
     .std_filter_count = 8u,
     .ext_filter_count = 0u,
     .rx_fifo0_count = BM_CAN_G4_RF0_NBR,
@@ -330,6 +332,7 @@ static const bm_can_stm32g4_config_t g_can_cfg_2 = {
     .dbtr = { .prescaler = 8u, .tseg1 = 7u, .tseg2 = 2u, .sjw = 1u },
     .fd_enabled = 0u,
     .message_ram_offset = 0u, /* 忽略；后端按 FDCAN2 强制 212 */
+    .kernel_clock_hz = 0u,
     .std_filter_count = 8u,
     .ext_filter_count = 0u,
     .rx_fifo0_count = BM_CAN_G4_RF0_NBR,
@@ -593,17 +596,28 @@ static int bm_can_stm32g4_validate_config(const bm_can_stm32g4_config_t *cfg) {
 }
 
 /**
+ * @brief 解析 FDCAN 内核时钟：配置非零优先，否则取 PCLK1。
+ */
+static uint32_t bm_can_stm32g4_kernel_hz(const bm_can_stm32g4_config_t *cfg) {
+    LL_RCC_ClocksTypeDef clocks;
+
+    if (cfg != NULL && cfg->kernel_clock_hz != 0u) {
+        return cfg->kernel_clock_hz;
+    }
+    LL_RCC_GetSystemClocksFreq(&clocks);
+    return clocks.PCLK1_Frequency;
+}
+
+/**
  * @brief 计算并返回实际波特率（bps）与采样点（千分比）。
  */
 static void bm_can_stm32g4_calc_bitrate(const bm_can_stm32g4_config_t *cfg,
                                         uint32_t *bitrate, uint32_t *sample_pt_promille) {
-    LL_RCC_ClocksTypeDef clocks;
-    uint32_t pclk;
+    uint32_t ker_hz;
     uint32_t tq;
     uint32_t sp;
 
-    LL_RCC_GetSystemClocksFreq(&clocks);
-    pclk = clocks.PCLK1_Frequency;
+    ker_hz = bm_can_stm32g4_kernel_hz(cfg);
 
     tq = cfg->nbtr.prescaler * (cfg->nbtr.tseg1 + cfg->nbtr.tseg2 + 1u);
     if (tq == 0u) {
@@ -611,7 +625,7 @@ static void bm_can_stm32g4_calc_bitrate(const bm_can_stm32g4_config_t *cfg,
         *sample_pt_promille = 0u;
         return;
     }
-    *bitrate = pclk / tq;
+    *bitrate = ker_hz / tq;
 
     sp = ((cfg->nbtr.tseg1 + 1u) * 1000u) /
          (cfg->nbtr.tseg1 + cfg->nbtr.tseg2 + 1u);

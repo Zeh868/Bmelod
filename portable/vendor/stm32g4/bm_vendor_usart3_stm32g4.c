@@ -10,17 +10,18 @@
  * - TX/RX GPIO 端口、引脚、AF 全部由配置指定，后端不写死 GPIOB。
  * - TX/RX DMA 控制器（DMA1/DMA2）与通道号全部由配置指定；IRQ 经
  *   `bm_dma_irq_stm32g4` 路由器注册，运行时改通道无需再导出 Handler。
- * - RX 使用 DMA 循环模式 + 软件读指针，HT/TC/IDLE 均用于维护写指针并检测覆盖。
+ * - RX 使用 DMA 循环模式 + 软件读指针：IDLE/RX_FULL 交付完整帧事件；HT 仅
+ *   维护写指针与溢出检测，不标 FRAME_END（避免长帧半缓冲误拆）。
  * - TX 使用 DMA 正常模式，DMA TC 后开启 USART TC 中断，在 USART TC 到达时才
  *   触发发送完成回调，确保最后一个停止位已离开发送器。
  * - TX DMA TE：停 DMA、清 TC IT、结束 TX 会话并调用 tx_complete_cb，供 RS485
  *   等上层立即退出发送态。
  * - 回调统一传递真实的 `bm_hal_uart_t *dev` 指针，不把 context 强转成设备。
  * - init 对引脚、DMA、IRQ、波特率/数据位/校验/停止位做合法性校验；失败时回滚
- *   已配置的 NVIC/时钟。
+ *   已配置的 NVIC/时钟。kernel_clock_hz==0 时假定 USART 时钟=PCLK1。
  *
  * @author zeh (china_qzh@163.com)
- * @version 3.1
+ * @version 3.2
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -35,6 +36,8 @@
  *                                                补 TEIF 检查，DMA TE 改记 OVERRUN
  * 2026-07-28       3.1            zeh            DMA IRQ 改路由器注册；TX TE 结束
  *                                                会话并回调上层
+ * 2026-07-28       3.2            zeh            HT 不再交付 FRAME_END；支持
+ *                                                kernel_clock_hz
  */
 #include "bm_vendor_usart3_stm32g4.h"
 #include "bm_dma_irq_stm32g4.h"
@@ -59,6 +62,7 @@ static const bm_usart3_stm32g4_config_t g_usart3_cfg_default = {
     .parity = BM_UART_PARITY_NONE,
     .stop_bits = BM_UART_STOPBITS_1,
     .data_bits = BM_UART_DATABITS_8,
+    .kernel_clock_hz = 0u,
     .tx_port = BM_STM32G4_USART3_TX_PORT,
     .tx_pin = BM_STM32G4_USART3_TX_PIN,
     .rx_port = BM_STM32G4_USART3_RX_PORT,
@@ -292,12 +296,14 @@ static size_t bm_usart3_rx_dma_write_pos(const bm_usart3_context_t *ctx) {
 }
 
 /**
- * @brief 更新 RX 事件：根据当前 DMA 写位置计算新增数据、检测覆盖、触发回调。
+ * @brief 更新 RX 写指针与溢出统计；可选通知上层帧事件。
  *
- * @param ctx   运行时上下文
- * @param event 本次触发更新的事件标志
+ * @param ctx    运行时上下文
+ * @param event  本次事件标志（notify=0 时可传 0）
+ * @param notify 非零：在有未读数据时调用 rx_frame_cb；HT 须传 0，避免半缓冲误拆帧
  */
-static void bm_usart3_rx_update(bm_usart3_context_t *ctx, uint32_t event) {
+static void bm_usart3_rx_update(bm_usart3_context_t *ctx, uint32_t event,
+                                int notify) {
     size_t new_write_pos;
     size_t new_bytes;
     size_t occupied;
@@ -325,7 +331,7 @@ static void bm_usart3_rx_update(bm_usart3_context_t *ctx, uint32_t event) {
     ctx->rx_event_len = (ctx->rx_write_pos + ctx->rx_len - ctx->rx_read_pos) % ctx->rx_len;
     ctx->stats.rx_count += (uint32_t)new_bytes;
 
-    if (ctx->rx_frame_cb != NULL && ctx->rx_event_len > 0u) {
+    if (notify != 0 && ctx->rx_frame_cb != NULL && ctx->rx_event_len > 0u) {
         ctx->rx_frame_cb(ctx->dev, event, ctx->rx_event_len, ctx->rx_frame_user);
     }
 }
@@ -395,10 +401,23 @@ static void bm_usart3_hw_deinit(bm_usart3_context_t *ctx) {
 /* -------------------------------------------------------------------------- */
 
 /**
+ * @brief 解析 USART 内核时钟：配置非零优先，否则取 PCLK1。
+ */
+static uint32_t bm_usart3_kernel_hz(const bm_usart3_stm32g4_config_t *cfg) {
+    LL_RCC_ClocksTypeDef clocks;
+
+    if (cfg != NULL && cfg->kernel_clock_hz != 0u) {
+        return cfg->kernel_clock_hz;
+    }
+    LL_RCC_GetSystemClocksFreq(&clocks);
+    return clocks.PCLK1_Frequency;
+}
+
+/**
  * @brief 校验串口参数配置是否合法。
  */
 static int bm_usart3_validate_config(const bm_usart3_stm32g4_config_t *cfg) {
-    LL_RCC_ClocksTypeDef clocks;
+    uint32_t ker_hz;
 
     if (cfg == NULL) {
         return BM_ERR_INVALID;
@@ -437,11 +456,11 @@ static int bm_usart3_validate_config(const bm_usart3_stm32g4_config_t *cfg) {
         return BM_ERR_INVALID;
     }
 
-    /* 纯算术校验波特率可达性：OVERSAMPLING_16 要求 USARTDIV = PCLK1/baud >= 16。
+    /* 纯算术校验波特率可达性：OVERSAMPLING_16 要求 USARTDIV = ker/baud >= 16。
      * 不得在此读 LL_USART_GetBaudRate——validate 先于时钟使能与 SetBaudRate
      * 执行，BRR 复位值为 0 会导致恒定误判；硬件回读检查保留在 init 中。 */
-    LL_RCC_GetSystemClocksFreq(&clocks);
-    if ((clocks.PCLK1_Frequency / 16u) < cfg->baud) {
+    ker_hz = bm_usart3_kernel_hz(cfg);
+    if ((ker_hz / 16u) < cfg->baud) {
         return BM_ERR_INVALID;
     }
 
@@ -468,7 +487,7 @@ void USART3_IRQHandler(void) {
 
     if ((isr & USART_ISR_IDLE) != 0u) {
         LL_USART_ClearFlag_IDLE(USART3);
-        bm_usart3_rx_update(ctx, BM_UART_EVT_IDLE);
+        bm_usart3_rx_update(ctx, BM_UART_EVT_IDLE, 1);
     }
 
     if ((isr & USART_ISR_TC) != 0u) {
@@ -534,11 +553,12 @@ static void bm_usart3_rx_dma_isr(bm_usart3_context_t *ctx) {
     }
     if ((dma->ISR & ht_flag) != 0u) {
         dma->IFCR = ht_flag;
-        bm_usart3_rx_update(ctx, BM_UART_EVT_FRAME_END);
+        /* HT 仅推进写指针/溢出检测，不交付帧（避免长帧在半缓冲处被误拆） */
+        bm_usart3_rx_update(ctx, 0u, 0);
     }
     if ((dma->ISR & tc_flag) != 0u) {
         dma->IFCR = tc_flag;
-        bm_usart3_rx_update(ctx, BM_UART_EVT_RX_FULL);
+        bm_usart3_rx_update(ctx, BM_UART_EVT_RX_FULL, 1);
     }
 }
 
@@ -594,7 +614,6 @@ static int bm_vendor_usart3_init(const struct bm_hal_uart *dev, void *config) {
     const bm_usart3_stm32g4_config_t *cfg;
     GPIO_TypeDef *tx_port, *rx_port;
     DMA_TypeDef *tx_dma, *rx_dma;
-    LL_RCC_ClocksTypeDef clocks;
     uint32_t parity_ll;
     uint32_t stop_ll;
     uint32_t data_bits;
@@ -669,14 +688,17 @@ static int bm_vendor_usart3_init(const struct bm_hal_uart *dev, void *config) {
 
     data_bits = (cfg->data_bits == BM_UART_DATABITS_9) ? 9u : 8u;
 
-    LL_RCC_GetSystemClocksFreq(&clocks);
-    LL_USART_SetBaudRate(USART3, clocks.PCLK1_Frequency,
-                         LL_USART_PRESCALER_DIV1,
-                         LL_USART_OVERSAMPLING_16,
-                         cfg->baud);
-    actual_baud = LL_USART_GetBaudRate(USART3, clocks.PCLK1_Frequency,
-                                       LL_USART_PRESCALER_DIV1,
-                                       LL_USART_OVERSAMPLING_16);
+    {
+        uint32_t ker_hz = bm_usart3_kernel_hz(cfg);
+
+        LL_USART_SetBaudRate(USART3, ker_hz,
+                             LL_USART_PRESCALER_DIV1,
+                             LL_USART_OVERSAMPLING_16,
+                             cfg->baud);
+        actual_baud = LL_USART_GetBaudRate(USART3, ker_hz,
+                                           LL_USART_PRESCALER_DIV1,
+                                           LL_USART_OVERSAMPLING_16);
+    }
     if (actual_baud == 0u) {
         bm_usart3_hw_deinit(ctx);
         ctx->cfg = NULL;
