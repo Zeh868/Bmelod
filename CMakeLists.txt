@@ -181,6 +181,7 @@ add_library(bm_hal STATIC
     Source/hal/bm_cpu_id.c           # CPU ID 核心抽象接口实现
     Source/hal/bm_log_output.c       # 默认日志输出（转发 Console LOG 通道）
     Source/hal/bm_shell_port.c       # shell CLI 通道 HAL 端口
+    Source/board/bm_board.c          # Board 接入契约实现
 )
 option(BM_HAL_USE_CPU_STUB "Link bm_hal_cpu_stub.c into bm_hal" ON)
 if(BM_HAL_USE_CPU_STUB)

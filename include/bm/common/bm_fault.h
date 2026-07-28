@@ -14,14 +14,15 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.2
- * @date 2026-07-27
+ * @version 0.3
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-27       0.1            zeh            初始版本：严重度枚举 + 按域分段的故障码
  * 2026-07-27       0.2            zeh            上移到 bm/common/，明确跨组件共享词汇地位
+ * 2026-07-28       0.3            zeh            新增通信/运动/驱动/存储/系统域故障码
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -54,11 +55,14 @@ typedef uint16_t bm_fault_code_t;
 #define BM_FAULT_NONE ((bm_fault_code_t)0x0000u)
 
 /* ---------- 域基址（每域 256 码位，0x00 保留不用） ---------- */
-#define BM_FAULT_DOMAIN_GENERIC_BASE  ((bm_fault_code_t)0x0000u) /**< 通用域 */
-#define BM_FAULT_DOMAIN_SENSOR_BASE   ((bm_fault_code_t)0x0100u) /**< 传感器域 */
-#define BM_FAULT_DOMAIN_MOTION_BASE   ((bm_fault_code_t)0x0200u) /**< 运动/电机域（保留） */
-#define BM_FAULT_DOMAIN_POWER_BASE    ((bm_fault_code_t)0x0300u) /**< 电源/BMS 域（保留） */
-#define BM_FAULT_DOMAIN_TRANSPORT_BASE ((bm_fault_code_t)0x0400u) /**< 传输/通信域（保留） */
+#define BM_FAULT_DOMAIN_GENERIC_BASE   ((bm_fault_code_t)0x0000u) /**< 通用域 */
+#define BM_FAULT_DOMAIN_SENSOR_BASE    ((bm_fault_code_t)0x0100u) /**< 传感器域 */
+#define BM_FAULT_DOMAIN_MOTION_BASE    ((bm_fault_code_t)0x0200u) /**< 运动/电机域 */
+#define BM_FAULT_DOMAIN_POWER_BASE     ((bm_fault_code_t)0x0300u) /**< 电源/BMS 域（保留） */
+#define BM_FAULT_DOMAIN_TRANSPORT_BASE ((bm_fault_code_t)0x0400u) /**< 传输/通信域 */
+#define BM_FAULT_DOMAIN_DRIVER_BASE    ((bm_fault_code_t)0x0500u) /**< 驱动器域 */
+#define BM_FAULT_DOMAIN_STORAGE_BASE   ((bm_fault_code_t)0x0600u) /**< 存储域 */
+#define BM_FAULT_DOMAIN_SYSTEM_BASE    ((bm_fault_code_t)0x0700u) /**< 系统域 */
 
 /* ---------- 通用域 ---------- */
 #define BM_FAULT_GENERIC_UNKNOWN \
@@ -77,6 +81,64 @@ typedef uint16_t bm_fault_code_t;
     ((bm_fault_code_t)(BM_FAULT_DOMAIN_SENSOR_BASE + 0x05u)) /**< 非有限值（NaN/Inf） */
 #define BM_FAULT_SENSOR_REDUNDANT_MISMATCH \
     ((bm_fault_code_t)(BM_FAULT_DOMAIN_SENSOR_BASE + 0x06u)) /**< 冗余通道不一致 */
+
+/* ---------- 传输/通信域 ---------- */
+#define BM_FAULT_TRANSPORT_CAN_BUS_OFF \
+    ((bm_fault_code_t)(BM_FAULT_DOMAIN_TRANSPORT_BASE + 0x01u)) /**< CAN bus-off */
+#define BM_FAULT_TRANSPORT_CAN_TX_DROP \
+    ((bm_fault_code_t)(BM_FAULT_DOMAIN_TRANSPORT_BASE + 0x02u)) /**< CAN TX 丢帧 */
+#define BM_FAULT_TRANSPORT_CAN_RX_DROP \
+    ((bm_fault_code_t)(BM_FAULT_DOMAIN_TRANSPORT_BASE + 0x03u)) /**< CAN RX 丢帧/溢出 */
+#define BM_FAULT_TRANSPORT_CAN_STALE \
+    ((bm_fault_code_t)(BM_FAULT_DOMAIN_TRANSPORT_BASE + 0x04u)) /**< CAN 数据过期 */
+#define BM_FAULT_TRANSPORT_RS485_TIMEOUT \
+    ((bm_fault_code_t)(BM_FAULT_DOMAIN_TRANSPORT_BASE + 0x05u)) /**< RS485 超时 */
+#define BM_FAULT_TRANSPORT_RS485_CRC \
+    ((bm_fault_code_t)(BM_FAULT_DOMAIN_TRANSPORT_BASE + 0x06u)) /**< RS485 CRC 错误 */
+#define BM_FAULT_TRANSPORT_RS485_OVERFLOW \
+    ((bm_fault_code_t)(BM_FAULT_DOMAIN_TRANSPORT_BASE + 0x07u)) /**< RS485 溢出 */
+#define BM_FAULT_TRANSPORT_UART_FRAMING \
+    ((bm_fault_code_t)(BM_FAULT_DOMAIN_TRANSPORT_BASE + 0x08u)) /**< UART framing 错误 */
+#define BM_FAULT_TRANSPORT_UART_OVERRUN \
+    ((bm_fault_code_t)(BM_FAULT_DOMAIN_TRANSPORT_BASE + 0x09u)) /**< UART overrun 错误 */
+
+/* ---------- 运动/电机域 ---------- */
+#define BM_FAULT_MOTION_STEP_DEADLINE_MISS \
+    ((bm_fault_code_t)(BM_FAULT_DOMAIN_MOTION_BASE + 0x01u)) /**< STEP 定时器 deadline miss */
+#define BM_FAULT_MOTION_FOLLOWING_ERROR \
+    ((bm_fault_code_t)(BM_FAULT_DOMAIN_MOTION_BASE + 0x02u)) /**< 位置跟随误差 */
+#define BM_FAULT_MOTION_CONTROL_TIMEOUT \
+    ((bm_fault_code_t)(BM_FAULT_DOMAIN_MOTION_BASE + 0x03u)) /**< 控制周期超时 */
+#define BM_FAULT_MOTION_STALL \
+    ((bm_fault_code_t)(BM_FAULT_DOMAIN_MOTION_BASE + 0x04u)) /**< 电机堵转 */
+
+/* ---------- 驱动器域 ---------- */
+#define BM_FAULT_DRIVER_TMC_COMM \
+    ((bm_fault_code_t)(BM_FAULT_DOMAIN_DRIVER_BASE + 0x01u)) /**< TMC 通信错误 */
+#define BM_FAULT_DRIVER_TMC_OTP \
+    ((bm_fault_code_t)(BM_FAULT_DOMAIN_DRIVER_BASE + 0x02u)) /**< TMC 过温 */
+#define BM_FAULT_DRIVER_TMC_SHORT \
+    ((bm_fault_code_t)(BM_FAULT_DOMAIN_DRIVER_BASE + 0x03u)) /**< TMC 短路 */
+#define BM_FAULT_DRIVER_TMC_UVLO \
+    ((bm_fault_code_t)(BM_FAULT_DOMAIN_DRIVER_BASE + 0x04u)) /**< TMC 欠压 */
+#define BM_FAULT_DRIVER_TMC_STALL \
+    ((bm_fault_code_t)(BM_FAULT_DOMAIN_DRIVER_BASE + 0x05u)) /**< TMC StallGuard 堵转 */
+
+/* ---------- 存储域 ---------- */
+#define BM_FAULT_STORAGE_FLASH_ERASE \
+    ((bm_fault_code_t)(BM_FAULT_DOMAIN_STORAGE_BASE + 0x01u)) /**< Flash 擦除失败 */
+#define BM_FAULT_STORAGE_FLASH_WRITE \
+    ((bm_fault_code_t)(BM_FAULT_DOMAIN_STORAGE_BASE + 0x02u)) /**< Flash 写入失败 */
+#define BM_FAULT_STORAGE_FLASH_VERIFY \
+    ((bm_fault_code_t)(BM_FAULT_DOMAIN_STORAGE_BASE + 0x03u)) /**< Flash 校验失败 */
+#define BM_FAULT_STORAGE_NVS_CRC \
+    ((bm_fault_code_t)(BM_FAULT_DOMAIN_STORAGE_BASE + 0x04u)) /**< NVS CRC 错误 */
+#define BM_FAULT_STORAGE_NVS_RECOVERY \
+    ((bm_fault_code_t)(BM_FAULT_DOMAIN_STORAGE_BASE + 0x05u)) /**< NVS 掉电恢复事件 */
+
+/* ---------- 系统域 ---------- */
+#define BM_FAULT_SYSTEM_WDG \
+    ((bm_fault_code_t)(BM_FAULT_DOMAIN_SYSTEM_BASE + 0x01u)) /**< 看门狗异常 */
 
 #ifdef __cplusplus
 }

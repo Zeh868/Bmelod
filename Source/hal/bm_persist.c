@@ -25,8 +25,8 @@
  * 格式变更时版本号递增（0x01→0x02），旧版本 blob 经版本不匹配自然拒绝。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.3
- * @date 2026-07-27
+ * @version 1.4
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -38,6 +38,8 @@
  *                                                KEY_MAX 长时被更长前缀 key 误匹配
  * 2026-07-27       1.3            zeh            NVS 门控改用独立 capability，
  *                                                一般 backend 不再隐含 NVS 实现
+ * 2026-07-28       1.4            zeh            无 NVS 后端时 bm_persist_commit()
+ *                                                返回 BM_ERR_NOT_SUPPORTED
  *
  */
 #include "bm/common/bm_persist.h"
@@ -371,7 +373,8 @@ int bm_persist_commit(void) {
     persist_serialize(s_blob);
     return bm_hal_nvs_save(s_blob, (uint16_t)PERSIST_BLOB_SIZE);
 #else
-    /* 无 NVS capability：RAM KV 正常，commit 为 no-op */
-    return BM_OK;
+    /* 无 NVS capability：RAM KV 仍可用，但 commit 无法真正落盘；
+     * 返回 BM_ERR_NOT_SUPPORTED，避免产品误认为数据已保存。 */
+    return BM_ERR_NOT_SUPPORTED;
 #endif /* BM_DRV_HAS_NVS_BACKEND */
 }

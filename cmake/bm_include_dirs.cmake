@@ -17,6 +17,7 @@ set(BM_INCLUDE_INTERNAL_DIRS
     ${BM_INCLUDE_ROOT}/hal
     ${BM_INCLUDE_ROOT}/drv
     ${BM_INCLUDE_ROOT}/port
+    ${BM_INCLUDE_ROOT}/board
 )
 
 # SMP 多核头文件路径（仅 BM_CONFIG_SMP=ON 时追加）
