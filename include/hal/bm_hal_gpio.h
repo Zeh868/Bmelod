@@ -3,15 +3,16 @@
  * @file bm_hal_gpio.h
  * @brief GPIO HAL 接口
  *
- * 引脚配置、读写与翻转；具体硬件由平台实现绑定（整个芯片一个设备）。
+ * 引脚配置、读写、翻转与 EXTI 中断；具体硬件由平台实现绑定（整个芯片一个设备）。
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-07-27
+ * @version 1.1
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-27       1.0            zeh            新增（接口批 1）
+ * 2026-07-28       1.1            zeh            扩展 EXTI 配置/使能/pending 清除
  *
  */
 #ifndef BM_HAL_GPIO_H
@@ -56,5 +57,40 @@ int bm_hal_gpio_read(const bm_hal_gpio_t *gpio, uint32_t pin, int *value);
  * @return BM_OK 成功；BM_ERR_NOT_INIT 无后端；否则为平台错误码
  */
 int bm_hal_gpio_toggle(const bm_hal_gpio_t *gpio, uint32_t pin);
+
+/**
+ * @brief 配置 EXTI（边沿触发 + 回调注册）
+ *
+ * flags 取 BM_GPIO_EXTI_RISING / FALLING / BOTH；cb 为 NULL 时取消注册。
+ *
+ * @param gpio GPIO 设备实例
+ * @param pin  pin 编码
+ * @param flags EXTI 边沿标志
+ * @param cb    中断回调；NULL 取消注册
+ * @param user  回调透传参数
+ * @return BM_OK 成功；BM_ERR_NOT_INIT 无后端；BM_ERR_NOT_SUPPORTED 后端不支持 EXTI；
+ *         否则为平台错误码
+ */
+int bm_hal_gpio_exti_configure(const bm_hal_gpio_t *gpio, uint32_t pin,
+                               uint32_t flags,
+                               bm_gpio_exti_callback_t cb, void *user);
+
+/**
+ * @brief 使能/禁止 EXTI
+ * @param gpio   GPIO 设备实例
+ * @param pin    pin 编码
+ * @param enable 非零使能，0 禁止
+ * @return BM_OK 成功；BM_ERR_NOT_INIT 无后端；否则为平台错误码
+ */
+int bm_hal_gpio_exti_enable(const bm_hal_gpio_t *gpio, uint32_t pin,
+                            int enable);
+
+/**
+ * @brief 清除 EXTI pending 状态
+ * @param gpio GPIO 设备实例
+ * @param pin  pin 编码
+ * @return BM_OK 成功；BM_ERR_NOT_INIT 无后端；否则为平台错误码
+ */
+int bm_hal_gpio_exti_clear_pending(const bm_hal_gpio_t *gpio, uint32_t pin);
 
 #endif /* BM_HAL_GPIO_H */

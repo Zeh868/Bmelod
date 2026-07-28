@@ -96,6 +96,16 @@ bm_add_test_special(
 # Board 接入契约单测
 bm_add_test(test_board test_board.c bm_core)
 
+# GPIO EXTI HAL/drv 与 native_sim 后端单测
+bm_add_test(test_gpio_exti test_gpio_exti.c bm_core)
+target_include_directories(test_gpio_exti PRIVATE
+    ${CMAKE_SOURCE_DIR}/portable/sim/native)
+
+# 安全输入组件单测（消抖/限位开关/TMC DIAG/急停）
+bm_add_test(test_safety_inputs test_safety_inputs.c bm_component_diagnostics)
+target_include_directories(test_safety_inputs PRIVATE
+    ${CMAKE_SOURCE_DIR}/portable/sim/native)
+
 # 批 P：bm_param 参数注册表测试（persist 依赖 native_sim 文件仿真 NVS）
 if(BM_ENABLE_PARAM)
     bm_add_test(test_param test_param.c bm_param)

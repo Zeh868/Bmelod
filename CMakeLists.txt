@@ -473,6 +473,10 @@ if(BM_ENABLE_COMPONENT_DIAGNOSTICS)
         Source/component/spectral_diagnostics.c
         Source/component/health_monitor.c
         Source/component/daq_frontend.c
+        Source/component/bm_input_debounce.c   # 通用输入消抖
+        Source/component/bm_limit_switch.c     # 限位开关
+        Source/component/bm_tmc_diag.c         # TMC DIAG 输入
+        Source/component/bm_estop_input.c      # 急停输入
     )
     if(BM_ENABLE_COMPONENT_STREAM OR BM_BUILD_TESTS)
         list(APPEND _bm_diag_sources

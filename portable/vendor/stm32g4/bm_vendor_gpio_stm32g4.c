@@ -9,13 +9,14 @@
  * AF 属各外设 vendor 文件内部）。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-07-27
+ * @version 1.1
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-27       1.0            zeh            新增（接口批 1）
+ * 2026-07-28       1.1            zeh            增加 EXTI 配置/使能/pending 清除桩
  *
  */
 #include "bm_vendor_gpio_stm32g4.h"
@@ -164,12 +165,54 @@ static int bm_vendor_gpio_toggle(const struct bm_hal_gpio *dev, uint32_t pin)
     return BM_OK;
 }
 
+/**
+ * @brief EXTI 配置桩（当前版本保留，真机 EXTI 后续补齐）。
+ */
+static int bm_vendor_gpio_exti_configure(const struct bm_hal_gpio *dev,
+                                         uint32_t pin, uint32_t flags,
+                                         bm_gpio_exti_callback_t cb,
+                                         void *user)
+{
+    (void)dev;
+    (void)pin;
+    (void)flags;
+    (void)cb;
+    (void)user;
+    return BM_ERR_NOT_SUPPORTED;
+}
+
+/**
+ * @brief EXTI 使能桩。
+ */
+static int bm_vendor_gpio_exti_enable(const struct bm_hal_gpio *dev,
+                                      uint32_t pin, int enable)
+{
+    (void)dev;
+    (void)pin;
+    (void)enable;
+    return BM_ERR_NOT_SUPPORTED;
+}
+
+/**
+ * @brief EXTI pending 清除桩。
+ */
+static int bm_vendor_gpio_exti_clear_pending(const struct bm_hal_gpio *dev,
+                                             uint32_t pin)
+{
+    (void)dev;
+    (void)pin;
+    return BM_ERR_NOT_SUPPORTED;
+}
+
 /** @brief GPIO 驱动 API 表。 */
 static const struct bm_gpio_driver_api g_gpio_api = {
     bm_vendor_gpio_configure,
     bm_vendor_gpio_write,
     bm_vendor_gpio_read,
     bm_vendor_gpio_toggle,
+    bm_vendor_gpio_exti_configure,
+    bm_vendor_gpio_exti_enable,
+    bm_vendor_gpio_exti_clear_pending,
 };
 
 /** @brief STM32G4 全芯片 GPIO 设备。 */

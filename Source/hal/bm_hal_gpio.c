@@ -5,13 +5,14 @@
  *
  * 未绑定后端时返回 BM_ERR_NOT_INIT（对齐既有分发层模式）。
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-07-27
+ * @version 1.1
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-27       1.0            zeh            新增（接口批 1）
+ * 2026-07-28       1.1            zeh            扩展 EXTI 配置/使能/pending 清除分发
  *
  */
 #include "bm_hal_gpio.h"
@@ -46,4 +47,35 @@ int bm_hal_gpio_toggle(const bm_hal_gpio_t *gpio, uint32_t pin) {
         return BM_ERR_NOT_INIT;
     }
     return gpio->api->toggle(gpio, pin);
+}
+
+int bm_hal_gpio_exti_configure(const bm_hal_gpio_t *gpio, uint32_t pin,
+                               uint32_t flags,
+                               bm_gpio_exti_callback_t cb, void *user) {
+    (void)pin;
+    (void)flags;
+    (void)cb;
+    (void)user;
+    if (!gpio || !gpio->api || !gpio->api->exti_configure) {
+        return BM_ERR_NOT_INIT;
+    }
+    return gpio->api->exti_configure(gpio, pin, flags, cb, user);
+}
+
+int bm_hal_gpio_exti_enable(const bm_hal_gpio_t *gpio, uint32_t pin,
+                            int enable) {
+    (void)pin;
+    (void)enable;
+    if (!gpio || !gpio->api || !gpio->api->exti_enable) {
+        return BM_ERR_NOT_INIT;
+    }
+    return gpio->api->exti_enable(gpio, pin, enable);
+}
+
+int bm_hal_gpio_exti_clear_pending(const bm_hal_gpio_t *gpio, uint32_t pin) {
+    (void)pin;
+    if (!gpio || !gpio->api || !gpio->api->exti_clear_pending) {
+        return BM_ERR_NOT_INIT;
+    }
+    return gpio->api->exti_clear_pending(gpio, pin);
 }
