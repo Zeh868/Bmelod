@@ -104,16 +104,19 @@ target_link_libraries(my_app PRIVATE bm_framework bm_hal_stm32g4)
 已知缺口：
 
 - NVS/flash 持久化无后端；pack 不声明 `BM_DRV_HAS_NVS_BACKEND`，
-  `bm_persist` 保持 RAM KV，commit 为成功 no-op；
+  `bm_persist` 保持 RAM KV，`bm_persist_commit()` 返回 `BM_ERR_NOT_SUPPORTED`
+  （勿当作成功 no-op）；
+- DMA 通道 IRQ 由 `bm_dma_irq_stm32g4` 统一持有 Handler；USART3/SPI1 等
+  经 `bm_dma_irq_register` 挂接，Board 须保证通道不重叠（冲突返回
+  `BM_ERR_BUSY`）；
 - DMA stream、I2C/SPI 传感器挂接未实现（实际需要再补；批 2 I2C/DAC/CAN
   为后续独立方案）；
 - GPIO AF 配置不在 bm_drv_gpio 契约内（AF 属各外设 vendor 内部）；
   **GPIO EXTI 已实现**（`bm_vendor_gpio_stm32g4.c`，可选
   `bm_gpio_stm32g4_config_t.irq_priority`）；定时器设备实例契约未建（stepper_pulse
   经 resources 回调规避，实机由业务/vendor 绑一路 TIM）；
-- UART TX DMA 未实现（console 打印量小，登记缺口；RX DMA 已有
-  bm_stm32g4_usart2_rx_dma）；SPI DMA 仅 SPI1（transfer_async），
-  多设备 DMA 调度未做；
+- console UART（uart_dev）TX 仍为轮询；USART3 已提供 IDLE+DMA TX/RX；
+  SPI DMA 仅 SPI1（transfer_async），多设备 DMA 调度未做；
 - SPI1（PA5/6/7）与编码器 TIM3（PA6/7）、USART2（PA9/10）与 PWM 高边
   （PA8/9/10）默认引脚冲突，同用须覆盖其一（instances 宏）；
 - COMP 门限/blanking 编码（`BM_STM32G4_COMP_*`）按 RM0440 表给出默认值，

@@ -15,16 +15,18 @@
  * （LL 仅提供按通道的 TC1..8 逐个函数，无通用 API），逐处注释。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-07-27
+ * @version 1.1
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-27       1.0            zeh            新增（UART RX DMA）
+ * 2026-07-28       1.1            zeh            DMA IRQ 改 bm_dma_irq 路由器注册
  *
  */
 #include "bm_vendor_dma_usart2_rx_stm32g4.h"
+#include "bm_dma_irq_stm32g4.h"
 #include "bm_hal_instances_stm32g4.h"
 #include "bm_types.h"
 #include "armv7em/bm_arch_isr_fpu.h"
@@ -45,6 +47,9 @@
 #define BM_VENDOR_DMA_HT_FLAG(ch)  (1u << ((ch) * 4u + 2u))
 /** @brief DMA 全满标志位（ISR bit 4×ch+1）。 */
 #define BM_VENDOR_DMA_TC_FLAG(ch)  (1u << ((ch) * 4u + 1u))
+
+/** @brief USART2 RX DMA 路由入口（定义见文件后部）。 */
+static void bm_vendor_u2rx_dma_irq_entry(void *user);
 
 typedef struct {
     /** @brief 实例编号（0=USART2 RX）。 */
@@ -95,8 +100,13 @@ static int bm_vendor_u2rx_bind_rx(const struct bm_hal_dma_stream *dev,
         LL_DMA_DisableIT_TC(DMA1, BM_VENDOR_U2RX_DMA_CH);
         NVIC_DisableIRQ((IRQn_Type)(DMA1_Channel1_IRQn
                                     + (int)BM_VENDOR_U2RX_DMA_CH));
+        bm_dma_irq_unregister(1u, (uint8_t)BM_STM32G4_USART2_RX_DMA_CH);
         memset(&ctx->binding, 0, sizeof(ctx->binding));
         return BM_OK;
+    }
+    if (bm_dma_irq_register(1u, (uint8_t)BM_STM32G4_USART2_RX_DMA_CH,
+                            bm_vendor_u2rx_dma_irq_entry, NULL) != BM_OK) {
+        return BM_ERR_BUSY;
     }
     ctx->binding = *binding;
     LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA1
@@ -204,21 +214,21 @@ static void bm_vendor_u2rx_dma_isr(uint32_t half)
     bm_arch_isr_fpu_exit(ctx->fpu_sa, fpu_prev);
 }
 
-#if BM_STM32G4_USART2_RX_DMA_CH == 3u
-void DMA1_Channel3_IRQHandler(void)
+/**
+ * @brief USART2 RX DMA 路由入口。
+ */
+static void bm_vendor_u2rx_dma_irq_entry(void *user)
 {
-    if ((DMA1->ISR & BM_VENDOR_DMA_HT_FLAG(2u)) != 0u) {
-        DMA1->IFCR = BM_VENDOR_DMA_HT_FLAG(2u);
+    (void)user;
+    if ((DMA1->ISR & BM_VENDOR_DMA_HT_FLAG(BM_VENDOR_U2RX_DMA_CH)) != 0u) {
+        DMA1->IFCR = BM_VENDOR_DMA_HT_FLAG(BM_VENDOR_U2RX_DMA_CH);
         bm_vendor_u2rx_dma_isr(1u);
     }
-    if ((DMA1->ISR & BM_VENDOR_DMA_TC_FLAG(2u)) != 0u) {
-        DMA1->IFCR = BM_VENDOR_DMA_TC_FLAG(2u);
+    if ((DMA1->ISR & BM_VENDOR_DMA_TC_FLAG(BM_VENDOR_U2RX_DMA_CH)) != 0u) {
+        DMA1->IFCR = BM_VENDOR_DMA_TC_FLAG(BM_VENDOR_U2RX_DMA_CH);
         bm_vendor_u2rx_dma_isr(0u);
     }
 }
-#else
-#error "bm_vendor: USART2 RX DMA 通道 ISR 映射未覆盖，请在 bm_vendor_dma_usart2_rx_stm32g4.c 补充"
-#endif
 
 /** @brief USART2 RX DMA 块流驱动 API 表。 */
 static const struct bm_dma_stream_driver_api g_u2rx_dma_api = {

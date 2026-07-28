@@ -8,17 +8,19 @@
  *
  * 设计要点：
  * - TX/RX GPIO 端口、引脚、AF 全部由配置指定，后端不写死 GPIOB。
- * - TX/RX DMA 控制器（DMA1/DMA2）与通道号全部由配置指定；IRQ handler 经统一
- *   入口按实际通道分发，不硬编码 CH4/CH5。
+ * - TX/RX DMA 控制器（DMA1/DMA2）与通道号全部由配置指定；IRQ 经
+ *   `bm_dma_irq_stm32g4` 路由器注册，运行时改通道无需再导出 Handler。
  * - RX 使用 DMA 循环模式 + 软件读指针，HT/TC/IDLE 均用于维护写指针并检测覆盖。
  * - TX 使用 DMA 正常模式，DMA TC 后开启 USART TC 中断，在 USART TC 到达时才
  *   触发发送完成回调，确保最后一个停止位已离开发送器。
+ * - TX DMA TE：停 DMA、清 TC IT、结束 TX 会话并调用 tx_complete_cb，供 RS485
+ *   等上层立即退出发送态。
  * - 回调统一传递真实的 `bm_hal_uart_t *dev` 指针，不把 context 强转成设备。
  * - init 对引脚、DMA、IRQ、波特率/数据位/校验/停止位做合法性校验；失败时回滚
  *   已配置的 NVIC/时钟。
  *
  * @author zeh (china_qzh@163.com)
- * @version 3.0
+ * @version 3.1
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -31,8 +33,11 @@
  *                                                validate 改纯算术校验（不读 BRR）；
  *                                                DMA TC 标志修正为 TCIF(+1)，RX ISR
  *                                                补 TEIF 检查，DMA TE 改记 OVERRUN
+ * 2026-07-28       3.1            zeh            DMA IRQ 改路由器注册；TX TE 结束
+ *                                                会话并回调上层
  */
 #include "bm_vendor_usart3_stm32g4.h"
+#include "bm_dma_irq_stm32g4.h"
 #include "bm_hal_instances_stm32g4.h"
 #include "bm/common/bm_types.h"
 
@@ -358,7 +363,7 @@ static void bm_usart3_update_errors(bm_usart3_context_t *ctx) {
 }
 
 /**
- * @brief 反初始化：关闭 NVIC 中断、DMA、USART。
+ * @brief 反初始化：关闭 NVIC 中断、DMA、USART，并注销 DMA 路由。
  */
 static void bm_usart3_hw_deinit(bm_usart3_context_t *ctx) {
     if (ctx->cfg == NULL) {
@@ -368,6 +373,14 @@ static void bm_usart3_hw_deinit(bm_usart3_context_t *ctx) {
     NVIC_DisableIRQ(ctx->cfg->usart_irqn);
     NVIC_DisableIRQ(ctx->cfg->tx_dma_irqn);
     NVIC_DisableIRQ(ctx->cfg->rx_dma_irqn);
+
+    bm_dma_irq_unregister((uint8_t)ctx->cfg->tx_dma_ctrl,
+                          (uint8_t)ctx->cfg->tx_dma_ch);
+    if (ctx->cfg->rx_dma_ctrl != ctx->cfg->tx_dma_ctrl ||
+        ctx->cfg->rx_dma_ch != ctx->cfg->tx_dma_ch) {
+        bm_dma_irq_unregister((uint8_t)ctx->cfg->rx_dma_ctrl,
+                              (uint8_t)ctx->cfg->rx_dma_ch);
+    }
 
     LL_USART_DisableIT_TC(USART3);
     LL_USART_DisableIT_IDLE(USART3);
@@ -480,12 +493,17 @@ static void bm_usart3_tx_dma_isr(bm_usart3_context_t *ctx) {
     uint32_t te_flag = (1u << ((ch - 1u) * 4u + 3u));
 
     if ((dma->ISR & te_flag) != 0u) {
-        /* 传输错误：停止 DMA，恢复 tx_busy（DMA 总线错误，勿记 FRAMING） */
+        /* 传输错误：停止 DMA，结束 TX 会话并通知上层（RS485 等须立即退出发送） */
         dma->IFCR = te_flag;
         LL_DMA_DisableChannel(dma, ch);
         LL_USART_DisableDMAReq_TX(USART3);
+        LL_USART_DisableIT_TC(USART3);
+        LL_USART_ClearFlag_TC(USART3);
         ctx->tx_busy = 0;
         ctx->stats.last_errors |= BM_UART_ERR_OVERRUN;
+        if (ctx->tx_complete_cb != NULL && ctx->dev != NULL) {
+            ctx->tx_complete_cb(ctx->dev, ctx->tx_complete_user);
+        }
         return;
     }
 
@@ -541,61 +559,29 @@ static void bm_usart3_dma_dispatch(bm_usart3_context_t *ctx,
     }
 }
 
-/* 仅定义 tx/rx_dma_ctrl/ch 配置实际用到的 DMA IRQ handler，避免与其它后端
- * （如 SPI 的 DMA1_Channel1_IRQHandler）多重定义；通道由
- * bm_hal_instances_stm32g4.h 宏决定（仿 SPI 后端模式）。改通道宏时此处
- * 自动跟随，未覆盖的通道由启动文件弱符号兜底。 */
-#define BM_USART3_DMA_CH_USED(ctrl, ch)                                    \
-    ((BM_STM32G4_USART3_TX_DMA_CTRL == (ctrl) &&                           \
-      BM_STM32G4_USART3_TX_DMA_CH == (ch)) ||                              \
-     (BM_STM32G4_USART3_RX_DMA_CTRL == (ctrl) &&                           \
-      BM_STM32G4_USART3_RX_DMA_CH == (ch)))
+/**
+ * @brief TX DMA 路由入口（由 bm_dma_irq_stm32g4 调用）。
+ */
+static void bm_usart3_dma_tx_entry(void *user) {
+    bm_usart3_context_t *ctx = (bm_usart3_context_t *)user;
 
-/* DMA1 通道 1-7 */
-#if BM_USART3_DMA_CH_USED(1u, 1u)
-void DMA1_Channel1_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 1u, 1u); }
-#endif
-#if BM_USART3_DMA_CH_USED(1u, 2u)
-void DMA1_Channel2_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 1u, 2u); }
-#endif
-#if BM_USART3_DMA_CH_USED(1u, 3u)
-void DMA1_Channel3_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 1u, 3u); }
-#endif
-#if BM_USART3_DMA_CH_USED(1u, 4u)
-void DMA1_Channel4_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 1u, 4u); }
-#endif
-#if BM_USART3_DMA_CH_USED(1u, 5u)
-void DMA1_Channel5_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 1u, 5u); }
-#endif
-#if BM_USART3_DMA_CH_USED(1u, 6u)
-void DMA1_Channel6_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 1u, 6u); }
-#endif
-#if BM_USART3_DMA_CH_USED(1u, 7u)
-void DMA1_Channel7_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 1u, 7u); }
-#endif
+    if (ctx == NULL || ctx->cfg == NULL) {
+        return;
+    }
+    bm_usart3_dma_dispatch(ctx, ctx->cfg->tx_dma_ctrl, ctx->cfg->tx_dma_ch);
+}
 
-/* DMA2 通道 1-7 */
-#if BM_USART3_DMA_CH_USED(2u, 1u)
-void DMA2_Channel1_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 2u, 1u); }
-#endif
-#if BM_USART3_DMA_CH_USED(2u, 2u)
-void DMA2_Channel2_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 2u, 2u); }
-#endif
-#if BM_USART3_DMA_CH_USED(2u, 3u)
-void DMA2_Channel3_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 2u, 3u); }
-#endif
-#if BM_USART3_DMA_CH_USED(2u, 4u)
-void DMA2_Channel4_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 2u, 4u); }
-#endif
-#if BM_USART3_DMA_CH_USED(2u, 5u)
-void DMA2_Channel5_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 2u, 5u); }
-#endif
-#if BM_USART3_DMA_CH_USED(2u, 6u)
-void DMA2_Channel6_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 2u, 6u); }
-#endif
-#if BM_USART3_DMA_CH_USED(2u, 7u)
-void DMA2_Channel7_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 2u, 7u); }
-#endif
+/**
+ * @brief RX DMA 路由入口（由 bm_dma_irq_stm32g4 调用）。
+ */
+static void bm_usart3_dma_rx_entry(void *user) {
+    bm_usart3_context_t *ctx = (bm_usart3_context_t *)user;
+
+    if (ctx == NULL || ctx->cfg == NULL) {
+        return;
+    }
+    bm_usart3_dma_dispatch(ctx, ctx->cfg->rx_dma_ctrl, ctx->cfg->rx_dma_ch);
+}
 
 /* -------------------------------------------------------------------------- */
 /*  HAL API 实现                                                               */
@@ -707,6 +693,24 @@ static int bm_vendor_usart3_init(const struct bm_hal_uart *dev, void *config) {
     LL_USART_EnableIT_IDLE(USART3);
     LL_USART_ClearFlag_IDLE(USART3);
 
+    /* DMA 向量由统一路由器持有；失败则回滚，避免与 SPI 等争用同一通道 */
+    if (bm_dma_irq_register((uint8_t)cfg->tx_dma_ctrl, (uint8_t)cfg->tx_dma_ch,
+                            bm_usart3_dma_tx_entry, ctx) != BM_OK) {
+        bm_usart3_hw_deinit(ctx);
+        ctx->cfg = NULL;
+        return BM_ERR_BUSY;
+    }
+    if (cfg->rx_dma_ctrl != cfg->tx_dma_ctrl ||
+        cfg->rx_dma_ch != cfg->tx_dma_ch) {
+        if (bm_dma_irq_register((uint8_t)cfg->rx_dma_ctrl,
+                                (uint8_t)cfg->rx_dma_ch,
+                                bm_usart3_dma_rx_entry, ctx) != BM_OK) {
+            bm_usart3_hw_deinit(ctx);
+            ctx->cfg = NULL;
+            return BM_ERR_BUSY;
+        }
+    }
+
     NVIC_SetPriority(cfg->usart_irqn, cfg->irq_priority);
     NVIC_EnableIRQ(cfg->usart_irqn);
     NVIC_SetPriority(cfg->tx_dma_irqn, cfg->tx_dma_irq_priority);
@@ -742,6 +746,7 @@ static int bm_vendor_usart3_send(const struct bm_hal_uart *dev,
 
     bm_usart3_tx_dma_config(ctx, dma, ch, data, len);
     LL_DMA_EnableIT_TC(dma, ch);
+    LL_DMA_EnableIT_TE(dma, ch);
     LL_DMA_EnableChannel(dma, ch);
 
     LL_USART_ClearFlag_TC(USART3);

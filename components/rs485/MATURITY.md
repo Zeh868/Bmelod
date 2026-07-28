@@ -2,7 +2,7 @@
 
 Maturity: E1 - 前期应用探索
 
-Validated: native_sim / DE 方向控制（高有效）/ pre/post delay 状态机 / 回显过滤（含跨 DMA 事件）/ 半双工冲突检测（含 TX_PRE）/ 帧长上限丢帧 / UART 错误粘滞位去重 / 复位回 RX / 链路统计
+Validated: native_sim / Board 先 init UART / DE 方向控制（高有效）/ pre/post delay 状态机 / 回显过滤（含跨 DMA 事件）/ 半双工冲突检测（含 TX_PRE）/ 帧长上限丢帧 / UART 错误粘滞位去重 / TX 态遇 UART 错误立即回 RX / 复位回 RX / 链路统计
 
 Not validated: 真实 RS485 收发器总线时序、STM32G4 USART 后端、硬件自动 DE、TX 超时回退真机行为
 
@@ -13,9 +13,15 @@ Not validated: 真实 RS485 收发器总线时序、STM32G4 USART 后端、硬�
 - 帧拼装在独立内部缓冲（上限 `BM_RS485_MAX_FRAME_LEN`=256）进行；`config.rx_buf` 专职 HAL 环形存储
 - 组件只上报事件与统计，App 决定超时/冲突后的业务动作
 
+## 所有权约定
+
+- **UART 硬件**：App Board 调用一次 `bm_hal_uart_init(uart, &board_cfg)`；`bm_rs485_init()` 不再 init UART（未就绪返回 `BM_ERR_NOT_INIT`）
+- **DE GPIO**：组件在 init/send/poll 路径管理方向；`hardware_de!=0` 时忽略软件 DE
+
 ## 已知限制
 
 - 无 `bm_rs485_exec_ops`（未接入 bm_exec 生命周期表）
 - 遥测/事件未走 `BM_COMPONENT_PUBLISH_TELEMETRY` 宏，经 resources 回调直接上报
 - 帧长上限固定 256 字节，与 App 外部环形缓冲大小无关；超长帧直接丢弃
+- `send` 至切回 RX 前，调用方发送缓冲必须保持有效（含 pre_delay）
 - STM32G4 后端真机未验证

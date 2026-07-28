@@ -12,8 +12,8 @@
  * 引脚绑定走 bm_hal_instances_stm32g4.h 宏（默认 PA5/PA6/PA7 AF5，CS PA4）。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-07-27
+ * @version 1.2
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -22,10 +22,12 @@
  * 2026-07-27       1.1            zeh            追加 transfer_async（DMA 双通道 + RX 全满 ISR
  *                                                完成回调，FPU 守卫包裹）；CS 操作直调 GPIO
  *                                                vtable（vendor 不依赖 bm_hal 分发）
+ * 2026-07-28       1.2            zeh            DMA IRQ 改 bm_dma_irq 路由器注册
  *
  */
 #include "bm_vendor_spi_stm32g4.h"
 #include "bm_vendor_gpio_stm32g4.h"
+#include "bm_dma_irq_stm32g4.h"
 #include "bm_hal_instances_stm32g4.h"
 #include "bm_types.h"
 
@@ -237,12 +239,18 @@ static void bm_vendor_spi_cs_write(const bm_spi_config_t *cfg, int level)
 }
 
 /**
+ * @brief SPI1 RX DMA 路由入口（通道由 instances 宏决定）。
+ */
+static void bm_vendor_spi_dma_irq_entry(void *user);
+
+/**
  * @brief 异步全双工传输（DMA 双通道；RX 全满 ISR 中收尾并触发 done_cb）。
  *
  * 语义（契约）：启动即返回；done_cb 于 ISR 上下文触发（FPU 守卫包裹），
  * 回调时 tx/rx 缓冲区所有权归还调用方。
  *
- * @return BM_OK 已启动；BM_ERR_INVALID 参数/配置非法；BM_ERR_BUSY 上一笔未完成。
+ * @return BM_OK 已启动；BM_ERR_INVALID 参数/配置非法；BM_ERR_BUSY 上一笔未完成
+ *         或 DMA 通道已被其它驱动占用。
  */
 static int bm_vendor_spi_transfer_async(const struct bm_hal_spi *dev,
                                         const uint8_t *tx, uint8_t *rx,
@@ -264,6 +272,13 @@ static int bm_vendor_spi_transfer_async(const struct bm_hal_spi *dev,
     if (g_spi_async_busy != 0u) {
         return BM_ERR_BUSY;
     }
+
+    rc = bm_dma_irq_register(1u, (uint8_t)BM_STM32G4_SPI1_DMA_RX_CH,
+                             bm_vendor_spi_dma_irq_entry, NULL);
+    if (rc != BM_OK) {
+        return rc;
+    }
+
     g_spi_async_busy = 1u;
     g_spi_async_cb   = done_cb;
     g_spi_async_user = user;
@@ -311,7 +326,6 @@ static int bm_vendor_spi_transfer_async(const struct bm_hal_spi *dev,
     DMA1->IFCR = 0xFu << (BM_VENDOR_SPI_DMA_RX_CH * 4u)
                  | 0xFu << (BM_VENDOR_SPI_DMA_TX_CH * 4u);
     LL_DMA_EnableIT_TC(DMA1, BM_VENDOR_SPI_DMA_RX_CH);
-    /* NVIC 无 LL API，用 CMSIS core 函数；ISR 名与默认通道绑定（见下方注释） */
     NVIC_SetPriority((IRQn_Type)(DMA1_Channel1_IRQn
                                  + (int)BM_VENDOR_SPI_DMA_RX_CH),
                      BM_STM32G4_SPI1_DMA_IRQ_PRIORITY);
@@ -327,8 +341,7 @@ static int bm_vendor_spi_transfer_async(const struct bm_hal_spi *dev,
 }
 
 /**
- * @brief SPI1 RX DMA 全满 ISR 公共体（通道默认 CH1，改 instances 宏须
- *        同步下方 IRQHandler 映射）。
+ * @brief SPI1 RX DMA 全满 ISR 公共体。
  */
 static void bm_vendor_spi_dma_rx_isr(void)
 {
@@ -350,25 +363,17 @@ static void bm_vendor_spi_dma_rx_isr(void)
     bm_arch_isr_fpu_exit(g_spi_fpu_sa, fpu_prev);
 }
 
-#if BM_STM32G4_SPI1_DMA_RX_CH == 1u
-void DMA1_Channel1_IRQHandler(void)
+/**
+ * @brief SPI1 RX DMA 路由入口（通道由 instances 宏决定）。
+ */
+static void bm_vendor_spi_dma_irq_entry(void *user)
 {
-    if ((DMA1->ISR & BM_VENDOR_DMA_TC_FLAG(0u)) != 0u) {
-        DMA1->IFCR = BM_VENDOR_DMA_TC_FLAG(0u);
+    (void)user;
+    if ((DMA1->ISR & BM_VENDOR_DMA_TC_FLAG(BM_VENDOR_SPI_DMA_RX_CH)) != 0u) {
+        DMA1->IFCR = BM_VENDOR_DMA_TC_FLAG(BM_VENDOR_SPI_DMA_RX_CH);
         bm_vendor_spi_dma_rx_isr();
     }
 }
-#elif BM_STM32G4_SPI1_DMA_RX_CH == 2u
-void DMA1_Channel2_IRQHandler(void)
-{
-    if ((DMA1->ISR & BM_VENDOR_DMA_TC_FLAG(1u)) != 0u) {
-        DMA1->IFCR = BM_VENDOR_DMA_TC_FLAG(1u);
-        bm_vendor_spi_dma_rx_isr();
-    }
-}
-#else
-#error "bm_vendor_spi: SPI1 DMA RX 通道 ISR 映射未覆盖，请在 bm_vendor_spi_stm32g4.c 补充"
-#endif
 
 /** @brief SPI 驱动 API 表（transfer_async 为本后端提供的可选异步能力）。 */
 static const struct bm_spi_driver_api g_spi_api = {

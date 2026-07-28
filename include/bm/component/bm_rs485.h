@@ -7,9 +7,12 @@
  * 接收帧事件、半双工冲突检测与链路统计。组件只上报事件与统计，App 决定
  * 超时/冲突后的业务动作。
  *
+ * 所有权：UART 硬件由 App Board 调用 `bm_hal_uart_init()` 完成初始化后，
+ * 再调用 `bm_rs485_init()`；组件不再二次 init UART。
+ *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -17,6 +20,7 @@
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 RS485 包装组件
  * 2026-07-28       1.1            zeh            审查整改：独立帧拼装缓冲、UART 错误去重、TX 超时
+ * 2026-07-28       1.2            zeh            UART 所有权归 Board；TX 错误立即回 RX
  */
 #ifndef BM_RS485_H
 #define BM_RS485_H
@@ -155,10 +159,13 @@ int bm_rs485_validate_config(const bm_rs485_config_t *config);
 /**
  * @brief 初始化 RS485 组件
  *
- * 配置 UART ring buffer、RX 帧回调、TX 完成回调；将 DE 置为接收方向。
+ * 前置：App Board 已对 `config.uart` 调用 `bm_hal_uart_init()`。
+ * 本函数配置 ring buffer、RX 帧回调、TX 完成回调，并将 DE 置为接收方向；
+ * **不会**再次初始化 UART 硬件。
  *
  * @param rs485 实例指针
- * @return BM_OK 成功；BM_ERR_INVALID 参数非法；其他平台错误码
+ * @return BM_OK 成功；BM_ERR_INVALID 参数非法；BM_ERR_NOT_INIT UART 未就绪；
+ *         其他平台错误码
  */
 int bm_rs485_init(bm_rs485_t *rs485);
 

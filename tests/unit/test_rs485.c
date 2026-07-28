@@ -4,7 +4,7 @@
  * @brief RS485 包装组件单元测试
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -12,6 +12,7 @@
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 RS485 单测
  * 2026-07-28       1.1            zeh            审查整改：补帧长上限与 UART 错误去重用例
+ * 2026-07-28       1.2            zeh            Board 先 init UART；TX 错误回 RX 用例
  */
 #include "unity.h"
 #include "bm/component/bm_rs485.h"
@@ -36,6 +37,8 @@ void setUp(void) {
     bm_hal_uart_native_reset();
     bm_hal_uptime_native_reset();
     bm_hal_uptime_native_set_virtual(1);
+    /* Board 层先初始化 UART；组件不再二次 init */
+    (void)bm_hal_uart_init(&bm_native_uart1, NULL);
     s_rx_len = 0u;
     s_error_flags = 0u;
     s_error_calls = 0u;
@@ -453,6 +456,52 @@ static void test_rs485_uart_error_reported_once(void) {
     TEST_ASSERT_EQUAL(2u, s_error_calls);
 }
 
+/**
+ * @brief UART 未 init 时 bm_rs485_init 须失败（不再替 App 初始化硬件）
+ */
+static void test_rs485_init_requires_uart_ready(void) {
+    bm_rs485_t rs485;
+
+    bm_hal_uart_native_reset(); /* 清掉 setUp 中的 Board init */
+
+    (void)memset(&rs485, 0, sizeof(rs485));
+    rs485.config.uart = &bm_native_uart1;
+    rs485.config.hardware_de = 1;
+
+    TEST_ASSERT_EQUAL(BM_ERR_NOT_INIT, bm_rs485_init(&rs485));
+}
+
+/**
+ * @brief TX_PRE 期间注入 UART 错误：须立即回 RX、拉低 DE、上报 ERR_UART
+ */
+static void test_rs485_tx_uart_error_recovers_rx(void) {
+    bm_rs485_t rs485;
+    uint8_t frame[] = { 0x11, 0x22 };
+    int de_level;
+
+    (void)memset(&rs485, 0, sizeof(rs485));
+    rs485.config.uart = &bm_native_uart1;
+    rs485.config.de_gpio = &bm_native_gpio;
+    rs485.config.de_pin = TEST_DE_PIN;
+    rs485.config.de_active_high = 1;
+    rs485.config.pre_delay_us = 1000u;
+    rs485.config.tx_timeout_us = 0u; /* 即使无超时也须恢复 */
+    rs485.resources.error_cb = test_rs485_error_cb;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_rs485_init(&rs485));
+    TEST_ASSERT_EQUAL(BM_OK, bm_rs485_send(&rs485, frame, sizeof(frame)));
+    TEST_ASSERT_EQUAL(BM_RS485_DIR_TX_PRE, bm_rs485_dir(&rs485));
+
+    bm_hal_uart_native_inject_error(&bm_native_uart1, BM_UART_ERR_OVERRUN);
+    bm_rs485_poll(&rs485);
+
+    TEST_ASSERT_EQUAL(BM_RS485_DIR_RX, bm_rs485_dir(&rs485));
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_hal_gpio_read(&bm_native_gpio, TEST_DE_PIN, &de_level));
+    TEST_ASSERT_EQUAL(0, de_level);
+    TEST_ASSERT_EQUAL(BM_RS485_ERR_UART, s_error_flags & BM_RS485_ERR_UART);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_rs485_init_de_direction);
@@ -466,5 +515,7 @@ int main(void) {
     RUN_TEST(test_rs485_validate_config);
     RUN_TEST(test_rs485_frame_len_limit);
     RUN_TEST(test_rs485_uart_error_reported_once);
+    RUN_TEST(test_rs485_init_requires_uart_ready);
+    RUN_TEST(test_rs485_tx_uart_error_recovers_rx);
     return UNITY_END();
 }

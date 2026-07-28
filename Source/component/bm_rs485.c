@@ -6,8 +6,11 @@
  * 架在 UART HAL 与 GPIO HAL 之上，负责 DE 方向控制、发送前后保持、
  * 接收帧事件、半双工冲突检测与链路统计。
  *
+ * UART 硬件由 App Board 先 `bm_hal_uart_init()` 完成；本组件只绑定缓冲与
+ * 回调、管理 DE。TX 路径遇 UART 错误时立即切回 RX 并上报。
+ *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -15,6 +18,7 @@
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 RS485 包装组件
  * 2026-07-28       1.1            zeh            审查整改：独立帧拼装缓冲消除越界/覆盖、UART 错误粘滞位去重、TX_PRE 冲突判定、TX 超时回退、时间戳读取临界区
+ * 2026-07-28       1.2            zeh            不再 init UART；TX 态遇 UART 错误立即回 RX
  */
 #include "bm/component/bm_rs485.h"
 
@@ -65,15 +69,56 @@ static void bm_rs485_clear_tx_echo(bm_rs485_t *rs485) {
 }
 
 /**
- * @brief UART TX 完成回调：启动 post_delay，切换到 TX_TAIL。
+ * @brief 发送路径异常中止：DE→RX、清发送态、上报 UART 错误。
+ *
+ * 可在 ISR（tx_complete）或 poll 上下文调用；error_cb 在临界区外触发。
+ */
+static void bm_rs485_abort_tx_to_rx(bm_rs485_t *rs485) {
+    bm_irq_state_t irq_state;
+    int was_tx = 0;
+
+    irq_state = BM_CRITICAL_ENTER();
+    if (rs485->state.dir == BM_RS485_DIR_TX_PRE
+        || rs485->state.dir == BM_RS485_DIR_TX
+        || rs485->state.dir == BM_RS485_DIR_TX_TAIL) {
+        was_tx = 1;
+        rs485->state.dir = BM_RS485_DIR_RX;
+        bm_rs485_clear_tx_echo(rs485);
+        rs485->state.stats.last_errors |= BM_RS485_ERR_UART;
+    }
+    BM_CRITICAL_EXIT(irq_state);
+
+    if (was_tx != 0) {
+        (void)bm_rs485_set_de(rs485, BM_RS485_DIR_RX);
+        if (rs485->resources.error_cb != NULL) {
+            rs485->resources.error_cb((const bm_rs485_t *)rs485,
+                                      BM_RS485_ERR_UART,
+                                      rs485->resources.user);
+        }
+    }
+}
+
+/**
+ * @brief UART TX 完成回调：正常则进入 TX_TAIL；若已有 UART 错误则立即回 RX。
  */
 static void bm_rs485_tx_complete_cb(const bm_hal_uart_t *dev, void *user) {
     bm_rs485_t *rs485 = (bm_rs485_t *)user;
     bm_irq_state_t irq_state;
+    bm_uart_stats_t uart_stats;
     uint64_t now;
 
     (void)dev;
     if (rs485 == NULL) {
+        return;
+    }
+
+    if (rs485->config.uart != NULL
+        && bm_hal_uart_get_stats(rs485->config.uart, &uart_stats) == BM_OK
+        && uart_stats.last_errors != 0u) {
+        irq_state = BM_CRITICAL_ENTER();
+        rs485->state.uart_err_reported |= uart_stats.last_errors;
+        BM_CRITICAL_EXIT(irq_state);
+        bm_rs485_abort_tx_to_rx(rs485);
         return;
     }
 
@@ -255,8 +300,9 @@ int bm_rs485_init(bm_rs485_t *rs485) {
     (void)memset(&rs485->state, 0, sizeof(rs485->state));
     rs485->state.dir = BM_RS485_DIR_RX;
 
-    rc = bm_hal_uart_init(rs485->config.uart, NULL);
-    if (rc != BM_OK && rc != BM_ERR_NOT_INIT) {
+    /* UART 须由 Board 先 init；此处仅探测就绪，不调用 bm_hal_uart_init */
+    rc = bm_hal_uart_flush(rs485->config.uart);
+    if (rc != BM_OK) {
         return rc;
     }
 
@@ -509,20 +555,28 @@ void bm_rs485_poll(bm_rs485_t *rs485) {
         }
     }
 
-    /* UART 底层错误透传：last_errors 为粘滞位，仅对新增位上报一次 */
+    /* UART 底层错误：TX 路径立即回 RX；其它方向仅透传新增位 */
     if (bm_hal_uart_get_stats(rs485->config.uart, &uart_stats) == BM_OK) {
         irq_state = BM_CRITICAL_ENTER();
         new_uart_errors = uart_stats.last_errors
                           & ~rs485->state.uart_err_reported;
-        rs485->state.uart_err_reported = uart_stats.last_errors;
-        if (new_uart_errors != 0u) {
-            rs485->state.stats.last_errors |= BM_RS485_ERR_UART;
-        }
+        rs485->state.uart_err_reported |= uart_stats.last_errors;
+        dir = rs485->state.dir;
         BM_CRITICAL_EXIT(irq_state);
-        if (new_uart_errors != 0u && rs485->resources.error_cb != NULL) {
-            rs485->resources.error_cb((const bm_rs485_t *)rs485,
-                                      BM_RS485_ERR_UART,
-                                      rs485->resources.user);
+        if (new_uart_errors != 0u) {
+            if (dir == BM_RS485_DIR_TX_PRE || dir == BM_RS485_DIR_TX
+                || dir == BM_RS485_DIR_TX_TAIL) {
+                bm_rs485_abort_tx_to_rx(rs485);
+            } else {
+                irq_state = BM_CRITICAL_ENTER();
+                rs485->state.stats.last_errors |= BM_RS485_ERR_UART;
+                BM_CRITICAL_EXIT(irq_state);
+                if (rs485->resources.error_cb != NULL) {
+                    rs485->resources.error_cb((const bm_rs485_t *)rs485,
+                                              BM_RS485_ERR_UART,
+                                              rs485->resources.user);
+                }
+            }
         }
     }
 
