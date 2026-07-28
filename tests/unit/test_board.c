@@ -11,7 +11,7 @@
  * 最后验证重复注册。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.3
+ * @version 1.4
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -23,6 +23,8 @@
  * 2026-07-28       1.2            zeh            增加资源数组冲突检查用例
  * 2026-07-28       1.3            zeh            MSG_RAM 改同实例重叠判冲突，
  *                                                补不同实例区间重叠不冲突用例
+ * 2026-07-28       1.4            zeh            MSG_RAM 对齐 G4 固定 0/212；
+ *                                                跨实例区间重叠亦判冲突
  */
 #include "unity.h"
 #include "board/bm_board.h"
@@ -211,12 +213,12 @@ static void test_board_before_registration(void) {
         .count = 2u,
         .capabilities = 0u,
     };
-    /* 资源数组冲突：同一 FDCAN 实例 Message RAM 重叠 */
+    /* 资源数组冲突：共享 Message RAM 全局区间重叠（含跨 FDCAN 实例） */
     static const bm_board_resource_t can1_ram[] = {
-        { BM_BOARD_RES_MSG_RAM, 1u, 0u, 128u }, /* FDCAN1: [0, 128) */
+        { BM_BOARD_RES_MSG_RAM, 1u, 0u, 212u }, /* FDCAN1: [0, 212) */
     };
     static const bm_board_resource_t can2_ram[] = {
-        { BM_BOARD_RES_MSG_RAM, 1u, 64u, 128u }, /* FDCAN1: [64, 192) 与前段重叠 */
+        { BM_BOARD_RES_MSG_RAM, 2u, 0u, 212u }, /* FDCAN2 误登 [0, 212) 与 FDCAN1 重叠 */
     };
     static const bm_board_device_t overlap_can[] = {
         {
@@ -274,14 +276,14 @@ static void test_board_register_and_find(void) {
         { BM_BOARD_RES_PIN, 1u, 10u, 0u }, /* GPIOB10 */
         { BM_BOARD_RES_DMA, 1u, 4u, 0u },  /* DMA1_CH4 */
         { BM_BOARD_RES_IRQ, 0u, 39u, 0u }, /* USART3_IRQn ≈ 39 */
-        { BM_BOARD_RES_MSG_RAM, 1u, 0u, 128u }, /* FDCAN1: [0, 128) */
+        { BM_BOARD_RES_MSG_RAM, 1u, 0u, 212u }, /* FDCAN1: [0, 212) */
     };
     static const bm_board_resource_t spi_res[] = {
         { BM_BOARD_RES_PIN, 1u, 13u, 0u }, /* GPIOB13 */
         { BM_BOARD_RES_DMA, 1u, 5u, 0u },  /* DMA1_CH5 */
         { BM_BOARD_RES_IRQ, 0u, 35u, 0u }, /* SPI1_IRQn ≈ 35 */
-        /* FDCAN2: [64, 192) 区间与 FDCAN1 重叠，但实例不同不冲突 */
-        { BM_BOARD_RES_MSG_RAM, 2u, 64u, 128u },
+        /* FDCAN2: 固定 [212, 424)，与 FDCAN1 不重叠 */
+        { BM_BOARD_RES_MSG_RAM, 2u, 212u, 212u },
     };
     static const bm_board_device_t devices[] = {
         {

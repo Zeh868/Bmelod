@@ -392,15 +392,13 @@
 #ifndef BM_STM32G4_CAN_IRQ_PRIORITY
 #define BM_STM32G4_CAN_IRQ_PRIORITY  2u
 #endif
-/** @brief FDCAN1 在全局 Message RAM 中的 32-bit word 偏移。 */
-#ifndef BM_STM32G4_CAN1_MSG_RAM_OFFSET
+/** @brief FDCAN1 Message RAM 固定 word 偏移（0）；后端强制，勿依赖 App 覆盖。 */
 #define BM_STM32G4_CAN1_MSG_RAM_OFFSET  0u
-#endif
-/** @brief FDCAN2 在全局 Message RAM 中的 32-bit word 偏移。
- *  FDCAN1 区域预留 256 words。 */
-#ifndef BM_STM32G4_CAN2_MSG_RAM_OFFSET
-#define BM_STM32G4_CAN2_MSG_RAM_OFFSET  256u
-#endif
+/** @brief FDCAN2 Message RAM 固定 word 偏移（212 = 单实例布局尺寸）；
+ *  对齐 ST SRAMCAN_SIZE；后端强制，勿依赖 App 覆盖。 */
+#define BM_STM32G4_CAN2_MSG_RAM_OFFSET  212u
+/** @brief 单实例 Message RAM 长度（words），Board 资源 flags 填此值。 */
+#define BM_STM32G4_CAN_MSG_RAM_SIZE     212u
 /** @brief FDCAN 仲裁段位时序：500k @ 170MHz APB1（采样点 80%）。 */
 #ifndef BM_STM32G4_CAN_NBTR
 #define BM_STM32G4_CAN_NBTR  { .prescaler = 17u, .tseg1 = 15u, .tseg2 = 3u, .sjw = 1u }

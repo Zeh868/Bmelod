@@ -125,4 +125,6 @@ target_link_libraries(my_app PRIVATE bm_framework bm_hal_stm32g4)
 - ADC 读值为 12bit raw，板级零偏中心化/标定未做（对齐 esp32 vendor 的
   中心化机制待实机标定后补）；
 - PWM 死区仅支持 DTG 第一编码段（≤127 tDTS，约 ≤747ns @170MHz）；
-- LPUART/USART2 时钟源按默认 PCLK1 推算，改过 `CCIPR.LPUART1SEL` 的板级需实机核对。
+- LPUART/USART2 时钟源按默认 PCLK1 推算，改过 `CCIPR.LPUART1SEL` 的板级需实机核对；
+- FDCAN Message RAM 偏移由后端按实例强制为 0/212（对齐 ST SRAMCAN_SIZE），
+  配置字段 `message_ram_offset` 已忽略；中断仅 `FDCANx_IT0`（无 IT1 Handler）。

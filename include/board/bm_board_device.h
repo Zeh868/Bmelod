@@ -9,7 +9,7 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.2
+ * @version 1.3
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -19,6 +19,7 @@
  * 2026-07-28       1.1            zeh            扩展资源数组与能力位
  * 2026-07-28       1.2            zeh            新增 BM_BOARD_NAME_MAX 宏并注明
  *                                                设备名上限；MSG_RAM 语义注明按实例隔离
+ * 2026-07-28       1.3            zeh            MSG_RAM 改为全局共享区间冲突检查
  *
  */
 #ifndef BM_BOARD_DEVICE_H
@@ -115,7 +116,9 @@ extern "C" {
  * - DMA：flags 保留为 0；periph_id=控制器（1=DMA1, 2=DMA2），index=通道 1..7。
  * - IRQ：flags 保留为 0；periph_id=0，index=IRQn 编号。
  * - TIMER_CH：flags 保留为 0；periph_id=TIM 实例号（如 2=TIM2），index=通道 1..4。
- * - MSG_RAM：periph_id=FDCAN 实例号（1/2），index=word 起始偏移，flags=长度（words）。
+ * - MSG_RAM：index=全局 Message RAM word 起始偏移，flags=长度（words）；
+ *   periph_id=FDCAN 实例号（1/2，仅文档用）。STM32G4 上 FDCAN1/2 共享同一块
+ *   Message RAM，固定布局建议登记 [0,212)/[212,424)；任意两段区间重叠即冲突。
  * - AF：flags 保留为 0；periph_id=0，index=AF 编号 0..15。
  */
 typedef struct {

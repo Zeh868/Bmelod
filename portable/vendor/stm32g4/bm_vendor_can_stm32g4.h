@@ -3,18 +3,20 @@
  * @file bm_vendor_can_stm32g4.h
  * @brief STM32G4 FDCAN1/FDCAN2 后端配置与实例声明
  *
- * App 通过 `bm_can_stm32g4_config_t` 指定 FDCANx/引脚/AF/波特率/Message RAM/IRQ；
+ * App 通过 `bm_can_stm32g4_config_t` 指定 FDCANx/引脚/AF/波特率/IRQ；
+ * Message RAM 偏移由后端按实例固定为 0/212，Board 不负责计算。
  * Bmelod 不固定 FDCAN 编号与产品引脚。
  *
  * 当前实现基于 FDCAN 寄存器直接操作，不依赖 HAL；支持 Classic CAN，
  * CAN FD 作为可选能力暴露，数据段波特率由 App 在 dbtr 中配置。
+ * 中断仅 Line 0（`FDCANx_IT0_IRQn`）；IT1 未实现。
  *
  * 运行时过滤器管理契约：`bm_hal_can_add_filter()` / `bm_hal_can_remove_filter()`
  * 直接写 Message RAM，须先 `bm_hal_can_stop()` 使控制器退出运行态后再调用；
  * started 态写入与硬件过滤并发，可能导致过滤器瞬时失效或帧被误收/误拒。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.2
+ * @version 1.3
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -25,6 +27,7 @@
  *                                                真实时间戳、bus-off 恢复接口
  * 2026-07-28       1.2            zeh            契约注明 add/remove_filter 须在
  *                                                stop 状态调用（直写 Message RAM）
+ * 2026-07-28       1.3            zeh            Message RAM 偏移固定 0/212；仅 IT0
  */
 #ifndef BM_VENDOR_CAN_STM32G4_H
 #define BM_VENDOR_CAN_STM32G4_H
@@ -69,10 +72,10 @@ typedef struct {
     uint32_t fd_enabled;    /**< 非零：启用 CAN FD 数据段 */
 
     /**
-     * @brief Message RAM 在全局 FDCAN Message RAM 中的 32-bit word 偏移。
+     * @brief 保留字段：Message RAM word 偏移（**已忽略**）。
      *
-     * STM32G4 全局 Message RAM 基址 0x4000A400，总大小 2560 words（10KB）。
-     * FDCAN1/2 的区域不可重叠。
+     * 后端按 `fdcan` 强制：FDCAN1→0、FDCAN2→212（`BM_CAN_G4_SIZE`）。
+     * 请填 0；Board 资源表登记固定区间 [0,212)/[212,424) 即可。
      */
     uint32_t message_ram_offset;
 
@@ -89,7 +92,11 @@ typedef struct {
     uint32_t rx_elmt_size;
     uint32_t tx_elmt_size;
 
-    IRQn_Type irqn;         /**< FDCAN 中断 0（Line 0） */
+    /**
+     * @brief FDCAN 中断向量；仅接受 `FDCAN1_IT0_IRQn` / `FDCAN2_IT0_IRQn`
+     *        （Line 0；IT1 未实现）
+     */
+    IRQn_Type irqn;
     uint32_t  irq_priority; /**< NVIC 优先级 */
 } bm_can_stm32g4_config_t;
 

@@ -7,7 +7,7 @@
  * 资源冲突检查。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.2
+ * @version 1.3
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -17,6 +17,7 @@
  * 2026-07-28       1.1            zeh            增加资源数组冲突检查与 init_devices
  * 2026-07-28       1.2            zeh            MSG_RAM 冲突补 periph_id 比较与
  *                                                端点溢出防御；名称上限提取宏
+ * 2026-07-28       1.3            zeh            MSG_RAM 按全局 word 区间重叠判冲突
  *
  */
 #include "board/bm_board.h"
@@ -104,9 +105,9 @@ static size_t bm_board_str_len(const char *s, size_t max) {
  * - DMA：同控制器同通道。
  * - IRQ：同 IRQn 编号。
  * - TIMER_CH：同 TIM 实例同通道。
- * - MSG_RAM：同 FDCAN 实例（periph_id）且 [index, index+flags) 区间重叠；
- *   不同实例 Message RAM 物理独立，不冲突。flags==0 或 index+flags
- *   溢出 uint32 的非法区间视为冲突。
+ * - MSG_RAM：全局 Message RAM 的 [index, index+flags) 区间重叠即冲突
+ *   （STM32G4 上 FDCAN1/2 共享同一块 RAM；periph_id 仅文档）。flags==0 或
+ *   index+flags 溢出 uint32 的非法区间视为冲突。
  * - AF：同 AF 编号不视为冲突（多引脚可共用 AF）。
  */
 static int bm_board_resource_conflicts(const bm_board_resource_t *a,
@@ -128,9 +129,6 @@ static int bm_board_resource_conflicts(const bm_board_resource_t *a,
         uint32_t b_start;
         uint32_t b_end;
 
-        if (a->periph_id != b->periph_id) {
-            return 0; /* FDCAN 实例各自独立 Message RAM */
-        }
         /* 端点溢出防御：零长度或 index+flags 溢出的区间非法，视为冲突 */
         if (a->flags == 0u || a->index > UINT32_MAX - a->flags ||
             b->flags == 0u || b->index > UINT32_MAX - b->flags) {

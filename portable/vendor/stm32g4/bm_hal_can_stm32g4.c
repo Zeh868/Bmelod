@@ -12,8 +12,10 @@
  * - 每个实例固定：28 个标准过滤器、8 个扩展过滤器、RX FIFO0/1 各 3 元素、
  *   TX Event FIFO 3 元素、TX FIFO/Queue 3 元素；RX/TX 元素固定 64 字节。
  * - `bm_can_stm32g4_config_t` 中的 `*_count` 字段仅决定软件实际使用数量，不能超过
- *   上述硬件上限；`message_ram_offset` 决定本实例在全局 10KB Message RAM 中的起始
- *   word 偏移，FDCAN1/FDCAN2 区域不可重叠。
+ *   上述硬件上限。Message RAM 起始偏移由 `fdcan` 实例固定推导：FDCAN1=0、
+ *   FDCAN2=`BM_CAN_G4_SIZE`(212)，对齐 ST `SRAMCAN_BASE + SRAMCAN_SIZE`；
+ *   配置字段 `message_ram_offset` 被忽略，Board 只选实例不计算偏移。
+ * - 中断仅支持 Line 0（`FDCANx_IT0_IRQn`）；ILS 固定为 0，无 IT1 Handler。
  *
  * 本后端支持：
  * - FDCAN1/FDCAN2 多实例，引脚/AF/IRQ 由 App 配置。
@@ -26,7 +28,7 @@
  * Bmelod 不固定 FDCAN 编号与产品引脚。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.2
+ * @version 1.3
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -41,6 +43,8 @@
  *                                                dev 匹配；TX Message Marker 移至
  *                                                T1[31:24]；validate 只接受 IT0 向量；
  *                                                recover 不再强制清 bus_off 软件标志
+ * 2026-07-28       1.3            zeh            Message RAM 偏移按实例强制 0/212；
+ *                                                忽略 App 可配 message_ram_offset
  */
 #include "bm_vendor_can_stm32g4.h"
 #include "bm_hal_instances_stm32g4.h"
@@ -89,6 +93,19 @@
 #define BM_CAN_G4_TEFSA (BM_CAN_G4_RF1SA + (BM_CAN_G4_RF1_NBR * BM_CAN_G4_RF1_SIZE))
 #define BM_CAN_G4_TFQSA (BM_CAN_G4_TEFSA + (BM_CAN_G4_TEF_NBR * BM_CAN_G4_TEF_SIZE))
 #define BM_CAN_G4_SIZE  (BM_CAN_G4_TFQSA + (BM_CAN_G4_TFQ_NBR * BM_CAN_G4_TFQ_SIZE)) /**< 212 words */
+
+/**
+ * @brief 按 FDCAN 实例返回固定 Message RAM word 偏移（忽略配置字段）。
+ *
+ * 对齐 ST 官方布局：FDCAN1 @ 0，FDCAN2 @ SRAMCAN_SIZE(=212)。
+ */
+static uint32_t bm_can_stm32g4_fixed_msg_ram_offset(
+    const bm_can_stm32g4_config_t *cfg) {
+    if (cfg != NULL && cfg->fdcan == FDCAN2) {
+        return BM_CAN_G4_SIZE;
+    }
+    return 0u;
+}
 
 /* ---------- 寄存器位定义（CMSIS 已定义大部分，这里只补充缺失的） ---------- */
 
@@ -289,7 +306,7 @@ static const bm_can_stm32g4_config_t g_can_cfg_1 = {
     .nbtr = BM_STM32G4_CAN_NBTR,
     .dbtr = { .prescaler = 8u, .tseg1 = 7u, .tseg2 = 2u, .sjw = 1u },
     .fd_enabled = 0u,
-    .message_ram_offset = BM_STM32G4_CAN1_MSG_RAM_OFFSET,
+    .message_ram_offset = 0u, /* 忽略；后端按 FDCAN1 强制 0 */
     .std_filter_count = 8u,
     .ext_filter_count = 0u,
     .rx_fifo0_count = BM_CAN_G4_RF0_NBR,
@@ -312,7 +329,7 @@ static const bm_can_stm32g4_config_t g_can_cfg_2 = {
     .nbtr = BM_STM32G4_CAN_NBTR,
     .dbtr = { .prescaler = 8u, .tseg1 = 7u, .tseg2 = 2u, .sjw = 1u },
     .fd_enabled = 0u,
-    .message_ram_offset = BM_STM32G4_CAN2_MSG_RAM_OFFSET,
+    .message_ram_offset = 0u, /* 忽略；后端按 FDCAN2 强制 212 */
     .std_filter_count = 8u,
     .ext_filter_count = 0u,
     .rx_fifo0_count = BM_CAN_G4_RF0_NBR,
@@ -469,13 +486,14 @@ static int bm_can_stm32g4_wait_init(FDCAN_GlobalTypeDef *fdcan, uint32_t target)
 /**
  * @brief 获取 Message RAM 中某实例区域的绝对地址。
  *
- * @param cfg     FDCAN 平台配置（含 message_ram_offset）
+ * @param cfg     FDCAN 平台配置（偏移由 fdcan 实例固定推导）
  * @param offset  实例内 32-bit word 偏移
  */
 static volatile uint32_t *bm_can_stm32g4_msg_ram(
     const bm_can_stm32g4_config_t *cfg, uint32_t offset) {
+    uint32_t base_off = bm_can_stm32g4_fixed_msg_ram_offset(cfg);
     uint32_t addr = BM_CAN_STM32G4_MSG_RAM_BASE +
-                    (cfg->message_ram_offset + offset) * 4u;
+                    (base_off + offset) * 4u;
 
     return (volatile uint32_t *)addr;
 }
@@ -562,8 +580,13 @@ static int bm_can_stm32g4_validate_config(const bm_can_stm32g4_config_t *cfg) {
     if (cfg->rx_elmt_size != 7u || cfg->tx_elmt_size != 7u) {
         return BM_ERR_INVALID;
     }
-    if ((cfg->message_ram_offset + BM_CAN_G4_SIZE) > BM_CAN_STM32G4_MSG_RAM_WORDS) {
-        return BM_ERR_INVALID;
+    /* message_ram_offset 字段忽略；边界按固定 0/212 校验 */
+    {
+        uint32_t ram_off = bm_can_stm32g4_fixed_msg_ram_offset(cfg);
+
+        if ((ram_off + BM_CAN_G4_SIZE) > BM_CAN_STM32G4_MSG_RAM_WORDS) {
+            return BM_ERR_INVALID;
+        }
     }
 
     return BM_OK;
