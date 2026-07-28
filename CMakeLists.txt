@@ -163,6 +163,7 @@ add_library(bm_hal STATIC
     Source/hal/bm_hal_critical.c
     Source/hal/bm_hal_console.c
     Source/hal/bm_hal_uart.c
+    Source/hal/bm_hal_can.c
     Source/hal/bm_hal_timer.c
     Source/hal/bm_hal_cap.c
     Source/hal/bm_hal_cache.c

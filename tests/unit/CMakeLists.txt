@@ -111,6 +111,11 @@ bm_add_test(test_uart test_uart.c bm_core)
 target_include_directories(test_uart PRIVATE
     ${CMAKE_SOURCE_DIR}/portable/sim/native)
 
+# CAN/FDCAN HAL/drv 与 native_sim 后端单测
+bm_add_test(test_can test_can.c bm_core)
+target_include_directories(test_can PRIVATE
+    ${CMAKE_SOURCE_DIR}/portable/sim/native)
+
 # RS485 包装组件单测
 bm_add_test(test_rs485 test_rs485.c bm_component_diagnostics)
 target_include_directories(test_rs485 PRIVATE

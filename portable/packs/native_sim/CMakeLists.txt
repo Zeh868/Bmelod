@@ -14,6 +14,7 @@ add_library(bm_backend_native_sim STATIC
     ${_BM_SIM_NATIVE}/bm_drv_gpio_native.c   # native_sim GPIO + EXTI 后端
     ${_BM_SIM_NATIVE}/bm_drv_hrtimer_native.c # native_sim 高精度 Timer 后端
     ${_BM_SIM_NATIVE}/bm_drv_uart_native.c   # native_sim 多实例 UART 后端
+    ${_BM_SIM_NATIVE}/bm_drv_can_native.c    # native_sim 多实例 CAN 后端
 )
 add_subdirectory(${BM_FRAMEWORK_ROOT}/portable/arch/host
     _bm_arch_host_native_pack)
