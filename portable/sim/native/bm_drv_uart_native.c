@@ -5,20 +5,24 @@
  *
  * 支持 2 个实例：
  *   - bm_uart_default（实例 0）：console 语义，send 写到 stdout。
- *   - bm_native_uart1（实例 1）：loopback 语义，send 数据进入本实例 ring buffer，
- *     供 recv 读回；测试也可通过 bm_hal_uart_native_put_rx 注入 RX 数据。
+ *   - bm_native_uart1（实例 1）：测试记录语义，send 数据追加到 TX 测试缓冲区
+ *     （不自动 loopback），经 bm_hal_uart_native_tx_count/tx_byte 读取；
+ *     RX 由测试通过 bm_hal_uart_native_put_rx 注入。
  *
  * 支持 ring buffer RX、IDLE 事件、TX 完成回调、错误统计。
  * 全部静态分配，零动态内存。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 native_sim 多实例 UART 后端
+ * 2026-07-28       1.1            zeh            reset 全量复位；TX 测试缓冲满返回
+ *                                             BM_ERR_BUSY；删除未用 ring_free；
+ *                                             ring 裸 -1 改 BM_ERR_*；注释对齐实现
  */
 #include "bm_drv_uart.h"
 #include "hal/bm_hal_uart.h"
@@ -33,7 +37,7 @@
 /** @brief UART 实例数。 */
 #define BM_NATIVE_UART_COUNT 2u
 
-/** @brief 实例 1 loopback 发送缓冲区大小。 */
+/** @brief 实例 1 TX 测试缓冲区大小。 */
 #define BM_NATIVE_UART_TX_BUF_SIZE 256u
 
 /** @brief 环形缓冲区状态。 */
@@ -87,35 +91,28 @@ static size_t bm_native_uart_ring_count(const bm_native_uart_ring_t *ring) {
     return ring->len - ring->tail + ring->head;
 }
 
-static size_t bm_native_uart_ring_free(const bm_native_uart_ring_t *ring) {
-    if (ring->len == 0u) {
-        return 0u;
-    }
-    return ring->len - 1u - bm_native_uart_ring_count(ring);
-}
-
 static int bm_native_uart_ring_push(bm_native_uart_ring_t *ring, uint8_t c) {
     size_t next;
 
     if (ring->len == 0u) {
-        return -1;
+        return BM_ERR_NOT_INIT; /* 未设置缓冲区 */
     }
     next = (ring->head + 1u) % ring->len;
     if (next == ring->tail) {
-        return -1; /* 满 */
+        return BM_ERR_NO_MEM; /* 满 */
     }
     ring->buf[ring->head] = c;
     ring->head = next;
-    return 0;
+    return BM_OK;
 }
 
 static int bm_native_uart_ring_pop(bm_native_uart_ring_t *ring, uint8_t *c) {
     if (ring->head == ring->tail) {
-        return -1; /* 空 */
+        return BM_ERR_NOT_FOUND; /* 空 */
     }
     *c = ring->buf[ring->tail];
     ring->tail = (ring->tail + 1u) % ring->len;
-    return 0;
+    return BM_OK;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -126,12 +123,7 @@ void bm_hal_uart_native_reset(void) {
     uint32_t i;
 
     for (i = 0u; i < BM_NATIVE_UART_COUNT; ++i) {
-        s_states[i].rx_ring.buf = NULL;
-        s_states[i].rx_ring.len = 0u;
-        s_states[i].rx_ring.head = 0u;
-        s_states[i].rx_ring.tail = 0u;
-        s_states[i].rx_since_event = 0u;
-        s_states[i].initialized = 0;
+        (void)memset(&s_states[i], 0, sizeof(s_states[i]));
     }
     s_tx_count = 0u;
     (void)memset(s_tx_buf, 0, sizeof(s_tx_buf));
@@ -149,7 +141,7 @@ void bm_hal_uart_native_put_rx(const bm_hal_uart_t *dev, uint8_t c) {
         state->rx_byte_cb(c);
     }
 
-    if (bm_native_uart_ring_push(&state->rx_ring, c) != 0) {
+    if (bm_native_uart_ring_push(&state->rx_ring, c) != BM_OK) {
         state->stats.rx_overflow_count++;
         state->stats.last_errors |= BM_UART_ERR_OVERFLOW;
     } else {
@@ -256,11 +248,12 @@ static int native_uart_send(const struct bm_hal_uart *dev,
         (void)fwrite(data, 1, len, stdout);
         (void)fflush(stdout);
     } else {
-        /* 实例 1：记录发送数据到测试缓冲区，不自动 loopback */
+        /* 实例 1：记录发送数据到测试缓冲区，不自动 loopback；满则报忙 */
+        if (s_tx_count + len > BM_NATIVE_UART_TX_BUF_SIZE) {
+            return BM_ERR_BUSY;
+        }
         for (i = 0u; i < len; ++i) {
-            if (s_tx_count < BM_NATIVE_UART_TX_BUF_SIZE) {
-                s_tx_buf[s_tx_count++] = data[i];
-            }
+            s_tx_buf[s_tx_count++] = data[i];
         }
     }
 
@@ -285,7 +278,7 @@ static size_t native_uart_recv(const struct bm_hal_uart *dev,
         return 0u;
     }
 
-    while (n < max_len && bm_native_uart_ring_pop(&state->rx_ring, &data[n]) == 0) {
+    while (n < max_len && bm_native_uart_ring_pop(&state->rx_ring, &data[n]) == BM_OK) {
         n++;
     }
     if (n > 0u && state->rx_since_event >= n) {

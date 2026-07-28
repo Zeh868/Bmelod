@@ -9,7 +9,7 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.2
+ * @version 1.3
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -18,6 +18,8 @@
  * 2026-07-28       1.0            zeh            新增 stepper_pulse hrtimer 适配器
  * 2026-07-28       1.1            zeh            分离 app_user 与 adapter 指针透传
  * 2026-07-28       1.2            zeh            GPIO 回调改 int 返回；可选 en_set
+ * 2026-07-28       1.3            zeh            arm 改“只缩短”语义（缓存
+ *                                                next_deadline_us）；started 访问加临界区
  */
 #ifndef BM_STEPPER_PULSE_HRTIMER_ADAPTER_H
 #define BM_STEPPER_PULSE_HRTIMER_ADAPTER_H
@@ -41,7 +43,8 @@ extern "C" {
 typedef struct {
     bm_stepper_pulse_axis_t     axis;       /**< 内部步进轴实例 */
     const bm_hal_hrtimer_t     *hrtimer;    /**< 绑定的高精度 Timer */
-    uint8_t                     started;    /**< Timer 已启动标志 */
+    uint8_t                     started;    /**< Timer 已启动标志（ISR 共享，经临界区访问） */
+    uint64_t next_deadline_us;              /**< 当前已武装的到期时刻（bm_uptime_us 时基；ISR 共享，经临界区访问） */
     void                       *app_user;   /**< App GPIO 回调透传参数 */
     int (*app_step_high)(void *user);       /**< App STEP 拉高回调 */
     int (*app_step_low)(void *user);        /**< App STEP 拉低回调 */

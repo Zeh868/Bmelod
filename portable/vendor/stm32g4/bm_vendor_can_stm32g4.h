@@ -9,8 +9,12 @@
  * 当前实现基于 FDCAN 寄存器直接操作，不依赖 HAL；支持 Classic CAN，
  * CAN FD 作为可选能力暴露，数据段波特率由 App 在 dbtr 中配置。
  *
+ * 运行时过滤器管理契约：`bm_hal_can_add_filter()` / `bm_hal_can_remove_filter()`
+ * 直接写 Message RAM，须先 `bm_hal_can_stop()` 使控制器退出运行态后再调用；
+ * started 态写入与硬件过滤并发，可能导致过滤器瞬时失效或帧被误收/误拒。
+ *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -19,6 +23,8 @@
  * 2026-07-28       1.0            zeh            新增 STM32G4 FDCAN1/FDCAN2 后端
  * 2026-07-28       1.1            zeh            动态 Message RAM 布局、扩展过滤器、
  *                                                真实时间戳、bus-off 恢复接口
+ * 2026-07-28       1.2            zeh            契约注明 add/remove_filter 须在
+ *                                                stop 状态调用（直写 Message RAM）
  */
 #ifndef BM_VENDOR_CAN_STM32G4_H
 #define BM_VENDOR_CAN_STM32G4_H

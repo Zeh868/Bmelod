@@ -6,6 +6,7 @@
 #include "unity.h"
 #include "bm_tt_schedule.h"
 #include "bm_bus.h"
+#include "bm/core/bm_bus_impl.h"
 #include "bm/hybrid/bm_wcet_mon.h"
 #include "bm_hal_uptime_native.h"
 

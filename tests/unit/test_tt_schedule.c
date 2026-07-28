@@ -38,11 +38,14 @@
  * 2026-07-01       1.5            zeh            易用性打磨：`BM_LET_DEFINE`→`BM_LET_DEFINE_ISR`/
  *                                                 `BM_LET_DEFINE_MAINLOOP`，四处 MAINLOOP 任务改
  *                                                 用具名宏声明、删运行期 domain 覆盖赋值
+ * 2026-07-28       1.6            zeh            补 bm_bus_impl.h include
+ *                                                 （BM_BUS_DEFINE 已迁入内部头）
  *
  */
 #include "unity.h"
 #include "bm_tt_schedule.h"
 #include "bm_bus.h"
+#include "bm/core/bm_bus_impl.h"
 
 #include <string.h>
 

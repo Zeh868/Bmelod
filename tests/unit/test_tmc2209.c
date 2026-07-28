@@ -1,9 +1,10 @@
+/* SPDX-License-Identifier: LGPL-3.0-or-later */
 /**
  * @file test_tmc2209.c
  * @brief tmc2209 组件单元测试（假 UART dev 验证帧格式/CRC/寄存器读写/堵转上报）
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -11,8 +12,7 @@
  *    Date         Version        Author          Description
  * 2026-07-27       1.0            zeh            新增（接口批 1 步进伺服栈）
  * 2026-07-28       1.1            zeh            P0：IFCNT/GSTAT/DRV_STATUS/斩波/离线
- *
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * 2026-07-28       1.2            zeh            审查整改：补独立 SPDX 行
  */
 #include "unity.h"
 #include "bm/component/tmc2209.h"

@@ -39,11 +39,14 @@
  *                                                 用例（1~2 干扰源一源一行 + 空数组
  *                                                 默认回退），覆盖 meta 新增
  *                                                 interference/interference_count 字段
+ * 2026-07-28       1.3            zeh            补 bm_bus_impl.h include
+ *                                                 （BM_BUS_DEFINE 已迁入内部头）
  *
  */
 #include "unity.h"
 #include "bm_tt_schedule.h"
 #include "bm_bus.h"
+#include "bm/core/bm_bus_impl.h"
 
 #include <string.h>
 

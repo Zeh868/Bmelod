@@ -22,6 +22,8 @@
  * 2026-06-26       2.5            zeh            deadline 时间基迁至 bm_uptime_us()（#9-2a）
  * 2026-07-02       2.6            zeh            QD-6：cache-line 补齐改用 union，
  *                                                消除 MSVC C2233
+ * 2026-07-28       2.7            zeh            stream 字段访问改用不透明 accessor
+ *                                                （bm_stream_on_ready/owner_cpu）
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -546,7 +548,7 @@ static int validate_instance(const bm_exec_t *inst) {
              * exec_drain_streams 并发争用同一 READY 队列，形成双消费者竞争
              *（违反 SPSC）。故 exec 验证期统一拒绝该组合。
              */
-            if (slot->stream->on_ready != NULL) {
+            if (bm_stream_on_ready(slot->stream) != NULL) {
                 return BM_ERR_INVALID;
             }
         } else {
@@ -574,7 +576,7 @@ static int validate_stream_owner(bm_exec_cpu_state_t *state) {
             if ((slot->kind == BM_EXEC_SLOT_BLOCK ||
                  slot->kind == BM_EXEC_SLOT_FRAME) &&
                 slot->stream != NULL) {
-                if (slot->stream->owner_cpu != inst->owner_cpu) {
+                if (bm_stream_owner_cpu(slot->stream) != inst->owner_cpu) {
                     return BM_ERR_INVALID;
                 }
                 /*
@@ -582,7 +584,7 @@ static int validate_stream_owner(bm_exec_cpu_state_t *state) {
                  * bm_exec_drain_streams 消费；该 stream 不得同时挂 on_ready
                  * 回调（单核 bm_stream_drain 会并发争用 READY 队列）。
                  */
-                if (slot->stream->on_ready != NULL) {
+                if (bm_stream_on_ready(slot->stream) != NULL) {
                     return BM_ERR_INVALID;
                 }
             }

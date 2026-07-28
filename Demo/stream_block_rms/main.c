@@ -9,6 +9,9 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
+ * 2026-07-28       1.1            zeh            补 bm_stream_impl.h include
+ *                                                 （BM_STREAM_* 宏已迁入内部头）；
+ *                                                 bm_exec_t 位置初始化器补 owner_cpu 字段
  *
  * E1 范围：bm_stream 零拷贝交接 + bm_exec Block 槽 + 块级 RMS；
  * 实机 DMA 由 bm_hal_dma_stream 对接（本示例用 Periodic 槽模拟填充）。
@@ -19,6 +22,7 @@
 #include "bm_log.h"
 #include "bm_module.h"
 #include "bm_stream.h"
+#include "bm/hybrid/bm_stream_impl.h"
 #include "bm_ticker.h"
 #include "hybrid_print.h"
 
@@ -225,6 +229,7 @@ static const bm_exec_ops_t g_stream_ops = {
 
 static const bm_exec_t g_stream_exec_bound = {
     1u,
+    0u,
     "stream_rms",
     &g_stream_state,
     NULL,

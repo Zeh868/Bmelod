@@ -4,13 +4,15 @@
  * @brief CAN/FDCAN HAL/drv 与 native_sim 后端单元测试
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 CAN/FDCAN HAL 单测
+ * 2026-07-28       1.1            zeh            test_can_rx_buffered 真正验证
+ *                                             RX 缓冲读出（rx_frame 接口）
  */
 #include "unity.h"
 #include "hal/bm_hal_can.h"
@@ -320,9 +322,26 @@ static void test_can_rx_buffered(void) {
     TEST_ASSERT_EQUAL(BM_OK, bm_hal_can_init(&bm_native_can1, NULL));
     /* 未注册回调，RX 应被缓冲 */
     bm_hal_can_native_inject_rx(&bm_native_can1, &frame);
+
+    frame.id      = 0x222u;
+    frame.data[0] = 0x22u;
+    bm_hal_can_native_inject_rx(&bm_native_can1, &frame);
     TEST_ASSERT_EQUAL(0u, s_rx_count);
 
-    /* 当前 native 后端没有提供读取缓冲区的接口，这里仅验证不崩溃 */
+    /* 按注入顺序读出，读出后队列清空 */
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_hal_can_native_rx_frame(&bm_native_can1, &out));
+    TEST_ASSERT_EQUAL(0x111u, out.id);
+    TEST_ASSERT_EQUAL_HEX8(0x11u, out.data[0]);
+
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_hal_can_native_rx_frame(&bm_native_can1, &out));
+    TEST_ASSERT_EQUAL(0x222u, out.id);
+    TEST_ASSERT_EQUAL_HEX8(0x22u, out.data[0]);
+
+    /* 队列已空 */
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID,
+        bm_hal_can_native_rx_frame(&bm_native_can1, &out));
 }
 
 static void test_can_event_callback(void) {

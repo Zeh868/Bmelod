@@ -11,7 +11,7 @@
  * GPIO 回调非 BM_OK 时锁存 fault、停机并尽量 STEP 拉低。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.3
+ * @version 1.4
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -21,10 +21,15 @@
  * 2026-07-28       1.1            zeh            stop 时 STEP 已为低则跳过 step_low
  * 2026-07-28       1.2            zeh            dir_hold/min 脉宽/GPIO fault/en_set
  * 2026-07-28       1.3            zeh            dir_hold 后不再置 dir_wait_pending
+ * 2026-07-28       1.4            zeh            半周期 float→uint32 越界 UB 修复
+ *                                                （isfinite+float 域钳位）；validate
+ *                                                加法溢出改逐项比较；fault 态允许
+ *                                                set_enable(axis,0) 断使能
  *
  */
 #include "bm/component/stepper_pulse.h"
 
+#include <math.h>
 #include <stddef.h>
 
 /**
@@ -53,10 +58,11 @@ static uint32_t bm_stepper_pulse_half_period_us(const bm_stepper_pulse_axis_t *a
 {
     float    v = axis->state.velocity_sps;
     float    abs_v = (v < 0.0f) ? -v : v;
+    float    f_half;
     uint32_t min_half;
     uint32_t half;
 
-    if (abs_v <= 0.0f) {
+    if (!isfinite(abs_v) || abs_v <= 0.0f) {
         return 0u;
     }
     /* 半周期下限：1s / (2 × max_rate) */
@@ -70,7 +76,9 @@ static uint32_t bm_stepper_pulse_half_period_us(const bm_stepper_pulse_axis_t *a
     if (axis->config.min_low_us > 0u && axis->config.min_low_us > min_half) {
         min_half = axis->config.min_low_us;
     }
-    half = (uint32_t)(500000.0f / abs_v);
+    /* float→uint32 超出表示域是 UB：先在 float 域钳位到 UINT32_MAX */
+    f_half = 500000.0f / abs_v;
+    half = (f_half >= (float)UINT32_MAX) ? UINT32_MAX : (uint32_t)f_half;
     if (half < min_half) {
         half = min_half;
     }
@@ -109,18 +117,20 @@ static uint32_t bm_stepper_pulse_interval_after_low(
 }
 
 int bm_stepper_pulse_validate_config(const bm_stepper_pulse_config_t *config) {
-    uint32_t min_period;
     uint32_t max_period;
 
     if (config == NULL || config->max_step_rate_hz == 0u) {
         return BM_ERR_INVALID;
     }
-    if (config->min_high_us + config->min_low_us > 0u) {
-        min_period = config->min_high_us + config->min_low_us;
-        max_period = 1000000u / config->max_step_rate_hz;
-        if (min_period > max_period) {
-            return BM_ERR_INVALID;
-        }
+    /*
+     * min_high_us + min_low_us 直接相加可溢出 uint32 绕过校验，
+     * 改用逐项比较（|| 短路保证 max_period - min_low_us 不下溢）。
+     */
+    max_period = 1000000u / config->max_step_rate_hz;
+    if (config->min_high_us > max_period ||
+        config->min_low_us > max_period ||
+        config->min_high_us > max_period - config->min_low_us) {
+        return BM_ERR_INVALID;
     }
     return BM_OK;
 }
@@ -283,7 +293,8 @@ int bm_stepper_pulse_set_enable(bm_stepper_pulse_axis_t *axis, int enable) {
     if (axis->resources.en_set == NULL) {
         return BM_ERR_NOT_SUPPORTED;
     }
-    if (axis->state.fault != 0u) {
+    /* fault 锁存后仍允许断使能（enable==0），禁止重新使能 */
+    if (axis->state.fault != 0u && enable != 0) {
         return BM_ERR_IO;
     }
     rc = axis->resources.en_set(axis->resources.user, (enable != 0) ? 1 : 0);

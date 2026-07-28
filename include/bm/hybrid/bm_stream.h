@@ -22,6 +22,7 @@
  * 2026-06-14       1.1            zeh            commit/drain 解耦；owner_cpu / pending_drain
  * 2026-07-27       1.2            zeh            将 BM_STREAM_* 静态分配宏迁到 bm_stream_impl.h
  * 2026-07-27       1.3            zeh            struct bm_stream 下沉到 .c，头文件改为不透明指针 + accessor
+ * 2026-07-28       1.4            zeh            accessor 声明补 Doxygen 中文注释（含 NULL 入参语义）
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -60,30 +61,135 @@ typedef void (*bm_stream_ready_fn_t)(bm_stream_t *stream,
 
 /* -------------------------------------------------------------------------
  * 内部字段 accessor（bm_stream 已改为不透明结构体）
+ *
+ * 统一约定：getter 入参 stream 为 NULL 时不解引用，返回下述文档的安全
+ * 默认值；setter 入参 stream 为 NULL 时静默返回，不断言不崩溃。
  * ------------------------------------------------------------------------- */
 
+/**
+ * @brief 读取 block 描述符数组指针
+ * @param stream stream 实例，NULL 时返回 NULL
+ * @return block 数组指针；stream 为 NULL 时返回 NULL
+ */
 bm_block_t *bm_stream_blocks(const bm_stream_t *stream);
+/**
+ * @brief 读取当前块数
+ * @param stream stream 实例，NULL 时返回 0
+ * @return 块数；stream 为 NULL 时返回 0u
+ */
 uint32_t    bm_stream_block_count(const bm_stream_t *stream);
+/**
+ * @brief 读取块容量
+ * @param stream stream 实例，NULL 时返回 0
+ * @return 块容量；stream 为 NULL 时返回 0u
+ */
 uint32_t    bm_stream_block_capacity(const bm_stream_t *stream);
+/**
+ * @brief 读取过载策略
+ * @param stream stream 实例，NULL 时返回默认策略
+ * @return 过载策略；stream 为 NULL 时返回 BM_STREAM_POLICY_DROP_NEWEST
+ */
 bm_stream_policy_t bm_stream_policy_value(const bm_stream_t *stream);
+/**
+ * @brief 读取运行统计（只读）
+ * @param stream stream 实例
+ * @return 统计结构体指针；stream 为 NULL、未初始化或非本 CPU 所有时返回 NULL
+ */
 const bm_stream_stats_t *bm_stream_stats(const bm_stream_t *stream);
+/**
+ * @brief 读取 on_ready 回调指针
+ * @param stream stream 实例，NULL 时返回 NULL
+ * @return on_ready 回调；stream 为 NULL 时返回 NULL
+ */
 bm_stream_ready_fn_t bm_stream_on_ready(const bm_stream_t *stream);
+/**
+ * @brief 读取 on_ready 回调上下文
+ * @param stream stream 实例，NULL 时返回 NULL
+ * @return 回调上下文；stream 为 NULL 时返回 NULL
+ */
 void       *bm_stream_on_ready_context(const bm_stream_t *stream);
+/**
+ * @brief 读取初始化标志
+ * @param stream stream 实例，NULL 时返回 0
+ * @return 非 0 表示已初始化；stream 为 NULL 时返回 0
+ */
 int         bm_stream_initialized(const bm_stream_t *stream);
+/**
+ * @brief 读取下一提交序号
+ * @param stream stream 实例，NULL 时返回 0
+ * @return 序号值；stream 为 NULL 时返回 0u
+ */
 uint32_t    bm_stream_next_sequence(const bm_stream_t *stream);
+/**
+ * @brief 读取归属 CPU
+ * @param stream stream 实例，NULL 时返回 0
+ * @return owner_cpu；stream 为 NULL 时返回 0u
+ */
 uint8_t     bm_stream_owner_cpu(const bm_stream_t *stream);
+/**
+ * @brief 读取 pending_drain 标志
+ * @param stream stream 实例，NULL 时返回 0
+ * @return pending_drain；stream 为 NULL 时返回 0u
+ */
 uint8_t     bm_stream_pending_drain(const bm_stream_t *stream);
 
+/**
+ * @brief 设置 block 描述符数组指针
+ * @param stream stream 实例，NULL 时静默返回
+ * @param blocks block 数组指针
+ */
 void bm_stream_set_blocks(bm_stream_t *stream, bm_block_t *blocks);
+/**
+ * @brief 设置当前块数
+ * @param stream stream 实例，NULL 时静默返回
+ * @param count 块数
+ */
 void bm_stream_set_block_count(bm_stream_t *stream, uint32_t count);
+/**
+ * @brief 设置块容量
+ * @param stream stream 实例，NULL 时静默返回
+ * @param cap 块容量
+ */
 void bm_stream_set_block_capacity(bm_stream_t *stream, uint32_t cap);
+/**
+ * @brief 设置过载策略（仅 init 前可调；非法枚举值静默忽略）
+ * @param stream stream 实例，NULL 时静默返回
+ * @param policy BM_STREAM_POLICY_DROP_NEWEST / BM_STREAM_POLICY_DROP_OLDEST
+ */
 void bm_stream_set_policy(bm_stream_t *stream, bm_stream_policy_t policy);
+/**
+ * @brief 设置 on_ready 回调（仅 init 前可调）
+ * @param stream stream 实例，NULL 时静默返回
+ * @param handler 回调；默认剖面下非 NULL handler 被拒绝并告警
+ *        （统一走 bm_exec_drain_streams），仅显式 legacy 剖面接受
+ * @param context 回调上下文
+ */
 void bm_stream_set_ready_handler(bm_stream_t *stream,
                                  bm_stream_ready_fn_t handler,
                                  void *context);
+/**
+ * @brief 设置初始化标志
+ * @param stream stream 实例，NULL 时静默返回
+ * @param initialized 非 0 表示已初始化
+ */
 void bm_stream_set_initialized(bm_stream_t *stream, int initialized);
+/**
+ * @brief 设置下一提交序号
+ * @param stream stream 实例，NULL 时静默返回
+ * @param seq 序号值
+ */
 void bm_stream_set_next_sequence(bm_stream_t *stream, uint32_t seq);
+/**
+ * @brief 设置归属 CPU
+ * @param stream stream 实例，NULL 时静默返回
+ * @param cpu owner_cpu
+ */
 void bm_stream_set_owner_cpu(bm_stream_t *stream, uint8_t cpu);
+/**
+ * @brief 设置 pending_drain 标志
+ * @param stream stream 实例，NULL 时静默返回
+ * @param pending pending_drain 值
+ */
 void bm_stream_set_pending_drain(bm_stream_t *stream, uint8_t pending);
 
 /**

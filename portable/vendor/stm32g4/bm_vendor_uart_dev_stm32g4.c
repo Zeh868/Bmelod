@@ -14,13 +14,15 @@
  * 的 NVIC_* 函数，逐处注释）。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-07-27
+ * @version 1.1
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-27       1.0            zeh            新增（接口批 1）
+ * 2026-07-28       1.1            zeh            flush 加计数超时（原 TC 等待为无界自旋，
+ *                                                超时返回 BM_ERR_TIMEOUT）
  *
  */
 #include "bm_vendor_uart_dev_stm32g4.h"
@@ -201,13 +203,17 @@ static int bm_vendor_uart_dev_abort(const struct bm_hal_uart *dev) {
 }
 
 static int bm_vendor_uart_dev_flush(const struct bm_hal_uart *dev) {
+    uint32_t timeout = 100000u;
+
     (void)dev;
     if (g_uart_ready == 0u) {
         return BM_ERR_NOT_INIT;
     }
-    while (LL_USART_IsActiveFlag_TC(USART2) == 0u) {
+    /* 有界等待 TC（对齐 USART3 后端 flush），避免发送器异常时无界自旋 */
+    while (LL_USART_IsActiveFlag_TC(USART2) == 0u && timeout != 0u) {
+        timeout--;
     }
-    return BM_OK;
+    return (LL_USART_IsActiveFlag_TC(USART2) != 0u) ? BM_OK : BM_ERR_TIMEOUT;
 }
 
 static int bm_vendor_uart_dev_set_tx_complete_callback(

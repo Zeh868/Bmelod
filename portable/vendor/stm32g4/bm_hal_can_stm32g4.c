@@ -26,7 +26,7 @@
  * Bmelod 不固定 FDCAN 编号与产品引脚。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -35,6 +35,12 @@
  * 2026-07-28       1.0            zeh            新增 STM32G4 FDCAN 寄存器级后端
  * 2026-07-28       1.1            zeh            使用 message_ram_offset、扩展过滤器、
  *                                                真实时间戳、bus-off 恢复
+ * 2026-07-28       1.2            zeh            补 RX FIFO1 ISR 分支（修中断风暴）；
+ *                                                删除 G4 不存在的 TXBC.TFQS 写入；
+ *                                                fd_enabled 同置 BRSE；ctx_for 改按
+ *                                                dev 匹配；TX Message Marker 移至
+ *                                                T1[31:24]；validate 只接受 IT0 向量；
+ *                                                recover 不再强制清 bus_off 软件标志
  */
 #include "bm_vendor_can_stm32g4.h"
 #include "bm_hal_instances_stm32g4.h"
@@ -131,10 +137,9 @@
 #define FDCAN_DBTP_DBRP_Pos   16u
 #endif
 
-/* TXBC */
-#ifndef FDCAN_TXBC_TFQS_Pos
-#define FDCAN_TXBC_TFQS_Pos 30u
-#endif
+/* TXBC：STM32G4 只有 TFQM（bit24，FIFO/Queue 模式），无 TFQS 字段
+ *（TFQS bit30 是 H5 定义；G4 的 TX FIFO 元素数由硬件固定，见
+ * stm32g474xx.h:4985），此处不再补定义 */
 
 /* RXGFC */
 #ifndef FDCAN_RXGFC_RRFE
@@ -165,6 +170,15 @@
 #endif
 #ifndef FDCAN_IR_RF0L
 #define FDCAN_IR_RF0L  (1u << 2u)
+#endif
+#ifndef FDCAN_IR_RF1N
+#define FDCAN_IR_RF1N  (1u << 3u)
+#endif
+#ifndef FDCAN_IR_RF1F
+#define FDCAN_IR_RF1F  (1u << 4u)
+#endif
+#ifndef FDCAN_IR_RF1L
+#define FDCAN_IR_RF1L  (1u << 5u)
 #endif
 #ifndef FDCAN_IR_TC
 #define FDCAN_IR_TC    (1u << 7u)
@@ -342,16 +356,16 @@ static uint8_t bm_can_bytes_to_dlc(uint8_t len) {
  */
 static bm_can_stm32g4_context_t *bm_can_stm32g4_ctx_for(
     const struct bm_hal_can *dev) {
-    const bm_can_stm32g4_config_t *cfg;
     bm_can_stm32g4_context_t *free_slot = NULL;
     uint32_t i;
 
-    if (dev == NULL || dev->config == NULL) {
+    if (dev == NULL) {
         return NULL;
     }
-    cfg = (const bm_can_stm32g4_config_t *)dev->config;
+    /* 按 dev 指针匹配：init 允许用 config 入参覆盖 dev->config，
+     * 按 cfg 匹配会在覆盖场景失配 */
     for (i = 0u; i < BM_CAN_STM32G4_INSTANCE_COUNT; ++i) {
-        if (g_can_ctx[i].cfg == cfg) {
+        if (g_can_ctx[i].dev == dev) {
             return &g_can_ctx[i];
         }
         if (free_slot == NULL && g_can_ctx[i].cfg == NULL) {
@@ -523,8 +537,9 @@ static int bm_can_stm32g4_validate_config(const bm_can_stm32g4_config_t *cfg) {
         bm_can_stm32g4_port(cfg->rx_pin, &(uint32_t){0u}) == NULL) {
         return BM_ERR_INVALID;
     }
-    if (cfg->irqn != FDCAN1_IT0_IRQn && cfg->irqn != FDCAN1_IT1_IRQn &&
-        cfg->irqn != FDCAN2_IT0_IRQn && cfg->irqn != FDCAN2_IT1_IRQn) {
+    /* 只接受 IT0 向量：ILS=0 将全部中断映射到 Line 0，且本后端只定义
+     * FDCANx_IT0_IRQHandler；传 IT1 向量会导致中断永远无人处理 */
+    if (cfg->irqn != FDCAN1_IT0_IRQn && cfg->irqn != FDCAN2_IT0_IRQn) {
         return BM_ERR_INVALID;
     }
     if (bm_can_stm32g4_validate_timing(&cfg->nbtr) != BM_OK) {
@@ -613,7 +628,9 @@ static int bm_can_stm32g4_hw_init(bm_can_stm32g4_context_t *ctx) {
     /* 全局配置 */
     fdcan->CCCR = FDCAN_CCCR_INIT | FDCAN_CCCR_CCE | FDCAN_CCCR_DAR;
     if (cfg->fd_enabled != 0u) {
-        fdcan->CCCR |= FDCAN_CCCR_FDOE;
+        /* FDOE 使能 CAN FD，BRSE 使能数据段速率切换；
+         * 只置 FDOE 会导致带 BRS 标志的帧静默以标称速率发送 */
+        fdcan->CCCR |= FDCAN_CCCR_FDOE | FDCAN_CCCR_BRSE;
     }
 
     /* 位时序 */
@@ -645,8 +662,9 @@ static int bm_can_stm32g4_hw_init(bm_can_stm32g4_context_t *ctx) {
                    ((cfg->std_filter_count & 0xFFu) << FDCAN_RXGFC_LSS_Pos) |
                    ((cfg->ext_filter_count & 0xFFu) << FDCAN_RXGFC_LSE_Pos);
 
-    /* TX FIFO 大小（G4 固定 3 个元素；TXBC 只配 FIFO/Queue 模式） */
-    fdcan->TXBC = ((cfg->tx_fifo_count & 0x3Fu) << FDCAN_TXBC_TFQS_Pos);
+    /* TX FIFO 模式（TFQM=0）。G4 的 TXBC 无 TFQS 字段，TX FIFO 元素数
+     * 由硬件固定为 3，cfg->tx_fifo_count 仅决定软件使用数量（validate 已限上界） */
+    fdcan->TXBC = 0u;
 
     /* 中断：使能 RX FIFO0 新消息、TX 完成、bus-off、error warning/passive */
     fdcan->IE = FDCAN_IR_RF0N | FDCAN_IR_TC | FDCAN_IR_BO | FDCAN_IR_EW | FDCAN_IR_EP;
@@ -909,8 +927,8 @@ static int bm_can_stm32g4_send(const struct bm_hal_can *dev,
         word0 |= FDCAN_ELEMENT_MASK_FDF;
     }
 
-    /* Word 1: DLC + marker */
-    word1 = ((uint32_t)dlc_code << 16u) | (put_idx & 0xFFu);
+    /* Word 1: DLC + Message Marker（T1[31:24]；T1[7:0] 为保留位，不可写） */
+    word1 = ((uint32_t)dlc_code << 16u) | ((put_idx & 0xFFu) << 24u);
     if ((frame->flags & BM_CAN_FLAG_BRS) != 0u) {
         word1 |= FDCAN_ELEMENT_MASK_BRS;
     }
@@ -1023,6 +1041,88 @@ static void bm_can_stm32g4_rx_fifo0_isr(bm_can_stm32g4_context_t *ctx) {
 }
 
 /**
+ * @brief 从 RX FIFO1 读取一帧（仿 rx_fifo0_read，寄存器换为 RXF1S/RXF1A）。
+ */
+static void bm_can_stm32g4_rx_fifo1_read(bm_can_stm32g4_context_t *ctx) {
+    const bm_can_stm32g4_config_t *cfg = ctx->cfg;
+    FDCAN_GlobalTypeDef *fdcan = cfg->fdcan;
+    volatile uint32_t *rx_addr;
+    bm_can_frame_t frame;
+    uint32_t get_idx;
+    uint32_t word0, word1;
+    uint32_t dlc_code;
+    uint32_t data_words;
+    uint32_t i;
+
+    if ((fdcan->RXF1S & 0x7Fu) == 0u) {
+        return;
+    }
+
+    get_idx = (fdcan->RXF1S >> 8u) & 0x3Fu; /* F1GI field */
+
+    rx_addr = bm_can_stm32g4_msg_ram(cfg,
+                                     BM_CAN_G4_RF1SA +
+                                     (get_idx * BM_CAN_G4_RF1_SIZE));
+
+    word0 = rx_addr[0];
+    word1 = rx_addr[1];
+
+    (void)memset(&frame, 0, sizeof(frame));
+
+    if ((word0 & FDCAN_ELEMENT_MASK_XTD) != 0u) {
+        frame.flags |= BM_CAN_FLAG_EXT;
+        frame.id = word0 & FDCAN_ELEMENT_MASK_EXTID;
+    } else {
+        frame.id = (word0 >> 18u) & 0x7FFu;
+    }
+    if ((word0 & FDCAN_ELEMENT_MASK_RTR) != 0u) {
+        frame.flags |= BM_CAN_FLAG_RTR;
+    }
+    if ((word1 & FDCAN_ELEMENT_MASK_FDF) != 0u) {
+        frame.flags |= BM_CAN_FLAG_FD;
+    }
+    if ((word1 & FDCAN_ELEMENT_MASK_BRS) != 0u) {
+        frame.flags |= BM_CAN_FLAG_BRS;
+    }
+
+    dlc_code = (word1 >> 16u) & 0xFu;
+    frame.dlc = bm_can_dlc_to_bytes[dlc_code];
+
+    data_words = (frame.dlc + 3u) / 4u;
+    for (i = 0u; i < data_words; ++i) {
+        uint32_t dw = rx_addr[2 + i];
+        frame.data[i * 4 + 0] = (uint8_t)(dw);
+        frame.data[i * 4 + 1] = (uint8_t)(dw >> 8u);
+        frame.data[i * 4 + 2] = (uint8_t)(dw >> 16u);
+        frame.data[i * 4 + 3] = (uint8_t)(dw >> 24u);
+    }
+
+    /* 真实时间戳 */
+    frame.timestamp_us = bm_uptime_us();
+
+    /* 确认读取 */
+    fdcan->RXF1A = get_idx;
+
+    ctx->stats.rx_count++;
+    if (ctx->rx_cb != NULL) {
+        ctx->rx_cb(ctx->dev, &frame, ctx->rx_user);
+    }
+}
+
+/**
+ * @brief RX FIFO1 ISR：有界循环读取所有待处理帧。
+ */
+static void bm_can_stm32g4_rx_fifo1_isr(bm_can_stm32g4_context_t *ctx) {
+    FDCAN_GlobalTypeDef *fdcan = ctx->cfg->fdcan;
+    uint32_t iter = 0u;
+
+    while (((fdcan->RXF1S & 0x7Fu) != 0u) && (iter < 8u)) {
+        bm_can_stm32g4_rx_fifo1_read(ctx);
+        iter++;
+    }
+}
+
+/**
  * @brief 更新错误与协议状态统计。
  */
 static void bm_can_stm32g4_update_protocol_status(bm_can_stm32g4_context_t *ctx) {
@@ -1086,6 +1186,18 @@ static void bm_can_stm32g4_isr(FDCAN_GlobalTypeDef *fdcan) {
             if (ctx->event_cb != NULL) {
                 ctx->event_cb(ctx->dev, BM_CAN_EVT_RX_OVERFLOW, ctx->event_user);
             }
+        }
+    }
+    if ((ir & FDCAN_IR_RF1N) != 0u) {
+        fdcan->IR = FDCAN_IR_RF1N;
+        bm_can_stm32g4_rx_fifo1_isr(ctx);
+    }
+    if ((ir & (FDCAN_IR_RF1F | FDCAN_IR_RF1L)) != 0u) {
+        fdcan->IR = (ir & (FDCAN_IR_RF1F | FDCAN_IR_RF1L));
+        ctx->stats.rx_overflow_count++;
+        ctx->stats.last_errors |= BM_CAN_EVT_RX_OVERFLOW;
+        if (ctx->event_cb != NULL) {
+            ctx->event_cb(ctx->dev, BM_CAN_EVT_RX_OVERFLOW, ctx->event_user);
         }
     }
     if ((ir & FDCAN_IR_TC) != 0u) {
@@ -1338,7 +1450,8 @@ int bm_can_stm32g4_recover(const struct bm_hal_can *dev) {
     if (bm_can_stm32g4_leave_init(fdcan) != BM_OK) {
         return BM_ERR_TIMEOUT;
     }
-    ctx->bus_off = 0;
+    /* 不在此强制清 ctx->bus_off：PSR.BO 未真正清零时强制清会导致
+     * update_protocol_status 重复上报 bus-off；由其在 PSR.BO 消失时统一清除 */
     return BM_OK;
 }
 

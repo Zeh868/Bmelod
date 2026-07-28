@@ -4,13 +4,15 @@
  * @brief native_sim CAN/FDCAN 后端测试辅助接口
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 native_sim CAN 后端测试辅助
+ * 2026-07-28       1.1            zeh            新增 bm_hal_can_native_rx_frame
+ *                                             （读取 RX 缓冲队列）
  */
 #ifndef BM_HAL_CAN_NATIVE_H
 #define BM_HAL_CAN_NATIVE_H
@@ -66,6 +68,13 @@ size_t bm_hal_can_native_tx_count(const struct bm_hal_can *dev);
  * @return BM_OK 成功；BM_ERR_INVALID 无发送帧
  */
 int bm_hal_can_native_tx_frame(const struct bm_hal_can *dev,
+                               bm_can_frame_t *frame);
+
+/**
+ * @brief 读取实例 RX 缓冲队列中最早的一帧（读后移除，rx_count 递减）
+ * @return BM_OK 成功；BM_ERR_INVALID 无缓冲帧或参数非法
+ */
+int bm_hal_can_native_rx_frame(const struct bm_hal_can *dev,
                                bm_can_frame_t *frame);
 
 /**

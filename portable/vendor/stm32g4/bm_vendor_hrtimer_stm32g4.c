@@ -9,13 +9,17 @@
  * ISR 有界：仅清除标志、更新 compare、递增统计、派发回调；不解析业务协议。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 STM32G4 高精度 Timer 后端
+ * 2026-07-28       1.1            zeh            deadline_miss 改超期阈值判定（原条件恒真）；
+ *                                                删除 TIM6 handler（TIM6_DAC_IRQn 被 tick 占用）；
+ *                                                init 支持 config 覆盖入参、补 initialized
+ *                                                标志与失败回滚；ctx_for 改按 dev 匹配
  */
 #include "bm_vendor_hrtimer_stm32g4.h"
 #include "bm_hal_instances_stm32g4.h"
@@ -45,6 +49,7 @@ typedef struct {
     uint32_t                           next_compare;
     bm_hrtimer_callback_t              callback;
     void                              *user;
+    int                                initialized;
     int                                running;
     bm_hrtimer_stats_t                 stats;
 } bm_vendor_hrtimer_context_t;
@@ -80,16 +85,16 @@ static const bm_hrtimer_stm32g4_config_t g_hrtimer_cfg_1 = {
  */
 static bm_vendor_hrtimer_context_t *bm_vendor_hrtimer_ctx_for(
     const struct bm_hal_hrtimer *dev) {
-    const bm_hrtimer_stm32g4_config_t *cfg;
     bm_vendor_hrtimer_context_t *free_slot = NULL;
     uint32_t i;
 
-    if (dev == NULL || dev->config == NULL) {
+    if (dev == NULL) {
         return NULL;
     }
-    cfg = (const bm_hrtimer_stm32g4_config_t *)dev->config;
+    /* 按 dev 指针匹配：init 允许用 config 入参覆盖 dev->config，
+     * 按 cfg 匹配会在覆盖场景失配 */
     for (i = 0u; i < BM_VENDOR_HRTIMER_INSTANCE_COUNT; ++i) {
-        if (g_hrtimer_ctx[i].cfg == cfg) {
+        if (g_hrtimer_ctx[i].dev == dev) {
             return &g_hrtimer_ctx[i];
         }
         if (free_slot == NULL && g_hrtimer_ctx[i].cfg == NULL) {
@@ -385,9 +390,11 @@ static void bm_vendor_hrtimer_isr(bm_vendor_hrtimer_context_t *ctx) {
     if (cnt < ctx->next_compare && ctx->stats.irq_count > 1u) {
         ctx->stats.wrap_count++;
     }
-    /* deadline miss：当前计数器已超过期望比较点一个周期以上 */
-    if (ctx->running != 0 &&
-        ((cnt - ctx->next_compare) <= (arr / 2u))) {
+    /* deadline miss：ISR 延迟超过一个完整周期才计 miss（正常触发时
+     * cnt 与 next_compare 之差仅为中断延迟，远小于 period_ticks；
+     * 原 <= arr/2 条件在每次正常 ISR 中恒真） */
+    if (ctx->running != 0 && ctx->period_ticks != 0u &&
+        ((uint32_t)(cnt - ctx->next_compare) > ctx->period_ticks)) {
         ctx->stats.deadline_miss_count++;
     }
 
@@ -426,7 +433,9 @@ BM_HRTIMER_DEFINE_HANDLER(TIM2)
 BM_HRTIMER_DEFINE_HANDLER(TIM3)
 BM_HRTIMER_DEFINE_HANDLER(TIM4)
 BM_HRTIMER_DEFINE_HANDLER(TIM5)
-BM_HRTIMER_DEFINE_HANDLER(TIM6)
+/* TIM6 保留：G4 上 TIM6 中断向量是 TIM6_DAC_IRQn，已被系统 tick singleton
+ * 占用（bm_hal_instances_stm32g4.h 默认 tick 定时器），本后端不提供 TIM6
+ * handler；需要 hrtimer 的 TIM6 场景须先将 tick 切到 TIM7。 */
 BM_HRTIMER_DEFINE_HANDLER(TIM7)
 
 /* ---------- HAL API 实现 ---------- */
@@ -434,15 +443,22 @@ BM_HRTIMER_DEFINE_HANDLER(TIM7)
 static int bm_vendor_hrtimer_init(const struct bm_hal_hrtimer *dev, void *config) {
     bm_vendor_hrtimer_context_t *ctx;
     const bm_hrtimer_stm32g4_config_t *cfg;
+    int rc;
 
-    (void)config;
     ctx = bm_vendor_hrtimer_ctx_for(dev);
     if (ctx == NULL) {
         return BM_ERR_INVALID;
     }
-    cfg = (const bm_hrtimer_stm32g4_config_t *)dev->config;
+    /* App 可通过 config 参数覆盖 dev->config；NULL 则使用设备默认值 */
+    cfg = (config != NULL)
+              ? (const bm_hrtimer_stm32g4_config_t *)config
+              : (const bm_hrtimer_stm32g4_config_t *)dev->config;
+    if (cfg == NULL) {
+        return BM_ERR_INVALID;
+    }
     ctx->dev = dev;
     ctx->cfg = cfg;
+    ctx->initialized = 0;
     ctx->running = 0;
     ctx->mode = BM_HRTIMER_MODE_PERIODIC;
     ctx->period_ticks = 0u;
@@ -450,7 +466,15 @@ static int bm_vendor_hrtimer_init(const struct bm_hal_hrtimer *dev, void *config
     ctx->callback = NULL;
     ctx->user = NULL;
     (void)memset(&ctx->stats, 0, sizeof(ctx->stats));
-    return bm_vendor_hrtimer_hw_init(ctx);
+
+    rc = bm_vendor_hrtimer_hw_init(ctx);
+    if (rc != BM_OK) {
+        /* 失败回滚：清 cfg，避免残留半初始化上下文被后续调用命中 */
+        ctx->cfg = NULL;
+        return rc;
+    }
+    ctx->initialized = 1;
+    return BM_OK;
 }
 
 static int bm_vendor_hrtimer_start(const struct bm_hal_hrtimer *dev,

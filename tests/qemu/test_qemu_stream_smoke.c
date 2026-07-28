@@ -7,6 +7,7 @@
  */
 
 #include "bm_stream.h"
+#include "bm/hybrid/bm_stream_impl.h"
 #include "bm_hal_uart.h"
 #include "bm_log.h"
 #include <string.h>

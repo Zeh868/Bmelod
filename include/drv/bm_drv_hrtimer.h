@@ -8,13 +8,15 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增高精度 Timer 驱动契约
+ * 2026-07-28       1.1            zeh            明确 set_compare 不改变运行模式
+ *                                             与运行状态（不隐含启动）
  */
 #ifndef BM_DRV_HRTIMER_H
 #define BM_DRV_HRTIMER_H
@@ -89,7 +91,8 @@ struct bm_hrtimer_driver_api {
     /**
      * @brief 动态设置下一次比较值（µs）
      *
-     * 用于 Output Compare 或运行中变速；不影响当前计数器。
+     * 用于 Output Compare 或运行中变速；不影响当前计数器，
+     * 不改变运行模式与运行状态（不隐含启动）。
      *
      * @return BM_OK 成功；BM_ERR_NOT_SUPPORTED 后端不支持动态改值
      */

@@ -4,21 +4,25 @@
  * @brief TMC DIAG 通用输入组件实现
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 TMC DIAG 通用输入组件
+ * 2026-07-28       1.1            zeh            审查整改：ISR 状态更新入临界区、GPIO 读失败保持上次值、include 全路径
  */
 #include "bm/component/bm_tmc_diag.h"
-#include "bm_uptime.h"
+#include "bm/common/bm_uptime.h"
+#include "bm/common/bm_critical_wrap.h"
 
 #include <stddef.h>
 
 static void bm_tmc_diag_exti_cb(uint32_t pin, void *user) {
     bm_tmc_diag_t *diag = (bm_tmc_diag_t *)user;
+    bm_irq_state_t irq_state;
+    uint64_t event_us;
     int level;
     int active;
 
@@ -26,20 +30,25 @@ static void bm_tmc_diag_exti_cb(uint32_t pin, void *user) {
     if (diag == NULL) {
         return;
     }
+    /* GPIO 读失败：保持上次状态，不上报事件（避免 active_low 误锁存） */
     if (bm_hal_gpio_read(diag->config.gpio, diag->config.pin, &level) != BM_OK) {
-        level = 0;
+        return;
     }
     active = diag->config.active_low ? (level == 0) : (level != 0);
+    event_us = bm_uptime_us();
+
+    irq_state = BM_CRITICAL_ENTER();
     diag->state.active = active ? 1 : 0;
     if (active) {
         diag->state.latched = 1;
     }
-    diag->state.last_event_us = bm_uptime_us();
+    diag->state.last_event_us = event_us;
     diag->state.event_count++;
+    BM_CRITICAL_EXIT(irq_state);
 
     if (diag->resources.diag_cb != NULL) {
         diag->resources.diag_cb(diag->resources.user, diag->config.pin,
-                                diag->state.last_event_us);
+                                event_us);
     }
 }
 
@@ -79,20 +88,28 @@ int bm_tmc_diag_init(bm_tmc_diag_t *diag) {
 }
 
 void bm_tmc_diag_reset(bm_tmc_diag_t *diag) {
+    bm_irq_state_t irq_state;
+
     if (diag == NULL) {
         return;
     }
+    irq_state = BM_CRITICAL_ENTER();
     diag->state.active = 0;
     diag->state.latched = 0;
     diag->state.last_event_us = 0u;
     diag->state.event_count = 0u;
+    BM_CRITICAL_EXIT(irq_state);
 }
 
 void bm_tmc_diag_clear_latch(bm_tmc_diag_t *diag) {
+    bm_irq_state_t irq_state;
+
     if (diag == NULL) {
         return;
     }
+    irq_state = BM_CRITICAL_ENTER();
     diag->state.latched = 0;
+    BM_CRITICAL_EXIT(irq_state);
 }
 
 int bm_tmc_diag_active(const bm_tmc_diag_t *diag) {

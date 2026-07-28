@@ -3,17 +3,19 @@
  * @file bm_estop_input.h
  * @brief 急停输入通用组件
  *
- * 支持消抖、锁存、清除；触发后由 App 决定急停/报警策略。
+ * poll-only：支持消抖、锁存、清除；触发后由 App 决定急停/报警策略。
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增急停输入通用组件
+ * 2026-07-28       1.1            zeh            组件改为 poll-only，不再注册
+ *                                               EXTI；同步更新 init 文档
  */
 #ifndef BM_ESTOP_INPUT_H
 #define BM_ESTOP_INPUT_H
@@ -69,7 +71,7 @@ typedef struct {
 int bm_estop_input_validate_config(const bm_estop_input_config_t *config);
 
 /**
- * @brief 初始化急停输入（配置 GPIO EXTI、注册回调）
+ * @brief 初始化急停输入（配置 GPIO 输入；poll-only，不注册 EXTI）
  * @param estop 实例指针
  * @return BM_OK 成功；BM_ERR_INVALID 参数非法；其他平台错误码
  */

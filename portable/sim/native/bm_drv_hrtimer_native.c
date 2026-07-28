@@ -3,12 +3,12 @@
  * @file bm_drv_hrtimer_native.c
  * @brief native_sim 高精度 Timer 后端
  *
- * 以 `bm_uptime_us()` 为时间基，纯软件模拟高精度 Timer 行为。
+ * 以后端内部纯虚拟计数为时间基（不读墙钟），纯软件模拟高精度 Timer 行为。
  * 支持周期/单次/Output Compare、动态改比较值、deadline miss 统计。
  * 测试可通过 `bm_hal_hrtimer_native_advance_us()` 推进虚拟时间并触发回调。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -16,12 +16,14 @@
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 native_sim 高精度 Timer 后端
  * 2026-07-28       1.1            zeh            ONESHOT 回调内重武装不再被覆盖清除
+ * 2026-07-28       1.2            zeh            PERIODIC 回调内 stop/重武装被尊重；
+ *                                             大跨度 advance 有界合并；set_compare
+ *                                             保留当前模式与运行状态；改纯虚拟时间基
  */
 #include "bm_drv_hrtimer.h"
 #include "hal/bm_hal_hrtimer.h"
 #include "bm_hal_hrtimer_native.h"
 #include "bm/common/bm_types.h"
-#include "bm/common/bm_uptime.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -51,13 +53,13 @@ typedef struct {
 } bm_native_hrtimer_state_t;
 
 static bm_native_hrtimer_state_t s_states[BM_NATIVE_HRTIMER_COUNT];
-static uint64_t s_now_offset_us; /**< 测试用时间偏移量 */
+static uint64_t s_virtual_now_us; /**< 后端内部纯虚拟时间（µs），不读墙钟 */
 
 /**
  * @brief 读取当前虚拟时间（µs）。
  */
 static uint64_t bm_native_hrtimer_now_us(void) {
-    return bm_uptime_us() + s_now_offset_us;
+    return s_virtual_now_us;
 }
 
 /**
@@ -86,21 +88,44 @@ uint64_t bm_hal_hrtimer_native_now_us(void) {
 
 void bm_hal_hrtimer_native_reset(void) {
     (void)memset(s_states, 0, sizeof(s_states));
-    s_now_offset_us = 0u;
+    s_virtual_now_us = 0u;
 }
+
+/** @brief 单次 advance 最多派发的回调次数；超出部分计入 deadline miss 并算术推进。 */
+#define BM_NATIVE_HRTIMER_MAX_FIRE_PER_ADVANCE 100000u
 
 /**
  * @brief 触发单个 Timer 的到期处理。
  *
  * 内部函数；供 advance_us 与外部测试钩共用。
+ * 无回调的周期定时用算术合并错过的周期，避免大跨度 advance 逐次循环；
+ * 有回调时单次 advance 派发次数受 BM_NATIVE_HRTIMER_MAX_FIRE_PER_ADVANCE 限制。
  */
 static void bm_native_hrtimer_fire_one(bm_native_hrtimer_state_t *state,
                                        uint64_t now) {
+    uint32_t fired = 0u;
+
     if (state->running == 0 || state->period_us == 0u) {
         return;
     }
+    if (now < state->next_expire_us) {
+        return;
+    }
 
-    while (now >= state->next_expire_us) {
+    /* 无回调的周期定时：算术合并错过的周期，一次性推进 */
+    if (state->callback == NULL && state->mode == BM_HRTIMER_MODE_PERIODIC) {
+        uint64_t missed =
+            (now - state->next_expire_us) / state->period_us + 1u;
+
+        state->stats.irq_count += (uint32_t)missed;
+        if (now > state->next_expire_us + BM_NATIVE_HRTIMER_MIN_PERIOD_US) {
+            state->stats.deadline_miss_count += (uint32_t)missed;
+        }
+        state->next_expire_us += missed * state->period_us;
+        return;
+    }
+
+    while (state->running != 0 && now >= state->next_expire_us) {
         uint64_t expire_before = state->next_expire_us;
         int      was_oneshot   = (state->mode == BM_HRTIMER_MODE_ONESHOT) ? 1 : 0;
 
@@ -114,13 +139,34 @@ static void bm_native_hrtimer_fire_one(bm_native_hrtimer_state_t *state,
         }
 
         if (state->mode == BM_HRTIMER_MODE_PERIODIC) {
-            state->next_expire_us += state->period_us;
+            /* 回调内 stop：尊重，不再自增也不再触发 */
+            if (state->running == 0) {
+                break;
+            }
+            /* 回调内重新 start/set_compare（next_expire 已被改动）：不自增 */
+            if (state->next_expire_us == expire_before) {
+                state->next_expire_us += state->period_us;
+            }
         } else if (was_oneshot != 0) {
             /* ONESHOT：回调内若已 start/set_compare 重武装则保留 running */
             if (state->running == 0
                 || state->next_expire_us == expire_before) {
                 state->running = 0;
             }
+            break;
+        }
+
+        fired++;
+        /* 单次 advance 回调派发达上限：剩余周期计入 deadline miss 并算术推进 */
+        if (fired >= BM_NATIVE_HRTIMER_MAX_FIRE_PER_ADVANCE
+            && state->running != 0
+            && state->mode == BM_HRTIMER_MODE_PERIODIC
+            && now >= state->next_expire_us) {
+            uint64_t remaining =
+                (now - state->next_expire_us) / state->period_us + 1u;
+
+            state->stats.deadline_miss_count += (uint32_t)remaining;
+            state->next_expire_us += remaining * state->period_us;
             break;
         }
     }
@@ -140,7 +186,7 @@ void bm_hal_hrtimer_native_advance_us(uint64_t delta_us) {
     uint64_t now;
     uint32_t i;
 
-    s_now_offset_us += delta_us;
+    s_virtual_now_us += delta_us;
     now = bm_native_hrtimer_now_us();
 
     for (i = 0u; i < BM_NATIVE_HRTIMER_COUNT; ++i) {
@@ -221,11 +267,9 @@ static int native_hrtimer_set_compare(const struct bm_hal_hrtimer *dev,
     }
 
     now = bm_native_hrtimer_now_us();
-    state->mode = BM_HRTIMER_MODE_ONESHOT;
+    /* 仅更新下一次到期时刻：保留当前 mode 与 running 状态，不隐含启动 */
     state->period_us = compare_us;
     state->next_expire_us = now + compare_us;
-    /* set_compare 隐含运行 */
-    state->running = 1;
     return BM_OK;
 }
 

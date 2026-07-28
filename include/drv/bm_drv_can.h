@@ -13,13 +13,15 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 CAN/FDCAN 驱动契约
+ * 2026-07-28       1.1            zeh            事件回调契约注明回调内禁止重入
+ *                                             send；last_errors 补 read-clear 语义
  */
 #ifndef BM_DRV_CAN_H
 #define BM_DRV_CAN_H
@@ -126,7 +128,7 @@ typedef struct {
     uint32_t error_warning_count; /**< error warning 次数 */
     uint32_t error_passive_count; /**< error passive 次数 */
     uint32_t arbitration_lost_count; /**< 仲裁丢失次数 */
-    uint32_t last_errors;         /**< 最近一次错误/事件标志 */
+    uint32_t last_errors;         /**< 最近一次错误/事件标志（get_stats 读后清零，read-clear） */
 } bm_can_stats_t;
 
 /** @brief RX 回调原型（ISR 上下文） */
@@ -134,7 +136,12 @@ typedef void (*bm_can_rx_callback_t)(const struct bm_hal_can *dev,
                                      const bm_can_frame_t *frame,
                                      void *user);
 
-/** @brief 事件回调原型（ISR 上下文） */
+/**
+ * @brief 事件回调原型（ISR 上下文）
+ *
+ * 后端可同步派发事件（如 TX_COMPLETE 在 send 返回前派发）；
+ * 回调内禁止重入 send，否则可能无界递归，如需回发请延迟到主循环处理。
+ */
 typedef void (*bm_can_event_callback_t)(const struct bm_hal_can *dev,
                                         uint32_t event,
                                         void *user);

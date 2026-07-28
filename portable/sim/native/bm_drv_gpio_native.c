@@ -8,13 +8,15 @@
  * bm_hal_gpio_native_fire_exti() 手动触发 EXTI 回调。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 native_sim GPIO EXTI 后端
+ * 2026-07-28       1.1            zeh            fire_exti 触发时置 exti_pending，
+ *                                             clear_pending 不再空操作
  */
 #include "bm_drv_gpio.h"
 #include "hal/bm_hal_gpio.h"
@@ -58,6 +60,9 @@ void bm_hal_gpio_native_set_pin(uint32_t pin, int value) {
 
 /**
  * @brief 手动触发 EXTI 回调（测试用）。
+ *
+ * 触发即置 exti_pending（对齐硬件边沿置位语义），
+ * 由 bm_hal_gpio_exti_clear_pending 清除。
  */
 void bm_hal_gpio_native_fire_exti(uint32_t pin) {
     bm_native_gpio_pin_t *p;
@@ -66,6 +71,7 @@ void bm_hal_gpio_native_fire_exti(uint32_t pin) {
         return;
     }
     p = &s_pins[pin];
+    p->exti_pending = 1;
     if (p->exti_cb != NULL && p->exti_enabled) {
         p->exti_cb(pin, p->exti_user);
     }

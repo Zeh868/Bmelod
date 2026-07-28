@@ -18,7 +18,7 @@
  *   已配置的 NVIC/时钟。
  *
  * @author zeh (china_qzh@163.com)
- * @version 2.0
+ * @version 3.0
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -27,6 +27,10 @@
  * 2026-07-28       1.0            zeh            新增 STM32G4 USART3 后端
  * 2026-07-28       2.0            zeh            支持任意端口/DMA 控制器/通道；
  *                                                重写环形 RX 与两段式 TX 完成
+ * 2026-07-28       3.0            zeh            DMA IRQ handler 按配置条件定义；
+ *                                                validate 改纯算术校验（不读 BRR）；
+ *                                                DMA TC 标志修正为 TCIF(+1)，RX ISR
+ *                                                补 TEIF 检查，DMA TE 改记 OVERRUN
  */
 #include "bm_vendor_usart3_stm32g4.h"
 #include "bm_hal_instances_stm32g4.h"
@@ -382,7 +386,6 @@ static void bm_usart3_hw_deinit(bm_usart3_context_t *ctx) {
  */
 static int bm_usart3_validate_config(const bm_usart3_stm32g4_config_t *cfg) {
     LL_RCC_ClocksTypeDef clocks;
-    uint32_t actual_baud;
 
     if (cfg == NULL) {
         return BM_ERR_INVALID;
@@ -421,12 +424,11 @@ static int bm_usart3_validate_config(const bm_usart3_stm32g4_config_t *cfg) {
         return BM_ERR_INVALID;
     }
 
-    /* 校验在当前 PCLK1 下是否能产生有效波特率 */
+    /* 纯算术校验波特率可达性：OVERSAMPLING_16 要求 USARTDIV = PCLK1/baud >= 16。
+     * 不得在此读 LL_USART_GetBaudRate——validate 先于时钟使能与 SetBaudRate
+     * 执行，BRR 复位值为 0 会导致恒定误判；硬件回读检查保留在 init 中。 */
     LL_RCC_GetSystemClocksFreq(&clocks);
-    actual_baud = LL_USART_GetBaudRate(USART3, clocks.PCLK1_Frequency,
-                                       LL_USART_PRESCALER_DIV1,
-                                       LL_USART_OVERSAMPLING_16);
-    if (actual_baud == 0u) {
+    if ((clocks.PCLK1_Frequency / 16u) < cfg->baud) {
         return BM_ERR_INVALID;
     }
 
@@ -472,16 +474,18 @@ void USART3_IRQHandler(void) {
 static void bm_usart3_tx_dma_isr(bm_usart3_context_t *ctx) {
     DMA_TypeDef *dma = bm_usart3_dma_ctrl(ctx->cfg->tx_dma_ctrl);
     uint32_t ch = ctx->cfg->tx_dma_ch;
-    uint32_t tc_flag = (1u << ((ch - 1u) * 4u));
+    /* DMA_ISR 布局：GIF(+0)/TCIF(+1)/HTIF(+2)/TEIF(+3)，每通道 4bit
+     * （stm32g474xx.h:3219-3228，对照 SPI 后端 BM_VENDOR_DMA_TC_FLAG） */
+    uint32_t tc_flag = (2u << ((ch - 1u) * 4u));
     uint32_t te_flag = (1u << ((ch - 1u) * 4u + 3u));
 
     if ((dma->ISR & te_flag) != 0u) {
-        /* 传输错误：停止 DMA，恢复 tx_busy */
+        /* 传输错误：停止 DMA，恢复 tx_busy（DMA 总线错误，勿记 FRAMING） */
         dma->IFCR = te_flag;
         LL_DMA_DisableChannel(dma, ch);
         LL_USART_DisableDMAReq_TX(USART3);
         ctx->tx_busy = 0;
-        ctx->stats.last_errors |= BM_UART_ERR_FRAMING;
+        ctx->stats.last_errors |= BM_UART_ERR_OVERRUN;
         return;
     }
 
@@ -501,9 +505,15 @@ static void bm_usart3_tx_dma_isr(bm_usart3_context_t *ctx) {
 static void bm_usart3_rx_dma_isr(bm_usart3_context_t *ctx) {
     DMA_TypeDef *dma = bm_usart3_dma_ctrl(ctx->cfg->rx_dma_ctrl);
     uint32_t ch = ctx->cfg->rx_dma_ch;
-    uint32_t tc_flag = (1u << ((ch - 1u) * 4u));
+    uint32_t tc_flag = (2u << ((ch - 1u) * 4u));
     uint32_t ht_flag = (1u << ((ch - 1u) * 4u + 2u));
+    uint32_t te_flag = (1u << ((ch - 1u) * 4u + 3u));
 
+    if ((dma->ISR & te_flag) != 0u) {
+        /* DMA 传输错误（总线错误）：上报并清标志，数据视为不可靠 */
+        dma->IFCR = te_flag;
+        ctx->stats.last_errors |= BM_UART_ERR_OVERRUN;
+    }
     if ((dma->ISR & ht_flag) != 0u) {
         dma->IFCR = ht_flag;
         bm_usart3_rx_update(ctx, BM_UART_EVT_FRAME_END);
@@ -531,23 +541,61 @@ static void bm_usart3_dma_dispatch(bm_usart3_context_t *ctx,
     }
 }
 
+/* 仅定义 tx/rx_dma_ctrl/ch 配置实际用到的 DMA IRQ handler，避免与其它后端
+ * （如 SPI 的 DMA1_Channel1_IRQHandler）多重定义；通道由
+ * bm_hal_instances_stm32g4.h 宏决定（仿 SPI 后端模式）。改通道宏时此处
+ * 自动跟随，未覆盖的通道由启动文件弱符号兜底。 */
+#define BM_USART3_DMA_CH_USED(ctrl, ch)                                    \
+    ((BM_STM32G4_USART3_TX_DMA_CTRL == (ctrl) &&                           \
+      BM_STM32G4_USART3_TX_DMA_CH == (ch)) ||                              \
+     (BM_STM32G4_USART3_RX_DMA_CTRL == (ctrl) &&                           \
+      BM_STM32G4_USART3_RX_DMA_CH == (ch)))
+
 /* DMA1 通道 1-7 */
+#if BM_USART3_DMA_CH_USED(1u, 1u)
 void DMA1_Channel1_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 1u, 1u); }
+#endif
+#if BM_USART3_DMA_CH_USED(1u, 2u)
 void DMA1_Channel2_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 1u, 2u); }
+#endif
+#if BM_USART3_DMA_CH_USED(1u, 3u)
 void DMA1_Channel3_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 1u, 3u); }
+#endif
+#if BM_USART3_DMA_CH_USED(1u, 4u)
 void DMA1_Channel4_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 1u, 4u); }
+#endif
+#if BM_USART3_DMA_CH_USED(1u, 5u)
 void DMA1_Channel5_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 1u, 5u); }
+#endif
+#if BM_USART3_DMA_CH_USED(1u, 6u)
 void DMA1_Channel6_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 1u, 6u); }
+#endif
+#if BM_USART3_DMA_CH_USED(1u, 7u)
 void DMA1_Channel7_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 1u, 7u); }
+#endif
 
 /* DMA2 通道 1-7 */
+#if BM_USART3_DMA_CH_USED(2u, 1u)
 void DMA2_Channel1_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 2u, 1u); }
+#endif
+#if BM_USART3_DMA_CH_USED(2u, 2u)
 void DMA2_Channel2_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 2u, 2u); }
+#endif
+#if BM_USART3_DMA_CH_USED(2u, 3u)
 void DMA2_Channel3_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 2u, 3u); }
+#endif
+#if BM_USART3_DMA_CH_USED(2u, 4u)
 void DMA2_Channel4_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 2u, 4u); }
+#endif
+#if BM_USART3_DMA_CH_USED(2u, 5u)
 void DMA2_Channel5_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 2u, 5u); }
+#endif
+#if BM_USART3_DMA_CH_USED(2u, 6u)
 void DMA2_Channel6_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 2u, 6u); }
+#endif
+#if BM_USART3_DMA_CH_USED(2u, 7u)
 void DMA2_Channel7_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 2u, 7u); }
+#endif
 
 /* -------------------------------------------------------------------------- */
 /*  HAL API 实现                                                               */

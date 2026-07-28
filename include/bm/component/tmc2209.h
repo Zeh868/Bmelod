@@ -13,7 +13,7 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -21,6 +21,7 @@
  *    Date         Version        Author          Description
  * 2026-07-27       1.0            zeh            新增（接口批 1 步进伺服栈）
  * 2026-07-28       1.1            zeh            P0：IFCNT 写确认、GSTAT、DRV_STATUS、斩波模式、离线检测
+ * 2026-07-28       1.2            zeh            审查整改：接收改 bm_uptime_us 字节级超时、rx_retries 上限校验
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -69,6 +70,8 @@ extern "C" {
 
 /** @brief 接收重试缺省（与实现内 BM_TMC2209_RX_RETRIES_DEFAULT 一致）。 */
 #define BM_TMC2209_RX_RETRIES_DEFAULT    200u
+/** @brief 接收重试配置上限（超时兜底计数，防止忙等无界）。 */
+#define BM_TMC2209_RX_RETRIES_MAX        100000u
 /** @brief 写后 IFCNT 确认重试缺省次数。 */
 #define BM_TMC2209_WRITE_RETRIES_DEFAULT 3u
 /** @brief 连续通讯失败离线阈值缺省。 */
@@ -107,7 +110,7 @@ typedef struct {
     uint8_t slave_addr;              /**< 从机地址（0..3） */
     uint8_t single_wire;             /**< 非零：读请求后丢弃回环节字节 */
     float   rsense_ohm;              /**< 采样电阻（Ω），电流换算用 */
-    uint32_t rx_retries;             /**< 单字节接收重试；0=缺省 200 */
+    uint32_t rx_retries;             /**< 接收超时兜底重试上限；0=缺省 200，最大 BM_TMC2209_RX_RETRIES_MAX */
     uint8_t  write_retries;          /**< 写后 IFCNT 确认重试；0=缺省 3 */
     uint8_t  offline_threshold;      /**< 连续失败离线阈值；0=缺省 5 */
     uint8_t  clear_gstat_on_init;    /**< 非零：init 成功后读清 GSTAT */
@@ -148,7 +151,8 @@ typedef struct {
 uint8_t bm_tmc2209_crc8(const uint8_t *data, size_t len);
 
 /**
- * @brief 校验配置（uart 非 NULL、slave_addr ≤ 3、rsense > 0）
+ * @brief 校验配置（uart 非 NULL、slave_addr ≤ 3、rsense > 0、
+ *        rx_retries ≤ BM_TMC2209_RX_RETRIES_MAX）
  * @return BM_OK 合法；BM_ERR_INVALID 非法
  */
 int bm_tmc2209_validate_config(const bm_tmc2209_config_t *config);

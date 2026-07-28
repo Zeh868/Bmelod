@@ -16,7 +16,7 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -24,6 +24,7 @@
  *    Date         Version        Author          Description
  * 2026-07-27       1.0            zeh            新增（接口批 1 步进伺服栈）
  * 2026-07-28       1.1            zeh            dir_hold/min 脉宽/GPIO fault/en_set
+ * 2026-07-28       1.2            zeh            set_enable 注明 fault 态允许断使能
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -148,12 +149,14 @@ void bm_stepper_pulse_stop(bm_stepper_pulse_axis_t *axis);
 /**
  * @brief 设置 EN 使能脚电平（resources.en_set 为 NULL 时不支持）
  *
- * GPIO 失败时锁存 fault 并停机。
+ * GPIO 失败时锁存 fault 并停机。fault 锁存后仍允许断使能（enable==0，
+ * 便于故障处置时先断开功率级），重新使能（enable!=0）返回 BM_ERR_IO。
  *
  * @param axis 轴实例
  * @param enable 非 0 使能，0 禁用
  * @return BM_OK 成功；BM_ERR_INVALID 指针为空；BM_ERR_NOT_SUPPORTED 无 en_set；
- *         其他 BM_ERR_* 为 GPIO 失败（已锁存 fault）
+ *         BM_ERR_IO fault 锁存后尝试重新使能；其他 BM_ERR_* 为 GPIO 失败
+ *         （已锁存 fault）
  */
 int bm_stepper_pulse_set_enable(bm_stepper_pulse_axis_t *axis, int enable);
 

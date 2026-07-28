@@ -9,6 +9,8 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
+ * 2026-07-28       1.1            zeh            补 bm_stream_impl.h include
+ *                                                 （BM_STREAM_* 宏已迁入内部头）
  *
  * M6 E1：Pack 电流块流经线性管线估算 SOC，验证 bm_stream + bm_pipeline 组合。
  */
@@ -21,6 +23,7 @@
 #include "bm_module.h"
 #include "bm_pipeline.h"
 #include "bm_stream.h"
+#include "bm/hybrid/bm_stream_impl.h"
 #include "bm_ticker.h"
 #include "hybrid_print.h"
 

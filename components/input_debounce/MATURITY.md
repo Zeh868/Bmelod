@@ -2,7 +2,7 @@
 
 Maturity: E1 - 前期应用探索
 
-Validated: native_sim / 时间阈值消抖 / 抖动抑制 / 稳定沿事件 / NULL 安全
+Validated: native_sim / 时间阈值消抖 / 抖动抑制 / 稳定沿事件 / NULL 边界安全
 
 Not validated: 实机抖动环境、亚微秒级时间精度
 
@@ -15,3 +15,5 @@ Not validated: 实机抖动环境、亚微秒级时间精度
 
 - 当前仅支持单稳时间阈值，未支持多数决/计数器滤波
 - 时间戳依赖 `bm_uptime_us()`，精度由后端决定
+- 未提供 exec_ops（被 limit_switch / estop_input 内嵌使用，待后续按需接入 bm_exec）
+- 未接遥测宏 `BM_COMPONENT_PUBLISH_TELEMETRY`（待后续）

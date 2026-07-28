@@ -26,10 +26,13 @@
  *    Date         Version        Author          Description
  * 2026-07-03       1.0            zeh            从 main.c 拆出，作为装配
  *                                                 文件惯例样例
+ * 2026-07-28       1.1            zeh            补 bm_bus_impl.h include
+ *                                                 （BM_BUS_DEFINE 已迁入内部头）
  *
  */
 #include "balance_schedule.h"
 #include "bm_bus.h"
+#include "bm/core/bm_bus_impl.h"
 
 /** 比例增益：cmd = -kp * pitch */
 #define BALANCE_KP          0.5f

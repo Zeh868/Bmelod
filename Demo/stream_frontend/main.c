@@ -12,6 +12,8 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-17       1.0            zeh            初始发布
+ * 2026-07-28       1.1            zeh            补 bm_stream_impl.h include
+ *                                                 （BM_STREAM_* 宏已迁入内部头）
  */
 #include "app_stream_frontend.h"
 #include "bm_event.h"
@@ -19,6 +21,7 @@
 #include "bm_log.h"
 #include "bm_module.h"
 #include "bm_stream.h"
+#include "bm/hybrid/bm_stream_impl.h"
 #include "bm_ticker.h"
 #include "hybrid_print.h"
 

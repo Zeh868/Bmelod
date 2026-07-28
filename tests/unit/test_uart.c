@@ -4,13 +4,15 @@
  * @brief UART HAL/drv 与 native_sim 多实例后端单元测试
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 UART 多实例/IDLE 单测
+ * 2026-07-28       1.1            zeh            补 reset 全量复位与 TX 缓冲满
+ *                                             返回 BM_ERR_BUSY 用例
  */
 #include "unity.h"
 #include "hal/bm_hal_uart.h"
@@ -158,6 +160,69 @@ static void test_uart_no_backend(void) {
         bm_hal_uart_get_stats(&no_backend, &stats));
 }
 
+static uint32_t s_rx_byte_count;
+
+static void test_uart_rx_byte_cb(uint8_t c) {
+    (void)c;
+    s_rx_byte_count++;
+}
+
+static void test_uart_reset_clears_all(void) {
+    uint8_t data[] = { 0x55 };
+    bm_uart_stats_t stats;
+
+    s_rx_byte_count = 0u;
+    s_tx_complete_count = 0u;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_hal_uart_init(&bm_native_uart1, NULL));
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_hal_uart_set_tx_complete_callback(&bm_native_uart1,
+                                             test_uart_tx_complete_cb, NULL));
+    bm_hal_uart_set_rx_callback(&bm_native_uart1, test_uart_rx_byte_cb);
+    bm_hal_uart_native_inject_error(&bm_native_uart1, BM_UART_ERR_FRAMING);
+
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_hal_uart_send(&bm_native_uart1, data, sizeof(data)));
+    TEST_ASSERT_EQUAL(1u, s_tx_complete_count);
+    bm_hal_uart_native_put_rx(&bm_native_uart1, 0x01);
+    TEST_ASSERT_EQUAL(1u, s_rx_byte_count);
+
+    /* reset 应全量复位：回调、统计、错误标志、TX 缓冲全部清除 */
+    bm_hal_uart_native_reset();
+
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_hal_uart_get_stats(&bm_native_uart1, &stats));
+    TEST_ASSERT_EQUAL(0u, stats.tx_count);
+    TEST_ASSERT_EQUAL(0u, stats.rx_count);
+    TEST_ASSERT_EQUAL(0u, stats.rx_framing_count);
+    TEST_ASSERT_EQUAL(0u, stats.last_errors);
+    TEST_ASSERT_EQUAL(0u, bm_hal_uart_native_tx_count());
+
+    /* 回调已清除：重新 init 后 send/put_rx 不再触发 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_hal_uart_init(&bm_native_uart1, NULL));
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_hal_uart_send(&bm_native_uart1, data, sizeof(data)));
+    TEST_ASSERT_EQUAL(1u, s_tx_complete_count);
+    bm_hal_uart_native_put_rx(&bm_native_uart1, 0x02);
+    TEST_ASSERT_EQUAL(1u, s_rx_byte_count);
+}
+
+static void test_uart_tx_buf_full_busy(void) {
+    uint8_t data[128] = { 0 };
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_hal_uart_init(&bm_native_uart1, NULL));
+
+    /* TX 测试缓冲区共 256 字节：写满后再发送返回 BM_ERR_BUSY 且不落盘 */
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_hal_uart_send(&bm_native_uart1, data, sizeof(data)));
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_hal_uart_send(&bm_native_uart1, data, sizeof(data)));
+    TEST_ASSERT_EQUAL(256u, bm_hal_uart_native_tx_count());
+    TEST_ASSERT_EQUAL(BM_ERR_BUSY,
+        bm_hal_uart_send(&bm_native_uart1, data, 1u));
+    TEST_ASSERT_EQUAL(256u, bm_hal_uart_native_tx_count());
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_uart_init_and_send_default);
@@ -165,6 +230,8 @@ int main(void) {
     RUN_TEST(test_uart_error_stats);
     RUN_TEST(test_uart_tx_complete_callback);
     RUN_TEST(test_uart_multi_instance);
+    RUN_TEST(test_uart_reset_clears_all);
+    RUN_TEST(test_uart_tx_buf_full_busy);
     RUN_TEST(test_uart_no_backend);
     return UNITY_END();
 }

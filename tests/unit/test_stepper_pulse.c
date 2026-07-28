@@ -3,7 +3,7 @@
  * @brief stepper_pulse 组件单元测试（假回调验证步进计数/方向/限速/NULL 边界）
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.2
+ * @version 1.3
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -12,6 +12,8 @@
  * 2026-07-27       1.0            zeh            新增（接口批 1 步进伺服栈）
  * 2026-07-28       1.1            zeh            dir_hold/min 脉宽/GPIO fault/en_set
  * 2026-07-28       1.2            zeh            dir_hold 后 setup 仅等待一次
+ * 2026-07-28       1.3            zeh            补半周期溢出钳位、validate 加法溢出、
+ *                                                fault 态断使能三处断言
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -19,6 +21,8 @@
 #include "bm/component/stepper_pulse.h"
 #include "bm/common/bm_types.h"
 
+#include <math.h>
+#include <stdint.h>
 #include <string.h>
 
 /* ---------- 假平台回调 ---------- */
@@ -393,6 +397,59 @@ void test_stepper_pulse_null_safety(void) {
     TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_stepper_pulse_set_enable(NULL, 1));
 }
 
+/**
+ * @brief 半周期 float→uint32 越界：极小速度钳到 UINT32_MAX，NaN 不触发 UB
+ */
+void test_stepper_pulse_half_period_overflow_clamped(void) {
+    bm_stepper_pulse_axis_t axis;
+    make_axis(&axis);
+    TEST_ASSERT_EQUAL(BM_OK, bm_stepper_pulse_init(&axis));
+
+    /* abs_v < ~0.116 时 500000/abs_v 超 uint32 域，须钳到 UINT32_MAX */
+    bm_stepper_pulse_set_velocity(&axis, 1e-4f);
+    TEST_ASSERT_EQUAL_UINT32(UINT32_MAX, g_last_interval);
+
+    /* NaN 速度：按半周期 0 处理（取消定时器），不得越界转换 */
+    bm_stepper_pulse_set_velocity(&axis, NAN);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_last_interval);
+}
+
+/**
+ * @brief validate：min_high+min_low 加法溢出不得绕过校验
+ */
+void test_stepper_pulse_validate_no_add_overflow(void) {
+    bm_stepper_pulse_config_t config;
+    memset(&config, 0, sizeof(config));
+    config.max_step_rate_hz = 1000u; /* 周期上限 1000µs */
+    config.min_high_us = UINT32_MAX;
+    config.min_low_us  = 10u; /* 直接相加回绕为 9，旧实现会误判合法 */
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID,
+                      bm_stepper_pulse_validate_config(&config));
+}
+
+/**
+ * @brief fault 锁存后允许 set_enable(axis,0) 断使能，禁止重新使能
+ */
+void test_stepper_pulse_fault_allows_disable(void) {
+    bm_stepper_pulse_axis_t axis;
+    make_axis(&axis);
+    TEST_ASSERT_EQUAL(BM_OK, bm_stepper_pulse_init(&axis));
+
+    /* 制造 fault */
+    g_fail_dir_set = 1;
+    bm_stepper_pulse_set_velocity(&axis, 1000.0f);
+    TEST_ASSERT_EQUAL(1u, axis.state.fault);
+    g_fail_dir_set = 0;
+
+    /* fault 态断使能允许 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_stepper_pulse_set_enable(&axis, 0));
+    TEST_ASSERT_EQUAL(0, g_en_level);
+
+    /* fault 态重新使能拒绝 */
+    TEST_ASSERT_EQUAL(BM_ERR_IO, bm_stepper_pulse_set_enable(&axis, 1));
+    TEST_ASSERT_EQUAL(0, g_en_level);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_stepper_pulse_init_ok);
@@ -409,5 +466,8 @@ int main(void) {
     RUN_TEST(test_stepper_pulse_stop_keeps_position);
     RUN_TEST(test_stepper_pulse_reset_clears_fault);
     RUN_TEST(test_stepper_pulse_null_safety);
+    RUN_TEST(test_stepper_pulse_half_period_overflow_clamped);
+    RUN_TEST(test_stepper_pulse_validate_no_add_overflow);
+    RUN_TEST(test_stepper_pulse_fault_allows_disable);
     return UNITY_END();
 }

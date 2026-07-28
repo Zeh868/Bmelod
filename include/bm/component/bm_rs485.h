@@ -9,13 +9,14 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 RS485 包装组件
+ * 2026-07-28       1.1            zeh            审查整改：独立帧拼装缓冲、UART 错误去重、TX 超时
  */
 #ifndef BM_RS485_H
 #define BM_RS485_H
@@ -54,6 +55,8 @@ typedef struct bm_rs485 bm_rs485_t;
 #define BM_RS485_ERR_UART            (1u << 3u)
 /** @brief 错误标志：GPIO 写入失败 */
 #define BM_RS485_ERR_GPIO            (1u << 4u)
+/** @brief 错误标志：发送超时（TC 回调丢失，已回退 RX） */
+#define BM_RS485_ERR_TX_TIMEOUT      (1u << 5u)
 
 /** @brief 最大接收帧长度（含环回测试场景）。 */
 #define BM_RS485_MAX_FRAME_LEN 256u
@@ -67,9 +70,10 @@ typedef struct {
     uint32_t             pre_delay_us;   /**< 发送前置延时（µs） */
     uint32_t             post_delay_us;  /**< 发送结束保持时间（µs） */
     uint32_t             rx_idle_timeout_us; /**< 接收空闲超时（µs），0 表示不检测 */
+    uint32_t             tx_timeout_us;  /**< 发送超时（µs，自启动发送起算），0 表示不检测 */
     int                  filter_echo;      /**< 非零：过滤本机发送回显 */
     int                  hardware_de;      /**< 非零：使用硬件自动 DE，忽略 de_gpio */
-    uint8_t             *rx_buf;           /**< 可选外部 RX 帧缓冲；NULL 用内部缓冲 */
+    uint8_t             *rx_buf;           /**< 可选外部 UART 环形接收缓冲；NULL 用内部缓冲 */
     size_t               rx_buf_len;       /**< 外部缓冲长度；0 用内部缓冲 */
 } bm_rs485_config_t;
 
@@ -108,21 +112,25 @@ typedef struct {
     uint32_t collision_count;       /**< 冲突次数 */
     uint32_t frame_drop_count;      /**< 丢帧次数 */
     uint32_t rx_idle_timeout_count; /**< 接收空闲超时次数 */
+    uint32_t tx_timeout_count;      /**< 发送超时回退次数 */
     uint32_t last_errors;           /**< 最近一次错误标志 */
 } bm_rs485_stats_t;
 
 /** @brief 运行状态（组件维护） */
 typedef struct {
     uint32_t dir;                 /**< 当前方向 BM_RS485_DIR_* */
-    uint8_t *rx_buf_ptr;          /**< 当前接收帧缓冲指针 */
-    size_t   rx_buf_len;          /**< 当前接收帧缓冲长度 */
-    uint8_t  rx_internal_buf[BM_RS485_MAX_FRAME_LEN]; /**< 默认内部缓冲 */
+    uint8_t *rx_buf_ptr;          /**< UART 环形接收缓冲指针（专职 HAL 存储） */
+    size_t   rx_buf_len;          /**< UART 环形接收缓冲长度 */
+    uint8_t  rx_internal_buf[BM_RS485_MAX_FRAME_LEN]; /**< 默认内部环形缓冲 */
+    uint8_t  rx_frame_buf[BM_RS485_MAX_FRAME_LEN];    /**< 帧拼装/上报缓冲（帧长上限） */
     size_t   rx_len;              /**< 当前接收帧长度 */
     const uint8_t *tx_data;       /**< TX_PRE 状态暂存的发送数据指针 */
     size_t   tx_len;              /**< TX_PRE 状态暂存的发送长度 */
     uint64_t tx_pre_start_us;     /**< TX_PRE 起始时刻 */
+    uint64_t tx_start_us;         /**< 发送启动时刻（TX 超时检测基准） */
     uint64_t last_rx_us;          /**< 最近 RX 时间戳 */
     uint64_t tx_end_us;           /**< 期望发送结束时刻 */
+    uint32_t uart_err_reported;   /**< 已透报过的 UART 底层错误位（粘滞位去重） */
     bm_rs485_stats_t stats;       /**< 统计 */
     int      echo_pending;        /**< 正在过滤回显 */
     const uint8_t *echo_buf_ptr;  /**< 回显参照数据指针（发送数据） */
@@ -175,7 +183,7 @@ void bm_rs485_reset(bm_rs485_t *rs485);
 int bm_rs485_send(bm_rs485_t *rs485, const uint8_t *data, size_t len);
 
 /**
- * @brief 周期处理：方向尾保持、接收空闲超时检测
+ * @brief 周期处理：方向尾保持、发送超时回退、接收空闲超时检测
  *
  * 须在固定周期调用；时间基为 bm_uptime_us()。
  *

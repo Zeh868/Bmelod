@@ -11,8 +11,8 @@
  * stm32g4xx.h 使用，本头只放可独立包含的宏常量。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.2
- * @date 2026-07-27
+ * @version 1.3
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -21,6 +21,9 @@
  * 2026-07-27       1.1            zeh            修正 BM_STM32G4_ADC_JEXTSEL 默认值 2→8（TIM1_TRGO2
  *                                                正确编码，LL 常量佐证）；新增 PWM/ENC GPIO AF 宏
  * 2026-07-27       1.2            zeh            接口批 1：新增 SPI1/USART2 设备实例宏
+ * 2026-07-28       1.3            zeh            修正 BM_STM32G4_CANx_TX/RX_PIN 为 (port<<4|num)
+ *                                                编码（0x18/0x19/0x1C/0x1D = PB8/PB9/PB12/PB13），
+ *                                                对齐 bm_hal_can_stm32g4.c 的解析方式
  *
  */
 #ifndef BM_HAL_INSTANCES_STM32G4_H
@@ -364,21 +367,22 @@
 
 /* ---------- FDCAN（默认 FDCAN1 PB8/PB9，FDCAN2 PB12/PB13，500k Classic CAN） ---------- */
 
-/** @brief FDCAN1 TX 引脚号（GPIOB，默认 PB8）。 */
+/** @brief FDCAN1 TX 引脚编码（port<<4|num，port: 0=A,1=B,2=C,3=D,4=E,5=F,6=G；
+ *  默认 PB8 = 0x18）。 */
 #ifndef BM_STM32G4_CAN1_TX_PIN
-#define BM_STM32G4_CAN1_TX_PIN  8u
+#define BM_STM32G4_CAN1_TX_PIN  0x18u
 #endif
-/** @brief FDCAN1 RX 引脚号（GPIOB，默认 PB9）。 */
+/** @brief FDCAN1 RX 引脚编码（默认 PB9 = 0x19）。 */
 #ifndef BM_STM32G4_CAN1_RX_PIN
-#define BM_STM32G4_CAN1_RX_PIN  9u
+#define BM_STM32G4_CAN1_RX_PIN  0x19u
 #endif
-/** @brief FDCAN2 TX 引脚号（GPIOB，默认 PB12）。 */
+/** @brief FDCAN2 TX 引脚编码（默认 PB12 = 0x1C）。 */
 #ifndef BM_STM32G4_CAN2_TX_PIN
-#define BM_STM32G4_CAN2_TX_PIN  12u
+#define BM_STM32G4_CAN2_TX_PIN  0x1Cu
 #endif
-/** @brief FDCAN2 RX 引脚号（GPIOB，默认 PB13）。 */
+/** @brief FDCAN2 RX 引脚编码（默认 PB13 = 0x1D）。 */
 #ifndef BM_STM32G4_CAN2_RX_PIN
-#define BM_STM32G4_CAN2_RX_PIN  13u
+#define BM_STM32G4_CAN2_RX_PIN  0x1Du
 #endif
 /** @brief FDCAN GPIO 复用功能号（PB8/PB9/PB12/PB13 均为 AF9）。 */
 #ifndef BM_STM32G4_CAN_GPIO_AF

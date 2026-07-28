@@ -9,7 +9,7 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -17,6 +17,8 @@
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 Board 接入契约
  * 2026-07-28       1.1            zeh            扩展资源数组与能力位
+ * 2026-07-28       1.2            zeh            新增 BM_BOARD_NAME_MAX 宏并注明
+ *                                                设备名上限；MSG_RAM 语义注明按实例隔离
  *
  */
 #ifndef BM_BOARD_DEVICE_H
@@ -127,19 +129,22 @@ typedef struct {
 /*  设备描述符                                                                 */
 /* -------------------------------------------------------------------------- */
 
+/** @brief 设备名长度上限（含 NUL 终止符）；可见字符最多 63 个 */
+#define BM_BOARD_NAME_MAX 64u
+
 /**
  * @brief Board 外设设备描述符
  *
  * 应用静态分配并填写；`hal_dev` 指向具体的 `bm_hal_xxx_t` 实例，
  * `config` 指向平台相关的配置结构（引脚、DMA、IRQ、时钟等）。
  * `resources` 为可选资源数组，用于启动期冲突检查（同 Pin、同 DMA 通道、
- * 同 IRQ、同 Timer 通道、FDCAN Message RAM 重叠等）。
+ * 同 IRQ、同 Timer 通道、同实例 FDCAN Message RAM 重叠等）。
  * `resource_tag` 为旧版单一资源标签，保留兼容；非零时仍参与唯一性检查。
  */
 typedef struct {
     uint32_t type;                   /**< 设备类型，见 BM_BOARD_DEV_TYPE_* */
     uint32_t instance;               /**< 应用分配的逻辑实例号（同一 type 内唯一） */
-    const char *name;                /**< 可选设备名（NULL 表示无名） */
+    const char *name;                /**< 可选设备名（NULL 表示无名；上限 63 字符，见 BM_BOARD_NAME_MAX） */
     const void *hal_dev;             /**< 指向 bm_hal_xxx_t 实例 */
     const void *config;              /**< 平台相关配置（引脚、DMA、IRQ、时钟等） */
     const bm_board_resource_t *resources; /**< 资源数组；NULL 表示无 */

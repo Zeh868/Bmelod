@@ -3,30 +3,26 @@
  * @file bm_estop_input.c
  * @brief 急停输入通用组件实现
  *
+ * poll-only 组件：不注册 EXTI，业务周期性调用 bm_estop_input_poll()
+ * 完成消抖并触发事件回调。
+ *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增急停输入通用组件
+ * 2026-07-28       1.1            zeh            移除空操作 EXTI 注册
+ *                                               （poll-only，不再占用 EXTI 线）；
+ *                                               reset 仅在 stable_us>0 时初始化
+ *                                               消抖实例，避免吞掉 BM_ERR_INVALID
  */
 #include "bm/component/bm_estop_input.h"
 #include "bm_uptime.h"
 
 #include <stddef.h>
-
-static void bm_estop_input_exti_cb(uint32_t pin, void *user) {
-    bm_estop_input_t *estop = (bm_estop_input_t *)user;
-
-    (void)pin;
-    if (estop == NULL) {
-        return;
-    }
-    /* 消抖由 poll 完成；EXTI 仅唤醒，不直接触发 */
-    (void)bm_uptime_us();
-}
 
 int bm_estop_input_validate_config(const bm_estop_input_config_t *config) {
     if (config == NULL || config->gpio == NULL || config->stable_us == 0u) {
@@ -36,9 +32,6 @@ int bm_estop_input_validate_config(const bm_estop_input_config_t *config) {
 }
 
 int bm_estop_input_init(bm_estop_input_t *estop) {
-    int rc;
-    uint32_t flags;
-
     if (estop == NULL) {
         return BM_ERR_INVALID;
     }
@@ -48,27 +41,19 @@ int bm_estop_input_init(bm_estop_input_t *estop) {
 
     bm_estop_input_reset(estop);
 
-    rc = bm_hal_gpio_configure(estop->config.gpio, estop->config.pin,
-                               BM_GPIO_INPUT | BM_GPIO_PULL_UP);
-    if (rc != BM_OK) {
-        return rc;
-    }
-
-    flags = estop->config.active_low ? BM_GPIO_EXTI_FALLING : BM_GPIO_EXTI_RISING;
-    rc = bm_hal_gpio_exti_configure(estop->config.gpio, estop->config.pin,
-                                    flags, bm_estop_input_exti_cb, estop);
-    if (rc != BM_OK) {
-        return rc;
-    }
-    return bm_hal_gpio_exti_enable(estop->config.gpio, estop->config.pin, 1);
+    /* poll-only：仅配置 GPIO 输入，不占用 EXTI 线 */
+    return bm_hal_gpio_configure(estop->config.gpio, estop->config.pin,
+                                 BM_GPIO_INPUT | BM_GPIO_PULL_UP);
 }
 
 void bm_estop_input_reset(bm_estop_input_t *estop) {
     if (estop == NULL) {
         return;
     }
-    estop->state.debounce.config.stable_us = estop->config.stable_us;
-    (void)bm_input_debounce_init(&estop->state.debounce);
+    if (estop->config.stable_us != 0u) {
+        estop->state.debounce.config.stable_us = estop->config.stable_us;
+        (void)bm_input_debounce_init(&estop->state.debounce);
+    }
     estop->state.active = 0;
     estop->state.latched = 0;
     estop->state.last_event_us = 0u;

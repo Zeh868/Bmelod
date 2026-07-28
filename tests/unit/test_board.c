@@ -11,7 +11,7 @@
  * 最后验证重复注册。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.2
+ * @version 1.3
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -21,6 +21,8 @@
  * 2026-07-28       1.1            zeh            调整 RUN_TEST 顺序，避免
  *                                                一次性注册状态污染失败用例
  * 2026-07-28       1.2            zeh            增加资源数组冲突检查用例
+ * 2026-07-28       1.3            zeh            MSG_RAM 改同实例重叠判冲突，
+ *                                                补不同实例区间重叠不冲突用例
  */
 #include "unity.h"
 #include "board/bm_board.h"
@@ -209,12 +211,12 @@ static void test_board_before_registration(void) {
         .count = 2u,
         .capabilities = 0u,
     };
-    /* 资源数组冲突：FDCAN Message RAM 重叠 */
+    /* 资源数组冲突：同一 FDCAN 实例 Message RAM 重叠 */
     static const bm_board_resource_t can1_ram[] = {
         { BM_BOARD_RES_MSG_RAM, 1u, 0u, 128u }, /* FDCAN1: [0, 128) */
     };
     static const bm_board_resource_t can2_ram[] = {
-        { BM_BOARD_RES_MSG_RAM, 2u, 64u, 128u }, /* FDCAN2: [64, 192) 与 FDCAN1 重叠 */
+        { BM_BOARD_RES_MSG_RAM, 1u, 64u, 128u }, /* FDCAN1: [64, 192) 与前段重叠 */
     };
     static const bm_board_device_t overlap_can[] = {
         {
@@ -272,11 +274,14 @@ static void test_board_register_and_find(void) {
         { BM_BOARD_RES_PIN, 1u, 10u, 0u }, /* GPIOB10 */
         { BM_BOARD_RES_DMA, 1u, 4u, 0u },  /* DMA1_CH4 */
         { BM_BOARD_RES_IRQ, 0u, 39u, 0u }, /* USART3_IRQn ≈ 39 */
+        { BM_BOARD_RES_MSG_RAM, 1u, 0u, 128u }, /* FDCAN1: [0, 128) */
     };
     static const bm_board_resource_t spi_res[] = {
         { BM_BOARD_RES_PIN, 1u, 13u, 0u }, /* GPIOB13 */
         { BM_BOARD_RES_DMA, 1u, 5u, 0u },  /* DMA1_CH5 */
         { BM_BOARD_RES_IRQ, 0u, 35u, 0u }, /* SPI1_IRQn ≈ 35 */
+        /* FDCAN2: [64, 192) 区间与 FDCAN1 重叠，但实例不同不冲突 */
+        { BM_BOARD_RES_MSG_RAM, 2u, 64u, 128u },
     };
     static const bm_board_device_t devices[] = {
         {
@@ -286,7 +291,7 @@ static void test_board_register_and_find(void) {
             .hal_dev = &s_dummy_uart,
             .config = NULL,
             .resources = uart_res,
-            .resource_count = 3u,
+            .resource_count = 4u,
             .resource_tag = 0u,
         },
         {
@@ -296,7 +301,7 @@ static void test_board_register_and_find(void) {
             .hal_dev = &s_dummy_spi,
             .config = NULL,
             .resources = spi_res,
-            .resource_count = 3u,
+            .resource_count = 4u,
             .resource_tag = 0u,
         },
     };

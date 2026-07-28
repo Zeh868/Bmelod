@@ -8,13 +8,16 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增限位开关通用输入组件
+ * 2026-07-28       1.1            zeh            注明由 EXTI 沿推导有效电平：
+ *                                               FALLING 为低电平有效，
+ *                                               BOTH 维持高电平有效
  */
 #ifndef BM_LIMIT_SWITCH_H
 #define BM_LIMIT_SWITCH_H
@@ -38,7 +41,10 @@ typedef void (*bm_limit_switch_callback_t)(void *user, uint32_t pin,
 typedef struct {
     const bm_hal_gpio_t *gpio;   /**< GPIO 设备实例 */
     uint32_t             pin;    /**< pin 编码 */
-    uint32_t             flags;  /**< EXTI 边沿标志（RISING/FALLING/BOTH） */
+    uint32_t             flags;  /**< EXTI 边沿标志（RISING/FALLING/BOTH）；
+                                  *   FALLING 单独配置表示低电平有效
+                                  *   （常闭接地开关），RISING 与 BOTH
+                                  *   为高电平有效 */
     uint32_t             stable_us; /**< 消抖稳定时间（µs），0 表示不消抖 */
 } bm_limit_switch_config_t;
 

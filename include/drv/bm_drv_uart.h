@@ -11,7 +11,7 @@
  * flush/abort 能力。原有四函数保持兼容。
  *
  * @author zeh (china_qzh@163.com)
- * @version 3.0
+ * @version 3.1
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -20,6 +20,7 @@
  * 2026-06-12       1.0            zeh            正式发布（单例契约）
  * 2026-07-27       2.0            zeh            打破式全实例化：删除单例全局符号约定
  * 2026-07-28       3.0            zeh            接口批 1 扩展 IDLE/环形缓冲/错误统计等
+ * 2026-07-28       3.1            zeh            明确 last_errors 为 read-clear 语义
  *
  */
 #ifndef BM_DRV_UART_H
@@ -82,7 +83,7 @@ typedef struct {
     uint32_t rx_parity_count;   /**< parity 错误次数 */
     uint32_t rx_overflow_count; /**< 软件环形缓冲区溢出次数 */
     uint32_t rx_noise_count;    /**< noise 错误次数 */
-    uint32_t last_errors;       /**< 最近一次错误标志组合 */
+    uint32_t last_errors;       /**< 最近一次错误标志组合（get_stats 读后清零，read-clear） */
 } bm_uart_stats_t;
 
 /** @brief TX 完成回调原型（UART TC，非 DMA 完成） */

@@ -21,10 +21,13 @@
  *                                                 干扰源声明数组两个 extern
  *                                                 （空数组占位 + count 0），
  *                                                 门禁负例本身不关心干扰源
+ * 2026-07-28       1.2            zeh            补 bm_bus_impl.h include
+ *                                                 （BM_BUS_DEFINE 已迁入内部头）
  *
  */
 #include "bm_schedule_map_reg.h"
 #include "bm_bus.h"
+#include "bm/core/bm_bus_impl.h"
 
 BM_BUS_DEFINE(bad_in_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
 BM_BUS_DEFINE(bad_out_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);

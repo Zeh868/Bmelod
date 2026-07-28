@@ -7,7 +7,7 @@
  * 资源冲突检查。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -15,12 +15,15 @@
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 Board 接入契约实现
  * 2026-07-28       1.1            zeh            增加资源数组冲突检查与 init_devices
+ * 2026-07-28       1.2            zeh            MSG_RAM 冲突补 periph_id 比较与
+ *                                                端点溢出防御；名称上限提取宏
  *
  */
 #include "board/bm_board.h"
 #include "board/bm_board_device.h"
 
 #include <stddef.h>
+#include <stdint.h>
 
 /* -------------------------------------------------------------------------- */
 /*  静态状态                                                                   */
@@ -101,7 +104,9 @@ static size_t bm_board_str_len(const char *s, size_t max) {
  * - DMA：同控制器同通道。
  * - IRQ：同 IRQn 编号。
  * - TIMER_CH：同 TIM 实例同通道。
- * - MSG_RAM：[index, index+flags) 区间重叠。
+ * - MSG_RAM：同 FDCAN 实例（periph_id）且 [index, index+flags) 区间重叠；
+ *   不同实例 Message RAM 物理独立，不冲突。flags==0 或 index+flags
+ *   溢出 uint32 的非法区间视为冲突。
  * - AF：同 AF 编号不视为冲突（多引脚可共用 AF）。
  */
 static int bm_board_resource_conflicts(const bm_board_resource_t *a,
@@ -118,10 +123,23 @@ static int bm_board_resource_conflicts(const bm_board_resource_t *a,
         return (a->periph_id == b->periph_id && a->index == b->index) ? 1 : 0;
 
     case BM_BOARD_RES_MSG_RAM: {
-        uint32_t a_start = a->index;
-        uint32_t a_end = a_start + a->flags;
-        uint32_t b_start = b->index;
-        uint32_t b_end = b_start + b->flags;
+        uint32_t a_start;
+        uint32_t a_end;
+        uint32_t b_start;
+        uint32_t b_end;
+
+        if (a->periph_id != b->periph_id) {
+            return 0; /* FDCAN 实例各自独立 Message RAM */
+        }
+        /* 端点溢出防御：零长度或 index+flags 溢出的区间非法，视为冲突 */
+        if (a->flags == 0u || a->index > UINT32_MAX - a->flags ||
+            b->flags == 0u || b->index > UINT32_MAX - b->flags) {
+            return 1;
+        }
+        a_start = a->index;
+        a_end   = a_start + a->flags;
+        b_start = b->index;
+        b_end   = b_start + b->flags;
 
         return (a_start < b_end && b_start < a_end) ? 1 : 0;
     }
@@ -217,7 +235,7 @@ int bm_board_register(const bm_board_table_t *table) {
             return BM_ERR_INVALID;
         }
         if (dev->name != NULL &&
-            bm_board_str_len(dev->name, 64u) == 64u) {
+            bm_board_str_len(dev->name, BM_BOARD_NAME_MAX) == BM_BOARD_NAME_MAX) {
             /* 设备名过长，避免无界比较 */
             return BM_ERR_INVALID;
         }

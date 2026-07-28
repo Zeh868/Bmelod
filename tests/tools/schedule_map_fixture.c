@@ -23,10 +23,13 @@
  *
  *    Date         Version        Author          Description
  * 2026-07-03       1.0            zeh            Task 3：双表装配件初版
+ * 2026-07-28       1.1            zeh            补 bm_bus_impl.h include
+ *                                                 （BM_BUS_DEFINE 已迁入内部头）
  *
  */
 #include "schedule_map_fixture.h"
 #include "bm_bus.h"
+#include "bm/core/bm_bus_impl.h"
 
 /* ---- 表 A 总线 ---- */
 BM_BUS_DEFINE(fxa_in_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);

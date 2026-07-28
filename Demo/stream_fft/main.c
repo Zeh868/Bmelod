@@ -9,6 +9,8 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
+ * 2026-07-28       1.1            zeh            补 bm_stream_impl.h include
+ *                                                 （BM_STREAM_* 宏已迁入内部头）
  *
  * E1 范围：bm_hal_dma_stream（native_sim）+ bm_stream + bm_exec Block 槽 +
  * bm_algo_rfft；验收 1 kHz 正弦在 bin 4 出现主峰。
@@ -20,6 +22,7 @@
 #include "bm_log.h"
 #include "bm_module.h"
 #include "bm_stream.h"
+#include "bm/hybrid/bm_stream_impl.h"
 #include "bm_ticker.h"
 #include "hybrid_print.h"
 

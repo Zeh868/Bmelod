@@ -1,6 +1,7 @@
 /* 负例装配件：at >= every 必须触发 _Static_assert；try_compile 期望编译失败 */
 #include "bm_tt_schedule.h"
 #include "bm_bus.h"
+#include "bm/core/bm_bus_impl.h"
 
 BM_BUS_DEFINE(neg_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);
 BM_BUS_DEFINE(neg_out_bus, uint32_t, 4u, 1u, BM_BUS_LATEST);

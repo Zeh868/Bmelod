@@ -11,11 +11,12 @@
  * 单线拓扑下 UART 收发自环：读请求后先丢弃 4 字节回环再读应答
  * （config.single_wire 控制）。
  *
- * 接收为有界重试轮询（路径必须有界；应答间字节延迟由重试窗口吸收）。
+ * 接收为有界轮询：以 bm_uptime_us 做字节级超时，config.rx_retries 作兜底
+ * 上限（路径必须有界；应答间字节延迟由时间窗口吸收）。
  * 写寄存器后读 IFCNT 确认写成功；连续通讯失败达阈值置 offline。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -23,9 +24,12 @@
  *    Date         Version        Author          Description
  * 2026-07-27       1.0            zeh            新增（接口批 1 步进伺服栈）
  * 2026-07-28       1.1            zeh            P0：IFCNT 写确认、GSTAT、DRV_STATUS、斩波模式、离线检测
+ * 2026-07-28       1.2            zeh            审查整改：recv_exact 改 bm_uptime_us 字节级超时（rx_retries 兜底）、validate_config 校验 rx_retries 上限
  *
  */
 #include "bm/component/tmc2209.h"
+
+#include "bm/common/bm_uptime.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -88,9 +92,17 @@ static uint8_t bm_tmc2209_offline_threshold(const bm_tmc2209_config_t *cfg)
     return cfg->offline_threshold;
 }
 
+/** @brief 单字节接收时间窗口（µs，约 2 个串口字节时间 @9600bps）。 */
+#define BM_TMC2209_BYTE_TIMEOUT_US 2000u
+
 /**
- * @brief 从 UART 读满 len 字节（有界重试）。
- * @return BM_OK 读满；BM_ERR_TIMEOUT 重试耗尽。
+ * @brief 从 UART 读满 len 字节（字节级超时 + 重试兜底，有界）。
+ *
+ * 每收到字节即刷新时间窗口；空转超过 BM_TMC2209_BYTE_TIMEOUT_US 或
+ * 空轮询次数达 rx_retries 兜底上限即判超时，避免零延时忙等在实机上
+ * 瞬时空转耗尽重试而恒超时。
+ *
+ * @return BM_OK 读满；BM_ERR_TIMEOUT 超时。
  */
 static int bm_tmc2209_recv_exact(const bm_tmc2209_axis_t *axis,
                                  uint8_t *buf, size_t len)
@@ -98,14 +110,19 @@ static int bm_tmc2209_recv_exact(const bm_tmc2209_axis_t *axis,
     size_t   got = 0u;
     uint32_t retries = 0u;
     uint32_t max_retries = bm_tmc2209_rx_retries(&axis->config);
+    uint64_t deadline = bm_uptime_us() + (uint64_t)BM_TMC2209_BYTE_TIMEOUT_US;
 
     while (got < len && retries < max_retries) {
         size_t n = bm_hal_uart_recv(axis->config.uart,
                                         buf + got, len - got);
         if (n == 0u) {
+            if (bm_uptime_us() >= deadline) {
+                break;
+            }
             retries++;
         } else {
             got += n;
+            deadline = bm_uptime_us() + (uint64_t)BM_TMC2209_BYTE_TIMEOUT_US;
         }
     }
     return (got == len) ? BM_OK : BM_ERR_TIMEOUT;
@@ -252,7 +269,8 @@ static int bm_tmc2209_send_write_frame(bm_tmc2209_axis_t *axis, uint8_t reg,
 
 int bm_tmc2209_validate_config(const bm_tmc2209_config_t *config) {
     if (config == NULL || config->uart == NULL
-        || config->slave_addr > 3u || config->rsense_ohm <= 0.0f) {
+        || config->slave_addr > 3u || config->rsense_ohm <= 0.0f
+        || config->rx_retries > BM_TMC2209_RX_RETRIES_MAX) {
         return BM_ERR_INVALID;
     }
     return BM_OK;

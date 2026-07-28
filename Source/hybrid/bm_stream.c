@@ -19,10 +19,12 @@
  * 2026-06-15       1.4            zeh            默认禁用 ready 回调并清理旧时间戳
  * 2026-07-15       1.5            zeh            drain 无 handler 分支的 pending_drain 清零收进临界区，消除与 ISR commit 竞态
  * 2026-07-27       1.6            zeh            struct bm_stream 定义下沉到本文件；新增内部字段 accessor 实现
+ * 2026-07-28       1.7            zeh            struct bm_stream 唯一保留在 bm_stream_impl.h，本文件改为 include 复用，消除双份定义
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm_stream.h"
+#include "bm/hybrid/bm_stream_impl.h"
 #include "bm_log.h"
 #include "hal/bm_hal_critical.h"
 #include "hal/bm_hal_cache.h"
@@ -30,20 +32,7 @@
 
 #include <string.h>
 
-/* 不透明结构体定义：外部仅通过 accessor 访问 */
-struct bm_stream {
-    bm_block_t          *blocks;
-    uint32_t             block_count;
-    uint32_t             block_capacity;
-    bm_stream_policy_t   policy;
-    bm_stream_stats_t    stats;
-    bm_stream_ready_fn_t on_ready;
-    void                *on_ready_context;
-    int                  initialized;
-    uint32_t             next_sequence;
-    uint8_t              owner_cpu;
-    volatile uint8_t     pending_drain;
-};
+/* 不透明结构体定义唯一保留在 bm_stream_impl.h，此处经 include 复用 */
 
 /* -------------------------------------------------------------------------
  * 内部字段 accessor 实现

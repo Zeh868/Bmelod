@@ -11,13 +11,17 @@
  * 全部静态分配，零动态内存。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 native_sim 多实例 CAN 后端
+ * 2026-07-28       1.1            zeh            新增 RX 缓冲读取接口
+ *                                             bm_hal_can_native_rx_frame；
+ *                                             裸 -1 哨兵改 BM_ERR_*；
+ *                                             注明 TX_COMPLETE 同步派发契约
  */
 #include "bm_hal_can_native.h"
 #include "bm/common/bm_types.h"
@@ -70,7 +74,7 @@ typedef struct {
 static bm_native_can_state_t s_states[BM_NATIVE_CAN_COUNT];
 
 /**
- * @brief 由设备实例获取索引；无效时返回 -1。
+ * @brief 由设备实例获取索引；无效时返回负值错误码（BM_ERR_INVALID）。
  */
 static int bm_native_can_index_for(const struct bm_hal_can *dev) {
     if (dev == &bm_can_default) {
@@ -79,7 +83,7 @@ static int bm_native_can_index_for(const struct bm_hal_can *dev) {
     if (dev == &bm_native_can1) {
         return (int)BM_NATIVE_CAN_INDEX_NATIVE1;
     }
-    return -1;
+    return BM_ERR_INVALID;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -181,6 +185,28 @@ int bm_hal_can_native_tx_frame(const struct bm_hal_can *dev,
         return BM_ERR_INVALID;
     }
     *frame = state->tx_buf[state->tx_count - 1u];
+    return BM_OK;
+}
+
+int bm_hal_can_native_rx_frame(const struct bm_hal_can *dev,
+                               bm_can_frame_t *frame) {
+    int idx;
+    bm_native_can_state_t *state;
+
+    idx = bm_native_can_index_for(dev);
+    if (idx < 0 || frame == NULL) {
+        return BM_ERR_INVALID;
+    }
+    state = &s_states[idx];
+    if (state->rx_count == 0u) {
+        return BM_ERR_INVALID;
+    }
+    *frame = state->rx_buf[0];
+    state->rx_count--;
+    if (state->rx_count > 0u) {
+        (void)memmove(&state->rx_buf[0], &state->rx_buf[1],
+                      state->rx_count * sizeof(state->rx_buf[0]));
+    }
     return BM_OK;
 }
 
@@ -303,6 +329,7 @@ static int native_can_send(const struct bm_hal_can *dev,
     }
 
     state->stats.tx_count++;
+    /* TX_COMPLETE 同步派发（send 返回前）；按 drv 契约回调内禁止重入 send */
     if (state->event_cb != NULL) {
         state->event_cb(dev, BM_CAN_EVT_TX_COMPLETE, state->event_user);
     }
@@ -317,7 +344,7 @@ static int native_can_find_free_filter(bm_native_can_state_t *state) {
             return (int)i;
         }
     }
-    return -1;
+    return BM_ERR_NO_MEM; /* 无空闲槽（负值） */
 }
 
 static int native_can_add_filter(const struct bm_hal_can *dev,

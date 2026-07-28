@@ -7,6 +7,9 @@
  * @par 修改日志:
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
+ * 2026-07-28       1.1            zeh            契约 3 用例改回直接置位 on_ready
+ *                                                （setter 在默认剖面拒绝非 NULL handler，
+ *                                                无法构造双消费者误配现场）
  */
 
 #include "unity.h"
@@ -234,7 +237,12 @@ static int stream_init_with_on_ready(const bm_exec_t *instance) {
     if (rc != BM_OK) {
         return rc;
     }
-    bm_stream_set_ready_handler(&g_stream, mock_ready_handler, NULL);
+    /*
+     * 直接置位 on_ready（经 impl 头访问内部字段），绕过 setter 守卫：
+     * 默认剖面下 bm_stream_set_ready_handler 会拒绝非 NULL handler，
+     * 无法构造本用例所需的「双消费者」误配现场。
+     */
+    g_stream.on_ready = mock_ready_handler;
     return BM_OK;
 }
 
@@ -505,7 +513,9 @@ void setUp(void) {
     g_fire_hardware_during_stop = 0u;
     g_wrong_safe_stop_count = 0u;
     g_block_run_count = 0u;
-    bm_stream_set_ready_handler(&g_stream, NULL, NULL);
+    /* setter 在 init 后拒改 on_ready，setUp 复位须直接清字段 */
+    g_stream.on_ready = NULL;
+    g_stream.on_ready_context = NULL;
     bm_hal_uptime_native_reset();
     (void)bm_hal_timer_init(1000000u / BM_CONFIG_HRT_TICK_US);
     bm_hal_timer_native_reset_ticks();
