@@ -22,12 +22,14 @@ bm_sdk_stm32g4_apply(bm_vendor_stm32g4)
 # docs/03-移植与IDE集成/01-HAL契约与移植要点.md 133-148 行）。
 # 此处 bm_hal 已由框架根 CMakeLists 在本 pack add_subdirectory 之前创建，
 # 直接对其加 PRIVATE 定义即可（CMake 路径下的可靠途径）。
+# BM_DRV_HAS_NVS_BACKEND：Flash 双槽 NVS 已编入 vendor；Board 须在
+# persist_init 前调用 bm_nvs_stm32g4_set_layout()。
 if(TARGET bm_hal)
-    target_compile_definitions(bm_hal PRIVATE BM_HAL_CPU_HAS_PORT_FREQ)
+    target_compile_definitions(bm_hal PRIVATE
+        BM_HAL_CPU_HAS_PORT_FREQ
+        BM_DRV_HAS_NVS_BACKEND)
 endif()
-
-# 当前 G4 pack 未编入 bm_hal_nvs_load/save 实现，故不得向 bm_hal 或消费者
-# 定义 BM_DRV_HAS_NVS_BACKEND；bm_persist 保持 RAM KV，commit 返回
-# BM_ERR_NOT_SUPPORTED（非成功 no-op）。
+target_compile_definitions(bm_backend_sdk_stm32g4 INTERFACE
+    BM_DRV_HAS_NVS_BACKEND)
 
 add_library(bm_hal_stm32g4 ALIAS bm_backend_sdk_stm32g4)

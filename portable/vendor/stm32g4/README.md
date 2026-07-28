@@ -103,9 +103,10 @@ target_link_libraries(my_app PRIVATE bm_framework bm_hal_stm32g4)
 
 已知缺口：
 
-- NVS/flash 持久化无后端；pack 不声明 `BM_DRV_HAS_NVS_BACKEND`，
-  `bm_persist` 保持 RAM KV，`bm_persist_commit()` 返回 `BM_ERR_NOT_SUPPORTED`
-  （勿当作成功 no-op）；
+- NVS/flash：STM32G4 提供双槽 Flash 后端（`bm_drv_nvs_flash_stm32g4.c` +
+  `bm_nvs_dual_slot`）；pack 声明 `BM_DRV_HAS_NVS_BACKEND`。Board 须在
+  `bm_persist_init()` 前调用 `bm_nvs_stm32g4_set_layout(base_a, base_b, slot_size)`
+  （建议每槽 ≥2KB 页对齐）；未注入布局时 load/save 返回 `BM_ERR_NOT_INIT`；
 - DMA 通道 IRQ 由 `bm_dma_irq_stm32g4` 统一持有 Handler；USART3/SPI1 等
   经 `bm_dma_irq_register` 挂接，Board 须保证通道不重叠（冲突返回
   `BM_ERR_BUSY`）；

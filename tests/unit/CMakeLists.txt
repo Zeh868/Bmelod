@@ -93,6 +93,14 @@ bm_add_test_special(
     LIBS bm_config
     DEFS BM_DRV_HAS_BACKEND)
 
+# NVS 双槽格式（平台无关核心，host 测损坏槽/半写/序号）
+bm_add_test_special(
+    NAME test_nvs_dual_slot
+    SRCS test_nvs_dual_slot.c
+         ${CMAKE_SOURCE_DIR}/portable/vendor/stm32g4/bm_nvs_dual_slot.c
+    LIBS bm_config
+    INCLUDES ${CMAKE_SOURCE_DIR}/portable/vendor/stm32g4)
+
 # Board 接入契约单测
 bm_add_test(test_board test_board.c bm_core)
 

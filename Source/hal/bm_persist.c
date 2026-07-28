@@ -9,8 +9,8 @@
  * 分层说明：
  * - KV 逻辑（set/get/erase）始终可用，操作 RAM 表；
  * - init / commit 在有 BM_DRV_HAS_NVS_BACKEND 时调用真实 NVS 后端；
- *   无 NVS capability 时 init 从空表启动，commit 为 no-op
- *   （RAM KV 正常，掉电不保存）。
+ *   无 NVS capability 时 init 从空表启动，commit 返回 BM_ERR_NOT_SUPPORTED
+ *   （RAM KV 仍可用，掉电不保存）。
  *
  * 序列化 blob 格式（版本 0x02）：
  * @code

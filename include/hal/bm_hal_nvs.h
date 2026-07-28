@@ -11,16 +11,19 @@
  *   若无历史数据（首次上电）返回 BM_ERR_NOT_FOUND；
  * - `bm_hal_nvs_save(buf, size)`：将 buf 中 size 字节原子写入 NVS；
  * - 两者均为同步调用，完成后方才返回；
- * - 嵌入式 flash 后端须自行处理擦除-写入时序（上板留 TODO）。
+ * - 嵌入式 flash 后端须自行处理擦除-写入时序；STM32G4 提供双槽 Flash
+ *   实现（`bm_drv_nvs_flash_stm32g4.c`），Board 经 `bm_nvs_stm32g4_set_layout`
+ *   注入分区后再 commit。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-26
+ * @version 1.1
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-26       1.0            zeh            正式发布（路线图 #10 参数/配置持久化）
+ * 2026-07-28       1.1            zeh            注明 STM32G4 双槽 Flash 后端与布局注入
  *
  */
 #ifndef BM_HAL_NVS_H
@@ -35,9 +38,9 @@ extern "C" {
 /**
  * @brief 从 NVS 后端读取原始字节块
  *
- * 由 portable/sim/ 后端实现：
+ * 由 portable 后端实现：
  * - native_sim：读取指定路径的二进制文件；
- * - flash 后端（TODO）：从 flash 分区读取。
+ * - STM32G4：从双槽 Flash 中选 active 槽读出载荷。
  *
  * @param buf  目标缓冲区（非 NULL，长度 >= size）
  * @param size 需要读取的字节数
