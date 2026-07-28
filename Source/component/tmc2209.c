@@ -12,15 +12,17 @@
  * （config.single_wire 控制）。
  *
  * 接收为有界重试轮询（路径必须有界；应答间字节延迟由重试窗口吸收）。
+ * 写寄存器后读 IFCNT 确认写成功；连续通讯失败达阈值置 offline。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-07-27
+ * @version 1.1
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-27       1.0            zeh            新增（接口批 1 步进伺服栈）
+ * 2026-07-28       1.1            zeh            P0：IFCNT 写确认、GSTAT、DRV_STATUS、斩波模式、离线检测
  *
  */
 #include "bm/component/tmc2209.h"
@@ -34,8 +36,6 @@
 #define BM_TMC2209_WRITE_BIT   0x80u
 /** @brief 读应答中的主机地址字节（恒 0xFF）。 */
 #define BM_TMC2209_MASTER_ADDR 0xFFu
-/** @brief 单字节接收的最大重试轮数（有界性保证）。 */
-#define BM_TMC2209_RX_RETRIES  200u
 
 uint8_t bm_tmc2209_crc8(const uint8_t *data, size_t len) {
     uint8_t crc = 0u;
@@ -56,6 +56,39 @@ uint8_t bm_tmc2209_crc8(const uint8_t *data, size_t len) {
 }
 
 /**
+ * @brief 取有效接收重试次数。
+ */
+static uint32_t bm_tmc2209_rx_retries(const bm_tmc2209_config_t *cfg)
+{
+    if (cfg == NULL || cfg->rx_retries == 0u) {
+        return BM_TMC2209_RX_RETRIES_DEFAULT;
+    }
+    return cfg->rx_retries;
+}
+
+/**
+ * @brief 取写后 IFCNT 确认重试次数。
+ */
+static uint8_t bm_tmc2209_write_retries(const bm_tmc2209_config_t *cfg)
+{
+    if (cfg == NULL || cfg->write_retries == 0u) {
+        return BM_TMC2209_WRITE_RETRIES_DEFAULT;
+    }
+    return cfg->write_retries;
+}
+
+/**
+ * @brief 取连续失败离线阈值。
+ */
+static uint8_t bm_tmc2209_offline_threshold(const bm_tmc2209_config_t *cfg)
+{
+    if (cfg == NULL || cfg->offline_threshold == 0u) {
+        return BM_TMC2209_OFFLINE_THRESHOLD_DEFAULT;
+    }
+    return cfg->offline_threshold;
+}
+
+/**
  * @brief 从 UART 读满 len 字节（有界重试）。
  * @return BM_OK 读满；BM_ERR_TIMEOUT 重试耗尽。
  */
@@ -64,8 +97,9 @@ static int bm_tmc2209_recv_exact(const bm_tmc2209_axis_t *axis,
 {
     size_t   got = 0u;
     uint32_t retries = 0u;
+    uint32_t max_retries = bm_tmc2209_rx_retries(&axis->config);
 
-    while (got < len && retries < BM_TMC2209_RX_RETRIES) {
+    while (got < len && retries < max_retries) {
         size_t n = bm_hal_uart_recv(axis->config.uart,
                                         buf + got, len - got);
         if (n == 0u) {
@@ -78,17 +112,142 @@ static int bm_tmc2209_recv_exact(const bm_tmc2209_axis_t *axis,
 }
 
 /**
- * @brief 组件入口统一校验（axis/uart 非空且已 init）。
+ * @brief 通讯成功：清零连续失败计数。
+ */
+static void bm_tmc2209_comm_success(bm_tmc2209_axis_t *axis)
+{
+    if (axis == NULL) {
+        return;
+    }
+    axis->state.comm_fail_count = 0u;
+}
+
+/**
+ * @brief 通讯失败：递增计数，达阈值置 offline 并清 comm_ok。
+ */
+static void bm_tmc2209_comm_failure(bm_tmc2209_axis_t *axis)
+{
+    uint8_t threshold;
+
+    if (axis == NULL) {
+        return;
+    }
+    threshold = bm_tmc2209_offline_threshold(&axis->config);
+    if (axis->state.comm_fail_count < 255u) {
+        axis->state.comm_fail_count++;
+    }
+    if (axis->state.comm_fail_count >= threshold) {
+        axis->state.offline = 1u;
+        axis->state.comm_ok = 0u;
+    }
+}
+
+/**
+ * @brief 组件入口统一校验（axis/uart 非空且已 init 且未离线）。
  */
 static int bm_tmc2209_check_ready(const bm_tmc2209_axis_t *axis)
 {
     if (axis == NULL) {
         return BM_ERR_INVALID;
     }
-    if (axis->state.comm_ok == 0u) {
+    if (axis->state.comm_ok == 0u || axis->state.offline != 0u) {
         return BM_ERR_NOT_INIT;
     }
     return BM_OK;
+}
+
+/**
+ * @brief 解析 GSTAT 原始值。
+ */
+static void bm_tmc2209_parse_gstat(uint32_t raw, bm_tmc2209_gstat_t *out)
+{
+    out->reset   = (uint8_t)((raw >> 0) & 1u);
+    out->drv_err = (uint8_t)((raw >> 1) & 1u);
+    out->uv_cp   = (uint8_t)((raw >> 2) & 1u);
+}
+
+/**
+ * @brief 解析 DRV_STATUS 原始值。
+ */
+static void bm_tmc2209_parse_drv_status(uint32_t raw, bm_tmc2209_drv_status_t *out)
+{
+    out->raw       = raw;
+    out->otpw      = (uint8_t)((raw >> 0) & 1u);
+    out->ot        = (uint8_t)((raw >> 1) & 1u);
+    out->s2ga      = (uint8_t)((raw >> 2) & 1u);
+    out->s2gb      = (uint8_t)((raw >> 3) & 1u);
+    out->s2vsa     = (uint8_t)((raw >> 4) & 1u);
+    out->s2vsb     = (uint8_t)((raw >> 5) & 1u);
+    out->ola       = (uint8_t)((raw >> 6) & 1u);
+    out->olb       = (uint8_t)((raw >> 7) & 1u);
+    out->cs_actual = (uint8_t)((raw >> 16) & 0x1Fu);
+    out->stealth   = (uint8_t)((raw >> 30) & 1u);
+    out->stst      = (uint8_t)((raw >> 31) & 1u);
+}
+
+/**
+ * @brief 底层读寄存器（不更新通讯成败计数）。
+ */
+static int bm_tmc2209_read_reg_raw(bm_tmc2209_axis_t *axis, uint8_t reg,
+                                   uint32_t *value)
+{
+    uint8_t req[4];
+    uint8_t reply[8];
+    uint8_t echo[4];
+    int     rc;
+
+    if (axis == NULL || value == NULL || (reg & BM_TMC2209_WRITE_BIT) != 0u) {
+        return BM_ERR_INVALID;
+    }
+    req[0] = BM_TMC2209_SYNC;
+    req[1] = axis->config.slave_addr;
+    req[2] = reg;
+    req[3] = bm_tmc2209_crc8(req, 3u);
+    rc = bm_hal_uart_send(axis->config.uart, req, sizeof(req));
+    if (rc != BM_OK) {
+        return rc;
+    }
+    if (axis->config.single_wire != 0u) {
+        rc = bm_tmc2209_recv_exact(axis, echo, sizeof(echo));
+        if (rc != BM_OK) {
+            return rc;
+        }
+    }
+    rc = bm_tmc2209_recv_exact(axis, reply, sizeof(reply));
+    if (rc != BM_OK) {
+        return rc;
+    }
+    if (reply[0] != BM_TMC2209_SYNC
+        || reply[1] != BM_TMC2209_MASTER_ADDR
+        || reply[2] != reg
+        || bm_tmc2209_crc8(reply, 7u) != reply[7]) {
+        return BM_ERR_INVALID;
+    }
+    *value = ((uint32_t)reply[3] << 24) | ((uint32_t)reply[4] << 16)
+             | ((uint32_t)reply[5] << 8) | (uint32_t)reply[6];
+    return BM_OK;
+}
+
+/**
+ * @brief 底层写帧发送（不确认 IFCNT）。
+ */
+static int bm_tmc2209_send_write_frame(bm_tmc2209_axis_t *axis, uint8_t reg,
+                                     uint32_t value)
+{
+    uint8_t frame[8];
+
+    if ((reg & BM_TMC2209_WRITE_BIT) != 0u) {
+        return BM_ERR_INVALID;
+    }
+    frame[0] = BM_TMC2209_SYNC;
+    frame[1] = axis->config.slave_addr;
+    frame[2] = reg | BM_TMC2209_WRITE_BIT;
+    frame[3] = (uint8_t)(value >> 24);
+    frame[4] = (uint8_t)(value >> 16);
+    frame[5] = (uint8_t)(value >> 8);
+    frame[6] = (uint8_t)(value);
+    frame[7] = bm_tmc2209_crc8(frame, 7u);
+    return bm_hal_uart_send(axis->config.uart, frame, sizeof(frame));
 }
 
 int bm_tmc2209_validate_config(const bm_tmc2209_config_t *config) {
@@ -144,13 +303,27 @@ int bm_tmc2209_init(bm_tmc2209_axis_t *axis) {
         ioin = ((uint32_t)reply[3] << 24) | ((uint32_t)reply[4] << 16)
                | ((uint32_t)reply[5] << 8) | (uint32_t)reply[6];
     }
-    (void)ioin;
+    if (((ioin & BM_TMC2209_IOIN_VERSION_MASK) >> 24)
+        != BM_TMC2209_IOIN_VERSION_TMC2209) {
+        return BM_ERR_INVALID;
+    }
     axis->state.comm_ok = 1u;
+
+    if (axis->config.clear_gstat_on_init != 0u) {
+        uint32_t gstat_raw;
+        rc = bm_tmc2209_read_reg_raw(axis, BM_TMC2209_REG_GSTAT, &gstat_raw);
+        if (rc != BM_OK) {
+            axis->state.comm_ok = 0u;
+            return rc;
+        }
+        bm_tmc2209_parse_gstat(gstat_raw, &axis->state.gstat);
+    }
     return BM_OK;
 }
 
 int bm_tmc2209_write_reg(bm_tmc2209_axis_t *axis, uint8_t reg, uint32_t value) {
-    uint8_t frame[8];
+    uint8_t retries;
+    uint8_t attempt;
     int     rc;
 
     rc = bm_tmc2209_check_ready(axis);
@@ -160,56 +333,128 @@ int bm_tmc2209_write_reg(bm_tmc2209_axis_t *axis, uint8_t reg, uint32_t value) {
     if ((reg & BM_TMC2209_WRITE_BIT) != 0u) {
         return BM_ERR_INVALID;
     }
-    frame[0] = BM_TMC2209_SYNC;
-    frame[1] = axis->config.slave_addr;
-    frame[2] = reg | BM_TMC2209_WRITE_BIT;
-    frame[3] = (uint8_t)(value >> 24);
-    frame[4] = (uint8_t)(value >> 16);
-    frame[5] = (uint8_t)(value >> 8);
-    frame[6] = (uint8_t)(value);
-    frame[7] = bm_tmc2209_crc8(frame, 7u);
-    return bm_hal_uart_send(axis->config.uart, frame, sizeof(frame));
+
+    retries = bm_tmc2209_write_retries(&axis->config);
+    for (attempt = 0u; attempt < retries; ++attempt) {
+        uint32_t ifcnt_before = 0u;
+        uint32_t ifcnt_after  = 0u;
+        uint8_t  before;
+        uint8_t  after;
+
+        rc = bm_tmc2209_read_reg_raw(axis, BM_TMC2209_REG_IFCNT, &ifcnt_before);
+        if (rc != BM_OK) {
+            bm_tmc2209_comm_failure(axis);
+            return rc;
+        }
+        before = (uint8_t)(ifcnt_before & 0xFFu);
+
+        rc = bm_tmc2209_send_write_frame(axis, reg, value);
+        if (rc != BM_OK) {
+            bm_tmc2209_comm_failure(axis);
+            return rc;
+        }
+
+        rc = bm_tmc2209_read_reg_raw(axis, BM_TMC2209_REG_IFCNT, &ifcnt_after);
+        if (rc != BM_OK) {
+            bm_tmc2209_comm_failure(axis);
+            return rc;
+        }
+        after = (uint8_t)(ifcnt_after & 0xFFu);
+        if (after == (uint8_t)(before + 1u)) {
+            bm_tmc2209_comm_success(axis);
+            return BM_OK;
+        }
+    }
+
+    bm_tmc2209_comm_failure(axis);
+    return BM_ERR_IO;
 }
 
 int bm_tmc2209_read_reg(bm_tmc2209_axis_t *axis, uint8_t reg, uint32_t *value) {
-    uint8_t req[4];
-    uint8_t reply[8];
-    uint8_t echo[4];
-    int     rc;
+    int rc;
 
     rc = bm_tmc2209_check_ready(axis);
     if (rc != BM_OK) {
         return rc;
     }
-    if (value == NULL || (reg & BM_TMC2209_WRITE_BIT) != 0u) {
+    if (value == NULL) {
         return BM_ERR_INVALID;
     }
-    req[0] = BM_TMC2209_SYNC;
-    req[1] = axis->config.slave_addr;
-    req[2] = reg;
-    req[3] = bm_tmc2209_crc8(req, 3u);
-    rc = bm_hal_uart_send(axis->config.uart, req, sizeof(req));
+    rc = bm_tmc2209_read_reg_raw(axis, reg, value);
+    if (rc != BM_OK) {
+        bm_tmc2209_comm_failure(axis);
+        return rc;
+    }
+    bm_tmc2209_comm_success(axis);
+    return BM_OK;
+}
+
+int bm_tmc2209_read_gstat(bm_tmc2209_axis_t *axis, bm_tmc2209_gstat_t *out) {
+    uint32_t raw = 0u;
+    int      rc;
+
+    rc = bm_tmc2209_read_reg(axis, BM_TMC2209_REG_GSTAT, &raw);
     if (rc != BM_OK) {
         return rc;
     }
-    if (axis->config.single_wire != 0u) {
-        rc = bm_tmc2209_recv_exact(axis, echo, sizeof(echo));
+    bm_tmc2209_parse_gstat(raw, &axis->state.gstat);
+    if (out != NULL) {
+        *out = axis->state.gstat;
+    }
+    return BM_OK;
+}
+
+int bm_tmc2209_clear_gstat(bm_tmc2209_axis_t *axis) {
+    return bm_tmc2209_read_gstat(axis, NULL);
+}
+
+int bm_tmc2209_read_drv_status(bm_tmc2209_axis_t *axis,
+                               bm_tmc2209_drv_status_t *out)
+{
+    uint32_t raw = 0u;
+    int      rc;
+
+    rc = bm_tmc2209_read_reg(axis, BM_TMC2209_REG_DRV_STATUS, &raw);
+    if (rc != BM_OK) {
+        return rc;
+    }
+    bm_tmc2209_parse_drv_status(raw, &axis->state.drv_status);
+    if (out != NULL) {
+        *out = axis->state.drv_status;
+    }
+    return BM_OK;
+}
+
+int bm_tmc2209_set_chopper_mode(bm_tmc2209_axis_t *axis, uint8_t mode) {
+    uint32_t gconf;
+    int      rc;
+
+    if (axis == NULL
+        || (mode != BM_TMC2209_CHOPPER_STEALTH
+            && mode != BM_TMC2209_CHOPPER_SPREAD)) {
+        return BM_ERR_INVALID;
+    }
+    rc = bm_tmc2209_read_reg(axis, BM_TMC2209_REG_GCONF, &gconf);
+    if (rc != BM_OK) {
+        return rc;
+    }
+    if (mode == BM_TMC2209_CHOPPER_SPREAD) {
+        gconf |= BM_TMC2209_GCONF_EN_SPREADCYCLE;
+    } else {
+        gconf &= ~BM_TMC2209_GCONF_EN_SPREADCYCLE;
+    }
+    rc = bm_tmc2209_write_reg(axis, BM_TMC2209_REG_GCONF, gconf);
+    if (rc != BM_OK) {
+        return rc;
+    }
+    if (mode == BM_TMC2209_CHOPPER_STEALTH) {
+        rc = bm_tmc2209_write_reg(axis, BM_TMC2209_REG_PWMCONF,
+                                  BM_TMC2209_PWMCONF_DEFAULT);
         if (rc != BM_OK) {
             return rc;
         }
     }
-    rc = bm_tmc2209_recv_exact(axis, reply, sizeof(reply));
-    if (rc != BM_OK) {
-        return rc;
-    }
-    if (reply[0] != BM_TMC2209_SYNC
-        || reply[1] != BM_TMC2209_MASTER_ADDR
-        || reply[2] != reg
-        || bm_tmc2209_crc8(reply, 7u) != reply[7]) {
-        return BM_ERR_INVALID;
-    }
-    *value = ((uint32_t)reply[3] << 24) | ((uint32_t)reply[4] << 16)
-             | ((uint32_t)reply[5] << 8) | (uint32_t)reply[6];
+    axis->state.chopper_mode = mode;
     return BM_OK;
 }
 

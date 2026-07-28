@@ -569,6 +569,10 @@ if(TARGET bm_component_motor)
     bm_add_test(test_robot_joint_control test_robot_joint_control.c bm_component_motor)
     # 接口批 1 步进伺服栈组件
     bm_add_test(test_stepper_pulse test_stepper_pulse.c bm_component_motor)
+    bm_add_test(test_stepper_pulse_hrtimer_adapter
+                test_stepper_pulse_hrtimer_adapter.c bm_component_motor)
+    target_include_directories(test_stepper_pulse_hrtimer_adapter PRIVATE
+        ${CMAKE_SOURCE_DIR}/portable/sim/native)
     bm_add_test(test_tmc2209 test_tmc2209.c bm_component_motor)
     bm_add_test(test_abs_encoder test_abs_encoder.c bm_component_motor)
 endif()

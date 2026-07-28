@@ -428,6 +428,7 @@ if(BM_ENABLE_COMPONENT_MOTOR)
         Source/component/motor_current_sense.c
         Source/component/robot_joint_control.c
         Source/component/stepper_pulse.c    # 接口批 1：STEP/DIR 步进
+        Source/component/stepper_pulse_hrtimer_adapter.c  # 接口批 1：STEP/DIR + hrtimer 适配
         Source/component/tmc2209.c          # 接口批 1：TMC2209 单线 UART
         Source/component/abs_encoder.c      # 接口批 1：绝对编码器（AS5047P）
     )

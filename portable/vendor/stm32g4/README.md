@@ -18,7 +18,7 @@ LL 头文件与所用 `.c` 由 `cmake/bm_sdk_stm32g4.cmake` 的
 |---|---|
 | `ll_bus` | AHB/APB 外设时钟使能 |
 | `ll_rcc` | LSI 使能/就绪、APB 分频查询、`LL_RCC_GetSystemClocksFreq()`（唯一非内联调用，`stm32g4xx_ll_rcc.c` 经 `BM_STM32G4_LL_SOURCES` 编入，`USE_FULL_LL_DRIVER` 门控） |
-| `ll_gpio` | 引脚模式/AF/上下拉 |
+| `ll_gpio` | 引脚模式/AF/上下拉；EXTI 经 SYSCFG 映射 + EXTI RTSR/FTSR/IMR |
 | `ll_tim` | TIM6 tick、TIM1 三相互补 PWM（中心对齐/OC/死区/TRGO2/BKIN）、TIM3 编码器 |
 | `ll_lpuart` | LPUART1 波特率/收发/RXNE 中断 |
 | `ll_usart` | USART2 设备实例（HDSEL 单线半双工） |
@@ -42,7 +42,7 @@ LL 头文件与所用 `.c` 由 `cmake/bm_sdk_stm32g4.cmake` 的
 | `bm_vendor_adc_stm32g4.c` | 相电流 ADC（ADC1 注入组 ia/ib 双 rank，TIM1 TRGO2 硬件触发，JEOS ISR 缓存+回调） |
 | `bm_vendor_encoder_stm32g4.c` | 增量编码器（TIM3 正交编码器模式 3，4×CPR 计数） |
 | `bm_vendor_comp_stm32g4.c` | 过流比较器（COMP1，`clear_latch` 清 TIM1 break 锁存） |
-| `bm_vendor_gpio_stm32g4.c` | GPIO 设备（bm_drv_gpio 契约，全 GPIOA-G 口，pin 编码 (port<<4)\|num） |
+| `bm_vendor_gpio_stm32g4.c` | GPIO 设备（bm_drv_gpio 契约，全 GPIOA-G 口，pin 编码 (port<<4)\|num）；**EXTI 已实现**（SYSCFG 端口映射、边沿/IMR、NVIC EXTI0..4/9_5/15_10，同 line 端口冲突返回 `BM_ERR_BUSY`） |
 | `bm_vendor_spi_stm32g4.c` | SPI1 阻塞全双工（软件 CS 经 GPIO 设备，时钟/模式可配） |
 | `bm_vendor_uart_dev_stm32g4.c` | USART2 设备实例（统一 bm_hal_uart 实例契约，HDSEL 单线半双工，TMC2209 用） |
 | `bm_vendor_dma_usart2_rx_stm32g4.c` | USART2 RX DMA 块流设备（bm_drv_dma_stream 契约，DMA1 循环模式 + half/full 回调） |
@@ -107,8 +107,9 @@ target_link_libraries(my_app PRIVATE bm_framework bm_hal_stm32g4)
   `bm_persist` 保持 RAM KV，commit 为成功 no-op；
 - DMA stream、I2C/SPI 传感器挂接未实现（实际需要再补；批 2 I2C/DAC/CAN
   为后续独立方案）；
-- GPIO 中断绑定与 AF 配置不在 bm_drv_gpio 契约内（AF 属各外设 vendor
-  内部，限位开关 E1 走轮询）；定时器设备实例契约未建（stepper_pulse
+- GPIO AF 配置不在 bm_drv_gpio 契约内（AF 属各外设 vendor 内部）；
+  **GPIO EXTI 已实现**（`bm_vendor_gpio_stm32g4.c`，可选
+  `bm_gpio_stm32g4_config_t.irq_priority`）；定时器设备实例契约未建（stepper_pulse
   经 resources 回调规避，实机由业务/vendor 绑一路 TIM）；
 - UART TX DMA 未实现（console 打印量小，登记缺口；RX DMA 已有
   bm_stm32g4_usart2_rx_dma）；SPI DMA 仅 SPI1（transfer_async），

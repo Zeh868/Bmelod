@@ -8,13 +8,14 @@
  * 测试可通过 `bm_hal_hrtimer_native_advance_us()` 推进虚拟时间并触发回调。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 native_sim 高精度 Timer 后端
+ * 2026-07-28       1.1            zeh            ONESHOT 回调内重武装不再被覆盖清除
  */
 #include "bm_drv_hrtimer.h"
 #include "hal/bm_hal_hrtimer.h"
@@ -100,6 +101,9 @@ static void bm_native_hrtimer_fire_one(bm_native_hrtimer_state_t *state,
     }
 
     while (now >= state->next_expire_us) {
+        uint64_t expire_before = state->next_expire_us;
+        int      was_oneshot   = (state->mode == BM_HRTIMER_MODE_ONESHOT) ? 1 : 0;
+
         state->stats.irq_count++;
         if (now > state->next_expire_us + BM_NATIVE_HRTIMER_MIN_PERIOD_US) {
             state->stats.deadline_miss_count++;
@@ -111,8 +115,12 @@ static void bm_native_hrtimer_fire_one(bm_native_hrtimer_state_t *state,
 
         if (state->mode == BM_HRTIMER_MODE_PERIODIC) {
             state->next_expire_us += state->period_us;
-        } else {
-            state->running = 0;
+        } else if (was_oneshot != 0) {
+            /* ONESHOT：回调内若已 start/set_compare 重武装则保留 running */
+            if (state->running == 0
+                || state->next_expire_us == expire_before) {
+                state->running = 0;
+            }
             break;
         }
     }

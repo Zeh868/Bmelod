@@ -9,13 +9,14 @@
  * 下一次 on_timer 不翻脉冲、仅武装 dir_setup_us 建立槽一次。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-07-27
+ * @version 1.1
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-27       1.0            zeh            新增（接口批 1 步进伺服栈）
+ * 2026-07-28       1.1            zeh            stop 时 STEP 已为低则跳过 step_low
  *
  */
 #include "bm/component/stepper_pulse.h"
@@ -133,8 +134,10 @@ void bm_stepper_pulse_stop(bm_stepper_pulse_axis_t *axis) {
     axis->state.velocity_sps     = 0.0f;
     axis->state.running          = 0u;
     axis->state.dir_wait_pending = 0u;
+    if (axis->state.step_level != 0u) {
+        axis->resources.step_low(axis->resources.user);
+    }
     axis->state.step_level       = 0u;
-    axis->resources.step_low(axis->resources.user);
     (void)axis->resources.arm_timer(axis->resources.user, 0u);
 }
 
