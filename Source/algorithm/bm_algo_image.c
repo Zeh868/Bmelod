@@ -2,9 +2,10 @@
  * @file bm_algo_image.c
  * @brief 低分辨率图像算子实现
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.3
- * @date 2026-07-09
+ * @version 1.4
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -18,6 +19,7 @@
  *                                                下标改用 uint64_t 计算，
  *                                                避免极端宽高比下 uint32_t
  *                                                溢出产生错值或越界读
+ * 2026-07-28       1.4            zeh            状态返回改用 BM_OK/BM_ERR_*
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -43,10 +45,10 @@ static int image_pixel_count(uint32_t width, uint32_t height, size_t *count) {
     if (count == NULL || width == 0u || height == 0u ||
         width > UINT32_MAX / height ||
         width > INT32_MAX || height > INT32_MAX) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     *count = (size_t)width * (size_t)height;
-    return 0;
+    return BM_OK;
 }
 
 void bm_algo_image_threshold_u8(const uint8_t *src, uint8_t *dst,
@@ -56,7 +58,7 @@ void bm_algo_image_threshold_u8(const uint8_t *src, uint8_t *dst,
     size_t n;
 
     if (src == NULL || dst == NULL ||
-        image_pixel_count(width, height, &n) != 0) {
+        image_pixel_count(width, height, &n) != BM_OK) {
         return;
     }
 
@@ -73,7 +75,7 @@ void bm_algo_image_erode_u8(const uint8_t *src, uint8_t *dst,
 
     if (src == NULL || dst == NULL || src == dst ||
         width < 3u || height < 3u ||
-        image_pixel_count(width, height, &n) != 0) {
+        image_pixel_count(width, height, &n) != BM_OK) {
         return;
     }
     memset(dst, 0, n);
@@ -108,7 +110,7 @@ void bm_algo_image_dilate_u8(const uint8_t *src, uint8_t *dst,
 
     if (src == NULL || dst == NULL || src == dst ||
         width < 3u || height < 3u ||
-        image_pixel_count(width, height, &n) != 0) {
+        image_pixel_count(width, height, &n) != BM_OK) {
         return;
     }
     memset(dst, 0, n);
@@ -150,9 +152,9 @@ int bm_algo_image_label_u8(const uint8_t *binary,
 
     if (binary == NULL || labels == NULL || width == 0u || height == 0u ||
         (blobs == NULL && max_blobs != 0u) ||
-        image_pixel_count(width, height, &pixel_count) != 0 ||
+        image_pixel_count(width, height, &pixel_count) != BM_OK ||
         pixel_count > SIZE_MAX / sizeof(uint16_t)) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
 
     memset(labels, 0, pixel_count * sizeof(uint16_t));
@@ -167,7 +169,7 @@ int bm_algo_image_label_u8(const uint8_t *binary,
 
             if (next_label == 0u) {
                 /* 标签计数器绕回 uint16_t：超过 65535 个连通域，容量溢出。 */
-                return BM_ALGO_ERR_OVERFLOW;
+                return BM_ERR_OVERFLOW;
             }
 
             labels[idx] = next_label;
@@ -239,7 +241,7 @@ int bm_algo_image_label_u8(const uint8_t *binary,
     /* Batch-3：返回实际连通域总数；当输出缓冲放不下时给出溢出提示，
      * 避免调用方把 max_blobs 误当总数。 */
     if (blobs != NULL && total_blobs > max_blobs) {
-        return BM_ALGO_ERR_OVERFLOW;
+        return BM_ERR_OVERFLOW;
     }
     return (int)total_blobs;
 }
@@ -254,7 +256,7 @@ void bm_algo_image_frame_diff_u8(const uint8_t *prev,
     size_t n;
 
     if (prev == NULL || curr == NULL || diff == NULL ||
-        image_pixel_count(width, height, &n) != 0) {
+        image_pixel_count(width, height, &n) != BM_OK) {
         return;
     }
 
@@ -275,7 +277,7 @@ void bm_algo_image_rgb565_to_gray_u8(const uint16_t *rgb565,
     size_t n;
 
     if (rgb565 == NULL || gray == NULL ||
-        image_pixel_count(width, height, &n) != 0) {
+        image_pixel_count(width, height, &n) != BM_OK) {
         return;
     }
 
@@ -304,14 +306,14 @@ int bm_algo_image_crop_u8(const uint8_t *src,
     if (src == NULL || rect == NULL || dst == NULL ||
         src_width == 0u || src_height == 0u ||
         rect->width == 0u || rect->height == 0u ||
-        image_pixel_count(src_width, src_height, &src_n) != 0) {
-        return BM_ALGO_ERR_INVALID;
+        image_pixel_count(src_width, src_height, &src_n) != BM_OK) {
+        return BM_ERR_INVALID;
     }
 
     /* 越界检查用减法避免 u32 加法回绕（x 接近 UINT32_MAX 时 x+width 溢出）。 */
     if (rect->x >= src_width || rect->width > src_width - rect->x ||
         rect->y >= src_height || rect->height > src_height - rect->y) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
 
     for (row = 0u; row < rect->height; ++row) {
@@ -321,7 +323,7 @@ int bm_algo_image_crop_u8(const uint8_t *src,
 
         memcpy(dst_row, src_row, (size_t)rect->width);
     }
-    return 0;
+    return BM_OK;
 }
 
 int bm_algo_image_resize_u8(const uint8_t *src,
@@ -343,9 +345,9 @@ int bm_algo_image_resize_u8(const uint8_t *src,
     if (src == NULL || dst == NULL ||
         src_width == 0u || src_height == 0u ||
         dst_width == 0u || dst_height == 0u ||
-        image_pixel_count(src_width, src_height, &src_n) != 0 ||
-        image_pixel_count(dst_width, dst_height, &dst_n) != 0) {
-        return BM_ALGO_ERR_INVALID;
+        image_pixel_count(src_width, src_height, &src_n) != BM_OK ||
+        image_pixel_count(dst_width, dst_height, &dst_n) != BM_OK) {
+        return BM_ERR_INVALID;
     }
 
     for (y = 0u; y < dst_height; ++y) {
@@ -358,5 +360,5 @@ int bm_algo_image_resize_u8(const uint8_t *src,
             dst[dst_row + x] = src[src_row + src_x];
         }
     }
-    return 0;
+    return BM_OK;
 }

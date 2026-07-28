@@ -4,8 +4,8 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.4
- * @date 2026-07-09
+ * @version 1.5
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -17,11 +17,14 @@
  * 2026-07-09       1.4            zeh            H9：ekf_cv_predict/update 补
  *                                                NaN/Inf 输入护栏，避免一次
  *                                                毛刺永久污染持久协方差状态
+ * 2026-07-28       1.5            zeh            更新状态返回对齐 BM_OK/BM_ERR_INVALID
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_ALGO_ESTIMATOR_H
 #define BM_ALGO_ESTIMATOR_H
+
+#include "bm/algorithm/bm_algo_errors.h"
 
 #include <stdint.h>
 #include <stddef.h>
@@ -105,7 +108,7 @@ void bm_algo_ukf1d_predict(bm_algo_ukf1d_state_t *state,
  * @param state       滤波器状态（x, p）
  * @param config      滤波器配置（r, q, measurement_model）
  * @param measurement 当前测量值
- * @return BM_ALGO_EKF_UPDATE_OK / BM_ALGO_EKF_UPDATE_INVALID
+ * @return BM_OK 成功；BM_ERR_INVALID 参数或计算状态非法
  */
 int bm_algo_ukf1d_update(bm_algo_ukf1d_state_t *state,
                          const bm_algo_ukf1d_config_t *config,
@@ -116,9 +119,12 @@ typedef struct {
     float innovation_threshold; /**< 归一化创新平方阈值（马氏距离平方） */
 } bm_algo_ekf_gate_config_t;
 
-#define BM_ALGO_EKF_UPDATE_OK      0
+/** @brief 兼容别名：更新成功。 */
+#define BM_ALGO_EKF_UPDATE_OK      BM_OK
+/** @brief 业务哨兵：门控拒绝，不是参数或执行错误。 */
 #define BM_ALGO_EKF_UPDATE_GATED  (-1)
-#define BM_ALGO_EKF_UPDATE_INVALID (-2)
+/** @brief 兼容别名：参数或计算状态非法。 */
+#define BM_ALGO_EKF_UPDATE_INVALID BM_ERR_INVALID
 
 /**
  * @brief 判断创新是否通过门控
@@ -126,7 +132,7 @@ typedef struct {
  * @param innovation 创新（测量残差）
  * @param innovation_var 创新方差 S（须 > 0）
  * @param threshold 归一化创新平方上限
- * @return 1 接受；0 拒绝
+ * @return 1 接受；0 拒绝（返回值即载荷）
  */
 int bm_algo_ekf_gate_accept(float innovation,
                             float innovation_var,
@@ -138,7 +144,8 @@ int bm_algo_ekf_gate_accept(float innovation,
  * 门控失败时跳过协方差与状态更新，返回 BM_ALGO_EKF_UPDATE_GATED。
  *
  * @param gate 门控配置；NULL 时等同无门控更新
- * @return BM_ALGO_EKF_UPDATE_OK / GATED / INVALID
+ * @return BM_OK 更新成功；BM_ALGO_EKF_UPDATE_GATED 表示正常业务门控拒绝；
+ *         BM_ERR_INVALID 表示参数或计算状态非法
  */
 int bm_algo_ekf_cv_update_gated(bm_algo_ekf_cv_state_t *state,
                                 const bm_algo_ekf_cv_config_t *config,

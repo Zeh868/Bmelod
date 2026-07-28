@@ -2,13 +2,21 @@
  * @file test_stream_relay.c
  * @brief BM_STREAM_RELAY 跨核 relay 单元测试
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-19
+ * @version 1.1
+ * @date 2026-07-28
+ *
+ * @par 修改日志:
+ *
+ *    Date         Version        Author          Description
+ * 2026-06-19       1.0            zeh            正式发布
+ * 2026-07-28       1.1            zeh            显式包含 CPU HAL 公开声明
  */
 #include "unity.h"
 #include "bm/hybrid/bm_stream_relay.h"
 #include "bm_hal_cpu_mp_native.h"
+#include "hal/bm_hal_cpu.h"
 
 #include <string.h>
 

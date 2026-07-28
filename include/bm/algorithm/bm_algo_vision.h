@@ -6,13 +6,14 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-13
+ * @version 1.1
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            初始版本
+ * 2026-07-28       1.1            zeh            状态返回文档对齐 BM_OK/BM_ERR_*
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -52,9 +53,9 @@ void bm_algo_vision_sobel_u8(const uint8_t *src, int16_t *gx, int16_t *gy,
  * @param height 图像高度（像素）
  * @param cx     输出质心 x 坐标（浮点）
  * @param cy     输出质心 y 坐标（浮点）
- * @return 0 成功；无前景像素时返回 BM_ALGO_ERR_NOT_FOUND，
- *         宽高相乘溢出时返回 BM_ALGO_ERR_OVERFLOW，参数无效时返回
- *         BM_ALGO_ERR_INVALID（三者数值均为 -1）
+ * @return BM_OK 成功；无前景像素时返回 BM_ERR_NOT_FOUND，
+ *         宽高相乘溢出时返回 BM_ERR_OVERFLOW，参数无效时返回
+ *         BM_ERR_INVALID
  */
 int bm_algo_vision_centroid_u8(const uint8_t *mask,
                                uint32_t width,
@@ -79,9 +80,8 @@ int bm_algo_vision_centroid_u8(const uint8_t *mask,
  * @param search_radius 搜索半径（像素），在 [-r, +r]×[-r, +r] 内枚举
  * @param dx            输出最佳水平位移
  * @param dy            输出最佳垂直位移
- * @return 0 成功；参数无效时返回 BM_ALGO_ERR_INVALID，搜索区域完全
- *         越界（无有效候选匹配）时返回 BM_ALGO_ERR_NOT_FOUND
- *         （两者数值均为 -1）
+ * @return BM_OK 成功；参数无效时返回 BM_ERR_INVALID，搜索区域完全
+ *         越界（无有效候选匹配）时返回 BM_ERR_NOT_FOUND
  */
 int bm_algo_vision_block_flow_u8(const uint8_t *prev,
                                  const uint8_t *curr,

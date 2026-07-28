@@ -8,8 +8,9 @@
  * bm_limit_switch_poll() 完成消抖并统一改写状态、触发事件回调。
  * 组件只上报事件，不决定整机动作。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -21,6 +22,7 @@
  *                                               推导有效电平支持低电平有效开关；
  *                                               last_event_us 读写加临界区；
  *                                               事件计数统一为消抖后事件
+ * 2026-07-28       1.2            zeh            改用 bm/common 防抖纯算法
  */
 #include "bm/component/bm_limit_switch.h"
 #include "hal/bm_hal_critical.h"
@@ -116,7 +118,7 @@ void bm_limit_switch_reset(bm_limit_switch_t *ls) {
     }
     if (ls->config.stable_us != 0u) {
         ls->state.debounce.config.stable_us = ls->config.stable_us;
-        (void)bm_input_debounce_init(&ls->state.debounce);
+        bm_input_debounce_common_reset(&ls->state.debounce);
     }
     ls->state.triggered = 0;
     ls->state.latched = 0;
@@ -164,9 +166,9 @@ void bm_limit_switch_poll(bm_limit_switch_t *ls) {
         return;
     }
     now = bm_uptime_us();
-    if (bm_input_debounce_update(&ls->state.debounce, level, now)) {
+    if (bm_input_debounce_common_update(&ls->state.debounce, level, now)) {
         ls->state.triggered =
-            (bm_input_debounce_filtered(&ls->state.debounce) ==
+            (bm_input_debounce_common_filtered(&ls->state.debounce) ==
              bm_limit_switch_active_level(ls->config.flags)) ? 1 : 0;
         if (ls->state.triggered) {
             ls->state.latched = 1;

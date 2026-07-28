@@ -8,7 +8,7 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -18,12 +18,13 @@
  * 2026-07-28       1.1            zeh            注明由 EXTI 沿推导有效电平：
  *                                               FALLING 为低电平有效，
  *                                               BOTH 维持高电平有效
+ * 2026-07-28       1.2            zeh            改用 bm/common 防抖词汇
  */
 #ifndef BM_LIMIT_SWITCH_H
 #define BM_LIMIT_SWITCH_H
 
 #include "hal/bm_hal_gpio.h"
-#include "bm/component/bm_input_debounce.h"
+#include "bm/common/bm_input_debounce.h"
 #include "bm/common/bm_types.h"
 
 #include <stdint.h>

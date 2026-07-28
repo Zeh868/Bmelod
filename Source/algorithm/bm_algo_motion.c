@@ -2,9 +2,10 @@
  * @file bm_algo_motion.c
  * @brief 运动辅助：编码器与 DDA 实现
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.3
- * @date 2026-07-13
+ * @version 1.4
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -19,6 +20,8 @@
  *                                                本拍等效位移直接求得（消除
  *                                                大位置相减的灾难性抵消）；
  *                                                位置改 double 中间量计算
+ * 2026-07-28       1.4            zeh            步进脉冲生成改为有限计数与
+ *                                                容量上界循环，拒绝不可表示输入
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -32,6 +35,9 @@
 #ifndef BM_ALGO_PI_F
 #define BM_ALGO_PI_F 3.14159265358979323846f
 #endif
+
+/** 步进脉冲计数不可转换为 uint32_t 的相位阈值。 */
+#define BM_ALGO_STEPPER_COUNT_LIMIT_F 4294967296.0f
 
 void bm_algo_encoder_reset(bm_algo_encoder_state_t *state,
                            const bm_algo_encoder_config_t *config,
@@ -216,11 +222,20 @@ uint32_t bm_algo_stepper_process(bm_algo_stepper_state_t *state,
                                  int8_t *pulses,
                                  uint32_t max_pulses) {
     float max_vel;
+    float phase_increment;
+    float phase_total;
+    float next_phase;
+    double next_phase_d;
     int8_t dir;
-    uint32_t count = 0u;
+    uint32_t available_steps;
+    uint32_t emitted_steps;
+    uint32_t i;
+    int64_t next_position;
 
     if (state == NULL || config == NULL ||
-        !bm_algo_is_finite_f(dt_s) || dt_s <= 0.0f) {
+        !bm_algo_is_finite_f(dt_s) || dt_s <= 0.0f ||
+        !bm_algo_is_finite_f(state->phase) || state->phase < 0.0f ||
+        !bm_algo_is_finite_f(config->max_velocity_steps_s)) {
         return 0u;
     }
     /* velocity_steps_s 非有限（NaN/Inf）时下方钳位/符号判断均为 false，
@@ -244,22 +259,41 @@ uint32_t bm_algo_stepper_process(bm_algo_stepper_state_t *state,
     }
 
     dir = (velocity_steps_s > 0.0f) ? 1 : -1;
-    state->phase += fabsf(velocity_steps_s) * dt_s;
-
-    while (state->phase >= 1.0f) {
-        if (pulses != NULL && count >= max_pulses) {
-            break;
-        }
-        state->phase -= 1.0f;
-        state->position_steps += dir;
-        if (pulses != NULL) {
-            pulses[count++] = dir;
-        } else {
-            count++;
-        }
+    phase_increment = fabsf(velocity_steps_s) * dt_s;
+    phase_total = state->phase + phase_increment;
+    if (!bm_algo_is_finite_f(phase_increment) ||
+        !bm_algo_is_finite_f(phase_total) ||
+        phase_total >= BM_ALGO_STEPPER_COUNT_LIMIT_F) {
+        return 0u;
     }
 
-    return count;
+    available_steps = (uint32_t)phase_total;
+    emitted_steps = (pulses != NULL && available_steps > max_pulses)
+                        ? max_pulses
+                        : available_steps;
+    next_position = (int64_t)state->position_steps +
+                    ((dir > 0) ? (int64_t)emitted_steps
+                               : -(int64_t)emitted_steps);
+    if (next_position > (int64_t)INT32_MAX ||
+        next_position < (int64_t)INT32_MIN) {
+        return 0u;
+    }
+
+    next_phase_d = (double)phase_total - (double)emitted_steps;
+    next_phase = (float)next_phase_d;
+    if (!bm_algo_is_finite_f(next_phase) || next_phase < 0.0f ||
+        (double)next_phase != next_phase_d) {
+        return 0u;
+    }
+
+    if (pulses != NULL) {
+        for (i = 0u; i < emitted_steps; ++i) {
+            pulses[i] = dir;
+        }
+    }
+    state->phase = next_phase;
+    state->position_steps = (int32_t)next_position;
+    return emitted_steps;
 }
 
 void bm_algo_encoder_diag_reset(bm_algo_encoder_diag_state_t *state,

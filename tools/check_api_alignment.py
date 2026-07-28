@@ -17,6 +17,7 @@ EXPECTED_APIS = {
     "bm_event_process": "int bm_event_process(uint32_t max_events)",
     # Mempool
     "bm_mempool_alloc": "void *bm_mempool_alloc(bm_mempool_t *pool)",
+    "bm_mempool_try_free": "int bm_mempool_try_free(bm_mempool_t *pool, void *obj)",
     "bm_mempool_free": "void bm_mempool_free(bm_mempool_t *pool, void *obj)",
     # Atomic helpers
     "bm_atomic_load": "uint32_t bm_atomic_load(bm_atomic_t *value)",

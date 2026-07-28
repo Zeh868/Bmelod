@@ -7,7 +7,7 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -16,12 +16,13 @@
  * 2026-07-28       1.0            zeh            新增急停输入通用组件
  * 2026-07-28       1.1            zeh            组件改为 poll-only，不再注册
  *                                               EXTI；同步更新 init 文档
+ * 2026-07-28       1.2            zeh            改用 bm/common 防抖词汇
  */
 #ifndef BM_ESTOP_INPUT_H
 #define BM_ESTOP_INPUT_H
 
 #include "hal/bm_hal_gpio.h"
-#include "bm/component/bm_input_debounce.h"
+#include "bm/common/bm_input_debounce.h"
 #include "bm/common/bm_types.h"
 
 #include <stdint.h>

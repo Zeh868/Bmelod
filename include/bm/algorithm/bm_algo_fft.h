@@ -6,13 +6,14 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-13
+ * @version 1.1
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
+ * 2026-07-28       1.1            zeh            状态返回文档对齐 BM_OK/BM_ERR_*
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -71,7 +72,7 @@ int bm_algo_fft_is_supported_size(uint32_t size);
  * @param size       FFT 点数（需为 BM_ALGO_FFT_SIZE_* 之一）
  * @param work       外部提供的工作缓冲，长度须 ≥ 2*size（不可为 NULL）
  * @param work_count work 数组元素个数
- * @return 0 成功；BM_ALGO_ERR_INVALID 参数非法（size 不支持或缓冲不足）
+ * @return BM_OK 成功；BM_ERR_INVALID 参数非法（size 不支持或缓冲不足）
  */
 int bm_algo_cfft_f32_init(bm_algo_cfft_f32_t *fft,
                           uint32_t size,
@@ -83,7 +84,7 @@ int bm_algo_cfft_f32_init(bm_algo_cfft_f32_t *fft,
  *
  * @param fft       已初始化的 FFT 实例（不可为 NULL）
  * @param real_imag 输入/输出复数交错数组 [re0,im0,re1,im1,...]，长度 2*size
- * @return 0 成功；BM_ALGO_ERR_INVALID 参数为 NULL
+ * @return BM_OK 成功；BM_ERR_INVALID 参数为 NULL
  */
 int bm_algo_cfft_f32_forward(bm_algo_cfft_f32_t *fft, float *real_imag);
 
@@ -92,7 +93,7 @@ int bm_algo_cfft_f32_forward(bm_algo_cfft_f32_t *fft, float *real_imag);
  *
  * @param fft       已初始化的 FFT 实例（不可为 NULL）
  * @param real_imag 输入/输出复数交错数组，长度 2*size
- * @return 0 成功；BM_ALGO_ERR_INVALID 参数为 NULL
+ * @return BM_OK 成功；BM_ERR_INVALID 参数为 NULL
  */
 int bm_algo_cfft_f32_inverse(bm_algo_cfft_f32_t *fft, float *real_imag);
 
@@ -103,7 +104,7 @@ int bm_algo_cfft_f32_inverse(bm_algo_cfft_f32_t *fft, float *real_imag);
  * @param size       FFT 点数（需为 BM_ALGO_FFT_SIZE_* 之一）
  * @param work       外部工作缓冲，长度须 ≥ 2*size（不可为 NULL）
  * @param work_count work 数组元素个数
- * @return 0 成功；BM_ALGO_ERR_INVALID 参数非法
+ * @return BM_OK 成功；BM_ERR_INVALID 参数非法
  */
 int bm_algo_rfft_f32_init(bm_algo_rfft_f32_t *fft,
                           uint32_t size,
@@ -116,7 +117,7 @@ int bm_algo_rfft_f32_init(bm_algo_rfft_f32_t *fft,
  * @param fft         已初始化的 RFFT 实例（不可为 NULL）
  * @param time_data   时域实数输入，长度 size
  * @param spectrum_mag 输出幅值谱，长度 size/2+1（DC 到 Nyquist）
- * @return 0 成功；BM_ALGO_ERR_INVALID 参数为 NULL 或工作区未初始化
+ * @return BM_OK 成功；BM_ERR_INVALID 参数为 NULL 或工作区未初始化
  */
 int bm_algo_rfft_f32_execute(bm_algo_rfft_f32_t *fft,
                              const float *time_data,

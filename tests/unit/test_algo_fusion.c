@@ -5,14 +5,16 @@
  * 由 test_algorithm.c 按域拆分而来（架构改进计划任务 1.5b 项 6），纯移动、
  * 不改测试内容；测试用例总数与拆分前的 Unity 内部计数之和保持不变。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-07-02
+ * @version 1.1
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-02       1.0            zeh            自 test_algorithm.c 拆分
+ * 2026-07-28       1.1            zeh            UKF 成功状态断言改用 BM_OK
  *
  */
 
@@ -55,7 +57,7 @@ static void test_ukf1d_identity_tracks_measurement(void) {
     bm_algo_ukf1d_reset(&st, 0.0f, 1.0f);
     for (i = 0; i < 30; ++i) {
         bm_algo_ukf1d_predict(&st, &cfg);
-        TEST_ASSERT_EQUAL(BM_ALGO_EKF_UPDATE_OK,
+        TEST_ASSERT_EQUAL(BM_OK,
                           bm_algo_ukf1d_update(&st, &cfg, 2.0f));
     }
     TEST_ASSERT_FLOAT_WITHIN(0.1f, 2.0f, st.x);
@@ -72,7 +74,7 @@ static void test_ukf1d_square_model_updates(void) {
 
     bm_algo_ukf1d_reset(&st, 2.0f, 0.5f);
     bm_algo_ukf1d_predict(&st, &cfg);
-    TEST_ASSERT_EQUAL(BM_ALGO_EKF_UPDATE_OK,
+    TEST_ASSERT_EQUAL(BM_OK,
                       bm_algo_ukf1d_update(&st, &cfg, 4.0f));
     TEST_ASSERT_TRUE(isfinite(st.x));
 }
@@ -128,7 +130,7 @@ static void test_ekf_gate_and_gated_update(void) {
                       bm_algo_ekf_cv_update_gated(&st, &cfg, 100.0f, &gate));
     TEST_ASSERT_FLOAT_WITHIN(0.0001f, pos_before, st.pos);
 
-    TEST_ASSERT_EQUAL(BM_ALGO_EKF_UPDATE_OK,
+    TEST_ASSERT_EQUAL(BM_OK,
                       bm_algo_ekf_cv_update_gated(&st, &cfg, 0.2f, &gate));
     TEST_ASSERT_TRUE(fabsf(st.pos - pos_before) > 0.0f);
 }
@@ -154,10 +156,10 @@ static void test_imu_calib_apply_and_accumulator(void) {
 
     bm_algo_imu_calib_accumulator_reset(&acc);
     for (i = 0; i < 10; ++i) {
-        TEST_ASSERT_EQUAL(0, bm_algo_imu_calib_accumulator_feed(&acc, raw_g, raw_a));
+        TEST_ASSERT_EQUAL(BM_OK, bm_algo_imu_calib_accumulator_feed(&acc, raw_g, raw_a));
     }
     memset(&calib, 0, sizeof(calib));
-    TEST_ASSERT_EQUAL(0, bm_algo_imu_calib_accumulator_finish(&acc, expect_g, &calib));
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_imu_calib_accumulator_finish(&acc, expect_g, &calib));
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.2f, calib.gyro_bias[0]);
     TEST_ASSERT_FLOAT_WITHIN(0.05f, 0.1f, calib.accel_bias[2]);
 }

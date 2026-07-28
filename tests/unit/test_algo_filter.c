@@ -5,14 +5,17 @@
  * 由 test_algorithm.c 按域拆分而来（架构改进计划任务 1.5b 项 6），纯移动、
  * 不改测试内容；测试用例总数与拆分前的 Unity 内部计数之和保持不变。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-07-02
+ * @version 1.2
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-02       1.0            zeh            自 test_algorithm.c 拆分
+ * 2026-07-28       1.1            zeh            补充步进极值与状态边界测试
+ * 2026-07-28       1.2            zeh            状态断言改用 BM_OK
  *
  */
 
@@ -22,6 +25,7 @@
 #include <math.h>
 #include <string.h>
 #include <limits.h>
+#include <float.h>
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -32,7 +36,7 @@ static void test_lpf1_step(void) {
     float v = 0.0f;
     int i;
 
-    TEST_ASSERT_EQUAL(0, bm_algo_lpf1_init_from_cutoff(&cfg, 10.0f, 1000.0f));
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_lpf1_init_from_cutoff(&cfg, 10.0f, 1000.0f));
     bm_algo_lpf1_reset(&st, 0.0f);
     for (i = 0; i < 500; ++i) {
         v = bm_algo_lpf1_step(&st, &cfg, 1.0f);
@@ -47,7 +51,7 @@ static void test_hpf1_uses_high_pass_coefficient(void) {
     float settled = 0.0f;
     int i;
 
-    TEST_ASSERT_EQUAL(0, bm_algo_hpf1_init_from_cutoff(&cfg, 10.0f, 1000.0f));
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_hpf1_init_from_cutoff(&cfg, 10.0f, 1000.0f));
     bm_algo_hpf1_reset(&st);
     first = bm_algo_hpf1_step(&st, &cfg, 1.0f);
     for (i = 0; i < 200; ++i) {
@@ -69,8 +73,8 @@ static void test_rfft_execute(void) {
         time_data[i] = sinf(2.0f * 3.14159265f * 4.0f * (float)i / (float)BM_ALGO_FFT_SIZE_64);
     }
 
-    TEST_ASSERT_EQUAL(0, bm_algo_rfft_f32_init(&fft, BM_ALGO_FFT_SIZE_64, work, (uint32_t)(sizeof(work) / sizeof(work[0]))));
-    TEST_ASSERT_EQUAL(0, bm_algo_rfft_f32_execute(&fft, time_data, spectrum));
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_rfft_f32_init(&fft, BM_ALGO_FFT_SIZE_64, work, (uint32_t)(sizeof(work) / sizeof(work[0]))));
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_rfft_f32_execute(&fft, time_data, spectrum));
     TEST_ASSERT_TRUE(spectrum[4] > spectrum[3]);
     TEST_ASSERT_TRUE(spectrum[4] > spectrum[5]);
 }
@@ -106,7 +110,7 @@ static void test_linear_resampler_ratio_and_capacity(void) {
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 2.0f, outputs[0]);
 
     bm_algo_linear_resampler_reset(&st, 3.0f, 0.0f);
-    TEST_ASSERT_EQUAL(-1, bm_algo_linear_resampler_step(
+    TEST_ASSERT_EQUAL(BM_ERR_OVERFLOW, bm_algo_linear_resampler_step(
         &st, 1.0f, outputs, 2u, &count));
     TEST_ASSERT_EQUAL_UINT32(0u, count);
 }
@@ -121,7 +125,7 @@ static const bm_algo_goertzel_config_t s_readonly_goertzel_config = {
 static void test_goertzel_accepts_readonly_config(void) {
     bm_algo_goertzel_state_t st;
 
-    TEST_ASSERT_EQUAL(0, bm_algo_goertzel_init(
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_goertzel_init(
         &st, &s_readonly_goertzel_config));
     TEST_ASSERT_TRUE(fabsf(st.coeff) > 0.1f);
     TEST_ASSERT_FLOAT_WITHIN(
@@ -141,7 +145,7 @@ static void test_stft_overlap_emits_hop_frames(void) {
     int i;
     int rc;
 
-    TEST_ASSERT_EQUAL(0, bm_algo_stft_overlap_init(&st, &cfg, ring, 8u));
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_stft_overlap_init(&st, &cfg, ring, 8u));
     for (i = 0; i < 20; ++i) {
         float sample = (i < 8) ? 1.0f : 0.0f;
         rc = bm_algo_stft_overlap_feed(&st, &cfg, sample, mag, 8u);
@@ -213,7 +217,7 @@ static void test_eq_stepper_and_smith_regressions(void) {
     float low_measurement;
     float high_measurement;
 
-    TEST_ASSERT_EQUAL(0, bm_algo_eq_peaking_design(&eq, &eq_cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_eq_peaking_design(&eq, &eq_cfg));
     bm_algo_eq_peaking_process(&eq, &eq_cfg, impulse, eq_out, 4u);
     TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, eq_out[0]);
     TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.0f, eq_out[1]);
@@ -227,7 +231,7 @@ static void test_eq_stepper_and_smith_regressions(void) {
     TEST_ASSERT_TRUE(step.phase >= 1.0f);
 
     TEST_ASSERT_EQUAL(
-        0,
+        BM_OK,
         bm_algo_smith_predictor_init(
             &smith, &smith_cfg, delay_line, 1u));
     low_measurement = bm_algo_smith_predictor_step(
@@ -236,6 +240,34 @@ static void test_eq_stepper_and_smith_regressions(void) {
     high_measurement = bm_algo_smith_predictor_step(
         &smith, &smith_cfg, 5.0f, 3.0f, 1.0f);
     TEST_ASSERT_TRUE(high_measurement < low_measurement);
+}
+
+/**
+ * @brief 步进极值与位置边界拒绝时不污染状态
+ */
+static void test_stepper_rejects_unrepresentable_state_updates(void) {
+    bm_algo_stepper_config_t cfg = { .max_velocity_steps_s = 0.0f };
+    bm_algo_stepper_state_t step;
+    int8_t pulse = 0;
+
+    bm_algo_stepper_reset(&step, 17);
+    step.phase = 0.5f;
+    TEST_ASSERT_EQUAL_UINT32(0u,
+        bm_algo_stepper_process(&step, &cfg, FLT_MAX, 2.0f, NULL, 0u));
+    TEST_ASSERT_EQUAL_FLOAT(0.5f, step.phase);
+    TEST_ASSERT_EQUAL_INT32(17, step.position_steps);
+
+    bm_algo_stepper_reset(&step, INT32_MAX);
+    TEST_ASSERT_EQUAL_UINT32(0u,
+        bm_algo_stepper_process(&step, &cfg, 1.0f, 1.0f, NULL, 0u));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, step.phase);
+    TEST_ASSERT_EQUAL_INT32(INT32_MAX, step.position_steps);
+
+    bm_algo_stepper_reset(&step, 5);
+    TEST_ASSERT_EQUAL_UINT32(0u,
+        bm_algo_stepper_process(&step, &cfg, 1.0f, 1.0f, &pulse, 0u));
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, step.phase);
+    TEST_ASSERT_EQUAL_INT32(5, step.position_steps);
 }
 
 void test_algo_filter(void) {
@@ -249,6 +281,7 @@ void test_algo_filter(void) {
     RUN_TEST(test_sogi_states_decay_after_input_stops);
     RUN_TEST(test_matched_filter_accepts_negative_correlations);
     RUN_TEST(test_eq_stepper_and_smith_regressions);
+    RUN_TEST(test_stepper_rejects_unrepresentable_state_updates);
 }
 
 int main(void) {

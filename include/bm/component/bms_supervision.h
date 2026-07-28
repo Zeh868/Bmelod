@@ -1,22 +1,23 @@
 /**
  * @file bms_supervision.h
- * @brief BMS Pack 监督：限值检查与 fault_derating 集成
+ * @brief BMS Pack 监督：限值检查与降额服务集成
  *
- * 封装电压/电流/温度越限检测，驱动 fault_derating 组件进行降额，
+ * 封装电压/电流/温度越限检测，通过 common 降额服务进行降额，
  * 并提供 bm_exec_ops_t 调度封装以接入 bm_exec 生命周期管理。
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.3
- * @date 2026-07-27
+ * @version 0.4
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 exec_ops 声明；补全公共函数 Doxygen；SPDX 头
- * 2026-07-27       0.3            zeh            解耦 fault_derating：内嵌轴改为 resources 指针，
- *                                                 头文件不再 include fault_derating.h
+ * 2026-07-27       0.3            zeh            解耦旧降额实现：内嵌轴改为 resources 指针
+ *
+ * 2026-07-28       0.4            zeh            使用 common 降额服务契约，移除组件类型依赖
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -25,15 +26,13 @@
 
 #include "bm/hybrid/bm_exec.h"
 #include "bm/algorithm/bm_algo_profile.h"
+#include "bm/common/bm_derating_service.h"
 
 #include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/** @brief fault_derating 组件轴（前向声明，避免组件头互相 include） */
-typedef struct bm_fault_derating_axis bm_fault_derating_axis_t;
 
 #define BM_BMS_SUP_TEL_VALID    (1u << 0u)
 #define BM_BMS_SUP_TEL_DERATED  (1u << 1u)
@@ -63,7 +62,7 @@ typedef struct {
     void                             *read_sample_user;
     bm_bms_supervision_publish_fn     publish_telemetry;
     void                             *publish_telemetry_user;
-    bm_fault_derating_axis_t         *derating; /**< 外部 fault_derating 轴实例，须非空 */
+    bm_derating_service_t             derating; /**< 外部降额服务绑定，所有字段须有效 */
 } bm_bms_supervision_resources_t;
 
 #define BM_BMS_SUP_LIMIT_VOLTAGE_HIGH (1u << 0u)
@@ -109,20 +108,20 @@ typedef struct {
 int  bm_bms_supervision_validate_config(const bm_bms_supervision_config_t *config);
 
 /**
- * @brief 初始化 BMS 监督轴（校验配置、同步降额参数、复位状态）
+ * @brief 初始化 BMS 监督轴（校验配置、配置降额服务、复位状态）
  *
- * @param axis 轴实例指针，resources.derating 须指向已分配的外部
- *             fault_derating 轴实例；NULL 或配置非法时返回 BM_ERR_INVALID
- * @return BM_OK 成功；BM_ERR_INVALID 参数、resources.derating 为 NULL 或配置非法
+ * @param axis 轴实例指针，resources.derating 须为完整的降额服务绑定；
+ *             NULL、绑定缺项或配置非法时返回 BM_ERR_INVALID
+ * @return BM_OK 成功；BM_ERR_INVALID 参数、服务绑定或配置非法
  */
 int  bm_bms_supervision_init(bm_bms_supervision_axis_t *axis);
 
 /**
  * @brief 复位 BMS 监督轴运行状态（不修改 config/resources）
  *
- * 复位 resources.derating 指向的 fault_derating 子组件，清零所有状态字段。
+ * 复位 resources.derating 绑定的降额服务，清零所有状态字段。
  *
- * @param axis 轴实例指针；为 NULL 或 derating 为 NULL 时静默返回
+ * @param axis 轴实例指针；为 NULL 或服务绑定不完整时静默返回
  */
 void bm_bms_supervision_reset(bm_bms_supervision_axis_t *axis);
 
@@ -130,7 +129,7 @@ void bm_bms_supervision_reset(bm_bms_supervision_axis_t *axis);
  * @brief 执行一个控制周期的 BMS 监督步进
  *
  * 从 resources.read_sample 读取电压/电流/温度，检测越限标志，
- * 驱动 fault_derating 降额，更新遥测并通过 publish_telemetry 上报。
+ * 驱动降额服务，更新遥测并通过 publish_telemetry 上报。
  * read_sample 失败时打 STALE 标志并直接发布上一拍快照。
  *
  * @param axis 指向已初始化的轴实例；为 NULL 时静默返回

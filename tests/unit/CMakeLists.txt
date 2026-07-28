@@ -144,6 +144,7 @@ endif()
 bm_add_test(test_ultra test_ultra.c bm_core)
 target_compile_definitions(test_ultra PRIVATE BM_ENABLE_ULTRA_TEST_HOOK=1)
 bm_add_test(test_mempool test_mempool.c bm_core)
+set_tests_properties(test_mempool PROPERTIES LABELS "determinism")
 bm_add_test(test_event test_event.c bm_core)
 target_compile_definitions(test_event PRIVATE BM_ENABLE_EVENT_TEST_HOOK=1)
 bm_add_test(test_wdg test_wdg.c bm_wdg)
@@ -542,6 +543,7 @@ if(BM_ENABLE_ALGORITHM)
     # 文件替换为 6 个按主题分组的独立 Unity 可执行文件，纯移动不改测试内容。
     bm_add_test(test_algo_basic test_algo_basic.c bm_algorithm)
     bm_add_test(test_algo_filter test_algo_filter.c bm_algorithm)
+    set_tests_properties(test_algo_filter PROPERTIES LABELS "determinism")
     bm_add_test(test_algo_motor test_algo_motor.c bm_algorithm)
     bm_add_test(test_algo_fusion test_algo_fusion.c bm_algorithm)
     bm_add_test(test_algo_fixed test_algo_fixed.c bm_algorithm)
@@ -693,6 +695,7 @@ if(BM_BUILD_TESTS)
         SRCS test_recorder.c
         LIBS bm_core bm_hal bm_hal_native
         INCLUDES ${CMAKE_SOURCE_DIR}/portable/sim/native)
+    set_tests_properties(test_recorder PROPERTIES LABELS "determinism")
 
     bm_add_test_special(
         NAME test_priority_mask
@@ -722,6 +725,12 @@ if(BM_BUILD_TESTS)
         add_test(NAME check_config_template
             COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_SOURCE_DIR}/tools/check_config_template.py)
+        add_test(NAME check_component_include_isolation
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tools/check_component_include_isolation.py)
+        add_test(NAME check_component_include_isolation_self_test
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tools/check_component_include_isolation.py --self-test)
     endif()
 endif()
 

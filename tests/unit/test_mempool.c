@@ -1,12 +1,14 @@
 /**
  * @file test_mempool.c
  * @brief 固定大小内存池分配、释放与耗尽单元测试
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-10
  * @par 修改日志:
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
+ * 2026-07-28       1.1            zeh            补充 try_free 争用与非法对象测试
  */
 
 #include "unity.h"
@@ -42,8 +44,8 @@ void test_mempool_double_free_ignored(void) {
 
     test_obj_t *a = (test_obj_t *)bm_mempool_alloc(&pool);
     TEST_ASSERT_NOT_NULL(a);
-    bm_mempool_free(&pool, a);
-    bm_mempool_free(&pool, a);
+    TEST_ASSERT_EQUAL_INT(BM_OK, bm_mempool_try_free(&pool, a));
+    TEST_ASSERT_EQUAL_INT(BM_ERR_INVALID, bm_mempool_try_free(&pool, a));
     TEST_ASSERT_NOT_NULL(bm_mempool_alloc(&pool));
 }
 
@@ -64,8 +66,26 @@ void test_mempool_free_out_of_range(void) {
     test_obj_t rogue = { .a = 1u, .b = 2u };
 
     memset(pool.bitmap, 0, pool.bitmap_words * sizeof(uint32_t));
-    bm_mempool_free(&pool, &rogue);
+    TEST_ASSERT_EQUAL_INT(BM_ERR_INVALID, bm_mempool_try_free(&pool, &rogue));
     TEST_ASSERT_NOT_NULL(bm_mempool_alloc(&pool));
+}
+
+/** @brief 多核锁争用时 try_free 单次返回 BM_ERR_BUSY，不进入自旋。 */
+void test_mempool_try_free_contention_is_bounded(void) {
+#if BM_CONFIG_SMP
+    BM_MEMPOOL_DEFINE(pool, test_obj_t, 2);
+    test_obj_t *obj;
+
+    memset(pool.bitmap, 0, pool.bitmap_words * sizeof(uint32_t));
+    obj = (test_obj_t *)bm_mempool_alloc(&pool);
+    TEST_ASSERT_NOT_NULL(obj);
+    bm_atomic_ipc_store_u32(&pool.lock, 1u);
+    TEST_ASSERT_EQUAL_INT(BM_ERR_BUSY, bm_mempool_try_free(&pool, obj));
+    bm_atomic_ipc_store_u32(&pool.lock, 0u);
+    TEST_ASSERT_EQUAL_INT(BM_OK, bm_mempool_try_free(&pool, obj));
+#else
+    TEST_IGNORE_MESSAGE("requires BM_CONFIG_SMP");
+#endif
 }
 
 void test_mempool_free_misaligned(void) {
@@ -147,5 +167,6 @@ int main(void) {
     RUN_TEST(test_mempool_double_free_ignored);
     RUN_TEST(test_mempool_rejects_overflowing_descriptor);
     RUN_TEST(test_mempool_ignores_excess_bitmap_words);
+    RUN_TEST(test_mempool_try_free_contention_is_bounded);
     return UNITY_END();
 }

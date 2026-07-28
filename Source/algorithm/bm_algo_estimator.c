@@ -2,9 +2,10 @@
  * @file bm_algo_estimator.c
  * @brief 固定维度状态估算实现
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.4
- * @date 2026-07-09
+ * @version 1.5
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -16,6 +17,7 @@
  * 2026-07-09       1.4            zeh            H9：ekf_cv_predict/update 补
  *                                                NaN/Inf 输入护栏，避免一次
  *                                                毛刺永久污染持久协方差状态
+ * 2026-07-28       1.5            zeh            状态返回对齐 BM_OK/BM_ERR_INVALID
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -237,17 +239,17 @@ int bm_algo_ukf1d_update(bm_algo_ukf1d_state_t *state,
     uint32_t i;
 
     if (state == NULL || config == NULL) {
-        return BM_ALGO_EKF_UPDATE_INVALID;
+        return BM_ERR_INVALID;
     }
     if (!bm_algo_is_finite_f(measurement) || config->r < 0.0f ||
         !bm_algo_is_finite_f(config->r) || !bm_algo_is_finite_f(state->x) ||
         !bm_algo_is_finite_f(state->p)) {
-        return BM_ALGO_EKF_UPDATE_INVALID;
+        return BM_ERR_INVALID;
     }
 
     n_lambda = BM_UKF1D_ALPHA * BM_UKF1D_ALPHA * (1.0f + BM_UKF1D_KAPPA);
     if (n_lambda <= 1e-12f) {
-        return BM_ALGO_EKF_UPDATE_INVALID;
+        return BM_ERR_INVALID;
     }
     gamma = sqrtf(n_lambda);
     sqrt_p = sqrtf(state->p);
@@ -270,7 +272,7 @@ int bm_algo_ukf1d_update(bm_algo_ukf1d_state_t *state,
     for (i = 0u; i < 3u; ++i) {
         zp[i] = ukf1d_measure(sp[i], config->measurement_model);
         if (!bm_algo_is_finite_f(zp[i])) {
-            return BM_ALGO_EKF_UPDATE_INVALID;
+            return BM_ERR_INVALID;
         }
     }
 
@@ -285,20 +287,20 @@ int bm_algo_ukf1d_update(bm_algo_ukf1d_state_t *state,
     }
     pzz += config->r;
     if (pzz <= 1e-12f || !bm_algo_is_finite_f(pzz)) {
-        return BM_ALGO_EKF_UPDATE_INVALID;
+        return BM_ERR_INVALID;
     }
 
     innov = measurement - z_mean;
     k = pxz / pzz;
     if (!bm_algo_is_finite_f(k)) {
-        return BM_ALGO_EKF_UPDATE_INVALID;
+        return BM_ERR_INVALID;
     }
 
     state->x += k * innov;
     state->p -= k * pzz * k;
     ukf1d_sanitize_p(&state->p);
 
-    return BM_ALGO_EKF_UPDATE_OK;
+    return BM_OK;
 }
 
 int bm_algo_ekf_gate_accept(float innovation,
@@ -324,15 +326,15 @@ int bm_algo_ekf_cv_update_gated(bm_algo_ekf_cv_state_t *state,
     float innov;
 
     if (state == NULL || config == NULL) {
-        return BM_ALGO_EKF_UPDATE_INVALID;
+        return BM_ERR_INVALID;
     }
     if (!bm_algo_is_finite_f(pos_meas)) {
-        return BM_ALGO_EKF_UPDATE_INVALID;
+        return BM_ERR_INVALID;
     }
 
     s = state->p00 + config->r_pos;
     if (s <= 0.0f || !bm_algo_is_finite_f(s)) {
-        return BM_ALGO_EKF_UPDATE_INVALID;
+        return BM_ERR_INVALID;
     }
 
     innov = pos_meas - state->pos;
@@ -342,5 +344,5 @@ int bm_algo_ekf_cv_update_gated(bm_algo_ekf_cv_state_t *state,
     }
 
     bm_algo_ekf_cv_update(state, config, pos_meas);
-    return BM_ALGO_EKF_UPDATE_OK;
+    return BM_OK;
 }

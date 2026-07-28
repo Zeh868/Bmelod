@@ -6,8 +6,8 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.4
- * @date 2026-07-27
+ * @version 1.5
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -21,6 +21,7 @@
  * 2026-07-27       1.4            zeh            pi/pid/pid2 validate_config
  *                                                返回值统一为 BM_OK /
  *                                                BM_ERR_INVALID
+ * 2026-07-28       1.5            zeh            状态返回文档对齐 BM_OK/BM_ERR_*
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -158,7 +159,7 @@ typedef struct {
  * @param state           PR 状态（不可为 NULL）
  * @param config          PR 配置（不可为 NULL）
  * @param sample_period_s 采样周期（s，>0）
- * @return 0 成功；BM_ALGO_ERR_INVALID 参数无效或系数计算失败（配置不合法）
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效或系数计算失败（配置不合法）
  */
 int bm_algo_pr_init(bm_algo_pr_state_t *state,
                     const bm_algo_pr_config_t *config,
@@ -179,7 +180,7 @@ float bm_algo_pr_step(bm_algo_pr_state_t *state,
  * @param sample_period_s 采样周期（s，>0）
  * @param b0,b1,b2        分子系数输出指针（均不可为 NULL）
  * @param a1,a2           分母系数输出指针（均不可为 NULL）
- * @return 0 成功；BM_ALGO_ERR_INVALID 参数无效
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效
  */
 int bm_algo_pr_compute_coeffs(const bm_algo_pr_config_t *config,
                               float sample_period_s,

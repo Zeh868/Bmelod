@@ -3,19 +3,19 @@
  * @file bm_hal_cap.c
  * @brief HAL 能力查询默认实现
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-14
+ * @version 1.1
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
- *
+ * 2026-07-28       1.1            zeh            删除未使用的 core CPU 本地头依赖
  */
 #include "hal/bm_hal_cap.h"
 #include "bm_config.h"
-#include "bm/core/bm_cpu_local.h"
 #include "hal/bm_hal_cache.h"
 
 uint32_t bm_hal_cap_query(void) {

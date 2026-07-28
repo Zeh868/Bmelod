@@ -2,11 +2,12 @@
  * @file tinyml_adapter.c
  * @brief TinyML 静态 arena、tensor 量化与最小算子图实现
  *
+ * @maturity E1
  * bump pointer 分配，tensor 元数据委托 bm_algo_features 量化。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.5
- * @date 2026-07-15
+ * @version 1.6
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -31,6 +32,8 @@
  * 2026-07-15       1.4            zeh            maxpool 补读侧输入容量校验（含 h*w 溢出防护）
  * 2026-07-27       1.5            zeh            统一返回码：裸魔术数替换为 BM_OK/BM_ERR_*
  * 2026-07-16       1.5            zeh            FLATTEN dims 乘积补 u32 溢出防护
+ *
+ * 2026-07-28       1.6            zeh            使用 bm/common TinyML 共享数据契约
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

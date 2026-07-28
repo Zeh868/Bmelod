@@ -2,9 +2,10 @@
  * @file bm_algo_power.c
  * @brief 电源算法：SOGI-PLL、MPPT 与 RMS 实现
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.3
- * @date 2026-06-13
+ * @version 1.4
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -16,6 +17,7 @@
  *                                                bm_algo_sogi_pll_reset 新增导数缓存清零
  * 2026-06-23       1.3            zeh            修复 Tustin 历史导数项系数错误（h→T/2），
  *                                                消除 SOGI 递推发散（test_sogi_states_decay 回归）
+ * 2026-07-28       1.4            zeh            RMS 初始化返回改用 BM_OK/BM_ERR_*
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -219,13 +221,13 @@ int bm_algo_rms_init(bm_algo_rms_state_t *state,
                      uint32_t buflen) {
     if (state == NULL || config == NULL || buffer == NULL ||
         buflen < config->window_samples || config->window_samples == 0u) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     state->buffer = buffer;
     state->buflen = buflen;
     state->window_samples = config->window_samples;
     bm_algo_rms_reset(state);
-    return 0;
+    return BM_OK;
 }
 
 void bm_algo_rms_reset(bm_algo_rms_state_t *state) {

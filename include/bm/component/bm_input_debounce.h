@@ -8,18 +8,19 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增通用输入消抖组件
+ * 2026-07-28       1.1            zeh            防抖词汇与算法下沉 bm/common
  */
 #ifndef BM_INPUT_DEBOUNCE_H
 #define BM_INPUT_DEBOUNCE_H
 
-#include "bm/common/bm_types.h"
+#include "bm/common/bm_input_debounce.h"
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -27,27 +28,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/** @brief 消抖配置（用户填写） */
-typedef struct {
-    uint32_t stable_us; /**< 稳定时间阈值（µs） */
-} bm_input_debounce_config_t;
-
-/** @brief 消抖状态（组件维护） */
-typedef struct {
-    int      raw;        /**< 最近一次原始电平 */
-    int      filtered;   /**< 滤波后稳定电平 */
-    int      stable;     /**< 是否已稳定 */
-    uint64_t last_edge_us; /**< 上次有效沿时间戳（µs） */
-    uint64_t last_raw_us;  /**< 上次原始电平变化时间戳（µs） */
-    uint32_t event_count;  /**< 有效沿事件计数 */
-} bm_input_debounce_state_t;
-
-/** @brief 消抖实例（用户静态分配） */
-typedef struct {
-    bm_input_debounce_config_t config;
-    bm_input_debounce_state_t  state;
-} bm_input_debounce_t;
 
 /**
  * @brief 校验配置

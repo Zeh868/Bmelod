@@ -9,6 +9,7 @@ Not validated: 真实急停按钮、EMC 干扰
 ## 范围
 
 - `bm_estop_input_init` / `_reset` / `_clear_latch` / `_active` / `_latched` / `_poll`
+- 使用 `bm/common/bm_input_debounce.h` 的零组件依赖防抖词汇
 - 强制消抖（stable_us 须 > 0）
 - 支持 active_low/active_high
 - poll-only：不注册 EXTI，不占用 EXTI 线（2026-07-28 起移除空操作 EXTI 注册）

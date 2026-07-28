@@ -22,6 +22,7 @@
  * 2026-06-21       1.0            zeh            正式发布
  * 2026-06-21       1.1            zeh            收敛为同核 SPSC 实现
  * 2026-07-27       1.2            zeh            将 BM_RECORDER_DEFINE 迁到 bm_recorder_impl.h
+ * 2026-07-28       1.3            zeh            budget=0 改为入口帧数快照预算
  *
  */
 #ifndef BM_RECORDER_H
@@ -96,12 +97,13 @@ int bm_recorder_pop(bm_recorder_t *r, void *out);
 /**
  * @brief 批量取出并回调（SRT 域，节流导出用）
  *
- * 循环 pop 最多 budget 帧（budget==0 表示取空）；sink 非空时每帧回调一次。
+ * 循环 pop 最多 budget 帧；budget==0 时取调用入口已发布帧数的快照作为本次
+ * 固定预算。回调期间新写入的帧留待下一次 drain，sink 非空时每帧回调一次。
  *
  * @param r      控制块指针
  * @param sink   每帧回调（可为 NULL，仅丢弃）；f 指向帧体，ctx 为透传上下文
  * @param ctx    透传给 sink 的上下文
- * @param budget 本次最多处理帧数（0=取空）
+ * @param budget 本次最多处理帧数（0=处理调用入口时已发布的帧）
  * @return 实际处理（成功 pop）的帧数
  */
 uint32_t bm_recorder_drain(bm_recorder_t *r,

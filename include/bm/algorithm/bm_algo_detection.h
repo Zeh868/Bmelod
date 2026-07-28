@@ -6,13 +6,14 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-13
+ * @version 1.1
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            初始版本
+ * 2026-07-28       1.1            zeh            明确 ToF 索引返回值的载荷错误语义
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -106,8 +107,8 @@ float bm_algo_sync_demod_magnitude(const bm_algo_sync_demod_state_t *state);
  * @param min_delay      开始检测的最小延迟（跳过近场盲区）
  * @param threshold      包络检测阈值
  * @param envelope_alpha 包络低通系数，<=0 时使用默认值 0.1，>1 时截断至 1.0
- * @return 首次超阈值的采样索引；未检测到时返回 BM_ALGO_ERR_NOT_FOUND，
- *         参数无效时返回 BM_ALGO_ERR_INVALID（两者数值均为 -1）
+ * @return 首次超阈值的采样索引（返回值即载荷）；未检测到时返回 BM_ERR_NOT_FOUND，
+ *         参数无效时返回 BM_ERR_INVALID
  */
 int32_t bm_algo_ultrasonic_tof(const float *echo,
                                uint32_t n,

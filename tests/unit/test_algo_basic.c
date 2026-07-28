@@ -5,14 +5,16 @@
  * 由 test_algorithm.c 按域拆分而来（架构改进计划任务 1.5b 项 6），纯移动、
  * 不改测试内容；测试用例总数与拆分前的 Unity 内部计数之和保持不变。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-07-02
+ * @version 1.1
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-02       1.0            zeh            自 test_algorithm.c 拆分
+ * 2026-07-28       1.1            zeh            状态成功断言改用 BM_OK
  *
  */
 
@@ -78,7 +80,7 @@ static void test_control_family_nan_guard(void) {
     TEST_ASSERT_TRUE(bm_algo_is_finite_f(pr_st.x1));
 
     /* 超前滞后：NaN 输入保持旧输出 */
-    TEST_ASSERT_EQUAL(0, bm_algo_lead_lag_init(&ll_st, &ll_cfg, 0.01f));
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_lead_lag_init(&ll_st, &ll_cfg, 0.01f));
     (void)bm_algo_lead_lag_step(&ll_st, 1.0f);
     TEST_ASSERT_FLOAT_WITHIN(0.001f, ll_st.y1,
         bm_algo_lead_lag_step(&ll_st, NAN));
@@ -250,26 +252,26 @@ static void test_runtime_buffer_config_changes_are_rejected(void) {
     const float input = 1.0f;
     float output = 0.0f;
 
-    TEST_ASSERT_EQUAL(0, bm_algo_moving_avg_init(&moving, &moving_cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_moving_avg_init(&moving, &moving_cfg));
     moving_cfg.length = 3u;
     TEST_ASSERT_FLOAT_WITHIN(
         0.0f, input, bm_algo_moving_avg_step(&moving, &moving_cfg, input));
     TEST_ASSERT_FLOAT_WITHIN(0.0f, 1234.0f, moving_buffer[2]);
 
-    TEST_ASSERT_EQUAL(0, bm_algo_rms_init(&rms, &rms_cfg, rms_buffer, 2u));
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_rms_init(&rms, &rms_cfg, rms_buffer, 2u));
     rms_cfg.window_samples = 3u;
     TEST_ASSERT_FLOAT_WITHIN(
         0.0f, input, bm_algo_rms_step(&rms, &rms_cfg, input));
     TEST_ASSERT_FLOAT_WITHIN(0.0f, 1234.0f, rms_buffer[2]);
 
-    TEST_ASSERT_EQUAL(0, bm_algo_fir_init(&fir, &fir_cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_fir_init(&fir, &fir_cfg));
     fir_cfg.tap_count = 3u;
     TEST_ASSERT_FLOAT_WITHIN(
         0.0f, input, bm_algo_fir_step(&fir, &fir_cfg, input));
     TEST_ASSERT_FLOAT_WITHIN(0.0f, 1234.0f, fir_delay[2]);
 
     TEST_ASSERT_EQUAL(
-        0, bm_algo_polyphase_decim_init(&poly, &poly_cfg, poly_delay, 2u));
+        BM_OK, bm_algo_polyphase_decim_init(&poly, &poly_cfg, poly_delay, 2u));
     poly_cfg.tap_count = 3u;
     TEST_ASSERT_EQUAL_UINT32(
         0u,

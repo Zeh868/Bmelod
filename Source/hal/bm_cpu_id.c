@@ -3,21 +3,21 @@
  * @file bm_cpu_id.c
  * @brief 当前 CPU 编号核心抽象接口的 HAL 实现
  *
- * `bm/common/bm_cpu_local.h` 声明 `bm_cpu_id()`，避免 core 层直接 include
- * `hal/bm_hal_cpu.h`。本文件提供默认实现：调用平台 HAL 的 `bm_hal_cpu_id()`。
+ * `bm/common/bm_cpu_local.h` 声明 `bm_cpu_id()`，避免 HAL 反向依赖 core。
+ * 本文件提供默认实现：调用平台 HAL 的 `bm_hal_cpu_id()`。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-07-27
+ * @version 1.1
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-27       1.0            zeh            初始版本：核心抽象接口 HAL 实现
- *
- * SPDX-License-Identifier: GPL-3.0-or-later
+ * 2026-07-28       1.1            zeh            改用 common CPU 本地查询契约
  */
-#include "bm/core/bm_cpu_local.h"
+#include "bm/common/bm_cpu_local.h"
 #include "hal/bm_hal_cpu.h"
 
 uint32_t bm_cpu_id(void) {

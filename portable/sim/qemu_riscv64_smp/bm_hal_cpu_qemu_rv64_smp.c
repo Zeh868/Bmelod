@@ -3,15 +3,17 @@
  * @file bm_hal_cpu_qemu_rv64_smp.c
  * @brief QEMU RISC-V64 virt SMP CPU HAL（mhartid / mailbox / CLINT IPI）
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-07-03
+ * @version 1.2
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-15       1.0            zeh            正式发布
  * 2026-07-03       1.1            zeh            新增 CPU 主频接口 freq_hz/freq_points/freq_set 实现
+ * 2026-07-28       1.2            zeh            从核 join 等待加入命名上限，超时返回 BM_ERR_TIMEOUT
  *
  */
 #include "hal/bm_hal_cpu.h"
@@ -23,6 +25,8 @@
 /** QEMU virt CLINT 基址 */
 #define CLINT_BASE     0x02000000UL
 #define CLINT_MSIP(h)  (*(volatile uint32_t *)(CLINT_BASE + 4u * (h)))
+/** @brief 从核退出确认轮询上限，超出后 join 返回 BM_ERR_TIMEOUT。 */
+#define BM_QEMU_RV64_SECONDARY_JOIN_POLL_LIMIT  1000000u
 
 extern volatile uintptr_t g_secondary_mailbox[BM_CONFIG_CPU_COUNT];
 extern volatile uint32_t g_secondary_done[BM_CONFIG_CPU_COUNT];
@@ -65,13 +69,22 @@ int bm_hal_cpu_boot_secondary(uintptr_t entry_pc) {
 
 int bm_hal_cpu_join_secondary(void) {
     uint32_t cpu;
+    uint32_t attempt;
 
     for (cpu = 1u; cpu < BM_CONFIG_CPU_COUNT; cpu++) {
         if (!s_secondary_booted[cpu]) {
             continue;
         }
-        while (g_secondary_done[cpu] == 0u) {
-            bm_hal_cpu_yield();
+        for (attempt = 0u;
+             attempt < BM_QEMU_RV64_SECONDARY_JOIN_POLL_LIMIT;
+             ++attempt) {
+            if (g_secondary_done[cpu] != 0u) {
+                break;
+            }
+            __asm volatile ("nop" ::: "memory");
+        }
+        if (attempt == BM_QEMU_RV64_SECONDARY_JOIN_POLL_LIMIT) {
+            return BM_ERR_TIMEOUT;
         }
     }
     return BM_OK;

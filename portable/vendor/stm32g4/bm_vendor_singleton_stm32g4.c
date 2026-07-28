@@ -24,9 +24,10 @@
  *   - NVIC 优先级/使能（LL 无 NVIC 抽象，用 CMSIS core 的 NVIC_* 函数）；
  *   - DWT CYCCNT 时间基（CoreDebug/DWT 属 CMSIS Core 外设，LL 不覆盖）。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.2
- * @date 2026-07-27
+ * @version 1.3
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -35,6 +36,7 @@
  * 2026-07-27       1.1            zeh            寄存器级改写为 STM32 LL 库实现（决策变更：提高可读性）
  * 2026-07-27       1.2            zeh            UART 统一实例化：单例 bm_drv_uart_api 改为
  *                                                默认控制台设备 bm_uart_default（统一实例模型）
+ * 2026-07-28       1.3            zeh            UART、LSI 与 IWDG 就绪轮询改为命名上限并返回超时
  *
  */
 #include "bm_drv_timer.h"
@@ -78,6 +80,62 @@ static uint32_t g_tick_freq_hz;
 static uint32_t g_tick_count;
 static uint8_t  g_uart_ready;
 static uint8_t  g_wdg_ready;
+
+/** @brief LPUART TXE 轮询上限，超出时避免控制台路径永久占用 CPU。 */
+#define BM_STM32G4_LPUART_TXE_POLL_LIMIT  100000u
+/** @brief LSI 就绪轮询上限，超出时 WDG 初始化返回 BM_ERR_TIMEOUT。 */
+#define BM_STM32G4_LSI_READY_POLL_LIMIT   100000u
+/** @brief IWDG 配置更新轮询上限，超出时 WDG 初始化返回 BM_ERR_TIMEOUT。 */
+#define BM_STM32G4_IWDG_UPDATE_POLL_LIMIT 100000u
+
+/**
+ * @brief 有界等待 LPUART1 发送数据寄存器空。
+ * @return BM_OK 就绪；BM_ERR_TIMEOUT 在轮询上限内未就绪。
+ */
+static int bm_stm32g4_wait_lpuart_txe(void)
+{
+    uint32_t attempt;
+
+    for (attempt = 0u; attempt < BM_STM32G4_LPUART_TXE_POLL_LIMIT; ++attempt) {
+        if (LL_LPUART_IsActiveFlag_TXE(LPUART1) != 0u) {
+            return BM_OK;
+        }
+    }
+    return BM_ERR_TIMEOUT;
+}
+
+/**
+ * @brief 有界等待 LSI 时钟就绪。
+ * @return BM_OK 就绪；BM_ERR_TIMEOUT 在轮询上限内未就绪。
+ */
+static int bm_stm32g4_wait_lsi_ready(void)
+{
+    uint32_t attempt;
+
+    for (attempt = 0u; attempt < BM_STM32G4_LSI_READY_POLL_LIMIT; ++attempt) {
+        if (LL_RCC_LSI_IsReady() != 0u) {
+            return BM_OK;
+        }
+    }
+    return BM_ERR_TIMEOUT;
+}
+
+/**
+ * @brief 有界等待 IWDG 预分频和重装载寄存器更新完成。
+ * @return BM_OK 更新完成；BM_ERR_TIMEOUT 在轮询上限内未完成。
+ */
+static int bm_stm32g4_wait_iwdg_update(void)
+{
+    uint32_t attempt;
+
+    for (attempt = 0u; attempt < BM_STM32G4_IWDG_UPDATE_POLL_LIMIT; ++attempt) {
+        if (LL_IWDG_IsActiveFlag_PVU(IWDG) == 0u
+            && LL_IWDG_IsActiveFlag_RVU(IWDG) == 0u) {
+            return BM_OK;
+        }
+    }
+    return BM_ERR_TIMEOUT;
+}
 
 /**
  * @brief tick ISR FPU 现场保存区占位（armv7em 上守卫为 no-op，仅占位）。
@@ -290,12 +348,14 @@ static int stm32g4_uart_init(const struct bm_hal_uart *dev, void *config)
  * @brief 发送字节流（轮询 TXE，对齐 console 写路径语义）。
  * @param data 数据指针。
  * @param len  数据长度。
- * @return BM_OK 成功；BM_ERR_INVALID 参数无效；BM_ERR_NOT_INIT 未初始化。
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效；BM_ERR_NOT_INIT 未初始化；
+ *         BM_ERR_TIMEOUT 在发送轮询上限内未就绪，已发送的前缀字节保持有效。
  */
 static int stm32g4_uart_send(const struct bm_hal_uart *dev,
                              const uint8_t *data, size_t len)
 {
     size_t i;
+    int rc;
 
     (void)dev;
 
@@ -306,7 +366,9 @@ static int stm32g4_uart_send(const struct bm_hal_uart *dev,
         return BM_ERR_NOT_INIT;
     }
     for (i = 0u; i < len; ++i) {
-        while (LL_LPUART_IsActiveFlag_TXE(LPUART1) == 0u) {
+        rc = bm_stm32g4_wait_lpuart_txe();
+        if (rc != BM_OK) {
+            return rc;
         }
         LL_LPUART_TransmitData8(LPUART1, data[i]);
     }
@@ -405,6 +467,7 @@ static int stm32g4_wdg_init(uint32_t timeout_ms)
     uint32_t ticks32k;
     uint32_t i;
     uint32_t rlr = 0u;
+    int rc;
 
     if (timeout_ms == 0u) {
         timeout_ms = 5000u;
@@ -428,15 +491,18 @@ static int stm32g4_wdg_init(uint32_t timeout_ms)
 
     if (LL_RCC_LSI_IsReady() == 0u) {
         LL_RCC_LSI_Enable();
-        while (LL_RCC_LSI_IsReady() == 0u) {
+        rc = bm_stm32g4_wait_lsi_ready();
+        if (rc != BM_OK) {
+            return rc;
         }
     }
 
     LL_IWDG_EnableWriteAccess(IWDG);
     LL_IWDG_SetPrescaler(IWDG, s_iwdg_prescaler_ll[i]);
     LL_IWDG_SetReloadCounter(IWDG, rlr - 1u);
-    while (LL_IWDG_IsActiveFlag_PVU(IWDG) != 0u
-           || LL_IWDG_IsActiveFlag_RVU(IWDG) != 0u) {
+    rc = bm_stm32g4_wait_iwdg_update();
+    if (rc != BM_OK) {
+        return rc;
     }
     LL_IWDG_ReloadCounter(IWDG);
     LL_IWDG_Enable(IWDG);

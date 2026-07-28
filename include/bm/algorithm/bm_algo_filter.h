@@ -4,8 +4,8 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-17
+ * @version 1.3
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -13,6 +13,7 @@
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-17       1.1            zeh            动态 notch 系数更新
  * 2026-07-27       1.2            zeh            新增 bm_algo_lpf1_alpha_saturate
+ * 2026-07-28       1.3            zeh            状态返回文档对齐 BM_OK/BM_ERR_*
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -176,7 +177,7 @@ float bm_algo_biquad_step(bm_algo_biquad_state_t *state,
  * @param sample_hz 采样率（Hz）
  * @param center_hz 陷波中心（Hz）
  * @param q 品质因数（>0）
- * @return 0 成功；BM_ALGO_ERR_INVALID 参数无效
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效
  */
 int bm_algo_biquad_notch_update(bm_algo_biquad_config_t *config,
                                 bm_algo_biquad_state_t *state,

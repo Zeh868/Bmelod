@@ -2,15 +2,17 @@
  * @file bm_algo_vision.c
  * @brief 低分辨率视觉扩展实现
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-13
+ * @version 1.1
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       1.0            zeh            补齐 Doxygen 注释
+ * 2026-07-28       1.1            zeh            状态返回改用 BM_OK/BM_ERR_*
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -70,11 +72,11 @@ int bm_algo_vision_centroid_u8(const uint8_t *mask,
     float sum_y = 0.0f;
 
     if (mask == NULL || cx == NULL || cy == NULL || width == 0u || height == 0u) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     if (width > UINT32_MAX / height) {
         /* width * height 相乘会溢出 uint32_t。 */
-        return BM_ALGO_ERR_OVERFLOW;
+        return BM_ERR_OVERFLOW;
     }
 
     for (y = 0u; y < height; ++y) {
@@ -89,12 +91,12 @@ int bm_algo_vision_centroid_u8(const uint8_t *mask,
 
     if (count == 0u) {
         /* mask 内无前景像素，无质心可计算。 */
-        return BM_ALGO_ERR_NOT_FOUND;
+        return BM_ERR_NOT_FOUND;
     }
 
     *cx = sum_x / (float)count;
     *cy = sum_y / (float)count;
-    return 0;
+    return BM_OK;
 }
 
 int bm_algo_vision_block_flow_u8(const uint8_t *prev,
@@ -118,7 +120,7 @@ int bm_algo_vision_block_flow_u8(const uint8_t *prev,
         block_size > width - bx || block_size > height - by ||
         bx > INT32_MAX || by > INT32_MAX ||
         search_radius >= INT32_MAX) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
 
     for (sdy = -(int32_t)search_radius; sdy <= (int32_t)search_radius; ++sdy) {
@@ -162,7 +164,7 @@ int bm_algo_vision_block_flow_u8(const uint8_t *prev,
     *dy = best_dy;
     if (best_sad == UINT64_MAX) {
         /* 搜索窗口内所有候选位置均越界，未产生任何有效匹配。 */
-        return BM_ALGO_ERR_NOT_FOUND;
+        return BM_ERR_NOT_FOUND;
     }
-    return 0;
+    return BM_OK;
 }

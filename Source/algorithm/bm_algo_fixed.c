@@ -2,9 +2,10 @@
  * @file bm_algo_fixed.c
  * @brief Q31/Q15 定点算法实现
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 2.8
- * @date 2026-07-16
+ * @version 2.9
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -48,6 +49,7 @@
  *                                                连续；debounce_analog q15/q31
  *                                                stable_count 自增加 UINT32_MAX
  *                                                饱和（镜像 float 版）
+ * 2026-07-28       2.9            zeh            初始化状态返回改用 BM_OK/BM_ERR_*
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -1429,10 +1431,10 @@ bm_algo_q15_t bm_algo_rate_limit_q15_step(bm_algo_rate_limit_q15_state_t *state,
 int bm_algo_lead_lag_q15_init(bm_algo_lead_lag_q15_state_t *state,
                               const bm_algo_lead_lag_q15_config_t *config) {
     if (state == NULL || config == NULL) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     bm_algo_lead_lag_q15_reset(state);
-    return 0;
+    return BM_OK;
 }
 
 void bm_algo_lead_lag_q15_reset(bm_algo_lead_lag_q15_state_t *state) {
@@ -1797,10 +1799,10 @@ bm_algo_q15_t bm_algo_coulomb_q15_step(bm_algo_coulomb_q15_state_t *state,
 int bm_algo_lead_lag_q31_init(bm_algo_lead_lag_q31_state_t *state,
                               const bm_algo_lead_lag_q31_config_t *config) {
     if (state == NULL || config == NULL) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     bm_algo_lead_lag_q31_reset(state);
-    return 0;
+    return BM_OK;
 }
 
 void bm_algo_lead_lag_q31_reset(bm_algo_lead_lag_q31_state_t *state) {
@@ -2957,10 +2959,10 @@ int bm_algo_fir_q15_init(bm_algo_fir_q15_state_t *state,
         config->coeffs == NULL || config->delay_line == NULL ||
         config->tap_count == 0u ||
         config->tap_count > BM_ALGO_FIR_Q15_MAX_TAPS) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     bm_algo_fir_q15_reset(state, config);
-    return 0;
+    return BM_OK;
 }
 
 void bm_algo_fir_q15_reset(bm_algo_fir_q15_state_t *state,
@@ -3004,10 +3006,10 @@ int bm_algo_fir_q31_init(bm_algo_fir_q31_state_t *state,
         config->coeffs == NULL || config->delay_line == NULL ||
         config->tap_count == 0u ||
         config->tap_count > BM_ALGO_FIR_Q31_MAX_TAPS) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     bm_algo_fir_q31_reset(state, config);
-    return 0;
+    return BM_OK;
 }
 
 void bm_algo_fir_q31_reset(bm_algo_fir_q31_state_t *state,
@@ -3902,13 +3904,13 @@ int bm_algo_smith_predictor_q15_init(
     uint32_t line_len) {
     if (state == NULL || config == NULL || delay_line_q15 == NULL ||
         config->delay_steps == 0u || line_len < config->delay_steps) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     state->u_delay_line_q15 = delay_line_q15;
     state->line_len = line_len;
     state->delay_steps = config->delay_steps;
     bm_algo_smith_predictor_q15_reset(state, config);
-    return 0;
+    return BM_OK;
 }
 
 void bm_algo_smith_predictor_q15_reset(
@@ -3979,13 +3981,13 @@ int bm_algo_smith_predictor_q31_init(
     uint32_t line_len) {
     if (state == NULL || config == NULL || delay_line_q31 == NULL ||
         config->delay_steps == 0u || line_len < config->delay_steps) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     state->u_delay_line_q31 = delay_line_q31;
     state->line_len = line_len;
     state->delay_steps = config->delay_steps;
     bm_algo_smith_predictor_q31_reset(state, config);
-    return 0;
+    return BM_OK;
 }
 
 void bm_algo_smith_predictor_q31_reset(

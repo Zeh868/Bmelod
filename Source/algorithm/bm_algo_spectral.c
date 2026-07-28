@@ -2,9 +2,10 @@
  * @file bm_algo_spectral.c
  * @brief 频谱分析算法实现
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.3
- * @date 2026-06-23
+ * @version 1.5
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -15,6 +16,7 @@
  * 2026-06-23       1.3            zeh            bm_algo_stft_overlap_init 增加 frame_size>64 上限校验，与 feed 内栈帧约束一致
  * 2026-07-27       1.4            zeh            order_track 的 lpf_alpha
  *                                                改用 bm_algo_lpf1_alpha_saturate
+ * 2026-07-28       1.5            zeh            状态错误改用 BM_ERR_*，保留帧就绪载荷
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -44,13 +46,13 @@ int bm_algo_goertzel_init(bm_algo_goertzel_state_t *state,
         config->block_size == 0u || config->sample_hz <= 0.0f ||
         config->target_freq_hz < 0.0f ||
         config->target_freq_hz > 0.5f * config->sample_hz) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
 
     omega = 2.0f * BM_ALGO_PI_F * config->target_freq_hz / config->sample_hz;
     bm_algo_goertzel_reset(state);
     state->coeff = 2.0f * cosf(omega);
-    return 0;
+    return BM_OK;
 }
 
 void bm_algo_goertzel_reset(bm_algo_goertzel_state_t *state) {
@@ -67,11 +69,11 @@ int bm_algo_goertzel_feed(bm_algo_goertzel_state_t *state,
     float s;
 
     if (state == NULL || config == NULL) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     /* Batch-3：单个非有限样本会污染整块 Goertzel 状态；拒绝该样本 */
     if (!bm_algo_is_finite_f(sample)) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
 
     s = sample + state->coeff * state->s_prev - state->s_prev2;
@@ -162,7 +164,7 @@ int bm_algo_find_peak_bin(const float *spectrum,
 
     if (spectrum == NULL || peak_bin == NULL || peak_value == NULL ||
         end_bin <= start_bin) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
 
     /* Batch-3：首元素为 NaN 时旧逻辑会让 max_v 恒为 NaN，全程失效；
@@ -181,12 +183,12 @@ int bm_algo_find_peak_bin(const float *spectrum,
     }
 
     if (!found) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
 
     *peak_bin = max_i;
     *peak_value = max_v;
-    return 0;
+    return BM_OK;
 }
 
 static void dft_magnitude(const float *frame,
@@ -220,11 +222,11 @@ int bm_algo_stft_magnitude_frame(const float *frame,
                                  uint32_t n,
                                  float *magnitude) {
     if (frame == NULL || magnitude == NULL || n < 2u) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
 
     dft_magnitude(frame, window, n, magnitude);
-    return 0;
+    return BM_OK;
 }
 
 /**
@@ -250,13 +252,13 @@ int bm_algo_stft_overlap_init(bm_algo_stft_overlap_t *state,
         config->hop_size == 0u ||
         config->hop_size > config->frame_size ||
         ring_buffer_len < config->frame_size) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     state->frame_size = config->frame_size;
     state->hop_size = config->hop_size;
     state->ring_buffer = ring_buffer;
     bm_algo_stft_overlap_reset(state);
-    return 0;
+    return BM_OK;
 }
 
 void bm_algo_stft_overlap_reset(bm_algo_stft_overlap_t *state) {
@@ -284,11 +286,11 @@ int bm_algo_stft_overlap_feed(bm_algo_stft_overlap_t *state,
     uint32_t need_bins;
 
     if (state == NULL || config == NULL || state->ring_buffer == NULL) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     need_bins = state->frame_size / 2u + 1u;
     if (magnitude_out == NULL || magnitude_len < need_bins) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
 
     state->ring_buffer[state->write_idx] = sample;
@@ -310,13 +312,13 @@ int bm_algo_stft_overlap_feed(bm_algo_stft_overlap_t *state,
 
         if (state->frame_size > BM_ALGO_STFT_MAX_FRAME) {
             /* frame_size 超出静态栈帧缓冲 frame_stack 的容量上限。 */
-            return BM_ALGO_ERR_OVERFLOW;
+            return BM_ERR_OVERFLOW;
         }
         stft_overlap_extract_frame(state, frame_stack);
         if (bm_algo_stft_magnitude_frame(frame_stack, config->window,
                                          state->frame_size,
-                                         magnitude_out) != 0) {
-            return BM_ALGO_ERR_INVALID;
+                                         magnitude_out) != BM_OK) {
+            return BM_ERR_INVALID;
         }
     }
 

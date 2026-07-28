@@ -4,14 +4,15 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-17
+ * @version 1.2
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-17       1.1            zeh            编码器 index/丢脉冲诊断
+ * 2026-07-28       1.2            zeh            步进脉冲接口补充有界与载荷语义
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -166,8 +167,10 @@ void bm_algo_stepper_reset(bm_algo_stepper_state_t *state, int32_t position);
  * @param velocity_steps_s   目标速度（步/秒，正向 +1，反向 -1）
  * @param dt_s               时间步长（秒，须 >0）
  * @param pulses             输出脉冲方向数组（±1），可为 NULL（仅计数）
- * @param max_pulses         pulses 缓冲容量（pulses 为 NULL 时忽略）
- * @return 本次产生的脉冲数
+ * @param max_pulses         pulses 缓冲容量；pulses 为 NULL 时不限制计数，
+ *                           非 NULL 时最多写入该数量的脉冲
+ * @return 本次实际提交的脉冲数（返回值即载荷）。无脉冲、参数非法或相位、
+ *         乘积、计数、位置不可表示时返回 0，且后者不修改状态。
  */
 uint32_t bm_algo_stepper_process(bm_algo_stepper_state_t *state,
                                  const bm_algo_stepper_config_t *config,

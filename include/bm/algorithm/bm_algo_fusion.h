@@ -4,8 +4,8 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.4
- * @date 2026-07-13
+ * @version 1.5
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -21,10 +21,14 @@
  *                                                ax/ay/az/alpha 有限性护栏；
  *                                                三滤波器 dt_s 补 NaN 拦截
  *
+ * 2026-07-28       1.5            zeh            Calibration status documents BM_OK/BM_ERR_*
+ *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_ALGO_FUSION_H
 #define BM_ALGO_FUSION_H
+
+#include "bm/algorithm/bm_algo_errors.h"
 
 #include <stdint.h>
 #include <stddef.h>
@@ -124,6 +128,10 @@ typedef struct {
 } bm_algo_imu_calib_accumulator_t;
 
 void bm_algo_imu_calib_accumulator_reset(bm_algo_imu_calib_accumulator_t *acc);
+/**
+ * @brief Record one static calibration sample.
+ * @return BM_OK on success; BM_ERR_INVALID for invalid arguments or samples.
+ */
 int bm_algo_imu_calib_accumulator_feed(bm_algo_imu_calib_accumulator_t *acc,
                                        const float raw_gyro[3],
                                        const float raw_accel[3]);

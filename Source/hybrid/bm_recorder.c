@@ -6,6 +6,7 @@
  * 同核单生产者单消费者（SPSC）：生产者（HRT/ISR）单写、覆盖最旧、发布索引；
  * 消费者（SRT）单读 + Lamport 式撕裂读校验。32 位自由递增计数自然回绕，
  * 无符号减法在回绕下仍给出正确的"已写帧数差"，无需取模即可定位槽位。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.1
  * @date 2026-06-21
@@ -15,6 +16,7 @@
  *    Date         Version        Author          Description
  * 2026-06-21       1.0            zeh            正式发布
  * 2026-06-21       1.1            zeh            收敛为同核 SPSC 实现
+ * 2026-07-28       1.2            zeh            budget=0 改为入口帧数快照预算
  *
  */
 #include "bm/hybrid/bm_recorder.h"
@@ -157,14 +159,16 @@ uint32_t bm_recorder_drain(bm_recorder_t *r,
                            void (*sink)(const void *f, void *ctx), void *ctx,
                            uint32_t budget) {
     uint32_t processed = 0u;
+    uint32_t effective_budget;
     uint8_t frame[BM_RECORDER_DRAIN_FRAME_MAX];
 
     if (r == NULL || r->buf == NULL || r->elem_size == 0u ||
         r->elem_size > BM_RECORDER_DRAIN_FRAME_MAX) {
         return 0u; /* 帧过大无法用栈缓冲安全导出 */
     }
+    effective_budget = (budget == 0u) ? bm_recorder_count(r) : budget;
     /* 逐帧 pop 到栈缓冲并回调，避免直接暴露环内槽位（可能被覆盖）。 */
-    while (budget == 0u || processed < budget) {
+    while (processed < effective_budget) {
         if (bm_recorder_pop(r, frame) != 1) {
             break;
         }

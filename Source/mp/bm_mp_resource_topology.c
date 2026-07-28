@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief 资源拓扑注册与亲和闭包校验实现
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-15
+ * @version 1.3
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -15,6 +16,7 @@
  * 2026-06-19       1.2            zeh            补 bm_mp_profile.h 桥接宏，使 hard
  *                                               RT 未注册 HAL claim fail-closed 生效
  *
+ * 2026-07-28       1.3            zeh            使用公开 stream accessor 校验亲和性
  */
 #include "bm/mp/bm_mp_resource_topology.h"
 #include "bm/mp/bm_mp_partition.h"
@@ -142,6 +144,7 @@ int bm_mp_resource_topology_validate_table(void) {
 
 #if BM_CONFIG_ENABLE_EXEC
 #include "bm/hybrid/bm_exec.h"
+#include "bm/hybrid/bm_stream.h"
 
 int bm_mp_resource_topology_validate_exec_table(
     const bm_exec_t *const *instances, uint32_t count) {
@@ -172,7 +175,7 @@ int bm_mp_resource_topology_validate_exec_table(
             if ((slot->kind == BM_EXEC_SLOT_BLOCK ||
                  slot->kind == BM_EXEC_SLOT_FRAME) &&
                 slot->stream != NULL &&
-                slot->stream->owner_cpu != inst->owner_cpu) {
+                bm_stream_owner_cpu(slot->stream) != inst->owner_cpu) {
                 BM_LOGE("mp_rtopo", "exec %s stream owner mismatch",
                         inst->name ? inst->name : "?");
                 return BM_ERR_INVALID;

@@ -2,9 +2,10 @@
  * @file bm_algo_detection.c
  * @brief 检测算法实现
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-13
+ * @version 1.2
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -14,6 +15,7 @@
  * 2026-06-23       1.0            zeh            补齐 Doxygen 注释
  * 2026-07-27       1.1            zeh            matched_filter_feed 的 alpha
  *                                                改用 bm_algo_lpf1_alpha_saturate
+ * 2026-07-28       1.2            zeh            ToF 载荷错误哨兵改用公共 BM_ERR_*
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -124,11 +126,11 @@ int32_t bm_algo_ultrasonic_tof(const float *echo,
     uint32_t i;
     float envelope = 0.0f;
     float alpha;
-    /* 未检测到时的哨兵值，语义同 BM_ALGO_ERR_NOT_FOUND（数值 -1）。 */
-    int32_t peak_idx = BM_ALGO_ERR_NOT_FOUND;
+    /* 未检测到时的返回值即载荷哨兵。 */
+    int32_t peak_idx = BM_ERR_NOT_FOUND;
 
     if (echo == NULL || n == 0u || min_delay >= n) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
 
     alpha = envelope_alpha;

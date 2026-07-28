@@ -8,6 +8,9 @@ Not validated: 实机 TFLite Micro 运行时链接、DMA 零拷贝、完整 TFLM
 
 ## 范围
 
+- `bm/common/bm_tinyml_contract.h`：arena、图、张量、算子与 TFLM bridge 共享契约；
+  TinyML 三个公开组件头均只依赖该 common 头，不互相包含。
+
 - 编译期 `BM_TINYML_ARENA_MAX_BYTES`（默认 4096）静态 arena
 - bump pointer 分配与 peak 统计
 - tensor 描述符 + `bm_algo_features` 量化/反量化

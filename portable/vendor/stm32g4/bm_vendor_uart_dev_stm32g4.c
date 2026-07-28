@@ -13,8 +13,9 @@
  * 保留 CMSIS 写法的位置：NVIC 优先级/使能（LL 无 NVIC 抽象，用 CMSIS core
  * 的 NVIC_* 函数，逐处注释）。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.2
+ * @version 1.3
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -24,6 +25,7 @@
  * 2026-07-28       1.1            zeh            flush 加计数超时（原 TC 等待为无界自旋，
  *                                                超时返回 BM_ERR_TIMEOUT）
  * 2026-07-28       1.2            zeh            支持 kernel_clock_hz（0=假定 PCLK1）
+ * 2026-07-28       1.3            zeh            TXE 发送轮询改为命名上限，超时返回 BM_ERR_TIMEOUT
  *
  */
 #include "bm_vendor_uart_dev_stm32g4.h"
@@ -43,6 +45,25 @@
 /* ---------- 全局状态 ---------- */
 static void (*g_rx_callback)(uint8_t c);
 static uint8_t g_uart_ready;
+
+/** @brief USART2 TXE 轮询上限，避免设备异常时发送路径无界自旋。 */
+#define BM_VENDOR_UART_DEV_TXE_POLL_LIMIT  100000u
+
+/**
+ * @brief 有界等待 USART2 发送数据寄存器空。
+ * @return BM_OK 就绪；BM_ERR_TIMEOUT 在轮询上限内未就绪。
+ */
+static int bm_vendor_uart_dev_wait_txe(void)
+{
+    uint32_t attempt;
+
+    for (attempt = 0u; attempt < BM_VENDOR_UART_DEV_TXE_POLL_LIMIT; ++attempt) {
+        if (LL_USART_IsActiveFlag_TXE(USART2) != 0u) {
+            return BM_OK;
+        }
+    }
+    return BM_ERR_TIMEOUT;
+}
 
 /**
  * @brief GPIO 复用配置（推挽、高速、无上下拉）。
@@ -123,11 +144,17 @@ static int bm_vendor_uart_dev_init(const struct bm_hal_uart *dev,
 
 /**
  * @brief 发送字节流（轮询 TXE，有界性同 console 单例语义）。
+ * @param dev  UART 设备实例。
+ * @param data 数据指针。
+ * @param len  数据长度。
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效；BM_ERR_NOT_INIT 未初始化；
+ *         BM_ERR_TIMEOUT 在发送轮询上限内未就绪。
  */
 static int bm_vendor_uart_dev_send(const struct bm_hal_uart *dev,
                                    const uint8_t *data, size_t len)
 {
     size_t i;
+    int rc;
 
     (void)dev;
     if (data == NULL) {
@@ -137,7 +164,9 @@ static int bm_vendor_uart_dev_send(const struct bm_hal_uart *dev,
         return BM_ERR_NOT_INIT;
     }
     for (i = 0u; i < len; ++i) {
-        while (LL_USART_IsActiveFlag_TXE(USART2) == 0u) {
+        rc = bm_vendor_uart_dev_wait_txe();
+        if (rc != BM_OK) {
+            return rc;
         }
         LL_USART_TransmitData8(USART2, data[i]);
     }

@@ -7,9 +7,10 @@
  * 单 CPU 配置（含本仓默认）下恒为 0。可在包含本头前显式定义
  * `BM_CPU_LOCAL_ENABLE_ROUTE` 覆盖该推导。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-07-02
+ * @version 1.2
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -18,37 +19,12 @@
  * 2026-07-02       1.1            zeh            QD-6：新增 BM_CACHE_LINE_PADDED_UNION，
  *                                                以 union 取代条件 padding 数组消除
  *                                                MSVC C2233（零长数组）
+ * 2026-07-28       1.2            zeh            CPU 查询包装声明下沉至 common 契约
  */
 #ifndef BM_CPU_LOCAL_H
 #define BM_CPU_LOCAL_H
 
-#include "bm/common/bm_types.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-/**
- * @brief 查询当前逻辑 CPU 编号
- *
- * 由 HAL 层实现，映射到平台相关的 CPU ID 原语。单核配置下通常返回 0。
- *
- * @return 当前 CPU 编号
- */
-extern uint32_t bm_cpu_id(void);
-
-/**
- * @brief 当前 CPU 是否为 bootstrap/主核
- *
- * 由 HAL 层实现。单核配置下恒为真。
- *
- * @return 非 0 表示当前核是 bootstrap 核
- */
-extern int bm_cpu_is_bootstrap(void);
-
-#ifdef __cplusplus
-}
-#endif
+#include "bm/common/bm_cpu_local.h"
 
 /**
  * @brief 是否启用按 CPU 路由的本地访问路径

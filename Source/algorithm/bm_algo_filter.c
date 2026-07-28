@@ -2,9 +2,10 @@
  * @file bm_algo_filter.c
  * @brief 滤波算法实现
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-23
+ * @version 1.3
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -13,6 +14,7 @@
  * 2026-06-23       1.1            zeh            修正 BIQUAD_BPF 系数：去除误混入的 peaking 增益因子 A，改回标准恒幅 BPF
  * 2026-07-27       1.2            zeh            新增 bm_algo_lpf1_alpha_saturate；
  *                                                LPF/HPF step 改用公共饱和函数
+ * 2026-07-28       1.3            zeh            状态返回改用 BM_OK/BM_ERR_*
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -37,13 +39,13 @@ int bm_algo_lpf1_init_from_cutoff(bm_algo_lpf1_config_t *config,
     if (config == NULL ||
         !bm_algo_is_finite_f(cutoff_hz) || cutoff_hz <= 0.0f ||
         !bm_algo_is_finite_f(sample_hz) || sample_hz <= 0.0f) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
 
     dt = 1.0f / sample_hz;
     rc = 1.0f / (2.0f * BM_ALGO_PI_F * cutoff_hz);
     config->alpha = dt / (rc + dt);
-    return 0;
+    return BM_OK;
 }
 
 void bm_algo_lpf1_reset(bm_algo_lpf1_state_t *state, float value) {
@@ -90,13 +92,13 @@ int bm_algo_hpf1_init_from_cutoff(bm_algo_hpf1_config_t *config,
     if (config == NULL ||
         !bm_algo_is_finite_f(cutoff_hz) || cutoff_hz <= 0.0f ||
         !bm_algo_is_finite_f(sample_hz) || sample_hz <= 0.0f) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
 
     dt = 1.0f / sample_hz;
     rc = 1.0f / (2.0f * BM_ALGO_PI_F * cutoff_hz);
     config->alpha = rc / (rc + dt);
-    return 0;
+    return BM_OK;
 }
 
 void bm_algo_hpf1_reset(bm_algo_hpf1_state_t *state) {
@@ -132,10 +134,10 @@ int bm_algo_moving_avg_init(bm_algo_moving_avg_state_t *state,
                             const bm_algo_moving_avg_config_t *config) {
     if (state == NULL || config == NULL ||
         config->buffer == NULL || config->length == 0u) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     bm_algo_moving_avg_reset(state, config);
-    return 0;
+    return BM_OK;
 }
 
 void bm_algo_moving_avg_reset(bm_algo_moving_avg_state_t *state,
@@ -238,10 +240,10 @@ int bm_algo_fir_init(bm_algo_fir_state_t *state,
     if (state == NULL || config == NULL ||
         config->coeffs == NULL || config->delay_line == NULL ||
         config->tap_count == 0u) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     bm_algo_fir_reset(state, config);
-    return 0;
+    return BM_OK;
 }
 
 void bm_algo_fir_reset(bm_algo_fir_state_t *state,
@@ -302,7 +304,7 @@ int bm_algo_biquad_design(bm_algo_biquad_config_t *config,
         !bm_algo_is_finite_f(design->freq_hz) ||
         !bm_algo_is_finite_f(design->q) ||
         !bm_algo_is_finite_f(design->gain_db)) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
 
     w0 = 2.0f * BM_ALGO_PI_F * design->freq_hz / design->sample_hz;
@@ -354,7 +356,7 @@ int bm_algo_biquad_design(bm_algo_biquad_config_t *config,
         a2 = 1.0f - alpha / A;
         break;
     default:
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
 
     config->b0 = b0 / a0;
@@ -362,7 +364,7 @@ int bm_algo_biquad_design(bm_algo_biquad_config_t *config,
     config->b2 = b2 / a0;
     config->a1 = a1 / a0;
     config->a2 = a2 / a0;
-    return 0;
+    return BM_OK;
 }
 
 void bm_algo_biquad_reset(bm_algo_biquad_state_t *state) {
@@ -404,7 +406,7 @@ int bm_algo_biquad_notch_update(bm_algo_biquad_config_t *config,
     bm_algo_biquad_design_t design;
 
     if (config == NULL) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
 
     design.type = BM_ALGO_BIQUAD_NOTCH;
@@ -413,12 +415,12 @@ int bm_algo_biquad_notch_update(bm_algo_biquad_config_t *config,
     design.q = q;
     design.gain_db = 0.0f;
 
-    if (bm_algo_biquad_design(config, &design) != 0) {
-        return BM_ALGO_ERR_INVALID;
+    if (bm_algo_biquad_design(config, &design) != BM_OK) {
+        return BM_ERR_INVALID;
     }
 
     if (state != NULL) {
         /* 保留 z 状态，仅更新系数 */
     }
-    return 0;
+    return BM_OK;
 }

@@ -1,9 +1,11 @@
+/* SPDX-License-Identifier: LGPL-3.0-or-later */
 /**
  * @file test_qemu_conc_core.c
  * @brief core 层并发正确性/契约验证（QEMU ARMv7-A Cortex-A15 -smp 2）
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 5.0
- * @date 2026-06-25
+ * @version 5.1
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -13,6 +15,7 @@
  * 2026-06-25       3.0            zeh            T1.2 bm_critical 本核 IRQ 屏蔽契约
  * 2026-06-25       4.0            zeh            T1.3 bm_mempool 双核分配真竞态
  * 2026-06-26       5.0            zeh            T2.1 bm_event 派发判定 + per-core 隔离契约
+ * 2026-07-28       5.1            zeh            mempool 释放改为有限 try_free 重试并记录失败
  *
  */
 #include "bm_qemu_tap.h"
@@ -150,6 +153,8 @@ typedef struct { uint32_t canary; uint32_t slot_tag; } pool_obj_t;
 BM_MEMPOOL_DEFINE(g_conc_pool, pool_obj_t, 8u);  /**< 8 槽，两核争抢 */
 
 #define MEMPOOL_ITERS 20000u
+/** @brief 多核 mempool 可靠释放的最大单次尝试数。 */
+#define MEMPOOL_FREE_RETRY_LIMIT 4096u
 /** 每槽 owner 原子标记，用于检测双分配（0=空闲，1=cpu0 占用，2=cpu1 占用） */
 static bm_atomic_ipc_u32_t g_slot_owner[8] = {
     BM_ATOMIC_IPC_U32_INIT(0u), BM_ATOMIC_IPC_U32_INIT(0u),
@@ -159,6 +164,26 @@ static bm_atomic_ipc_u32_t g_slot_owner[8] = {
 };
 static bm_atomic_ipc_u32_t g_double_alloc = BM_ATOMIC_IPC_U32_INIT(0u);
 static bm_atomic_ipc_u32_t g_corrupt      = BM_ATOMIC_IPC_U32_INIT(0u);
+static bm_atomic_ipc_u32_t g_release_fail = BM_ATOMIC_IPC_U32_INIT(0u);
+
+/**
+ * @brief 有限重试归还并发内存池对象。
+ * @param obj 待归还对象。
+ * @return BM_OK 成功；BM_ERR_BUSY 重试耗尽；BM_ERR_INVALID 对象非法。
+ */
+static int mempool_free_with_retry(pool_obj_t *obj)
+{
+    uint32_t attempt;
+    int rc = BM_ERR_BUSY;
+
+    for (attempt = 0u; attempt < MEMPOOL_FREE_RETRY_LIMIT; ++attempt) {
+        rc = bm_mempool_try_free(&g_conc_pool, obj);
+        if (rc != BM_ERR_BUSY) {
+            return rc;
+        }
+    }
+    return rc;
+}
 
 /**
  * @brief 指针转槽号（利用 BM_MEMPOOL_DEFINE 展开的存储数组名）
@@ -192,7 +217,9 @@ static void mempool_hammer(uint32_t me) {
             bm_atomic_ipc_inc_u32(&g_corrupt);
         }
         bm_atomic_ipc_store_u32(&g_slot_owner[slot], 0u);  /* 释放占用标记 */
-        bm_mempool_free(&g_conc_pool, o);
+        if (mempool_free_with_retry(o) != BM_OK) {
+            (void)bm_atomic_ipc_inc_u32(&g_release_fail);
+        }
     }
 }
 
@@ -388,7 +415,14 @@ int main(void) {
             tmp[k] = (pool_obj_t *)bm_mempool_alloc(&g_conc_pool);
             if (tmp[k]) { got++; }
         }
-        for (k = 0u; k < 8u; k++) { if (tmp[k]) { bm_mempool_free(&g_conc_pool, tmp[k]); } }
+        for (k = 0u; k < 8u; k++) {
+            if (tmp[k] != NULL && mempool_free_with_retry(tmp[k]) != BM_OK) {
+                (void)bm_atomic_ipc_inc_u32(&g_release_fail);
+            }
+        }
+        bm_qemu_record(&g_res0, "mempool_free_retry_not_exhausted",
+                       bm_atomic_ipc_load_u32(&g_release_fail) == 0u,
+                       bm_atomic_ipc_load_u32(&g_release_fail));
         bm_qemu_record(&g_res0, "mempool_fully_freed_after_run", got == 8u, got);
     }
 

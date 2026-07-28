@@ -8,8 +8,8 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.3
- * @date 2026-07-27
+ * @version 0.5
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -19,12 +19,15 @@
  * 2026-07-27       0.3            zeh            新增 bm_exec_ops_t 生命周期封装
  * 2026-07-27       0.4            zeh            init/validate/reset 复用 bm_component_common.h 公共宏
  *
+ * 2026-07-28       0.5            zeh            新增 common 降额服务绑定适配接口
+ *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_FAULT_DERATING_H
 #define BM_FAULT_DERATING_H
 
 #include "bm/algorithm/bm_algo_profile.h"
+#include "bm/common/bm_derating_service.h"
 #include "bm/hybrid/bm_exec.h"
 
 #include <stdint.h>
@@ -144,6 +147,16 @@ void bm_fault_derating_clear_request(bm_fault_derating_axis_t *axis);
  * @param axis 轴实例指针，NULL 时静默返回
  */
 void bm_fault_derating_step(bm_fault_derating_axis_t *axis);
+
+/**
+ * @brief 将故障降额轴绑定为 common 降额服务
+ *
+ * @param axis 已分配的故障降额轴实例，NULL 时返回 BM_ERR_INVALID
+ * @param service 输出服务绑定，NULL 时返回 BM_ERR_INVALID
+ * @return BM_OK 成功；BM_ERR_INVALID 参数非法
+ */
+int bm_fault_derating_bind_service(bm_fault_derating_axis_t *axis,
+                                   bm_derating_service_t *service);
 
 /* ---------- exec_ops 封装（bm_exec 周期调度接口） ---------- */
 

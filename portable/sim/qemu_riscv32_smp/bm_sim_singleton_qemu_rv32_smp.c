@@ -5,9 +5,10 @@
  *
  * 临界区与内存屏障由 `bm_port_arch_riscv32` 提供；M-mode trap 由 boot 层 `_trap_entry` 分发。
  * CLINT mtime/mtimecmp 为 64 位，RV32 上通过两次 32 位访问读写。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.2
- * @date 2026-07-16
+ * @version 1.3
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -15,6 +16,7 @@
  * 2026-06-15       1.0            zeh            正式发布
  * 2026-07-11       1.1            zeh            tick 回调派发接入 arch 层 FPU 守卫（bm_arch_isr_fpu.h，riscv32 IMAC 无 FPU 恒 no-op）
  * 2026-07-16       1.2            zeh            timer_arm 补 csrs mie,MTIE（此前只开 mstatus.MIE，定时器中断永不触发）；配套 boot 层 _trap_entry 补全寄存器保存与 mcause 清零
+ * 2026-07-28       1.3            zeh            ns16550a 发送轮询加入命名上限，超时返回 BM_ERR_TIMEOUT
  *
  */
 #include "bm_drv_timer.h"
@@ -47,6 +49,8 @@
 #define UART_LSR           (*(volatile uint8_t *)(UART_BASE + 5u))
 /** LSR THRE：发送保持寄存器空 */
 #define UART_LSR_THRE      (1u << 5)
+/** @brief ns16550a THRE 轮询上限，超出时返回 BM_ERR_TIMEOUT。 */
+#define BM_QEMU_RV32_UART_TX_POLL_LIMIT  100000u
 
 static uint32_t g_tick_freq[BM_CONFIG_CPU_COUNT];
 static volatile uint32_t g_ticks[BM_CONFIG_CPU_COUNT];
@@ -198,12 +202,20 @@ static int rv32_smp_uart_send(const struct bm_hal_uart *dev,
                             const uint8_t *data, size_t len) {
     (void)dev;
     size_t i;
+    uint32_t attempt;
 
     if (!data || len == 0u) {
         return BM_OK;
     }
     for (i = 0u; i < len; i++) {
-        while ((UART_LSR & UART_LSR_THRE) == 0u) {
+        for (attempt = 0u; attempt < BM_QEMU_RV32_UART_TX_POLL_LIMIT;
+             ++attempt) {
+            if ((UART_LSR & UART_LSR_THRE) != 0u) {
+                break;
+            }
+        }
+        if (attempt == BM_QEMU_RV32_UART_TX_POLL_LIMIT) {
+            return BM_ERR_TIMEOUT;
         }
         UART_THR = data[i];
     }

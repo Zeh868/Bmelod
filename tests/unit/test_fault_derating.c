@@ -4,15 +4,18 @@
  *
  * 覆盖 ramp-down 降额、恢复计时、故障锁存与 NULL 边界。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-07-27
+ * @version 1.2
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-23       1.0            zeh            正式发布
  * 2026-07-27       1.1            zeh            新增 bm_fault_derating_exec_ops 测试
+ *
+ * 2026-07-28       1.2            zeh            覆盖 common 服务绑定适配器
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -246,6 +249,40 @@ void test_fault_derating_null_safe_ops(void) {
     TEST_PASS();
 }
 
+/**
+ * @brief 服务绑定适配器转发配置与运行操作
+ */
+void test_fault_derating_bind_service_forwards_operations(void) {
+    bm_fault_derating_axis_t axis;
+    bm_derating_service_t service;
+    bm_derating_service_config_t config;
+
+    make_axis(&axis, 10.0f, 0.1f, 0.5f, 0.01f);
+    TEST_ASSERT_EQUAL(BM_OK, bm_fault_derating_bind_service(&axis, &service));
+    config.rate_per_s = 2.0f;
+    config.recovery_time_s = 0.2f;
+    config.dt_s = 0.1f;
+    config.target_factor = 0.4f;
+    TEST_ASSERT_EQUAL(BM_OK, service.configure(service.context, &config));
+    service.reset(service.context);
+    service.latch(service.context);
+    service.step(service.context);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.8f,
+                             service.get_factor(service.context));
+}
+
+/**
+ * @brief 服务绑定拒绝 NULL 输入
+ */
+void test_fault_derating_bind_service_rejects_null(void) {
+    bm_fault_derating_axis_t axis;
+    bm_derating_service_t service;
+
+    make_axis(&axis, 10.0f, 0.1f, 0.5f, 0.01f);
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_fault_derating_bind_service(NULL, &service));
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_fault_derating_bind_service(&axis, NULL));
+}
+
 /* ---------- exec_ops 测试 ---------- */
 
 /**
@@ -338,6 +375,8 @@ int main(void) {
     RUN_TEST(test_fault_derating_validate_null);
     RUN_TEST(test_fault_derating_validate_bad_dt);
     RUN_TEST(test_fault_derating_null_safe_ops);
+    RUN_TEST(test_fault_derating_bind_service_forwards_operations);
+    RUN_TEST(test_fault_derating_bind_service_rejects_null);
     RUN_TEST(test_fault_derating_exec_init_and_start);
     RUN_TEST(test_fault_derating_exec_step_forwards);
     RUN_TEST(test_fault_derating_exec_safe_stop_resets);

@@ -5,14 +5,16 @@
  * 由 test_algorithm.c 按域拆分而来（架构改进计划任务 1.5b 项 6），纯移动、
  * 不改测试内容；测试用例总数与拆分前的 Unity 内部计数之和保持不变。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-07-02
+ * @version 1.1
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-02       1.0            zeh            自 test_algorithm.c 拆分
+ * 2026-07-28       1.1            zeh            状态错误断言改用 BM_ERR_INVALID
  *
  */
 
@@ -246,7 +248,7 @@ static void test_vision_centroid_and_compensation(void) {
     float cx = 0.0f;
     float cy = 0.0f;
 
-    TEST_ASSERT_EQUAL(0, bm_algo_vision_centroid_u8(mask, 3u, 3u, &cx, &cy));
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_vision_centroid_u8(mask, 3u, 3u, &cx, &cy));
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.667f, cx);
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.667f, cy);
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f,
@@ -385,11 +387,11 @@ static void test_w2_audio_spectral_motion(void) {
     bm_algo_stepper_state_t st;
     int8_t pulses[4];
 
-    TEST_ASSERT_EQUAL(0, bm_algo_eq_peaking_design(&eq, &eq_cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_eq_peaking_design(&eq, &eq_cfg));
     bm_algo_eq_peaking_process(&eq, &eq_cfg, in, out, 4u);
     TEST_ASSERT_TRUE(fabsf(out[0]) > 0.0f);
 
-    TEST_ASSERT_EQUAL(0, bm_algo_stft_magnitude_frame(in, win, 4u, mag));
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_stft_magnitude_frame(in, win, 4u, mag));
     TEST_ASSERT_TRUE(mag[0] >= 0.0f);
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 1.0f,
         bm_algo_order_from_hz(50.0f, 3000.0f, 1u));
@@ -436,7 +438,7 @@ static void test_review_fixes(void) {
                             bm_algo_gcc_phat_delay(NULL, sig, 64u, 10,
                                                    gcc_work, 512u));
 
-    TEST_ASSERT_EQUAL(0, bm_algo_smith_predictor_init(&smith, &smith_cfg,
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_smith_predictor_init(&smith, &smith_cfg,
                                                       delay_line, 2u));
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 2.0f,
         bm_algo_smith_predictor_step(&smith, &smith_cfg, 5.0f, 2.0f, 1.0f));
@@ -518,7 +520,7 @@ static void test_medium1_pdm_cic_saturates_instead_of_overflow(void) {
 
 /**
  * @brief Medium-2 回归：bm_algo_lead_lag_init 在 pole_rad_s == -2/T（k+p==0）
- *        时须拒绝，返回 BM_ALGO_ERR_INVALID，而不是产出 Inf/NaN 系数却
+ *        时须拒绝，返回 BM_ERR_INVALID，而不是产出 Inf/NaN 系数却
  *        返回成功。
  */
 static void test_medium2_lead_lag_init_rejects_kp_zero_denominator(void) {
@@ -531,7 +533,7 @@ static void test_medium2_lead_lag_init_rejects_kp_zero_denominator(void) {
     };
     bm_algo_lead_lag_state_t st;
 
-    TEST_ASSERT_EQUAL(BM_ALGO_ERR_INVALID,
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID,
                       bm_algo_lead_lag_init(&st, &cfg, dt));
 }
 

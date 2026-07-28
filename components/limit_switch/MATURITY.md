@@ -9,6 +9,7 @@ Not validated: 实机限位开关机械抖动、STM32G4 EXTI 后端真机时序
 ## 范围
 
 - `bm_limit_switch_init` / `_reset` / `_clear_latch` / `_triggered` / `_latched` / `_poll`
+- 使用 `bm/common/bm_input_debounce.h` 的零组件依赖防抖词汇
 - 支持配置消抖时间（stable_us > 0 时由 poll 完成消抖，EXTI 回调不改写状态）
 - 有效电平由 EXTI 沿推导：FALLING 单独配置为低电平有效，RISING/BOTH 为高电平有效
 - 事件计数语义为消抖后事件计数（ISR 原始边沿不计数）

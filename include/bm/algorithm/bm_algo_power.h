@@ -4,8 +4,8 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.3
- * @date 2026-06-13
+ * @version 1.4
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -19,10 +19,14 @@
  *                                                d_alpha_prev/d_beta_prev 缓存字段
  * 2026-06-23       1.3            zeh            修复 Tustin 历史导数项系数错误，消除 SOGI 递推发散
  *
+ * 2026-07-28       1.4            zeh            RMS initialization status uses BM_OK/BM_ERR_*
+ *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_ALGO_POWER_H
 #define BM_ALGO_POWER_H
+
+#include "bm/algorithm/bm_algo_errors.h"
 
 #include <stdint.h>
 
@@ -125,6 +129,10 @@ typedef struct {
     uint32_t window_samples;
 } bm_algo_rms_state_t;
 
+/**
+ * @brief Initialize RMS state.
+ * @return BM_OK on success; BM_ERR_INVALID for invalid parameters.
+ */
 int bm_algo_rms_init(bm_algo_rms_state_t *state,
                      const bm_algo_rms_config_t *config,
                      float *buffer,

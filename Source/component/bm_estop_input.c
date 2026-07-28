@@ -6,8 +6,9 @@
  * poll-only 组件：不注册 EXTI，业务周期性调用 bm_estop_input_poll()
  * 完成消抖并触发事件回调。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -18,6 +19,7 @@
  *                                               （poll-only，不再占用 EXTI 线）；
  *                                               reset 仅在 stable_us>0 时初始化
  *                                               消抖实例，避免吞掉 BM_ERR_INVALID
+ * 2026-07-28       1.2            zeh            改用 bm/common 防抖纯算法
  */
 #include "bm/component/bm_estop_input.h"
 #include "bm_uptime.h"
@@ -52,7 +54,7 @@ void bm_estop_input_reset(bm_estop_input_t *estop) {
     }
     if (estop->config.stable_us != 0u) {
         estop->state.debounce.config.stable_us = estop->config.stable_us;
-        (void)bm_input_debounce_init(&estop->state.debounce);
+        bm_input_debounce_common_reset(&estop->state.debounce);
     }
     estop->state.active = 0;
     estop->state.latched = 0;
@@ -95,8 +97,9 @@ void bm_estop_input_poll(bm_estop_input_t *estop) {
     now = bm_uptime_us();
     active = estop->config.active_low ? (level == 0) : (level != 0);
 
-    if (bm_input_debounce_update(&estop->state.debounce, active, now)) {
-        estop->state.active = bm_input_debounce_filtered(&estop->state.debounce);
+    if (bm_input_debounce_common_update(&estop->state.debounce, active, now)) {
+        estop->state.active =
+            bm_input_debounce_common_filtered(&estop->state.debounce);
         if (estop->state.active) {
             estop->state.latched = 1;
         }

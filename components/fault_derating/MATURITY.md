@@ -13,6 +13,7 @@ Not validated: 多级降额曲线、实机故障证据快照、WCET
 - K0：`bm_algo_ramp`
 - 四段式 API：`config` / `resources` / `state` / `axis`，提供 `bm_fault_derating_exec_ops`
 - `init` / `validate` / `reset` 复用 `bm_component_common.h` 公共宏（`BM_COMPONENT_INIT`、`BM_COMPONENT_RETURN_IF_NULL`、`BM_COMPONENT_VALIDATE_POSITIVE_FLOAT`、`BM_COMPONENT_RESET_TELEMETRY`）
+- 提供 `bm_fault_derating_bind_service`，可作为 `bm_derating_service_t` 的实现绑定
 
 ## 已知限制
 

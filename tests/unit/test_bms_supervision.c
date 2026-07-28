@@ -5,9 +5,10 @@
  * 覆盖：正常恢复路径、read_sample 失败 → STALE、
  * 故障触发 → 降额 → 恢复全路径、exec_ops 生命周期。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.2
- * @date 2026-07-27
+ * @version 1.3
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -15,6 +16,8 @@
  * 2026-06-13       1.0            zeh            初始测试
  * 2026-06-23       1.1            zeh            补错误路径、降额全路径、exec_ops 测试
  * 2026-07-27       1.2            zeh            适配 bms_supervision 解耦：外部 derating 轴
+ *
+ * 2026-07-28       1.3            zeh            覆盖 common 服务绑定缺项与 NULL 上下文
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -69,7 +72,8 @@ static void build_axis(bm_bms_supervision_axis_t *axis) {
     axis->config.derate_target       = 0.5f;
     axis->resources.read_sample      = read_sample;
     axis->resources.publish_telemetry = publish_tel;
-    axis->resources.derating         = &g_derating;
+    (void)bm_fault_derating_bind_service(&g_derating,
+                                         &axis->resources.derating);
 }
 
 void setUp(void) {
@@ -96,19 +100,19 @@ void test_bms_supervision_clears_fault_latch_when_normal(void) {
     g_voltage_v = 4.5f;
     bm_bms_supervision_step(&axis);
     TEST_ASSERT_NOT_EQUAL(0u, axis.state.limit_flags);
-    TEST_ASSERT_EQUAL(1, axis.resources.derating->state.fault_latched);
+    TEST_ASSERT_EQUAL(1, g_derating.state.fault_latched);
 
     /* 恢复正常电压，故障应解锁 */
     g_voltage_v = 3.7f;
     bm_bms_supervision_step(&axis);
     TEST_ASSERT_EQUAL(0u, axis.state.limit_flags);
-    TEST_ASSERT_EQUAL(0, axis.resources.derating->state.fault_latched);
+    TEST_ASSERT_EQUAL(0, g_derating.state.fault_latched);
 
     /* 多步后 derate_factor 应恢复到 1.0 */
     for (i = 0u; i < 50u; ++i) {
         bm_bms_supervision_step(&axis);
     }
-    TEST_ASSERT_FLOAT_WITHIN(0.05f, 1.0f, axis.resources.derating->state.derate_factor);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 1.0f, g_derating.state.derate_factor);
 }
 
 /* ================================================================
@@ -174,7 +178,7 @@ void test_bms_supervision_fault_triggers_derating(void) {
     for (i = 0u; i < 20u; ++i) {
         bm_bms_supervision_step(&axis);
     }
-    TEST_ASSERT_FLOAT_WITHIN(0.05f, 0.5f, axis.resources.derating->state.derate_factor);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 0.5f, g_derating.state.derate_factor);
     /* 遥测 status 应含 DERATED 标志 */
     TEST_ASSERT_NOT_EQUAL(0u, axis.state.telemetry.status & BM_BMS_SUP_TEL_DERATED);
 }
@@ -197,20 +201,20 @@ void test_bms_supervision_full_fault_derating_recovery(void) {
     for (i = 0u; i < 20u; ++i) {
         bm_bms_supervision_step(&axis);
     }
-    TEST_ASSERT_FLOAT_WITHIN(0.05f, 0.5f, axis.resources.derating->state.derate_factor);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 0.5f, g_derating.state.derate_factor);
 
     /* (b) 恢复正常电压 */
     g_voltage_v = 3.7f;
     bm_bms_supervision_step(&axis);
     /* 故障锁存应清除 */
-    TEST_ASSERT_EQUAL(0, axis.resources.derating->state.fault_latched);
+    TEST_ASSERT_EQUAL(0, g_derating.state.fault_latched);
 
     /* (c) 等待恢复计时 + 斜坡，恢复时间 0.04s + 斜坡 0.5/(10/s) = 0.09s
      *     @dt_s=0.01s 共需约 9 步；多运行 30 步确保完成 */
     for (i = 0u; i < 30u; ++i) {
         bm_bms_supervision_step(&axis);
     }
-    TEST_ASSERT_FLOAT_WITHIN(0.05f, 1.0f, axis.resources.derating->state.derate_factor);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 1.0f, g_derating.state.derate_factor);
     /* 遥测 status 不应含 DERATED 标志 */
     TEST_ASSERT_EQUAL(0u, axis.state.telemetry.status & BM_BMS_SUP_TEL_DERATED);
 }
@@ -241,6 +245,39 @@ void test_bms_supervision_validate_rejects_inverted_voltage(void) {
                       bm_bms_supervision_validate_config(&axis.config));
 }
 
+/**
+ * @brief 初始化拒绝缺失降额服务回调
+ */
+void test_bms_supervision_init_rejects_incomplete_derating_service(void) {
+    bm_bms_supervision_axis_t axis;
+
+    build_axis(&axis);
+    axis.resources.derating.step = NULL;
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_bms_supervision_init(&axis));
+}
+
+/**
+ * @brief 初始化拒绝降额服务 NULL 上下文
+ */
+void test_bms_supervision_init_rejects_null_derating_context(void) {
+    bm_bms_supervision_axis_t axis;
+
+    build_axis(&axis);
+    axis.resources.derating.context = NULL;
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_bms_supervision_init(&axis));
+}
+
+/**
+ * @brief void 接口传入 NULL 时静默返回
+ */
+void test_bms_supervision_null_safe_ops(void) {
+    bm_bms_supervision_reset(NULL);
+    bm_bms_supervision_step(NULL);
+    bm_bms_supervision_exec_run(NULL);
+    bm_bms_supervision_exec_safe_stop(NULL);
+    TEST_PASS();
+}
+
 /* ================================================================
  * 测试 7：exec_ops 生命周期
  * ================================================================ */
@@ -258,9 +295,9 @@ void test_bms_supervision_exec_ops_lifecycle(void) {
     TEST_ASSERT_EQUAL(BM_OK, bm_bms_supervision_exec_ops.start(&exec));
 
     /* safe_stop 应将 derate_factor 重置为 1.0 */
-    axis.resources.derating->state.derate_factor = 0.3f;
+    g_derating.state.derate_factor = 0.3f;
     bm_bms_supervision_exec_ops.safe_stop(&exec);
-    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 1.0f, axis.resources.derating->state.derate_factor);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 1.0f, g_derating.state.derate_factor);
 }
 
 /* ================================================================
@@ -305,6 +342,9 @@ int main(void) {
     RUN_TEST(test_bms_supervision_validate_rejects_null);
     RUN_TEST(test_bms_supervision_validate_rejects_zero_dt);
     RUN_TEST(test_bms_supervision_validate_rejects_inverted_voltage);
+    RUN_TEST(test_bms_supervision_init_rejects_incomplete_derating_service);
+    RUN_TEST(test_bms_supervision_init_rejects_null_derating_context);
+    RUN_TEST(test_bms_supervision_null_safe_ops);
     RUN_TEST(test_bms_supervision_exec_ops_lifecycle);
     RUN_TEST(test_bms_supervision_exec_ops_init_rejects_bad_config);
     RUN_TEST(test_bms_supervision_exec_ops_run_forwards_to_step);

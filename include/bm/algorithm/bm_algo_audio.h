@@ -4,8 +4,8 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.3
- * @date 2026-06-17
+ * @version 1.4
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -14,6 +14,7 @@
  * 2026-06-17       1.1            zeh            PDM 二阶抽取
  * 2026-06-17       1.2            zeh            delay-and-sum 波束成形
  * 2026-06-17       1.3            zeh            对角加载 MVDR（E1）
+ * 2026-07-28       1.4            zeh            状态返回文档对齐 BM_OK/BM_ERR_*
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -182,7 +183,7 @@ typedef struct {
  *
  * @param state  EQ 状态（不可为 NULL，调用后需调用 reset 清延迟线）
  * @param config EQ 配置（sample_hz/freq_hz/q 须 >0）
- * @return 0 成功；BM_ALGO_ERR_INVALID 参数非法或 Biquad 设计失败
+ * @return BM_OK 成功；BM_ERR_INVALID 参数非法或 Biquad 设计失败
  */
 int bm_algo_eq_peaking_design(bm_algo_eq_peaking_state_t *state,
                               const bm_algo_eq_peaking_config_t *config);

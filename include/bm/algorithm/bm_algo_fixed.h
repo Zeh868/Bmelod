@@ -15,8 +15,8 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 2.5
- * @date 2026-07-16
+ * @version 2.6
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -40,10 +40,14 @@
  *                                                d_alpha_prev/d_beta_prev Tustin
  *                                                导数缓存持久化字段（与 float 版对齐）
  *
+ * 2026-07-28       2.6            zeh            Initialization status documents BM_OK/BM_ERR_*
+ *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_ALGO_FIXED_H
 #define BM_ALGO_FIXED_H
+
+#include "bm/algorithm/bm_algo_errors.h"
 
 #include <stdint.h>
 
@@ -607,7 +611,7 @@ typedef struct {
  *
  * @param state 状态（不可为 NULL）
  * @param config 系数 b0/b1/a1（不可为 NULL）
- * @return 成功；参数无效
+ * @return BM_OK success; BM_ERR_INVALID for invalid parameters.
  */
 int bm_algo_lead_lag_q15_init(bm_algo_lead_lag_q15_state_t *state,
                               const bm_algo_lead_lag_q15_config_t *config);
@@ -801,6 +805,10 @@ typedef struct {
     bm_algo_q31_t y1;
 } bm_algo_lead_lag_q31_state_t;
 
+/**
+ * @brief Initialize Q31 lead-lag controller.
+ * @return BM_OK success; BM_ERR_INVALID for invalid parameters.
+ */
 int bm_algo_lead_lag_q31_init(bm_algo_lead_lag_q31_state_t *state,
                               const bm_algo_lead_lag_q31_config_t *config);
 
@@ -1331,6 +1339,10 @@ typedef struct {
     uint8_t tap_count;
 } bm_algo_fir_q15_state_t;
 
+/**
+ * @brief Initialize Q15 FIR.
+ * @return BM_OK success; BM_ERR_INVALID for invalid parameters.
+ */
 int bm_algo_fir_q15_init(bm_algo_fir_q15_state_t *state,
                          const bm_algo_fir_q15_config_t *config);
 
@@ -1354,6 +1366,10 @@ typedef struct {
     uint8_t tap_count;
 } bm_algo_fir_q31_state_t;
 
+/**
+ * @brief Initialize Q31 FIR.
+ * @return BM_OK success; BM_ERR_INVALID for invalid parameters.
+ */
 int bm_algo_fir_q31_init(bm_algo_fir_q31_state_t *state,
                          const bm_algo_fir_q31_config_t *config);
 
@@ -1746,6 +1762,10 @@ typedef struct {
     uint32_t       head;
 } bm_algo_smith_predictor_q15_state_t;
 
+/**
+ * @brief Initialize Q15 Smith predictor.
+ * @return BM_OK success; BM_ERR_INVALID for invalid parameters.
+ */
 int bm_algo_smith_predictor_q15_init(
     bm_algo_smith_predictor_q15_state_t *state,
     const bm_algo_smith_predictor_q15_config_t *config,
@@ -1776,6 +1796,10 @@ typedef struct {
     uint32_t       head;
 } bm_algo_smith_predictor_q31_state_t;
 
+/**
+ * @brief Initialize Q31 Smith predictor.
+ * @return BM_OK success; BM_ERR_INVALID for invalid parameters.
+ */
 int bm_algo_smith_predictor_q31_init(
     bm_algo_smith_predictor_q31_state_t *state,
     const bm_algo_smith_predictor_q31_config_t *config,

@@ -2,20 +2,23 @@
  * @file tinyml_tflm_runtime.c
  * @brief TinyML TFLite Micro 运行时 E1 stub 实现
  *
+ * @maturity E1
  * 本文件是**有意设计的外部 TFLM 注入桩**：默认不链接任何 TFLM 库，
  * 所有算子调用通过 bm_tinyml_tflm_register_ops() 注册的回调表分发。
  * 未注册回调时 invoke 返回 BM_ERR_NOT_SUPPORTED；用户链接 TFLM 后
  * 替换回调实现即可激活真实推理路径，无需重编译本模块。
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.2
- * @date 2026-06-17
+ * @version 0.3
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-17       0.1            zeh            TFLM runtime E1 stub
  * 2026-06-23       0.2            zeh            补 SPDX 与函数级 Doxygen
+ *
+ * 2026-07-28       0.3            zeh            改用 bm/common 桥接契约，解除 bridge 组件头依赖
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

@@ -2,9 +2,10 @@
  * @file bm_algo_resample.c
  * @brief 重采样实现
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-13
+ * @version 1.3
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -14,6 +15,7 @@
  * 2026-06-23       1.1            zeh            补齐 Doxygen 注释
  * 2026-07-27       1.2            zeh            linear_resampler_step 的 alpha
  *                                                改用 bm_algo_lpf1_alpha_saturate
+ * 2026-07-28       1.3            zeh            状态错误改用 BM_ERR_*，保留输出数载荷
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -86,7 +88,7 @@ int bm_algo_linear_resampler_step(bm_algo_linear_resampler_state_t *state,
         if (out_count != NULL) {
             *out_count = 0u;
         }
-        return 0;
+        return BM_ERR_INVALID;
     }
 
     step = 1.0f / state->ratio;
@@ -94,7 +96,7 @@ int bm_algo_linear_resampler_step(bm_algo_linear_resampler_state_t *state,
     if (!bm_algo_is_finite_f(step) || !bm_algo_is_finite_f(phase) ||
         step <= 0.0f) {
         *out_count = 0u;
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     while (phase <= 1.0f && required <= (uint64_t)max_outputs) {
         required++;
@@ -103,7 +105,7 @@ int bm_algo_linear_resampler_step(bm_algo_linear_resampler_state_t *state,
     if (required > (uint64_t)max_outputs || required > (uint64_t)INT_MAX) {
         /* 本步所需输出样本数超过调用方提供的 outputs 缓冲容量。 */
         *out_count = 0u;
-        return BM_ALGO_ERR_OVERFLOW;
+        return BM_ERR_OVERFLOW;
     }
 
     phase = state->phase;
@@ -126,7 +128,7 @@ int bm_algo_polyphase_decim_init(bm_algo_polyphase_decim_state_t *state,
     if (state == NULL || config == NULL || delay_line == NULL ||
         config->coeffs == NULL || config->tap_count == 0u ||
         config->decim == 0u || delay_len < config->tap_count) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
 
     state->delay_line = delay_line;
@@ -134,7 +136,7 @@ int bm_algo_polyphase_decim_init(bm_algo_polyphase_decim_state_t *state,
     state->tap_count = config->tap_count;
     state->decim = config->decim;
     bm_algo_polyphase_decim_reset(state, config);
-    return 0;
+    return BM_OK;
 }
 
 void bm_algo_polyphase_decim_reset(bm_algo_polyphase_decim_state_t *state,

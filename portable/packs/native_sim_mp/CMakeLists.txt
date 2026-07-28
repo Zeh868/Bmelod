@@ -6,6 +6,7 @@ set(_BM_SIM_MP     ${BM_FRAMEWORK_ROOT}/portable/sim/native_mp)
 
 add_library(bm_backend_native_sim_mp STATIC
     ${_BM_SIM_NATIVE}/bm_sim_singleton_native.c
+    ${_BM_SIM_NATIVE}/bm_drv_uart_native.c
     ${_BM_SIM_NATIVE}/bm_drv_pwm_native.c
     ${_BM_SIM_NATIVE}/bm_drv_adc_native.c
     ${_BM_SIM_NATIVE}/bm_drv_comp_native.c
@@ -13,6 +14,9 @@ add_library(bm_backend_native_sim_mp STATIC
     ${_BM_SIM_NATIVE}/bm_drv_dma_stream_native.c
     ${_BM_SIM_NATIVE}/bm_hal_irq_affinity_native.c
     ${_BM_SIM_NATIVE}/bm_drv_nvs_native.c    # #10 NVS 文件仿真后端（与 native_sim 保持一致）
+    ${_BM_SIM_NATIVE}/bm_drv_gpio_native.c
+    ${_BM_SIM_NATIVE}/bm_drv_hrtimer_native.c
+    ${_BM_SIM_NATIVE}/bm_drv_can_native.c
     ${_BM_SIM_MP}/bm_sim_critical_mp_native.c
     ${_BM_SIM_MP}/bm_hal_cpu_mp_native.c
 )

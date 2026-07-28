@@ -4,8 +4,8 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.2
- * @date 2026-06-17
+ * @version 1.3
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -13,6 +13,7 @@
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-17       1.1            zeh            RGB565 转灰度与裁剪
  * 2026-06-17       1.2            zeh            最近邻缩放
+ * 2026-07-28       1.3            zeh            明确连通域数量为返回值载荷
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -99,8 +100,8 @@ typedef struct {
  * @param height    图像高度（像素）
  * @param blobs     输出连通域信息数组，可为 NULL（仅计数不填写）
  * @param max_blobs blobs 数组容量；blobs 为 NULL 时应为 0
- * @return 检测到的连通域总数；参数无效时返回 BM_ALGO_ERR_INVALID，
- *         标签值溢出（超过 65535 个域）时返回 BM_ALGO_ERR_OVERFLOW
+ * @return 检测到的连通域总数（返回值即载荷）；参数无效时返回 BM_ERR_INVALID，
+ *         标签值溢出（超过 65535 个域）时返回 BM_ERR_OVERFLOW
  *         （两者数值均为 -1）
  */
 int bm_algo_image_label_u8(const uint8_t *binary,
@@ -163,7 +164,7 @@ typedef struct {
  * @param src_height 源图高度（像素）
  * @param rect       裁剪矩形，包含左上角坐标及宽高
  * @param dst        输出裁剪结果，尺寸 rect->width × rect->height，调用者分配
- * @return 0 成功；BM_ALGO_ERR_INVALID 参数无效或裁剪区域越界
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效或裁剪区域越界
  */
 int bm_algo_image_crop_u8(const uint8_t *src,
                           uint32_t src_width,
@@ -183,7 +184,7 @@ int bm_algo_image_crop_u8(const uint8_t *src,
  * @param dst        输出缩放结果，尺寸 dst_width × dst_height，调用者分配
  * @param dst_width  目标宽度（像素）
  * @param dst_height 目标高度（像素）
- * @return 0 成功；BM_ALGO_ERR_INVALID 参数无效
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效
  */
 int bm_algo_image_resize_u8(const uint8_t *src,
                             uint32_t src_width,

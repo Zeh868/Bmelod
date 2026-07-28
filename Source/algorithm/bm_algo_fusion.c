@@ -2,9 +2,10 @@
  * @file bm_algo_fusion.c
  * @brief 姿态融合算法实现
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.5
- * @date 2026-07-16
+ * @version 1.7
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -25,6 +26,7 @@
  *                                                消除中途失败的半更新状态
  * 2026-07-27       1.6            zeh            complementary_step 的 alpha
  *                                                改用 bm_algo_lpf1_alpha_saturate
+ * 2026-07-28       1.7            zeh            状态返回改用 BM_OK/BM_ERR_*
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -380,13 +382,13 @@ int bm_algo_imu_calib_accumulator_feed(bm_algo_imu_calib_accumulator_t *acc,
     uint32_t i;
 
     if (acc == NULL || raw_gyro == NULL || raw_accel == NULL) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     /* 先校验后提交：三轴全部有限才累加，避免中途失败时已写入的轴
      * 留下半更新状态（gyro_sum/accel_sum 已变而 sample_count 未增）。 */
     for (i = 0u; i < 3u; ++i) {
         if (!isfinite(raw_gyro[i]) || !isfinite(raw_accel[i])) {
-            return BM_ALGO_ERR_INVALID;
+            return BM_ERR_INVALID;
         }
     }
     for (i = 0u; i < 3u; ++i) {
@@ -394,7 +396,7 @@ int bm_algo_imu_calib_accumulator_feed(bm_algo_imu_calib_accumulator_t *acc,
         acc->accel_sum[i] += raw_accel[i];
     }
     acc->sample_count++;
-    return 0;
+    return BM_OK;
 }
 
 int bm_algo_imu_calib_accumulator_finish(
@@ -406,7 +408,7 @@ int bm_algo_imu_calib_accumulator_finish(
 
     if (acc == NULL || expected_accel == NULL || out_config == NULL ||
         acc->sample_count == 0u) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     inv_n = 1.0f / (float)acc->sample_count;
     for (i = 0u; i < 3u; ++i) {
@@ -415,5 +417,5 @@ int bm_algo_imu_calib_accumulator_finish(
         out_config->gyro_scale[i] = 1.0f;
         out_config->accel_scale[i] = 1.0f;
     }
-    return 0;
+    return BM_OK;
 }

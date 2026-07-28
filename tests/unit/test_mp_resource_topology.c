@@ -5,14 +5,16 @@
  * 覆盖 bm_mp_resource_topology 的注册（成功/空/零掩码/越界/分区后冻结）、
  * claim 校验（空/owner 越界/命中成功/owner 不在掩码/歧义掩码/未注册 app/HAL）、
  * 拓扑表校验与 exec 表亲和校验。该文件此前几乎无覆盖。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-19
+ * @version 1.1
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-19       1.0            zeh            正式发布
+ * 2026-07-28       1.1            zeh            显式包含 CPU HAL 公开声明
  *
  */
 #include "unity.h"
@@ -22,6 +24,7 @@
 #include "bm/hybrid/bm_resource.h"
 #include "bm_module.h"
 #include "bm_hal_cpu_mp_native.h"
+#include "hal/bm_hal_cpu.h"
 
 #include <string.h>
 

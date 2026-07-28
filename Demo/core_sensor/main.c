@@ -1,6 +1,12 @@
 /**
  * @file main.c
  * @brief 核心域传感器示例：模块生命周期 + 事件发布/订阅
+ * @maturity E1
+ * @author zeh (china_qzh@163.com)
+ * @version 1.1
+ * @date 2026-07-28
+ * @par 修改日志:
+ * 2026-07-28 1.1     zeh    内存池释放改为有限 try_free 重试并显式处理失败
  */
 #include "app_events.h"
 #include "bm_core.h"
@@ -21,6 +27,28 @@ typedef struct {
 
 BM_MEMPOOL_DEFINE(sensor_pool, sensor_data_t, 4);
 
+/** @brief 传感器样本内存池释放的最大尝试次数。 */
+#define SENSOR_POOL_FREE_RETRY_LIMIT 4u
+
+/**
+ * @brief 有限重试归还传感器样本。
+ * @param sample 待归还的样本。
+ * @return BM_OK 成功；BM_ERR_BUSY 重试耗尽；BM_ERR_INVALID 参数非法。
+ */
+static int release_sensor_sample(sensor_data_t *sample)
+{
+    uint32_t attempt;
+    int rc = BM_ERR_BUSY;
+
+    for (attempt = 0u; attempt < SENSOR_POOL_FREE_RETRY_LIMIT; ++attempt) {
+        rc = bm_mempool_try_free(&sensor_pool, sample);
+        if (rc != BM_ERR_BUSY) {
+            return rc;
+        }
+    }
+    return rc;
+}
+
 static int publish_sensor_sample(uint32_t cycle) {
     sensor_data_t *sample = bm_mempool_alloc(&sensor_pool);
     if (!sample) {
@@ -34,7 +62,12 @@ static int publish_sensor_sample(uint32_t cycle) {
     sample->status = 0;
 
     int rc = bm_event_publish_copy(EVENT_TEMP, 1, sample, sizeof(*sample));
-    bm_mempool_free(&sensor_pool, sample);
+    int free_rc = release_sensor_sample(sample);
+
+    if (free_rc != BM_OK) {
+        BM_LOGE(TAG, "mempool release failed rc=%d", free_rc);
+        return free_rc;
+    }
     return rc;
 }
 

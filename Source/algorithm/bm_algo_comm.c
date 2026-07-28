@@ -2,9 +2,10 @@
  * @file bm_algo_comm.c
  * @brief 通信 DSP：CRC 与 DTMF 检测实现
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.2
- * @date 2026-07-15
+ * @version 1.3
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -12,6 +13,7 @@
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-17       1.1            zeh            2-FSK 解调与 Hamming(7,4)
  * 2026-07-15       1.2            zeh            goertzel_energy 检查 init 返回值；DTMF/FSK 补 finite 与 Nyquist 校验
+ * 2026-07-28       1.3            zeh            错误返回改用公共 BM_ERR_*
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -183,7 +185,7 @@ int bm_algo_dtmf_detect(bm_algo_dtmf_state_t *state,
         symbol_out == NULL || n == 0u ||
         !bm_algo_is_finite_f(config->sample_hz) ||
         config->sample_hz <= 2.0f * s_dtmf_cols[BM_ALGO_DTMF_COL_COUNT - 1u]) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
 
     for (ri = 0u; ri < BM_ALGO_DTMF_ROW_COUNT; ++ri) {
@@ -247,12 +249,12 @@ int bm_algo_fsk2_demod_block(const float *samples,
         config->mark_hz > 0.5f * config->sample_hz ||
         config->space_hz > 0.5f * config->sample_hz ||
         n == 0u || max_bits == 0u) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
 
     samples_per_bit = (uint32_t)(config->sample_hz / config->bit_rate_hz + 0.5f);
     if (samples_per_bit == 0u) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
 
     bit_idx = 0u;

@@ -2,14 +2,16 @@
  * @file bm_algo_fft.c
  * @brief radix-2 FFT（CFFT/RFFT）与窗函数实现
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-13
+ * @version 1.1
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
+ * 2026-07-28       1.1            zeh            状态返回改用 BM_OK/BM_ERR_*
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -149,30 +151,30 @@ int bm_algo_cfft_f32_init(bm_algo_cfft_f32_t *fft,
                           uint32_t work_count) {
     if (fft == NULL || work == NULL || !bm_algo_fft_is_supported_size(size) ||
         work_count < 2u * size) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     fft->size = size;
     fft->work = work;
     fft->work_count = work_count;
     fft->twiddle = NULL;
     fft->twiddle_count = 0u;
-    return 0;
+    return BM_OK;
 }
 
 int bm_algo_cfft_f32_forward(bm_algo_cfft_f32_t *fft, float *real_imag) {
     if (fft == NULL || real_imag == NULL) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     fft_radix2(real_imag, fft->size, 0);
-    return 0;
+    return BM_OK;
 }
 
 int bm_algo_cfft_f32_inverse(bm_algo_cfft_f32_t *fft, float *real_imag) {
     if (fft == NULL || real_imag == NULL) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     fft_radix2(real_imag, fft->size, 1);
-    return 0;
+    return BM_OK;
 }
 
 int bm_algo_rfft_f32_init(bm_algo_rfft_f32_t *fft,
@@ -201,7 +203,7 @@ int bm_algo_rfft_f32_execute(bm_algo_rfft_f32_t *fft,
 
     if (fft == NULL || time_data == NULL || spectrum_mag == NULL ||
         cfft->work == NULL) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
 
     for (i = 0u; i < fft->size; ++i) {
@@ -216,7 +218,7 @@ int bm_algo_rfft_f32_execute(bm_algo_rfft_f32_t *fft,
         float im = cfft->work[2u * i + 1u];
         spectrum_mag[i] = sqrtf(re * re + im * im) / (float)fft->size;
     }
-    return 0;
+    return BM_OK;
 }
 
 void bm_algo_window_hann(float *window, uint32_t n) {

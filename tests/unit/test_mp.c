@@ -2,15 +2,17 @@
  * @file test_mp.c
  * @brief BM_MP_PERCPU 分区与启动单元测试
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-14
+ * @version 1.2
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
  * 2026-06-14       1.1            zeh            stream gate 校验用例
+ * 2026-07-28       1.2            zeh            显式包含 CPU HAL 公开声明
  */
 #include "unity.h"
 #include "bm/mp/bm_mp.h"
@@ -22,6 +24,7 @@
 #include "bm_module.h"
 #include "bm_hal_cpu_mp_native.h"
 #include "bm_hal_timer_native.h"
+#include "hal/bm_hal_cpu.h"
 #include "hal/bm_hal_timer.h"
 
 #include <string.h>

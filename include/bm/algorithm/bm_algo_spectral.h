@@ -4,8 +4,8 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.3
- * @date 2026-06-23
+ * @version 1.4
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -14,6 +14,7 @@
  * 2026-06-13       1.1            zeh            增加 STFT 幅度谱与阶次换算
  * 2026-06-17       1.2            zeh            增加重叠 STFT 状态机
  * 2026-06-23       1.3            zeh            bm_algo_stft_overlap_init 注释标注 frame_size<=64 上限约束
+ * 2026-07-28       1.4            zeh            明确帧就绪返回值载荷及 BM_ERR_* 错误
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -109,10 +110,10 @@ typedef struct {
  *
  * @param state         状态对象（不可为 NULL）
  * @param config        配置（不可为 NULL）；frame_size 须满足 2 <= frame_size <= 64，
- *                      超出上限时返回 -1（与 feed 内部 64 点栈帧限制一致）
+ *                      超出上限时返回 BM_ERR_INVALID（与 feed 内部 64 点栈帧限制一致）
  * @param ring_buffer   调用方提供的环形缓冲，长度 >= frame_size
  * @param ring_buffer_len  ring_buffer 可用长度
- * @return 0 成功；BM_ALGO_ERR_INVALID 参数无效或 frame_size 超限
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效或 frame_size 超限
  */
 int bm_algo_stft_overlap_init(bm_algo_stft_overlap_t *state,
                               const bm_algo_stft_overlap_config_t *config,
@@ -124,8 +125,8 @@ void bm_algo_stft_overlap_reset(bm_algo_stft_overlap_t *state);
  *
  * @param magnitude_out 调用者工作区，长度 >= frame_size/2 + 1
  * @param magnitude_len 缓冲区长度
- * @return 1 输出一帧；0 继续积累；BM_ALGO_ERR_INVALID 参数错误；
- *         内部栈帧缓冲容量不足时返回 BM_ALGO_ERR_OVERFLOW（数值均为 -1）
+ * @return 1 输出一帧；0 继续积累（返回值即载荷）；BM_ERR_INVALID 参数错误；
+ *         内部栈帧缓冲容量不足时返回 BM_ERR_OVERFLOW
  */
 int bm_algo_stft_overlap_feed(bm_algo_stft_overlap_t *state,
                               const bm_algo_stft_overlap_config_t *config,

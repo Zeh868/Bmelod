@@ -4,14 +4,15 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-17
+ * @version 1.2
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-17       1.1            zeh            2-FSK 解调与 Hamming(7,4)
+ * 2026-07-28       1.2            zeh            明确检测与输出数量的返回值载荷语义
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -86,7 +87,7 @@ void bm_algo_dtmf_reset(bm_algo_dtmf_state_t *state);
  * @param samples    输入浮点样本数组
  * @param n          样本数
  * @param symbol_out 输出符号（'0'~'9'、'A'~'D'、'*'、'#'；无音时为 '\0'）
- * @return 1 表示检测到符号；0 表示无音；BM_ALGO_ERR_INVALID 表示参数无效
+ * @return 1 表示检测到符号；0 表示无音（返回值即载荷）；BM_ERR_INVALID 表示参数无效
  */
 int bm_algo_dtmf_detect(bm_algo_dtmf_state_t *state,
                         const bm_algo_dtmf_config_t *config,
@@ -112,12 +113,12 @@ typedef struct {
  * 按 sample_hz/bit_rate_hz 对样本分段，对每段用 Goertzel 分别计算
  * mark 与 space 能量，能量较大者决定比特值（1 或 0）。
  *
- * @param samples  输入样本数组指针，为 NULL 时返回 BM_ALGO_ERR_INVALID
+ * @param samples  输入样本数组指针，为 NULL 时返回 BM_ERR_INVALID
  * @param n        样本总数
- * @param config   FSK 配置指针，为 NULL 时返回 BM_ALGO_ERR_INVALID
+ * @param config   FSK 配置指针，为 NULL 时返回 BM_ERR_INVALID
  * @param bits_out 输出比特缓冲区（每字节存 1 比特，值为 0 或 1）
  * @param max_bits 输出缓冲区最大容量（比特数）
- * @return 写入的比特数；参数无效返回 BM_ALGO_ERR_INVALID
+ * @return 写入的比特数（返回值即载荷）；参数无效返回 BM_ERR_INVALID
  */
 int bm_algo_fsk2_demod_block(const float *samples,
                              uint32_t n,

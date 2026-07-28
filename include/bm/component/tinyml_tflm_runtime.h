@@ -1,112 +1,90 @@
 /**
  * @file tinyml_tflm_runtime.h
- * @brief TinyML TFLite Micro 运行时薄封装（E1 stub，无 TFLM 库依赖）
- *
- * 提供算子回调注册表与 invoke 入口；默认桩返回 BM_ERR_NOT_SUPPORTED。
- * 用户链接 TFLM 后替换 `bm_tinyml_tflm_register_ops` 注册的实现。
- *
+ * @brief TinyML TFLite Micro 运行时薄封装（E1 stub，无 TFLM 库依赖）。
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.2
- * @date 2026-06-17
+ * @version 0.3
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-17       0.1            zeh            TFLM runtime E1 stub 与回调表
  * 2026-06-23       0.2            zeh            补 SPDX 与函数级 Doxygen
+ * 2026-07-28       0.3            zeh            改依赖 bm/common TinyML 桥接契约
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_TINYML_TFLM_RUNTIME_H
 #define BM_TINYML_TFLM_RUNTIME_H
 
-#include "bm/component/tinyml_tflm_bridge.h"
-
-#include <stdint.h>
+#include "bm/common/bm_tinyml_contract.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /**
- * @brief 单算子 TFLM 回调（用户侧绑定 MicroMutableOpResolver）
- *
- * @param user_ctx 用户上下文（可为 NULL）
- * @param bm_op 本仓库算子枚举
- * @param tflm_builtin_id TFLM BuiltinOperator 占位 ID
- * @return 成功；未支持或注册失败
+ * @brief 注册一个 TFLM BuiltinOperator。
+ * @return BM_OK 成功；其他值由用户回调定义并原样透传。
  */
 typedef int (*bm_tinyml_tflm_op_register_fn)(void *user_ctx,
                                              bm_tinyml_op_t bm_op,
                                              int tflm_builtin_id);
 
-/**
- * @brief TFLM Interpreter 生命周期回调
- */
+/** @brief TFLM Interpreter 生命周期回调表。 */
 typedef struct {
-    /** 注册 BuiltinOperator；可为 NULL（跳过） */
-    bm_tinyml_tflm_op_register_fn register_op;
-    /** AllocateTensors / 模型加载；可为 NULL */
-    int (*init)(void *user_ctx, const bm_tflm_bridge_config_t *bridge);
-    /** Invoke 单步推理；可为 NULL（默认 BM_ERR_NOT_SUPPORTED） */
-    int (*invoke)(void *user_ctx);
-    /** 释放资源；可为 NULL */
-    void (*fini)(void *user_ctx);
+    bm_tinyml_tflm_op_register_fn register_op; /**< 可选算子注册回调。 */
+    int (*init)(void *user_ctx, const bm_tflm_bridge_config_t *bridge); /**< 可选初始化回调。 */
+    int (*invoke)(void *user_ctx); /**< 可选单步推理回调。 */
+    void (*fini)(void *user_ctx); /**< 可选释放回调。 */
 } bm_tinyml_tflm_ops_t;
 
+/** @brief TFLM runtime 绑定状态。 */
 typedef struct {
-    void                      *user_ctx;
-    bm_tflm_bridge_config_t    bridge;
-    int                        ops_registered;
+    void *user_ctx; /**< 用户上下文。 */
+    bm_tflm_bridge_config_t bridge; /**< 已导出的共享 bridge 配置。 */
+    int ops_registered; /**< 非 0 表示图算子已经注册。 */
 } bm_tinyml_tflm_runtime_t;
 
 /**
- * @brief 注册 TFLM 运行时回调表（覆盖先前注册；ops 可为 NULL 表示清空）
- *
- * @param ops 回调表（可为 NULL，表示无用户实现）
- * @return 成功
+ * @brief 注册或清空 TFLM 回调表。
+ * @param ops 回调表；NULL 时清空注册。
+ * @return BM_OK。
  */
 int bm_tinyml_tflm_register_ops(const bm_tinyml_tflm_ops_t *ops);
 
 /**
- * @brief 从 bm_tinyml_graph_t 导出桥接配置并初始化 runtime 视图
- *
- * @param runtime 运行时状态（不可为 NULL）
- * @param graph 源图（不可为 NULL）
- * @return 成功；参数无效
+ * @brief 从 TinyML 图绑定 runtime bridge 视图。
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效。
  */
 int bm_tinyml_tflm_runtime_bind_graph(bm_tinyml_tflm_runtime_t *runtime,
                                       const bm_tinyml_graph_t *graph);
 
 /**
- * @brief 按默认映射表注册图中出现的算子（需已 register_ops 且 register_op 非 NULL）
- *
- * @param runtime 已 bind 的 runtime（不可为 NULL）
- * @return 成功；未注册回调或图无效
+ * @brief 按默认映射注册图中算子。
+ * @return BM_OK 成功；BM_ERR_INVALID runtime 或图无效；BM_ERR_NOT_SUPPORTED
+ *         未注册回调或算子无映射；其他值由 register_op 回调透传。
  */
 int bm_tinyml_tflm_runtime_register_graph_ops(bm_tinyml_tflm_runtime_t *runtime);
 
 /**
- * @brief 初始化 TFLM 解释器（调用 ops->init；无则 no-op 成功）
- *
- * @param runtime 运行时状态（不可为 NULL）
- * @return 成功；init 失败或未支持
+ * @brief 初始化 TFLM 解释器。
+ * @return BM_OK 成功（没有 init 回调时为 no-op）；BM_ERR_INVALID runtime 无效；
+ *         其他值由 init 回调透传。
  */
 int bm_tinyml_tflm_runtime_init(bm_tinyml_tflm_runtime_t *runtime);
 
 /**
- * @brief 执行推理（调用 ops->invoke；无则 BM_ERR_NOT_SUPPORTED）
- *
- * @param runtime 运行时状态（不可为 NULL）
- * @return 成功；未注册 invoke
+ * @brief 执行一次推理。
+ * @return BM_ERR_INVALID runtime 无效；BM_ERR_NOT_SUPPORTED 未注册 invoke；
+ *         其他值由 invoke 回调透传（成功时通常为 BM_OK）。
  */
 int bm_tinyml_tflm_invoke(bm_tinyml_tflm_runtime_t *runtime);
 
 /**
- * @brief 释放 runtime（调用 ops->fini）
- *
- * @param runtime 运行时状态（可为 NULL）
+ * @brief 释放 runtime。
+ * @param runtime runtime 实例；为 NULL 时静默返回。
  */
 void bm_tinyml_tflm_runtime_fini(bm_tinyml_tflm_runtime_t *runtime);
 

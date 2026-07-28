@@ -4,14 +4,15 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-17
+ * @version 1.2
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-17       1.1            zeh            时钟漂移跟踪/补偿
+ * 2026-07-28       1.2            zeh            明确重采样输出数载荷及 BM_ERR_* 错误
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -87,9 +88,8 @@ void bm_algo_linear_resampler_reset(bm_algo_linear_resampler_state_t *state,
  * @param outputs     输出缓冲（不可为 NULL）
  * @param max_outputs 输出缓冲容量（须 ≥1）
  * @param out_count   实际输出样本数（不可为 NULL）
- * @return 实际输出数（≥0）；缓冲不足时返回 BM_ALGO_ERR_OVERFLOW，
- *         参数非法时返回 BM_ALGO_ERR_INVALID（此时均不消耗输入；
- *         两者数值均为 -1）
+ * @return 实际输出数（≥0，返回值即载荷）；缓冲不足时返回 BM_ERR_OVERFLOW，
+ *         参数非法时返回 BM_ERR_INVALID（此时均不消耗输入）
  */
 int bm_algo_linear_resampler_step(bm_algo_linear_resampler_state_t *state,
                                   float input,
@@ -127,7 +127,7 @@ typedef struct {
  * @param config     配置（不可为 NULL，coeffs 不可为 NULL，tap_count/decim须>0）
  * @param delay_line 外部提供的延迟线缓冲（须 ≥tap_count 个 float）
  * @param delay_len  delay_line 元素个数
- * @return 0 成功；BM_ALGO_ERR_INVALID 参数非法
+ * @return BM_OK 成功；BM_ERR_INVALID 参数非法
  */
 int bm_algo_polyphase_decim_init(bm_algo_polyphase_decim_state_t *state,
                                  const bm_algo_polyphase_decim_config_t *config,

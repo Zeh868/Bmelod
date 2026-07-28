@@ -27,7 +27,7 @@ function(bm_demo_apply_native_sim_example_flags)
     set(BM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(BM_ENABLE_MODULE ${EXAMPLE_ENABLE_MODULE} CACHE BOOL "" FORCE)
     set(BM_ENABLE_SHELL OFF CACHE BOOL "" FORCE)
-    set(BM_ENABLE_WDG OFF CACHE BOOL "" FORCE)
+    set(BM_ENABLE_WDG ${EXAMPLE_ENABLE_WDG} CACHE BOOL "" FORCE)
     set(BM_ENABLE_HRT ${EXAMPLE_ENABLE_HRT} CACHE BOOL "" FORCE)
     set(BM_ENABLE_TICKER ${EXAMPLE_ENABLE_TICKER} CACHE BOOL "" FORCE)
     set(BM_ENABLE_EXEC ${EXAMPLE_ENABLE_EXEC} CACHE BOOL "" FORCE)
@@ -66,7 +66,9 @@ function(bm_add_native_sim_example TARGET)
         "${BMELOD_ROOT}/Demo/common/hybrid_print.c"
         ${EX_EXTRA_SOURCES}
     )
-    target_compile_definitions(${TARGET} PRIVATE NATIVE_SIM)
+    target_compile_definitions(${TARGET} PRIVATE
+        NATIVE_SIM
+        BM_DRV_HAS_BACKEND)
     target_compile_options(${TARGET} PRIVATE
         "$<$<C_COMPILER_ID:MSVC>:/utf-8>"
     )

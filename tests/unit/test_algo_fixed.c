@@ -5,14 +5,16 @@
  * 由 test_algorithm.c 按域拆分而来（架构改进计划任务 1.5b 项 6），纯移动、
  * 不改测试内容；测试用例总数与拆分前的 Unity 内部计数之和保持不变。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-07-02
+ * @version 1.1
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-02       1.0            zeh            自 test_algorithm.c 拆分
+ * 2026-07-28       1.1            zeh            状态错误断言改用 BM_ERR_INVALID
  *
  */
 
@@ -101,7 +103,7 @@ static void test_batch3_k0_extensions(void) {
     TEST_ASSERT_EQUAL(0, bm_algo_pwm_sample_window_valid(0u, 90.0f, 10.0f));
 
     bm_algo_biquad_reset(&bq_st);
-    TEST_ASSERT_EQUAL(0, bm_algo_biquad_notch_update(&bq_cfg, &bq_st,
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_biquad_notch_update(&bq_cfg, &bq_st,
         1000.0f, 50.0f, 5.0f));
 
     for (i = 0u; i < 80u; ++i) {
@@ -174,7 +176,7 @@ static void test_batch4_k0_and_fixed_batch3(void) {
     for (i = 0u; i < 16u; ++i) {
         src8[i] = (uint8_t)i;
     }
-    TEST_ASSERT_EQUAL(0, bm_algo_image_crop_u8(src8, 4u, 4u, &rect, crop));
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_image_crop_u8(src8, 4u, 4u, &rect, crop));
     TEST_ASSERT_EQUAL_UINT8(5u, crop[0]);
 
     bm_algo_moving_avg_q15_reset(&ma_st);
@@ -216,7 +218,7 @@ static void test_batch5_k0_and_fixed_batch4(void) {
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.5f, out[0]);
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.75f, out[2]);
 
-    TEST_ASSERT_EQUAL(0, bm_algo_image_resize_u8(src, 4u, 4u, dst, 2u, 2u));
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_image_resize_u8(src, 4u, 4u, dst, 2u, 2u));
     TEST_ASSERT_EQUAL_UINT8(0u, dst[0]);
     TEST_ASSERT_EQUAL_UINT8(160u, dst[3]);
 
@@ -527,7 +529,7 @@ static void test_ref_lead_lag_q15_golden(void) {
     bm_algo_lead_lag_q15_state_t st;
     uint32_t g;
 
-    TEST_ASSERT_EQUAL(0, bm_algo_lead_lag_q15_init(&st, &cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_lead_lag_q15_init(&st, &cfg));
     for (g = 0u; g < REF_LEAD_LAG_Q15_GOLDEN_COUNT; ++g) {
         bm_algo_q15_t out = bm_algo_lead_lag_q15_step(&st, &cfg,
             ref_lead_lag_q15_inputs[g]);
@@ -725,7 +727,7 @@ static void test_fixed_batch10_smoke(void) {
         bm_algo_float_to_q31(1.0f), bm_algo_float_to_q31(0.8f), NULL);
     TEST_ASSERT_TRUE(bm_algo_q31_to_float(dob_out) > 0.0f);
 
-    TEST_ASSERT_EQUAL(0, bm_algo_lead_lag_q31_init(&ll_st, &ll_cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_lead_lag_q31_init(&ll_st, &ll_cfg));
     ll_out = bm_algo_lead_lag_q31_step(&ll_st, &ll_cfg, BM_ALGO_Q31_ONE);
     TEST_ASSERT_TRUE(ll_out > 0);
 
@@ -1084,7 +1086,7 @@ static void test_medium5_image_resize_avoids_u32_product_overflow(void) {
     }
     memset(dst, 0xA5, h);
 
-    TEST_ASSERT_EQUAL(0, bm_algo_image_resize_u8(src, 1u, h, dst, 1u, h));
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_image_resize_u8(src, 1u, h, dst, 1u, h));
     /* 恒等尺寸缩放，逐行应严格等于源图（含溢出临界行 y=69999） */
     TEST_ASSERT_EQUAL_UINT8(src[69999], dst[69999]);
     TEST_ASSERT_EQUAL_UINT8(src[42950], dst[42950]);
@@ -1099,7 +1101,7 @@ static void test_medium5_image_resize_rejects_oversized_dst(void) {
     const uint8_t src = 0u;
     uint8_t dst_dummy = 0u;
 
-    TEST_ASSERT_EQUAL(BM_ALGO_ERR_INVALID,
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID,
                       bm_algo_image_resize_u8(&src, 1u, 1u, &dst_dummy,
                                               0x80000000u, 2u));
 }
@@ -1283,11 +1285,11 @@ static void test_fixed_batch14_smoke_core(void) {
         bm_algo_float_to_q31(0.1f));
     TEST_ASSERT_TRUE(wh31 > 0);
 
-    TEST_ASSERT_EQUAL(0, bm_algo_fir_q15_init(&fir15_st, &fir15_cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_fir_q15_init(&fir15_st, &fir15_cfg));
     fir15_out = bm_algo_fir_q15_step(&fir15_st, &fir15_cfg, BM_ALGO_Q15_ONE);
     TEST_ASSERT_TRUE(fir15_out >= (bm_algo_q15_t)32000);
 
-    TEST_ASSERT_EQUAL(0, bm_algo_fir_q31_init(&fir31_st, &fir31_cfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_fir_q31_init(&fir31_st, &fir31_cfg));
     fir31_out = bm_algo_fir_q31_step(&fir31_st, &fir31_cfg, BM_ALGO_Q31_ONE);
     TEST_ASSERT_TRUE(fir31_out > 0);
 }
@@ -1463,14 +1465,14 @@ static void test_fixed_batch14_smoke_fusion(void) {
         bm_algo_float_to_q31(0.6f), bm_algo_float_to_q31(0.01f));
     TEST_ASSERT_NOT_EQUAL(0u, mon_flags & BM_ALGO_FAULT_OVER_RANGE);
 
-    TEST_ASSERT_EQUAL(0, bm_algo_smith_predictor_q15_init(
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_smith_predictor_q15_init(
         &smith15_st, &smith15_cfg, s_batch14_smith15_delay, 2u));
     smith15_err = bm_algo_smith_predictor_q15_step(&smith15_st, &smith15_cfg,
         bm_algo_float_to_q15(1.0f), bm_algo_float_to_q15(0.2f),
         bm_algo_float_to_q15(0.5f));
     TEST_ASSERT_TRUE(smith15_err != 0);
 
-    TEST_ASSERT_EQUAL(0, bm_algo_smith_predictor_q31_init(
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_smith_predictor_q31_init(
         &smith31_st, &smith31_cfg, s_batch14_smith31_delay, 2u));
     smith31_err = bm_algo_smith_predictor_q31_step(&smith31_st, &smith31_cfg,
         bm_algo_float_to_q31(1.0f), bm_algo_float_to_q31(0.2f),
@@ -1706,9 +1708,9 @@ static void test_dualtrack_smith_predictor_q_vs_float(void) {
     q15cfg.model_gain_q15 = bm_algo_float_to_q15(0.5f);
     q15cfg.delay_steps = 3u;
 
-    TEST_ASSERT_EQUAL(0, bm_algo_smith_predictor_init(&fst, &fcfg, f_delay, 3u));
-    TEST_ASSERT_EQUAL(0, bm_algo_smith_predictor_q31_init(&q31st, &q31cfg, q31_delay, 3u));
-    TEST_ASSERT_EQUAL(0, bm_algo_smith_predictor_q15_init(&q15st, &q15cfg, q15_delay, 3u));
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_smith_predictor_init(&fst, &fcfg, f_delay, 3u));
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_smith_predictor_q31_init(&q31st, &q31cfg, q31_delay, 3u));
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_smith_predictor_q15_init(&q15st, &q15cfg, q15_delay, 3u));
 
     for (i = 0; i < 40; ++i) {
         float reference = 0.5f;
@@ -1739,7 +1741,7 @@ static void test_dualtrack_moving_avg_q_vs_float(void) {
     bm_algo_moving_avg_q15_state_t   q15st;
     int i;
 
-    TEST_ASSERT_EQUAL(0, bm_algo_moving_avg_init(&fst, &fcfg));
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_moving_avg_init(&fst, &fcfg));
     bm_algo_moving_avg_q31_reset(&q31st);
     bm_algo_moving_avg_q15_reset(&q15st);
 
@@ -2050,7 +2052,7 @@ static void test_dualtrack_rms_q_vs_float(void) {
     bm_algo_rms_q15_state_t  q15st;
     int i;
 
-    TEST_ASSERT_EQUAL(0, bm_algo_rms_init(&fst, &fcfg, fbuf, 8u));
+    TEST_ASSERT_EQUAL(BM_OK, bm_algo_rms_init(&fst, &fcfg, fbuf, 8u));
     bm_algo_rms_q31_reset(&q31st);
     bm_algo_rms_q15_reset(&q15st);
 

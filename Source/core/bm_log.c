@@ -6,9 +6,10 @@
  * 默认 `bm_log_output` 为空操作；启用 BM_CONFIG_LOG_USE_STDIO 时写入 stdout。
  * ring 模式下 RT 路径仅入队，由 bootstrap 按预算 drain。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.4
- * @date 2026-06-15
+ * @version 1.5
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -19,12 +20,14 @@
  * 2026-06-15       1.3            zeh            hard RT 下裁剪格式化实现
  * 2026-07-11       1.4            zeh            批 P：运行期级别阈值
  *
+ * 2026-07-28       1.5            zeh            显式包含 HAL 临界区声明
  */
 #include "bm_log.h"
 #include "bm_config.h"
 #include "bm/common/bm_atomic_ipc.h"
 #include "bm/common/bm_critical_wrap.h"
 #include "bm/core/bm_cpu_local.h"
+#include "hal/bm_hal_critical.h"
 
 #if BM_CONFIG_ENABLE_LOG && !BM_CONFIG_HARD_RT_PROFILE
 #include <stdarg.h>

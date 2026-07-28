@@ -2,9 +2,10 @@
  * @file bm_algo_control.c
  * @brief 控制算法：积分器、微分器、PI/PID、PR 与补偿器实现
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.4
- * @date 2026-07-14
+ * @version 1.6
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -23,6 +24,7 @@
  * 2026-07-27       1.5            zeh            differentiator/pid/pid2 的
  *                                                LPF alpha 改用
  *                                                bm_algo_lpf1_alpha_saturate
+ * 2026-07-28       1.6            zeh            状态返回改用 BM_OK/BM_ERR_*
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -257,7 +259,7 @@ int bm_algo_pr_compute_coeffs(const bm_algo_pr_config_t *config,
     if (config == NULL || sample_period_s <= 0.0f ||
         b0 == NULL || b1 == NULL || b2 == NULL ||
         a1 == NULL || a2 == NULL) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
 
     /* 配置增益/频率非有限（NaN/Inf）会污染双线性变换的每一步计算，此前无校验 */
@@ -265,7 +267,7 @@ int bm_algo_pr_compute_coeffs(const bm_algo_pr_config_t *config,
         !bm_algo_is_finite_f(config->omega_rad_s) ||
         !bm_algo_is_finite_f(config->bandwidth_rad_s) ||
         !bm_algo_is_finite_f(config->kr)) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
 
     w0 = config->omega_rad_s;
@@ -275,7 +277,7 @@ int bm_algo_pr_compute_coeffs(const bm_algo_pr_config_t *config,
   /* 双线性变换离散谐振器（带阻尼） */
     d = k * k + w0 * w0 + 2.0f * wc * k;
     if (d == 0.0f) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
 
     a0 = d;
@@ -284,7 +286,7 @@ int bm_algo_pr_compute_coeffs(const bm_algo_pr_config_t *config,
     *b2 = -(*b0);
     *a1 = (2.0f * w0 * w0 - 2.0f * k * k) / a0;
     *a2 = (k * k - 2.0f * wc * k + w0 * w0) / a0;
-    return 0;
+    return BM_OK;
 }
 
 /**
@@ -308,7 +310,7 @@ int bm_algo_pr_init(bm_algo_pr_state_t *state,
     float b0_check, b1_check, b2_check, a1_check, a2_check;
 
     if (state == NULL || config == NULL) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
     bm_algo_pr_reset(state);
     /* 调用 compute_coeffs 做配置校验（e.g. 分母不为零）；
@@ -369,7 +371,7 @@ int bm_algo_lead_lag_init(bm_algo_lead_lag_state_t *state,
     float p;
 
     if (state == NULL || config == NULL || sample_period_s <= 0.0f) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
 
     k = 2.0f / sample_period_s;
@@ -379,14 +381,14 @@ int bm_algo_lead_lag_init(bm_algo_lead_lag_state_t *state,
     /* Medium-2：k+p==0（pole_rad_s == -2/T）会使双线性变换分母为 0，
      * 产生 Inf/NaN 却仍返回成功；拦截并返回错误码，拒绝写入非法系数。 */
     if (k + p == 0.0f) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
 
     state->b0 = config->gain * (k + z) / (k + p);
     state->b1 = config->gain * (z - k) / (k + p);
     state->a1 = (p - k) / (k + p);
     bm_algo_lead_lag_reset(state);
-    return 0;
+    return BM_OK;
 }
 
 void bm_algo_lead_lag_reset(bm_algo_lead_lag_state_t *state) {
@@ -512,14 +514,14 @@ int bm_algo_smith_predictor_init(bm_algo_smith_predictor_state_t *state,
                                  uint32_t line_len) {
     if (state == NULL || config == NULL || delay_line == NULL ||
         config->delay_steps == 0u || line_len < config->delay_steps) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
 
     state->u_delay_line = delay_line;
     state->line_len = line_len;
     state->delay_steps = config->delay_steps;
     bm_algo_smith_predictor_reset(state, config);
-    return 0;
+    return BM_OK;
 }
 
 void bm_algo_smith_predictor_reset(bm_algo_smith_predictor_state_t *state,

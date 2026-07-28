@@ -1,13 +1,15 @@
-﻿/**
+/**
  * @file bm_config_mp_demo.h
  * @brief 鍙屾牳 PERCPU 闂簮 Demo 鍏叡瀹归噺閰嶇疆
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-16
+ * @version 1.2
+ * @date 2026-07-28
  *
  * @par 淇敼鏃ュ織:
  *
  * Date       Version Author Description
+ * 2026-07-28 1.2     zeh    Console 后端由 CMake 默认值统一注入，消除宏重定义
  * 2026-06-16 1.1     zeh    native_sim 婕旂ず鍏抽棴 hard RT 鍓栭潰浠ュ惎鐢?UART
  *
  */
@@ -72,10 +74,6 @@
 #define BM_CONFIG_LOG_RING                1
 #define BM_CONFIG_LOG_USE_STDIO              0
 /* Console：native_sim 走 STDIO（须在拉入 bm_config.h 前定义后端枚举值） */
-#define BM_CONSOLE_BACKEND_STDIO               1
-#define BM_CONSOLE_BACKEND_UART                2
-#define BM_CONFIG_CONSOLE_LOG_BACKEND          BM_CONSOLE_BACKEND_STDIO
-#define BM_CONFIG_CONSOLE_CLI_BACKEND          BM_CONSOLE_BACKEND_STDIO
 #define BM_HAL_CRITICAL_MASKS_STREAM_IRQ     1
 
 #endif /* BM_CONFIG_DEMO_H */

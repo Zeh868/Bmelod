@@ -9,6 +9,7 @@ Not validated: 实机抖动环境、亚微秒级时间精度
 ## 范围
 
 - `bm_input_debounce_update` / `_filtered` / `_is_stable`
+- 配置、状态与纯时间滤波算法下沉至 `bm/common/bm_input_debounce.h`
 - 固定稳定时间阈值，输入须在 `stable_us` 内不变才视为有效沿
 
 ## 已知限制

@@ -4,9 +4,10 @@
  * @brief QEMU AArch64 virt SMP 仿真单例驱动（Generic Timer / PL011 / GICv2）
  *
  * 临界区与内存屏障由 `bm_port_arch_aarch64` 提供。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.4
- * @date 2026-07-16
+ * @version 1.5
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -16,6 +17,7 @@
  * 2026-07-15       1.2            zeh            GICD_ISENABLER0（IRQ 0-31 为 per-core banked）从 gic_dist_init 移入 gic_cpu_init，从核各自使能定时器 PPI
  * 2026-07-16       1.3            zeh            g_ticks/g_tick_cb/g_tick_freq_hz 改 per-CPU 数组（原共享标量双核互覆、tick 双倍计数），对齐 cortexa SMP 实现；配套 IRQ 向量补存 x8-x18 与 q0-q31/FPCR/FPSR 现场、启动使能 CPACR_EL1.FPEN 并 daifclr 开 IRQ（复位 DAIF 全屏蔽曾致 tick 永不触发）
  * 2026-07-16       1.4            zeh            IRQ 分发跳过 GICv2 保留/伪 IRQ ID（1022/1023），避免无条件写 GICC_EOIR
+ * 2026-07-28       1.5            zeh            PL011 发送轮询加入命名上限，超时返回 BM_ERR_TIMEOUT
  *
  */
 #include "bm_drv_timer.h"
@@ -57,6 +59,8 @@
 #define UART_DR             (*(volatile uint32_t *)(UART_BASE + 0x000))
 #define UART_FR             (*(volatile uint32_t *)(UART_BASE + 0x018))
 #define UART_FR_TXFF        (1u << 5)
+/** @brief PL011 发送 FIFO 满轮询上限，超出时返回 BM_ERR_TIMEOUT。 */
+#define BM_QEMU_AARCH64_UART_TX_POLL_LIMIT  100000u
 
 /** ARM Generic Timer PPI */
 #define BM_AARCH64_TIMER_IRQ_ID  30u
@@ -244,13 +248,21 @@ static int aarch64_uart_send(const struct bm_hal_uart *dev,
                             const uint8_t *data, size_t len) {
     (void)dev;
     size_t i;
+    uint32_t attempt;
 
     if (!data && len > 0u) {
         return BM_ERR_INVALID;
     }
     for (i = 0u; i < len; i++) {
-        while ((UART_FR & UART_FR_TXFF) != 0u) {
+        for (attempt = 0u; attempt < BM_QEMU_AARCH64_UART_TX_POLL_LIMIT;
+             ++attempt) {
+            if ((UART_FR & UART_FR_TXFF) == 0u) {
+                break;
+            }
             __asm volatile("yield");
+        }
+        if (attempt == BM_QEMU_AARCH64_UART_TX_POLL_LIMIT) {
+            return BM_ERR_TIMEOUT;
         }
         UART_DR = (uint32_t)data[i];
     }

@@ -1,9 +1,10 @@
 /**
  * @file fault_derating.c
  * @brief 故障锁存与线性降额组件实现
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.4
- * @date 2026-07-27
+ * @version 0.6
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -13,6 +14,8 @@
  * 2026-06-23       0.3            zeh            恢复计时比较加半个 dt 容差，消除浮点边界差一拍
  * 2026-07-27       0.4            zeh            新增 bm_exec_ops_t 生命周期封装
  * 2026-07-27       0.5            zeh            init/validate/reset 复用 bm_component_common.h 公共宏
+ *
+ * 2026-07-28       0.6            zeh            实现 common 降额服务绑定适配器
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -164,6 +167,105 @@ void bm_fault_derating_step(bm_fault_derating_axis_t *axis) {
     st->telemetry.recovery_elapsed_s = st->recovery_elapsed_s;
 
     BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
+}
+
+/**
+ * @brief 配置故障降额服务适配器
+ *
+ * @param context 故障降额轴实例
+ * @param config common 降额服务配置
+ * @return BM_OK 成功；BM_ERR_INVALID 参数或配置非法
+ */
+static int fault_derating_service_configure(
+    void *context, const bm_derating_service_config_t *config) {
+    bm_fault_derating_axis_t *axis = (bm_fault_derating_axis_t *)context;
+    bm_fault_derating_config_t candidate;
+
+    if (axis == NULL || config == NULL) {
+        return BM_ERR_INVALID;
+    }
+    candidate = axis->config;
+    candidate.derate_ramp.rate_per_s = config->rate_per_s;
+    candidate.recovery_time_s = config->recovery_time_s;
+    candidate.dt_s = config->dt_s;
+    candidate.derate_target = config->target_factor;
+    if (bm_fault_derating_validate_config(&candidate) != BM_OK) {
+        return BM_ERR_INVALID;
+    }
+    axis->config = candidate;
+    return BM_OK;
+}
+
+/**
+ * @brief 获取故障降额服务当前因子
+ *
+ * @param context 故障降额轴实例
+ * @return 当前降额因子；context 为 NULL 时返回全额 1.0
+ */
+static float fault_derating_service_get_factor(const void *context) {
+    const bm_fault_derating_axis_t *axis =
+        (const bm_fault_derating_axis_t *)context;
+
+    return axis != NULL ? axis->state.derate_factor : 1.0f;
+}
+
+/**
+ * @brief 复位故障降额服务上下文
+ *
+ * @param context 故障降额轴实例
+ */
+static void fault_derating_service_reset(void *context) {
+    bm_fault_derating_reset((bm_fault_derating_axis_t *)context);
+}
+
+/**
+ * @brief 锁存故障降额服务上下文
+ *
+ * @param context 故障降额轴实例
+ */
+static void fault_derating_service_latch(void *context) {
+    bm_fault_derating_latch((bm_fault_derating_axis_t *)context);
+}
+
+/**
+ * @brief 请求清除故障降额服务锁存
+ *
+ * @param context 故障降额轴实例
+ */
+static void fault_derating_service_clear_request(void *context) {
+    bm_fault_derating_clear_request((bm_fault_derating_axis_t *)context);
+}
+
+/**
+ * @brief 步进故障降额服务上下文
+ *
+ * @param context 故障降额轴实例
+ */
+static void fault_derating_service_step(void *context) {
+    bm_fault_derating_step((bm_fault_derating_axis_t *)context);
+}
+
+/**
+ * @brief 将故障降额轴绑定为 common 降额服务
+ *
+ * @param axis 已分配的故障降额轴实例，NULL 时返回 BM_ERR_INVALID
+ * @param service 输出服务绑定，NULL 时返回 BM_ERR_INVALID
+ * @return BM_OK 成功；BM_ERR_INVALID 参数非法
+ */
+int bm_fault_derating_bind_service(bm_fault_derating_axis_t *axis,
+                                   bm_derating_service_t *service) {
+    if (axis == NULL || service == NULL) {
+        return BM_ERR_INVALID;
+    }
+
+    service->context = axis;
+    service->configure = fault_derating_service_configure;
+    service->reset = fault_derating_service_reset;
+    service->latch = fault_derating_service_latch;
+    service->clear_request = fault_derating_service_clear_request;
+    service->step = fault_derating_service_step;
+    service->get_factor = fault_derating_service_get_factor;
+    return BM_OK;
 }
 
 /* ---------- exec_ops 封装 ---------- */

@@ -8,6 +8,7 @@
  * @core_affinity 实例约束
  * 共享场景采用一次性 try-lock，竞争时立即失败，不进行无界自旋。
  * 硬实时路径应将池耗尽/竞争作为显式背压处理。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-10
@@ -17,6 +18,7 @@
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
  * 2026-07-27       1.1            zeh            将 BM_MEMPOOL_DEFINE 迁到 bm_mempool_impl.h
+ * 2026-07-28       1.2            zeh            新增可观测的非阻塞 try_free 接口
  *
  */
 #ifndef BM_MEMPOOL_H
@@ -47,7 +49,22 @@ typedef struct {
 void *bm_mempool_alloc(bm_mempool_t *pool);
 
 /**
+ * @brief 尝试将对象归还内存池（单次非阻塞尝试）
+ *
+ * 共享池争用时立即返回 BM_ERR_BUSY，不会自旋等待。需要可靠归还时，调用方应
+ * 在其自身的非实时预算内根据返回值安排有限重试或故障处理。
+ *
+ * @param pool 内存池控制块指针
+ * @param obj 待释放的对象指针
+ * @return BM_OK 成功；BM_ERR_BUSY 表示锁争用；BM_ERR_INVALID 表示对象或池非法
+ */
+int bm_mempool_try_free(bm_mempool_t *pool, void *obj);
+
+/**
  * @brief 将对象归还内存池
+ *
+ * 此兼容包装仅调用一次 bm_mempool_try_free 后立即返回；需要观测并处理争用
+ * 失败时必须改用 bm_mempool_try_free。
  *
  * @param pool 内存池控制块指针
  * @param obj 待释放的对象指针

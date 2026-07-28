@@ -2,9 +2,10 @@
  * @file bm_algo_audio.c
  * @brief 音频数学核实现
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.5
- * @date 2026-07-09
+ * @version 1.6
+ * @date 2026-07-28
  *
  * @par 修改日志:
  *
@@ -19,6 +20,7 @@
  *                                                改用饱和加法，避免长时间
  *                                                偏置输入下 int32_t 有符号
  *                                                溢出 UB
+ * 2026-07-28       1.6            zeh            状态返回改用 BM_OK/BM_ERR_*
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -184,7 +186,7 @@ int bm_algo_eq_peaking_design(bm_algo_eq_peaking_state_t *state,
     if (state == NULL || config == NULL ||
         config->sample_hz <= 0.0f || config->freq_hz <= 0.0f ||
         config->q <= 0.0f) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
 
     design.type = BM_ALGO_BIQUAD_PEAKING;
@@ -194,7 +196,7 @@ int bm_algo_eq_peaking_design(bm_algo_eq_peaking_state_t *state,
     design.gain_db = config->gain_db;
 
     if (bm_algo_biquad_design(&bq, &design) != 0) {
-        return BM_ALGO_ERR_INVALID;
+        return BM_ERR_INVALID;
     }
 
     state->b0 = bq.b0;
@@ -203,7 +205,7 @@ int bm_algo_eq_peaking_design(bm_algo_eq_peaking_state_t *state,
     state->a1 = bq.a1;
     state->a2 = bq.a2;
     bm_algo_eq_peaking_reset(state);
-    return 0;
+    return BM_OK;
 }
 
 void bm_algo_eq_peaking_reset(bm_algo_eq_peaking_state_t *state) {

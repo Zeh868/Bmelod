@@ -1,12 +1,14 @@
 /**
  * @file test_recorder.c
  * @brief 录波环 bm_recorder 顺序/回绕覆盖/撕裂读校验/dropped 计数单元测试
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-21
  * @par 修改日志:
  *    Date         Version        Author          Description
  * 2026-06-21       1.0            zeh            正式发布
+ * 2026-07-28       1.1            zeh            补充零预算入口快照测试
  */
 
 #include "unity.h"
@@ -133,6 +135,27 @@ static void sum_sink(const void *f, void *ctx) {
     acc[1] += 1u;
 }
 
+/** @brief drain 回调内继续生产帧的测试上下文。 */
+typedef struct {
+    uint32_t produced;
+    uint32_t produce_limit;
+    uint32_t next_seq;
+} recorder_producer_ctx_t;
+
+/** @brief 回调期间向同一录波环写入有限数量的新帧。 */
+static void producing_sink(const void *f, void *ctx) {
+    recorder_producer_ctx_t *producer = (recorder_producer_ctx_t *)ctx;
+    test_frame_t frame;
+
+    (void)f;
+    if (producer->produced >= producer->produce_limit) {
+        return;
+    }
+    frame = make_frame(producer->next_seq++);
+    bm_recorder_push(&g_rec, &frame);
+    producer->produced++;
+}
+
 /** 用例④：count / drain(budget) 行为 */
 void test_recorder_count_and_drain_budget(void) {
     test_frame_t in;
@@ -163,6 +186,27 @@ void test_recorder_count_and_drain_budget(void) {
 
     /* 空环 drain 返 0；sink=NULL 也安全 */
     TEST_ASSERT_EQUAL_UINT32(0u, bm_recorder_drain(&g_rec, NULL, NULL, 0u));
+}
+
+/** @brief budget=0 仅处理入口快照中的帧，回调新生产帧留待下一次。 */
+void test_recorder_drain_zero_budget_uses_entry_snapshot(void) {
+    recorder_producer_ctx_t producer = { 0u, 3u, 100u };
+    test_frame_t in;
+    uint32_t acc[2] = { 0u, 0u };
+    uint32_t i;
+
+    for (i = 0u; i < 3u; ++i) {
+        in = make_frame(i);
+        bm_recorder_push(&g_rec, &in);
+    }
+
+    TEST_ASSERT_EQUAL_UINT32(3u,
+        bm_recorder_drain(&g_rec, producing_sink, &producer, 0u));
+    TEST_ASSERT_EQUAL_UINT32(3u, producer.produced);
+    TEST_ASSERT_EQUAL_UINT32(3u, bm_recorder_count(&g_rec));
+    TEST_ASSERT_EQUAL_UINT32(3u, bm_recorder_drain(&g_rec, sum_sink, acc, 0u));
+    TEST_ASSERT_EQUAL_UINT32(100u + 101u + 102u, acc[0]);
+    TEST_ASSERT_EQUAL_UINT32(0u, bm_recorder_count(&g_rec));
 }
 
 /** 用例⑤：交替 push/pop 长跑（>=10×capacity）数据一致、无越界 */
@@ -217,6 +261,7 @@ int main(void) {
     RUN_TEST(test_recorder_wrap_overwrite);
     RUN_TEST(test_recorder_init_validation);
     RUN_TEST(test_recorder_count_and_drain_budget);
+    RUN_TEST(test_recorder_drain_zero_budget_uses_entry_snapshot);
     RUN_TEST(test_recorder_long_run_consistency);
     RUN_TEST(test_recorder_dropped_monotonic_overrun);
     return UNITY_END();
