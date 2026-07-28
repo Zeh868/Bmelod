@@ -295,10 +295,47 @@ static void bm_vendor_hrtimer_enable_clock(const bm_hrtimer_stm32g4_config_t *cf
 /**
  * @brief 初始化 Timer 硬件（幂等）。
  */
+/**
+ * @brief 判断 TIM 是否为 32 位计数器。
+ */
+static int bm_vendor_hrtimer_is_32bit(TIM_TypeDef *tim) {
+    return (tim == TIM2 || tim == TIM5) ? 1 : 0;
+}
+
+/**
+ * @brief 校验配置合法性。
+ */
+static int bm_vendor_hrtimer_validate_config(
+    const bm_hrtimer_stm32g4_config_t *cfg) {
+    uint32_t max_arr;
+
+    if (cfg == NULL || cfg->tim == NULL || cfg->channel == 0u) {
+        return BM_ERR_INVALID;
+    }
+    if (cfg->prescaler > 0xFFFFu) {
+        return BM_ERR_INVALID;
+    }
+    if (cfg->channel != LL_TIM_CHANNEL_CH1 &&
+        cfg->channel != LL_TIM_CHANNEL_CH2 &&
+        cfg->channel != LL_TIM_CHANNEL_CH3 &&
+        cfg->channel != LL_TIM_CHANNEL_CH4) {
+        return BM_ERR_INVALID;
+    }
+
+    max_arr = bm_vendor_hrtimer_is_32bit(cfg->tim) ? 0xFFFFFFFFu : 0xFFFFu;
+    if (cfg->auto_reload == 0u || cfg->auto_reload > max_arr) {
+        return BM_ERR_INVALID;
+    }
+    if (cfg->irqn < 0) {
+        return BM_ERR_INVALID;
+    }
+    return BM_OK;
+}
+
 static int bm_vendor_hrtimer_hw_init(bm_vendor_hrtimer_context_t *ctx) {
     const bm_hrtimer_stm32g4_config_t *cfg = ctx->cfg;
 
-    if (cfg == NULL || cfg->tim == NULL || cfg->channel == 0u) {
+    if (bm_vendor_hrtimer_validate_config(cfg) != BM_OK) {
         return BM_ERR_INVALID;
     }
 
@@ -328,11 +365,13 @@ static void bm_vendor_hrtimer_isr(bm_vendor_hrtimer_context_t *ctx) {
     TIM_TypeDef *tim;
     uint32_t cnt;
     uint32_t next;
+    uint32_t arr;
 
     if (ctx == NULL || ctx->cfg == NULL) {
         return;
     }
     tim = ctx->cfg->tim;
+    arr = ctx->cfg->auto_reload;
 
     if (bm_vendor_hrtimer_is_active_flag_cc(tim, ctx->cfg->channel) == 0u) {
         return;
@@ -342,9 +381,22 @@ static void bm_vendor_hrtimer_isr(bm_vendor_hrtimer_context_t *ctx) {
     ctx->stats.irq_count++;
 
     cnt = LL_TIM_GetCounter(tim);
+    /* 检测计数器回绕 */
+    if (cnt < ctx->next_compare && ctx->stats.irq_count > 1u) {
+        ctx->stats.wrap_count++;
+    }
+    /* deadline miss：当前计数器已超过期望比较点一个周期以上 */
+    if (ctx->running != 0 &&
+        ((cnt - ctx->next_compare) <= (arr / 2u))) {
+        ctx->stats.deadline_miss_count++;
+    }
+
     if (ctx->mode == BM_HRTIMER_MODE_PERIODIC && ctx->running != 0) {
         /* 下一个比较点 = 当前计数器 + 周期；处理回绕 */
         next = cnt + ctx->period_ticks;
+        if (next > arr) {
+            next = next - arr - 1u;
+        }
         ctx->next_compare = next;
         bm_vendor_hrtimer_set_ccr(tim, ctx->cfg->channel, next);
     } else {
@@ -359,25 +411,23 @@ static void bm_vendor_hrtimer_isr(bm_vendor_hrtimer_context_t *ctx) {
 
 /* ---------- IRQ handlers ---------- */
 
-void TIM2_IRQHandler(void) {
-    uint32_t i;
-
-    for (i = 0u; i < BM_VENDOR_HRTIMER_INSTANCE_COUNT; ++i) {
-        if (g_hrtimer_ctx[i].cfg != NULL && g_hrtimer_ctx[i].cfg->tim == TIM2) {
-            bm_vendor_hrtimer_isr(&g_hrtimer_ctx[i]);
-        }
+#define BM_HRTIMER_DEFINE_HANDLER(tim_inst)                          \
+    void tim_inst##_IRQHandler(void) {                               \
+        uint32_t i;                                                  \
+        for (i = 0u; i < BM_VENDOR_HRTIMER_INSTANCE_COUNT; ++i) {    \
+            if (g_hrtimer_ctx[i].cfg != NULL &&                      \
+                g_hrtimer_ctx[i].cfg->tim == tim_inst) {             \
+                bm_vendor_hrtimer_isr(&g_hrtimer_ctx[i]);            \
+            }                                                        \
+        }                                                            \
     }
-}
 
-void TIM3_IRQHandler(void) {
-    uint32_t i;
-
-    for (i = 0u; i < BM_VENDOR_HRTIMER_INSTANCE_COUNT; ++i) {
-        if (g_hrtimer_ctx[i].cfg != NULL && g_hrtimer_ctx[i].cfg->tim == TIM3) {
-            bm_vendor_hrtimer_isr(&g_hrtimer_ctx[i]);
-        }
-    }
-}
+BM_HRTIMER_DEFINE_HANDLER(TIM2)
+BM_HRTIMER_DEFINE_HANDLER(TIM3)
+BM_HRTIMER_DEFINE_HANDLER(TIM4)
+BM_HRTIMER_DEFINE_HANDLER(TIM5)
+BM_HRTIMER_DEFINE_HANDLER(TIM6)
+BM_HRTIMER_DEFINE_HANDLER(TIM7)
 
 /* ---------- HAL API 实现 ---------- */
 
@@ -443,13 +493,17 @@ static int bm_vendor_hrtimer_start(const struct bm_hal_hrtimer *dev,
 
 static int bm_vendor_hrtimer_stop(const struct bm_hal_hrtimer *dev) {
     bm_vendor_hrtimer_context_t *ctx;
+    TIM_TypeDef *tim;
 
     ctx = bm_vendor_hrtimer_ctx_for(dev);
     if (ctx == NULL || ctx->cfg == NULL) {
         return BM_ERR_INVALID;
     }
+    tim = ctx->cfg->tim;
     ctx->running = 0;
-    bm_vendor_hrtimer_disable_it_cc(ctx->cfg->tim, ctx->cfg->channel);
+    bm_vendor_hrtimer_disable_it_cc(tim, ctx->cfg->channel);
+    bm_vendor_hrtimer_clear_flag_cc(tim, ctx->cfg->channel);
+    LL_TIM_ClearFlag_UPDATE(tim);
     return BM_OK;
 }
 
@@ -459,6 +513,7 @@ static int bm_vendor_hrtimer_set_compare(const struct bm_hal_hrtimer *dev,
     const bm_hrtimer_stm32g4_config_t *cfg;
     uint32_t ticks;
     uint32_t cnt;
+    uint32_t next;
 
     ctx = bm_vendor_hrtimer_ctx_for(dev);
     if (ctx == NULL || ctx->cfg == NULL) {
@@ -471,7 +526,18 @@ static int bm_vendor_hrtimer_set_compare(const struct bm_hal_hrtimer *dev,
     }
 
     cnt = LL_TIM_GetCounter(cfg->tim);
-    ctx->next_compare = cnt + ticks;
+    next = cnt + ticks;
+    if (next > cfg->auto_reload) {
+        next = next - cfg->auto_reload - 1u;
+    }
+    /* 若目标已过期（计数器已跑过），则推到最近的未来，避免等一整圈 */
+    if (next <= cnt && (cnt - next) <= (cfg->auto_reload / 2u)) {
+        next = cnt + 2u;
+        if (next > cfg->auto_reload) {
+            next = next - cfg->auto_reload - 1u;
+        }
+    }
+    ctx->next_compare = next;
     bm_vendor_hrtimer_set_ccr(cfg->tim, cfg->channel, ctx->next_compare);
 
     if (ctx->running == 0) {

@@ -49,6 +49,10 @@ int bm_hal_uart_init(const bm_hal_uart_t *uart, void *config);
 /**
  * @brief 发送数据
  *
+ * 异步后端：调用者须保证 `data` 缓冲区在 DMA/中断完成前保持有效；
+ * 完成时机由 `bm_hal_uart_set_tx_complete_callback()` 回调或
+ * `bm_hal_uart_flush()` 返回确定。发送期间再次调用返回 `BM_ERR_BUSY`。
+ *
  * @param uart UART 设备实例
  * @param data 待发送数据缓冲区
  * @param len  发送字节数

@@ -3,25 +3,34 @@
  * @file bm_vendor_usart3_stm32g4.c
  * @brief STM32G4 USART3 设备实例驱动（IDLE + DMA TX/RX）
  *
- * App 通过 `bm_usart3_stm32g4_config_t` 指定引脚/DMA/IRQ/DE；Bmelod 不固定 USART3。
- * RX 走 DMA 循环模式 + USART IDLE 中断；收到 IDLE 后停止 DMA、计算已接收字节数、
- * 调用 rx_frame_callback，再重启 DMA。TX 走 DMA 正常模式 + TC 中断，TC 时调用
- * tx_complete_callback。
+ * App 通过 `bm_usart3_stm32g4_config_t` 指定端口/Pin/AF/DMA/IRQ；Bmelod 不固定
+ * USART3 与具体产品引脚。
  *
- * ISR 有界：只清标志、操作 DMA/USART 寄存器、派发回调，不解析业务协议。
+ * 设计要点：
+ * - TX/RX GPIO 端口、引脚、AF 全部由配置指定，后端不写死 GPIOB。
+ * - TX/RX DMA 控制器（DMA1/DMA2）与通道号全部由配置指定；IRQ handler 经统一
+ *   入口按实际通道分发，不硬编码 CH4/CH5。
+ * - RX 使用 DMA 循环模式 + 软件读指针，HT/TC/IDLE 均用于维护写指针并检测覆盖。
+ * - TX 使用 DMA 正常模式，DMA TC 后开启 USART TC 中断，在 USART TC 到达时才
+ *   触发发送完成回调，确保最后一个停止位已离开发送器。
+ * - 回调统一传递真实的 `bm_hal_uart_t *dev` 指针，不把 context 强转成设备。
+ * - init 对引脚、DMA、IRQ、波特率/数据位/校验/停止位做合法性校验；失败时回滚
+ *   已配置的 NVIC/时钟。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 2.0
  * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 STM32G4 USART3 后端
+ * 2026-07-28       2.0            zeh            支持任意端口/DMA 控制器/通道；
+ *                                                重写环形 RX 与两段式 TX 完成
  */
 #include "bm_vendor_usart3_stm32g4.h"
 #include "bm_hal_instances_stm32g4.h"
-#include "bm_types.h"
+#include "bm/common/bm_types.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -32,24 +41,29 @@
 #include "stm32g4xx_ll_dma.h"
 #include "stm32g4xx_ll_gpio.h"
 #include "stm32g4xx_ll_dmamux.h"
+#include "stm32g4xx_ll_rcc.h"
 #include "stm32g4xx_ll_usart.h"
 
-/** @brief 默认 USART3 配置。 */
+/** @brief 默认 USART3 配置（PB10/PB11，DMA1_CH4/CH5，115200 8N1）。 */
 static const bm_usart3_stm32g4_config_t g_usart3_cfg_default = {
     .baud = BM_STM32G4_USART3_BAUD,
     .parity = BM_UART_PARITY_NONE,
     .stop_bits = BM_UART_STOPBITS_1,
     .data_bits = BM_UART_DATABITS_8,
+    .tx_port = BM_STM32G4_USART3_TX_PORT,
     .tx_pin = BM_STM32G4_USART3_TX_PIN,
+    .rx_port = BM_STM32G4_USART3_RX_PORT,
     .rx_pin = BM_STM32G4_USART3_RX_PIN,
     .gpio_af = BM_STM32G4_USART3_GPIO_AF,
+    .tx_dma_ctrl = BM_STM32G4_USART3_TX_DMA_CTRL,
     .tx_dma_ch = BM_STM32G4_USART3_TX_DMA_CH,
     .tx_dma_req = BM_STM32G4_USART3_TX_DMA_REQ,
+    .rx_dma_ctrl = BM_STM32G4_USART3_RX_DMA_CTRL,
     .rx_dma_ch = BM_STM32G4_USART3_RX_DMA_CH,
     .rx_dma_req = BM_STM32G4_USART3_RX_DMA_REQ,
     .usart_irqn = USART3_IRQn,
-    .tx_dma_irqn = DMA1_Channel4_IRQn, /* 默认 DMA1_CH4 */
-    .rx_dma_irqn = DMA1_Channel5_IRQn, /* 默认 DMA1_CH5 */
+    .tx_dma_irqn = DMA1_Channel4_IRQn,
+    .rx_dma_irqn = DMA1_Channel5_IRQn,
     .irq_priority = BM_STM32G4_USART3_IRQ_PRIORITY,
     .tx_dma_irq_priority = BM_STM32G4_USART3_TX_DMA_IRQ_PRIORITY,
     .rx_dma_irq_priority = BM_STM32G4_USART3_RX_DMA_IRQ_PRIORITY,
@@ -57,16 +71,23 @@ static const bm_usart3_stm32g4_config_t g_usart3_cfg_default = {
 
 /** @brief 运行时上下文。 */
 typedef struct {
+    const bm_hal_uart_t              *dev;
     const bm_usart3_stm32g4_config_t *cfg;
-    uint8_t                          *rx_buf;
-    size_t                            rx_len;
-    int                               initialized;
-    int                               tx_busy;
-    bm_uart_tx_complete_callback_t    tx_complete_cb;
-    void                             *tx_complete_user;
-    bm_uart_rx_frame_callback_t       rx_frame_cb;
-    void                             *rx_frame_user;
-    bm_uart_stats_t                   stats;
+    int                                initialized;
+    int                                tx_busy;
+
+    uint8_t                           *rx_buf;
+    size_t                             rx_len;
+    size_t                             rx_write_pos; /**< DMA 当前写位置 */
+    size_t                             rx_read_pos;  /**< 软件已读位置 */
+    size_t                             rx_event_len; /**< 本次事件时累计未读字节数 */
+
+    bm_uart_tx_complete_callback_t     tx_complete_cb;
+    void                              *tx_complete_user;
+    bm_uart_rx_frame_callback_t        rx_frame_cb;
+    void                              *rx_frame_user;
+
+    bm_uart_stats_t                    stats;
 } bm_usart3_context_t;
 
 static bm_usart3_context_t g_usart3_ctx;
@@ -76,18 +97,52 @@ static bm_usart3_context_t g_usart3_ctx;
 /* -------------------------------------------------------------------------- */
 
 /**
- * @brief 由通道号（1-based）取 DMA 通道寄存器指针。
+ * @brief 由端口编码取 GPIO 寄存器指针。
  */
-static DMA_Channel_TypeDef *bm_usart3_dma_ch(uint32_t ch) {
-    switch (ch) {
-    case 1u: return DMA1_Channel1;
-    case 2u: return DMA1_Channel2;
-    case 3u: return DMA1_Channel3;
-    case 4u: return DMA1_Channel4;
-    case 5u: return DMA1_Channel5;
-    case 6u: return DMA1_Channel6;
-    case 7u: return DMA1_Channel7;
+static GPIO_TypeDef *bm_usart3_port(uint32_t port) {
+    switch (port) {
+    case 0u: return GPIOA;
+    case 1u: return GPIOB;
+    case 2u: return GPIOC;
+    case 3u: return GPIOD;
+    case 4u: return GPIOE;
+    case 5u: return GPIOF;
+    case 6u: return GPIOG;
     default: return NULL;
+    }
+}
+
+/**
+ * @brief 由 DMA 控制器号取 DMA 寄存器指针。
+ */
+static DMA_TypeDef *bm_usart3_dma_ctrl(uint32_t ctrl) {
+    return (ctrl == 2u) ? DMA2 : DMA1;
+}
+
+/**
+ * @brief 使能指定 GPIO 端口时钟。
+ */
+static void bm_usart3_gpio_clock_enable(uint32_t port) {
+    switch (port) {
+    case 0u: LL_AHB2_GRP1_EnableClock(LL_AHB2_GRP1_PERIPH_GPIOA); break;
+    case 1u: LL_AHB2_GRP1_EnableClock(LL_AHB2_GRP1_PERIPH_GPIOB); break;
+    case 2u: LL_AHB2_GRP1_EnableClock(LL_AHB2_GRP1_PERIPH_GPIOC); break;
+    case 3u: LL_AHB2_GRP1_EnableClock(LL_AHB2_GRP1_PERIPH_GPIOD); break;
+    case 4u: LL_AHB2_GRP1_EnableClock(LL_AHB2_GRP1_PERIPH_GPIOE); break;
+    case 5u: LL_AHB2_GRP1_EnableClock(LL_AHB2_GRP1_PERIPH_GPIOF); break;
+    case 6u: LL_AHB2_GRP1_EnableClock(LL_AHB2_GRP1_PERIPH_GPIOG); break;
+    default: break;
+    }
+}
+
+/**
+ * @brief 使能指定 DMA 控制器时钟。
+ */
+static void bm_usart3_dma_clock_enable(uint32_t ctrl) {
+    if (ctrl == 1u) {
+        LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA1);
+    } else if (ctrl == 2u) {
+        LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA2);
     }
 }
 
@@ -108,7 +163,166 @@ static void bm_usart3_gpio_af(GPIO_TypeDef *port, uint32_t pin, uint32_t af) {
 }
 
 /**
- * @brief 更新错误统计。
+ * @brief 配置 TX DMA 通道（正常模式）。
+ */
+static void bm_usart3_tx_dma_config(const bm_usart3_context_t *ctx,
+                                    DMA_TypeDef *dma, uint32_t ch,
+                                    const uint8_t *data, size_t len) {
+    (void)ctx;
+
+    LL_DMA_DisableChannel(dma, ch);
+    LL_DMA_SetPeriphAddress(dma, ch, (uint32_t)&USART3->TDR);
+    LL_DMA_SetMemoryAddress(dma, ch, (uint32_t)data);
+    LL_DMA_SetDataLength(dma, ch, (uint32_t)len);
+    LL_DMA_SetMode(dma, ch, LL_DMA_MODE_NORMAL);
+    LL_DMA_SetPeriphIncMode(dma, ch, LL_DMA_PERIPH_NOINCREMENT);
+    LL_DMA_SetMemoryIncMode(dma, ch, LL_DMA_MEMORY_INCREMENT);
+    LL_DMA_SetPeriphSize(dma, ch, LL_DMA_PDATAALIGN_BYTE);
+    LL_DMA_SetMemorySize(dma, ch, LL_DMA_MDATAALIGN_BYTE);
+    LL_DMA_SetDataTransferDirection(dma, ch, LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
+    LL_DMA_SetChannelPriorityLevel(dma, ch, LL_DMA_PRIORITY_MEDIUM);
+}
+
+/**
+ * @brief 配置 RX DMA 通道（循环模式）。
+ */
+static void bm_usart3_rx_dma_config(const bm_usart3_context_t *ctx,
+                                    DMA_TypeDef *dma, uint32_t ch) {
+    LL_DMA_DisableChannel(dma, ch);
+    LL_DMA_SetPeriphAddress(dma, ch, (uint32_t)&USART3->RDR);
+    LL_DMA_SetMemoryAddress(dma, ch, (uint32_t)ctx->rx_buf);
+    LL_DMA_SetDataLength(dma, ch, (uint32_t)ctx->rx_len);
+    LL_DMA_SetMode(dma, ch, LL_DMA_MODE_CIRCULAR);
+    LL_DMA_SetPeriphIncMode(dma, ch, LL_DMA_PERIPH_NOINCREMENT);
+    LL_DMA_SetMemoryIncMode(dma, ch, LL_DMA_MEMORY_INCREMENT);
+    LL_DMA_SetPeriphSize(dma, ch, LL_DMA_PDATAALIGN_BYTE);
+    LL_DMA_SetMemorySize(dma, ch, LL_DMA_MDATAALIGN_BYTE);
+    LL_DMA_SetDataTransferDirection(dma, ch, LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
+    LL_DMA_SetChannelPriorityLevel(dma, ch, LL_DMA_PRIORITY_MEDIUM);
+}
+
+/**
+ * @brief 启动 RX DMA 循环接收，并复位软件读/写指针。
+ */
+static void bm_usart3_rx_dma_start(bm_usart3_context_t *ctx) {
+    DMA_TypeDef *dma;
+    uint32_t ch;
+
+    if (ctx->rx_buf == NULL || ctx->rx_len == 0u) {
+        return;
+    }
+    if (ctx->cfg->rx_dma_ctrl < 1u || ctx->cfg->rx_dma_ctrl > 2u ||
+        ctx->cfg->rx_dma_ch < 1u || ctx->cfg->rx_dma_ch > 7u) {
+        return;
+    }
+
+    dma = bm_usart3_dma_ctrl(ctx->cfg->rx_dma_ctrl);
+    ch = ctx->cfg->rx_dma_ch;
+
+    ctx->rx_write_pos = 0u;
+    ctx->rx_read_pos = 0u;
+    ctx->rx_event_len = 0u;
+
+    bm_usart3_rx_dma_config(ctx, dma, ch);
+    LL_DMA_EnableIT_TC(dma, ch);
+    LL_DMA_EnableIT_HT(dma, ch);
+    LL_DMA_EnableChannel(dma, ch);
+    LL_USART_EnableDMAReq_RX(USART3);
+}
+
+/**
+ * @brief 停止 RX DMA。
+ */
+static void bm_usart3_rx_dma_stop(bm_usart3_context_t *ctx) {
+    DMA_TypeDef *dma;
+    uint32_t ch;
+
+    if (ctx->cfg == NULL) {
+        return;
+    }
+    dma = bm_usart3_dma_ctrl(ctx->cfg->rx_dma_ctrl);
+    ch = ctx->cfg->rx_dma_ch;
+    LL_DMA_DisableChannel(dma, ch);
+    LL_USART_DisableDMAReq_RX(USART3);
+}
+
+/**
+ * @brief 停止 TX DMA。
+ */
+static void bm_usart3_tx_dma_stop(bm_usart3_context_t *ctx) {
+    DMA_TypeDef *dma;
+    uint32_t ch;
+
+    if (ctx->cfg == NULL) {
+        return;
+    }
+    dma = bm_usart3_dma_ctrl(ctx->cfg->tx_dma_ctrl);
+    ch = ctx->cfg->tx_dma_ch;
+    LL_DMA_DisableChannel(dma, ch);
+    LL_USART_DisableDMAReq_TX(USART3);
+}
+
+/**
+ * @brief 计算 DMA 当前写位置（对环形缓冲区取模）。
+ */
+static size_t bm_usart3_rx_dma_write_pos(const bm_usart3_context_t *ctx) {
+    DMA_TypeDef *dma;
+    uint32_t ch;
+    uint32_t ndtr;
+
+    if (ctx->cfg == NULL || ctx->rx_len == 0u) {
+        return 0u;
+    }
+    dma = bm_usart3_dma_ctrl(ctx->cfg->rx_dma_ctrl);
+    ch = ctx->cfg->rx_dma_ch;
+    ndtr = LL_DMA_GetDataLength(dma, ch);
+    if (ndtr > ctx->rx_len) {
+        ndtr = (uint32_t)ctx->rx_len;
+    }
+    return (size_t)((ctx->rx_len - (size_t)ndtr) % ctx->rx_len);
+}
+
+/**
+ * @brief 更新 RX 事件：根据当前 DMA 写位置计算新增数据、检测覆盖、触发回调。
+ *
+ * @param ctx   运行时上下文
+ * @param event 本次触发更新的事件标志
+ */
+static void bm_usart3_rx_update(bm_usart3_context_t *ctx, uint32_t event) {
+    size_t new_write_pos;
+    size_t new_bytes;
+    size_t occupied;
+    size_t free_space;
+
+    if (ctx->rx_buf == NULL || ctx->rx_len == 0u) {
+        return;
+    }
+
+    new_write_pos = bm_usart3_rx_dma_write_pos(ctx);
+    new_bytes = (new_write_pos + ctx->rx_len - ctx->rx_write_pos) % ctx->rx_len;
+    ctx->rx_write_pos = new_write_pos;
+
+    /* 已占用空间 = (write - read + len) % len */
+    occupied = (ctx->rx_write_pos + ctx->rx_len - ctx->rx_read_pos) % ctx->rx_len;
+    free_space = ctx->rx_len - occupied;
+
+    if (new_bytes > free_space) {
+        /* 软件读取不及时导致覆盖：丢弃最旧数据，使 read 跟上 write */
+        ctx->stats.rx_overflow_count++;
+        ctx->stats.last_errors |= BM_UART_ERR_OVERFLOW;
+        ctx->rx_read_pos = ctx->rx_write_pos;
+    }
+
+    ctx->rx_event_len = (ctx->rx_write_pos + ctx->rx_len - ctx->rx_read_pos) % ctx->rx_len;
+    ctx->stats.rx_count += (uint32_t)new_bytes;
+
+    if (ctx->rx_frame_cb != NULL && ctx->rx_event_len > 0u) {
+        ctx->rx_frame_cb(ctx->dev, event, ctx->rx_event_len, ctx->rx_frame_user);
+    }
+}
+
+/**
+ * @brief 更新 USART 错误统计并清除标志。
  */
 static void bm_usart3_update_errors(bm_usart3_context_t *ctx) {
     uint32_t isr = USART3->ISR;
@@ -140,109 +354,200 @@ static void bm_usart3_update_errors(bm_usart3_context_t *ctx) {
 }
 
 /**
- * @brief 启动 RX DMA 循环接收。
+ * @brief 反初始化：关闭 NVIC 中断、DMA、USART。
  */
-static void bm_usart3_rx_dma_start(bm_usart3_context_t *ctx) {
-    DMA_Channel_TypeDef *dma = bm_usart3_dma_ch(ctx->cfg->rx_dma_ch);
-
-    if (dma == NULL || ctx->rx_buf == NULL || ctx->rx_len == 0u) {
+static void bm_usart3_hw_deinit(bm_usart3_context_t *ctx) {
+    if (ctx->cfg == NULL) {
         return;
     }
 
-    LL_DMA_DisableChannel(dma);
-    LL_DMA_SetMemoryAddress(dma, (uint32_t)ctx->rx_buf);
-    LL_DMA_SetPeriphAddress(dma, (uint32_t)&USART3->RDR);
-    LL_DMA_SetDataLength(dma, (uint32_t)ctx->rx_len);
-    LL_DMA_SetMode(dma, LL_DMA_MODE_CIRCULAR);
-    LL_DMA_SetPeriphIncMode(dma, LL_DMA_PERIPH_NOINCREMENT);
-    LL_DMA_SetMemoryIncMode(dma, LL_DMA_MEMORY_INCREMENT);
-    LL_DMA_SetPeriphSize(dma, LL_DMA_PDATAALIGN_BYTE);
-    LL_DMA_SetMemorySize(dma, LL_DMA_MDATAALIGN_BYTE);
-    LL_DMA_SetDataTransferDirection(dma, LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
-    LL_DMA_SetChannelPriorityLevel(dma, LL_DMA_PRIORITY_MEDIUM);
-    LL_DMA_EnableChannel(dma);
-    LL_USART_EnableDMAReq_RX(USART3);
+    NVIC_DisableIRQ(ctx->cfg->usart_irqn);
+    NVIC_DisableIRQ(ctx->cfg->tx_dma_irqn);
+    NVIC_DisableIRQ(ctx->cfg->rx_dma_irqn);
+
+    LL_USART_DisableIT_TC(USART3);
+    LL_USART_DisableIT_IDLE(USART3);
+    LL_USART_Disable(USART3);
+
+    bm_usart3_tx_dma_stop(ctx);
+    bm_usart3_rx_dma_stop(ctx);
 }
 
-/**
- * @brief 停止 RX DMA 并返回已接收字节数（从 DMA 剩余计数）。
- */
-static size_t bm_usart3_rx_dma_received(bm_usart3_context_t *ctx) {
-    DMA_Channel_TypeDef *dma = bm_usart3_dma_ch(ctx->cfg->rx_dma_ch);
-    size_t remaining;
+/* -------------------------------------------------------------------------- */
+/*  配置校验                                                                   */
+/* -------------------------------------------------------------------------- */
 
-    if (dma == NULL || ctx->rx_len == 0u) {
-        return 0u;
+/**
+ * @brief 校验串口参数配置是否合法。
+ */
+static int bm_usart3_validate_config(const bm_usart3_stm32g4_config_t *cfg) {
+    LL_RCC_ClocksTypeDef clocks;
+    uint32_t actual_baud;
+
+    if (cfg == NULL) {
+        return BM_ERR_INVALID;
     }
-    remaining = (size_t)LL_DMA_GetDataLength(dma);
-    if (remaining > ctx->rx_len) {
-        return 0u;
+    if (cfg->baud == 0u) {
+        return BM_ERR_INVALID;
     }
-    return ctx->rx_len - remaining;
+    if (cfg->tx_port > 6u || cfg->tx_pin > 15u ||
+        cfg->rx_port > 6u || cfg->rx_pin > 15u) {
+        return BM_ERR_INVALID;
+    }
+    if (cfg->gpio_af > 15u) {
+        return BM_ERR_INVALID;
+    }
+    if (cfg->tx_dma_ctrl < 1u || cfg->tx_dma_ctrl > 2u ||
+        cfg->tx_dma_ch < 1u || cfg->tx_dma_ch > 7u ||
+        cfg->rx_dma_ctrl < 1u || cfg->rx_dma_ctrl > 2u ||
+        cfg->rx_dma_ch < 1u || cfg->rx_dma_ch > 7u) {
+        return BM_ERR_INVALID;
+    }
+    /* DMAMUX 请求号由 App 按 RM0440 表填写；范围 0..127 */
+    if (cfg->tx_dma_req > 127u || cfg->rx_dma_req > 127u) {
+        return BM_ERR_INVALID;
+    }
+    if (cfg->parity != BM_UART_PARITY_NONE &&
+        cfg->parity != BM_UART_PARITY_EVEN &&
+        cfg->parity != BM_UART_PARITY_ODD) {
+        return BM_ERR_INVALID;
+    }
+    if (cfg->stop_bits != BM_UART_STOPBITS_1 &&
+        cfg->stop_bits != BM_UART_STOPBITS_2) {
+        return BM_ERR_INVALID;
+    }
+    if (cfg->data_bits != BM_UART_DATABITS_8 &&
+        cfg->data_bits != BM_UART_DATABITS_9) {
+        return BM_ERR_INVALID;
+    }
+
+    /* 校验在当前 PCLK1 下是否能产生有效波特率 */
+    LL_RCC_GetSystemClocksFreq(&clocks);
+    actual_baud = LL_USART_GetBaudRate(USART3, clocks.PCLK1_Frequency,
+                                       LL_USART_PRESCALER_DIV1,
+                                       LL_USART_OVERSAMPLING_16);
+    if (actual_baud == 0u) {
+        return BM_ERR_INVALID;
+    }
+
+    return BM_OK;
 }
 
 /* -------------------------------------------------------------------------- */
 /*  ISR                                                                       */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * @brief USART3 全局中断：错误、IDLE、TX 完成。
+ */
 void USART3_IRQHandler(void) {
     bm_usart3_context_t *ctx = &g_usart3_ctx;
-    size_t received;
+    uint32_t isr;
 
-    if (ctx->cfg == NULL) {
+    if (ctx->cfg == NULL || !ctx->initialized) {
         return;
     }
 
+    isr = USART3->ISR;
     bm_usart3_update_errors(ctx);
 
-    if (LL_USART_IsActiveFlag_IDLE(USART3) != 0u) {
+    if ((isr & USART_ISR_IDLE) != 0u) {
         LL_USART_ClearFlag_IDLE(USART3);
+        bm_usart3_rx_update(ctx, BM_UART_EVT_IDLE);
+    }
 
-        received = bm_usart3_rx_dma_received(ctx);
-        if (received > 0u && ctx->rx_frame_cb != NULL) {
-            ctx->rx_frame_cb((const bm_hal_uart_t *)ctx,
-                             BM_UART_EVT_IDLE, received,
-                             ctx->rx_frame_user);
+    if ((isr & USART_ISR_TC) != 0u) {
+        LL_USART_ClearFlag_TC(USART3);
+        LL_USART_DisableIT_TC(USART3);
+        ctx->tx_busy = 0;
+        if (ctx->tx_complete_cb != NULL) {
+            ctx->tx_complete_cb(ctx->dev, ctx->tx_complete_user);
         }
     }
 }
 
-void DMA1_Channel4_IRQHandler(void) {
-    bm_usart3_context_t *ctx = &g_usart3_ctx;
-    DMA_Channel_TypeDef *dma = DMA1_Channel4;
+/**
+ * @brief 通用 TX DMA 中断处理。
+ */
+static void bm_usart3_tx_dma_isr(bm_usart3_context_t *ctx) {
+    DMA_TypeDef *dma = bm_usart3_dma_ctrl(ctx->cfg->tx_dma_ctrl);
+    uint32_t ch = ctx->cfg->tx_dma_ch;
+    uint32_t tc_flag = (1u << ((ch - 1u) * 4u));
+    uint32_t te_flag = (1u << ((ch - 1u) * 4u + 3u));
 
-    if (ctx->cfg == NULL || ctx->cfg->tx_dma_ch != 4u) {
-        return;
-    }
-    if (LL_DMA_IsActiveFlag_TC4(dma) != 0u) {
-        LL_DMA_ClearFlag_TC4(dma);
-        LL_DMA_DisableChannel(dma);
+    if ((dma->ISR & te_flag) != 0u) {
+        /* 传输错误：停止 DMA，恢复 tx_busy */
+        dma->IFCR = te_flag;
+        LL_DMA_DisableChannel(dma, ch);
         LL_USART_DisableDMAReq_TX(USART3);
         ctx->tx_busy = 0;
-        /* 等待 UART TC，确保总线上最后一位已发出 */
-        while (LL_USART_IsActiveFlag_TC(USART3) == 0u) {
-        }
-        if (ctx->tx_complete_cb != NULL) {
-            ctx->tx_complete_cb((const bm_hal_uart_t *)ctx,
-                                ctx->tx_complete_user);
-        }
-    }
-}
-
-void DMA1_Channel5_IRQHandler(void) {
-    bm_usart3_context_t *ctx = &g_usart3_ctx;
-    DMA_Channel_TypeDef *dma = DMA1_Channel5;
-
-    if (ctx->cfg == NULL || ctx->cfg->rx_dma_ch != 5u) {
+        ctx->stats.last_errors |= BM_UART_ERR_FRAMING;
         return;
     }
-    if (LL_DMA_IsActiveFlag_TC5(dma) != 0u) {
-        LL_DMA_ClearFlag_TC5(dma);
-    }
-    if (LL_DMA_IsActiveFlag_HT5(dma) != 0u) {
-        LL_DMA_ClearFlag_HT5(dma);
+
+    if ((dma->ISR & tc_flag) != 0u) {
+        dma->IFCR = tc_flag;
+        LL_DMA_DisableChannel(dma, ch);
+        LL_USART_DisableDMAReq_TX(USART3);
+        /* DMA 完成并不表示 UART TC；开启 USART TC 中断等待真正发送完成 */
+        LL_USART_ClearFlag_TC(USART3);
+        LL_USART_EnableIT_TC(USART3);
     }
 }
+
+/**
+ * @brief 通用 RX DMA 中断处理（HT/TC）。
+ */
+static void bm_usart3_rx_dma_isr(bm_usart3_context_t *ctx) {
+    DMA_TypeDef *dma = bm_usart3_dma_ctrl(ctx->cfg->rx_dma_ctrl);
+    uint32_t ch = ctx->cfg->rx_dma_ch;
+    uint32_t tc_flag = (1u << ((ch - 1u) * 4u));
+    uint32_t ht_flag = (1u << ((ch - 1u) * 4u + 2u));
+
+    if ((dma->ISR & ht_flag) != 0u) {
+        dma->IFCR = ht_flag;
+        bm_usart3_rx_update(ctx, BM_UART_EVT_FRAME_END);
+    }
+    if ((dma->ISR & tc_flag) != 0u) {
+        dma->IFCR = tc_flag;
+        bm_usart3_rx_update(ctx, BM_UART_EVT_RX_FULL);
+    }
+}
+
+/**
+ * @brief 按通道号调用对应 DMA handler。
+ */
+static void bm_usart3_dma_dispatch(bm_usart3_context_t *ctx,
+                                   uint32_t ctrl, uint32_t ch) {
+    if (ctx->cfg == NULL || !ctx->initialized) {
+        return;
+    }
+
+    if (ctrl == ctx->cfg->tx_dma_ctrl && ch == ctx->cfg->tx_dma_ch) {
+        bm_usart3_tx_dma_isr(ctx);
+    }
+    if (ctrl == ctx->cfg->rx_dma_ctrl && ch == ctx->cfg->rx_dma_ch) {
+        bm_usart3_rx_dma_isr(ctx);
+    }
+}
+
+/* DMA1 通道 1-7 */
+void DMA1_Channel1_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 1u, 1u); }
+void DMA1_Channel2_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 1u, 2u); }
+void DMA1_Channel3_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 1u, 3u); }
+void DMA1_Channel4_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 1u, 4u); }
+void DMA1_Channel5_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 1u, 5u); }
+void DMA1_Channel6_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 1u, 6u); }
+void DMA1_Channel7_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 1u, 7u); }
+
+/* DMA2 通道 1-7 */
+void DMA2_Channel1_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 2u, 1u); }
+void DMA2_Channel2_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 2u, 2u); }
+void DMA2_Channel3_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 2u, 3u); }
+void DMA2_Channel4_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 2u, 4u); }
+void DMA2_Channel5_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 2u, 5u); }
+void DMA2_Channel6_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 2u, 6u); }
+void DMA2_Channel7_IRQHandler(void) { bm_usart3_dma_dispatch(&g_usart3_ctx, 2u, 7u); }
 
 /* -------------------------------------------------------------------------- */
 /*  HAL API 实现                                                               */
@@ -252,32 +557,67 @@ static int bm_vendor_usart3_init(const struct bm_hal_uart *dev, void *config) {
     bm_usart3_context_t *ctx = &g_usart3_ctx;
     const bm_usart3_stm32g4_config_t *runtime_cfg =
         (const bm_usart3_stm32g4_config_t *)config;
+    const bm_usart3_stm32g4_config_t *cfg;
+    GPIO_TypeDef *tx_port, *rx_port;
+    DMA_TypeDef *tx_dma, *rx_dma;
     LL_RCC_ClocksTypeDef clocks;
     uint32_t parity_ll;
     uint32_t stop_ll;
     uint32_t data_bits;
+    uint32_t actual_baud;
 
-    (void)dev;
+    cfg = (runtime_cfg != NULL) ? runtime_cfg : &g_usart3_cfg_default;
 
-    ctx->cfg = (runtime_cfg != NULL) ? runtime_cfg : &g_usart3_cfg_default;
-    ctx->initialized = 1;
+    if (bm_usart3_validate_config(cfg) != BM_OK) {
+        return BM_ERR_INVALID;
+    }
+
+    tx_port = bm_usart3_port(cfg->tx_port);
+    rx_port = bm_usart3_port(cfg->rx_port);
+    tx_dma = bm_usart3_dma_ctrl(cfg->tx_dma_ctrl);
+    rx_dma = bm_usart3_dma_ctrl(cfg->rx_dma_ctrl);
+    if (tx_port == NULL || rx_port == NULL || tx_dma == NULL || rx_dma == NULL) {
+        return BM_ERR_INVALID;
+    }
+
+    /* 先清状态，再初始化；失败时回滚 */
+    ctx->dev = dev;
+    ctx->cfg = cfg;
+    ctx->initialized = 0;
     ctx->tx_busy = 0;
+    ctx->rx_buf = NULL;
+    ctx->rx_len = 0u;
+    ctx->rx_write_pos = 0u;
+    ctx->rx_read_pos = 0u;
+    ctx->rx_event_len = 0u;
+    ctx->tx_complete_cb = NULL;
+    ctx->tx_complete_user = NULL;
+    ctx->rx_frame_cb = NULL;
+    ctx->rx_frame_user = NULL;
     (void)memset(&ctx->stats, 0, sizeof(ctx->stats));
 
+    /* 使能时钟 */
     LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_USART3);
-    LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA1);
-    LL_AHB2_GRP1_EnableClock(LL_AHB2_GRP1_PERIPH_GPIOB);
+    bm_usart3_dma_clock_enable(cfg->tx_dma_ctrl);
+    if (cfg->rx_dma_ctrl != cfg->tx_dma_ctrl) {
+        bm_usart3_dma_clock_enable(cfg->rx_dma_ctrl);
+    }
+    bm_usart3_gpio_clock_enable(cfg->tx_port);
+    if (cfg->rx_port != cfg->tx_port) {
+        bm_usart3_gpio_clock_enable(cfg->rx_port);
+    }
 
-    bm_usart3_gpio_af(GPIOB, ctx->cfg->tx_pin, ctx->cfg->gpio_af);
-    bm_usart3_gpio_af(GPIOB, ctx->cfg->rx_pin, ctx->cfg->gpio_af);
+    /* 配置 GPIO */
+    bm_usart3_gpio_af(tx_port, cfg->tx_pin, cfg->gpio_af);
+    bm_usart3_gpio_af(rx_port, cfg->rx_pin, cfg->gpio_af);
 
     /* DMAMUX 请求映射 */
-    LL_DMA_SetPeriphRequest(DMA1_Channel4, ctx->cfg->tx_dma_req);
-    LL_DMA_SetPeriphRequest(DMA1_Channel5, ctx->cfg->rx_dma_req);
+    LL_DMA_SetPeriphRequest(tx_dma, cfg->tx_dma_ch, cfg->tx_dma_req);
+    LL_DMA_SetPeriphRequest(rx_dma, cfg->rx_dma_ch, cfg->rx_dma_req);
 
     LL_USART_Disable(USART3);
 
-    switch (ctx->cfg->parity) {
+    switch (cfg->parity) {
     case BM_UART_PARITY_EVEN:
         parity_ll = LL_USART_PARITY_EVEN;
         break;
@@ -289,48 +629,54 @@ static int bm_vendor_usart3_init(const struct bm_hal_uart *dev, void *config) {
         break;
     }
 
-    stop_ll = (ctx->cfg->stop_bits == BM_UART_STOPBITS_2)
+    stop_ll = (cfg->stop_bits == BM_UART_STOPBITS_2)
                   ? LL_USART_STOPBITS_2
                   : LL_USART_STOPBITS_1;
 
-    data_bits = (ctx->cfg->data_bits == BM_UART_DATABITS_9) ? 9u : 8u;
-    if (ctx->cfg->parity != BM_UART_PARITY_NONE) {
-        data_bits = (data_bits == 9u) ? 9u : 8u; /* M 位与校验组合简化 */
-    }
+    data_bits = (cfg->data_bits == BM_UART_DATABITS_9) ? 9u : 8u;
 
     LL_RCC_GetSystemClocksFreq(&clocks);
-    LL_USART_ConfigAsyncMode(USART3);
     LL_USART_SetBaudRate(USART3, clocks.PCLK1_Frequency,
                          LL_USART_PRESCALER_DIV1,
                          LL_USART_OVERSAMPLING_16,
-                         ctx->cfg->baud);
+                         cfg->baud);
+    actual_baud = LL_USART_GetBaudRate(USART3, clocks.PCLK1_Frequency,
+                                       LL_USART_PRESCALER_DIV1,
+                                       LL_USART_OVERSAMPLING_16);
+    if (actual_baud == 0u) {
+        bm_usart3_hw_deinit(ctx);
+        ctx->cfg = NULL;
+        return BM_ERR_INVALID;
+    }
+
+    LL_USART_ConfigAsyncMode(USART3);
     LL_USART_SetDataWidth(USART3,
         (data_bits == 9u) ? LL_USART_DATAWIDTH_9B : LL_USART_DATAWIDTH_8B);
     LL_USART_SetParity(USART3, parity_ll);
     LL_USART_SetStopBitsLength(USART3, stop_ll);
-    LL_USART_SetTransferDirection(USART3,
-                                  LL_USART_DIRECTION_TX_RX);
+    LL_USART_SetTransferDirection(USART3, LL_USART_DIRECTION_TX_RX);
 
     LL_USART_EnableIT_IDLE(USART3);
     LL_USART_ClearFlag_IDLE(USART3);
 
-    NVIC_SetPriority(ctx->cfg->usart_irqn, ctx->cfg->irq_priority);
-    NVIC_EnableIRQ(ctx->cfg->usart_irqn);
+    NVIC_SetPriority(cfg->usart_irqn, cfg->irq_priority);
+    NVIC_EnableIRQ(cfg->usart_irqn);
+    NVIC_SetPriority(cfg->tx_dma_irqn, cfg->tx_dma_irq_priority);
+    NVIC_EnableIRQ(cfg->tx_dma_irqn);
+    NVIC_SetPriority(cfg->rx_dma_irqn, cfg->rx_dma_irq_priority);
+    NVIC_EnableIRQ(cfg->rx_dma_irqn);
 
     LL_USART_Enable(USART3);
 
-    /* 若已配置 ring buffer，立即启动 RX DMA */
-    if (ctx->rx_buf != NULL && ctx->rx_len != 0u) {
-        bm_usart3_rx_dma_start(ctx);
-    }
-
+    ctx->initialized = 1;
     return BM_OK;
 }
 
 static int bm_vendor_usart3_send(const struct bm_hal_uart *dev,
                                  const uint8_t *data, size_t len) {
     bm_usart3_context_t *ctx = &g_usart3_ctx;
-    DMA_Channel_TypeDef *dma;
+    DMA_TypeDef *dma;
+    uint32_t ch;
 
     (void)dev;
     if (ctx->initialized == 0 || data == NULL || len == 0u) {
@@ -340,30 +686,17 @@ static int bm_vendor_usart3_send(const struct bm_hal_uart *dev,
         return BM_ERR_BUSY;
     }
 
-    dma = bm_usart3_dma_ch(ctx->cfg->tx_dma_ch);
-    if (dma == NULL) {
-        return BM_ERR_INVALID;
-    }
+    dma = bm_usart3_dma_ctrl(ctx->cfg->tx_dma_ctrl);
+    ch = ctx->cfg->tx_dma_ch;
 
     ctx->tx_busy = 1;
     ctx->stats.tx_count += (uint32_t)len;
 
-    LL_DMA_DisableChannel(dma);
-    LL_DMA_SetPeriphAddress(dma, (uint32_t)&USART3->TDR);
-    LL_DMA_SetMemoryAddress(dma, (uint32_t)data);
-    LL_DMA_SetDataLength(dma, (uint32_t)len);
-    LL_DMA_SetMode(dma, LL_DMA_MODE_NORMAL);
-    LL_DMA_SetPeriphIncMode(dma, LL_DMA_PERIPH_NOINCREMENT);
-    LL_DMA_SetMemoryIncMode(dma, LL_DMA_MEMORY_INCREMENT);
-    LL_DMA_SetPeriphSize(dma, LL_DMA_PDATAALIGN_BYTE);
-    LL_DMA_SetMemorySize(dma, LL_DMA_MDATAALIGN_BYTE);
-    LL_DMA_SetDataTransferDirection(dma, LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
-    LL_DMA_EnableIT_TC(dma);
-    LL_DMA_EnableChannel(dma);
+    bm_usart3_tx_dma_config(ctx, dma, ch, data, len);
+    LL_DMA_EnableIT_TC(dma, ch);
+    LL_DMA_EnableChannel(dma, ch);
 
-    NVIC_SetPriority(ctx->cfg->tx_dma_irqn, ctx->cfg->tx_dma_irq_priority);
-    NVIC_EnableIRQ(ctx->cfg->tx_dma_irqn);
-
+    LL_USART_ClearFlag_TC(USART3);
     LL_USART_EnableDMAReq_TX(USART3);
     return BM_OK;
 }
@@ -371,25 +704,28 @@ static int bm_vendor_usart3_send(const struct bm_hal_uart *dev,
 static size_t bm_vendor_usart3_recv(const struct bm_hal_uart *dev,
                                     uint8_t *data, size_t max_len) {
     bm_usart3_context_t *ctx = &g_usart3_ctx;
-    size_t received;
+    size_t occupied;
     size_t i;
 
     (void)dev;
-    if (ctx->initialized == 0 || data == NULL || max_len == 0u
-        || ctx->rx_buf == NULL || ctx->rx_len == 0u) {
+    if (ctx->initialized == 0 || data == NULL || max_len == 0u ||
+        ctx->rx_buf == NULL || ctx->rx_len == 0u) {
         return 0u;
     }
 
-    received = bm_usart3_rx_dma_received(ctx);
-    if (received > max_len) {
-        received = max_len;
+    /* 同步一次写位置，确保读取的是最新数据 */
+    ctx->rx_write_pos = bm_usart3_rx_dma_write_pos(ctx);
+
+    occupied = (ctx->rx_write_pos + ctx->rx_len - ctx->rx_read_pos) % ctx->rx_len;
+    if (occupied > max_len) {
+        occupied = max_len;
     }
 
-    for (i = 0u; i < received; ++i) {
-        data[i] = ctx->rx_buf[i];
+    for (i = 0u; i < occupied; ++i) {
+        data[i] = ctx->rx_buf[ctx->rx_read_pos];
+        ctx->rx_read_pos = (ctx->rx_read_pos + 1u) % ctx->rx_len;
     }
-    ctx->stats.rx_count += (uint32_t)received;
-    return received;
+    return occupied;
 }
 
 static void bm_vendor_usart3_set_rx_callback(const struct bm_hal_uart *dev,
@@ -401,32 +737,37 @@ static void bm_vendor_usart3_set_rx_callback(const struct bm_hal_uart *dev,
 
 static int bm_vendor_usart3_abort(const struct bm_hal_uart *dev) {
     bm_usart3_context_t *ctx = &g_usart3_ctx;
-    DMA_Channel_TypeDef *dma;
 
     (void)dev;
     if (ctx->initialized == 0) {
         return BM_ERR_NOT_INIT;
     }
 
-    dma = bm_usart3_dma_ch(ctx->cfg->tx_dma_ch);
-    if (dma != NULL) {
-        LL_DMA_DisableChannel(dma);
-    }
-    LL_USART_DisableDMAReq_TX(USART3);
+    bm_usart3_tx_dma_stop(ctx);
+    LL_USART_DisableIT_TC(USART3);
     ctx->tx_busy = 0;
 
-    dma = bm_usart3_dma_ch(ctx->cfg->rx_dma_ch);
-    if (dma != NULL) {
-        LL_DMA_DisableChannel(dma);
-    }
-    LL_USART_DisableDMAReq_RX(USART3);
+    bm_usart3_rx_dma_stop(ctx);
+    ctx->rx_write_pos = 0u;
+    ctx->rx_read_pos = 0u;
+    ctx->rx_event_len = 0u;
     return BM_OK;
 }
 
 static int bm_vendor_usart3_flush(const struct bm_hal_uart *dev) {
+    bm_usart3_context_t *ctx = &g_usart3_ctx;
+    uint32_t timeout = 100000u;
+
     (void)dev;
-    /* TX DMA 完成中断内已等待 UART TC，此处直接返回 */
-    return BM_OK;
+    if (ctx->initialized == 0) {
+        return BM_ERR_NOT_INIT;
+    }
+
+    /* 等待 tx_busy 释放（USART TC 中断中清零） */
+    while (ctx->tx_busy != 0 && timeout != 0u) {
+        timeout--;
+    }
+    return (ctx->tx_busy == 0) ? BM_OK : BM_ERR_TIMEOUT;
 }
 
 static int bm_vendor_usart3_set_tx_complete_callback(
@@ -465,11 +806,18 @@ static int bm_vendor_usart3_set_rx_buffer(const struct bm_hal_uart *dev,
     if (ctx->initialized == 0) {
         return BM_ERR_NOT_INIT;
     }
+
+    bm_usart3_rx_dma_stop(ctx);
+
     if (buf == NULL || len == 0u) {
         ctx->rx_buf = NULL;
         ctx->rx_len = 0u;
+        ctx->rx_write_pos = 0u;
+        ctx->rx_read_pos = 0u;
+        ctx->rx_event_len = 0u;
         return BM_ERR_INVALID;
     }
+
     ctx->rx_buf = buf;
     ctx->rx_len = len;
     bm_usart3_rx_dma_start(ctx);

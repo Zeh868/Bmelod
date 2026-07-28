@@ -18,24 +18,49 @@
 #include "bm/component/bm_rs485.h"
 
 #include "bm/common/bm_uptime.h"
+#include "bm/common/bm_critical_wrap.h"
 
 #include <string.h>
 
 /**
  * @brief 设置 DE 电平到指定方向。
+ *
+ * @return 0 成功；非零 GPIO 写入失败
  */
-static void bm_rs485_set_de(bm_rs485_t *rs485, uint32_t dir) {
+static int bm_rs485_set_de(bm_rs485_t *rs485, uint32_t dir) {
     int de_value;
+    int rc;
 
     if (rs485->config.de_gpio == NULL || rs485->config.hardware_de != 0) {
-        return;
+        return 0;
     }
 
     de_value = (dir == BM_RS485_DIR_RX)
                    ? (rs485->config.de_active_high ? 0 : 1)
                    : (rs485->config.de_active_high ? 1 : 0);
-    (void)bm_hal_gpio_write(rs485->config.de_gpio,
-                            rs485->config.de_pin, de_value);
+    rc = bm_hal_gpio_write(rs485->config.de_gpio,
+                           rs485->config.de_pin, de_value);
+    if (rc != BM_OK) {
+        rs485->state.stats.last_errors |= BM_RS485_ERR_GPIO;
+        if (rs485->resources.error_cb != NULL) {
+            rs485->resources.error_cb((const bm_rs485_t *)rs485,
+                                      BM_RS485_ERR_GPIO,
+                                      rs485->resources.user);
+        }
+    }
+    return rc;
+}
+
+/**
+ * @brief 清除发送相关暂存与回显过滤状态。
+ */
+static void bm_rs485_clear_tx_echo(bm_rs485_t *rs485) {
+    rs485->state.tx_data = NULL;
+    rs485->state.tx_len = 0u;
+    rs485->state.echo_pending = 0;
+    rs485->state.echo_buf_ptr = NULL;
+    rs485->state.echo_len = 0u;
+    rs485->state.echo_offset = 0u;
 }
 
 /**
@@ -43,15 +68,21 @@ static void bm_rs485_set_de(bm_rs485_t *rs485, uint32_t dir) {
  */
 static void bm_rs485_tx_complete_cb(const bm_hal_uart_t *dev, void *user) {
     bm_rs485_t *rs485 = (bm_rs485_t *)user;
+    bm_irq_state_t irq_state;
+    uint64_t now;
 
     (void)dev;
     if (rs485 == NULL) {
         return;
     }
+
+    now = bm_uptime_us();
+    irq_state = BM_CRITICAL_ENTER();
     if (rs485->state.dir == BM_RS485_DIR_TX) {
-        rs485->state.tx_end_us = bm_uptime_us();
+        rs485->state.tx_end_us = now;
         rs485->state.dir = BM_RS485_DIR_TX_TAIL;
     }
+    BM_CRITICAL_EXIT(irq_state);
 }
 
 /**
@@ -63,7 +94,11 @@ static void bm_rs485_rx_frame_cb(const bm_hal_uart_t *dev, uint32_t event,
     uint8_t tmp[BM_RS485_MAX_FRAME_LEN];
     size_t  got;
     size_t  i;
-    size_t  consume;
+    bm_irq_state_t irq_state;
+    uint64_t now;
+    int      collision = 0;
+    int      frame_drop = 0;
+    size_t   frame_len = 0u;
 
     (void)dev;
     if (rs485 == NULL || rs485->config.uart == NULL) {
@@ -79,11 +114,13 @@ static void bm_rs485_rx_frame_cb(const bm_hal_uart_t *dev, uint32_t event,
         return;
     }
 
-    if (len > BM_RS485_MAX_FRAME_LEN) {
-        /* 帧过长：丢弃 */
+    /* 帧过长：直接丢弃并更新统计 */
+    if (len > rs485->state.rx_buf_len) {
         (void)bm_hal_uart_recv(rs485->config.uart, tmp, sizeof(tmp));
+        irq_state = BM_CRITICAL_ENTER();
         rs485->state.stats.frame_drop_count++;
         rs485->state.stats.last_errors |= BM_RS485_ERR_FRAME_DROP;
+        BM_CRITICAL_EXIT(irq_state);
         if (rs485->resources.error_cb != NULL) {
             rs485->resources.error_cb((const bm_rs485_t *)rs485,
                                       BM_RS485_ERR_FRAME_DROP,
@@ -97,60 +134,77 @@ static void bm_rs485_rx_frame_cb(const bm_hal_uart_t *dev, uint32_t event,
         return;
     }
 
-    rs485->state.last_rx_us = bm_uptime_us();
+    now = bm_uptime_us();
 
-    /* 回显过滤：已发送数据的回显排在接收数据前部，按 echo_len 跳过 */
-    if (rs485->config.filter_echo != 0 && rs485->state.echo_pending != 0) {
-        consume = (got < rs485->state.echo_len) ? got : rs485->state.echo_len;
-        rs485->state.echo_len -= consume;
-        if (rs485->state.echo_len == 0u) {
-            rs485->state.echo_pending = 0;
+    irq_state = BM_CRITICAL_ENTER();
+    rs485->state.last_rx_us = now;
+    rs485->state.rx_idle_timeout_fired = 0;
+
+    /* 逐字节过滤回显：与已发送数据逐字节比较，支持跨多次 DMA 事件 */
+    for (i = 0u; i < got; ++i) {
+        if (rs485->config.filter_echo != 0
+            && rs485->state.echo_pending != 0
+            && rs485->state.echo_len > 0u
+            && tmp[i] == rs485->state.echo_buf_ptr[rs485->state.echo_offset]) {
+            rs485->state.echo_offset++;
+            rs485->state.echo_len--;
+            if (rs485->state.echo_len == 0u) {
+                rs485->state.echo_pending = 0;
+            }
+            continue;
         }
-    } else {
-        consume = 0u;
-    }
 
-    /* 非回显数据写入帧缓冲 */
-    for (i = consume; i < got; ++i) {
-        if (rs485->state.rx_len >= BM_RS485_MAX_FRAME_LEN) {
+        /* 非回显字节：停止回显过滤并写入帧缓冲 */
+        rs485->state.echo_pending = 0;
+        if (rs485->state.rx_len >= rs485->state.rx_buf_len) {
+            frame_drop = 1;
             rs485->state.stats.frame_drop_count++;
             rs485->state.stats.last_errors |= BM_RS485_ERR_FRAME_DROP;
-            if (rs485->resources.error_cb != NULL) {
-                rs485->resources.error_cb((const bm_rs485_t *)rs485,
-                                          BM_RS485_ERR_FRAME_DROP,
-                                          rs485->resources.user);
-            }
             rs485->state.rx_len = 0u;
-            return;
+            break;
         }
-        rs485->state.rx_buf[rs485->state.rx_len++] = tmp[i];
+        rs485->state.rx_buf_ptr[rs485->state.rx_len++] = tmp[i];
     }
 
     /* 发送期间或尾保持期间收到非回显数据视为冲突 */
-    if ((rs485->state.dir == BM_RS485_DIR_TX
-         || rs485->state.dir == BM_RS485_DIR_TX_TAIL)
+    if (!frame_drop
+        && (rs485->state.dir == BM_RS485_DIR_TX
+            || rs485->state.dir == BM_RS485_DIR_TX_TAIL)
         && rs485->state.rx_len > 0u) {
+        collision = 1;
         rs485->state.stats.collision_count++;
         rs485->state.stats.last_errors |= BM_RS485_ERR_COLLISION;
-        if (rs485->resources.error_cb != NULL) {
-            rs485->resources.error_cb((const bm_rs485_t *)rs485,
-                                      BM_RS485_ERR_COLLISION,
-                                      rs485->resources.user);
-        }
         rs485->state.rx_len = 0u;
-        return;
     }
 
-    if (rs485->state.rx_len > 0u
-        && rs485->resources.frame_rx_cb != NULL) {
+    if (!frame_drop && !collision && rs485->state.rx_len > 0u) {
         rs485->state.stats.rx_frame_count++;
         rs485->state.stats.rx_byte_count += (uint32_t)rs485->state.rx_len;
+        frame_len = rs485->state.rx_len;
+    }
+    BM_CRITICAL_EXIT(irq_state);
+
+    /* 回调在临界区外调用，避免阻塞其他中断 */
+    if (frame_drop != 0 && rs485->resources.error_cb != NULL) {
+        rs485->resources.error_cb((const bm_rs485_t *)rs485,
+                                  BM_RS485_ERR_FRAME_DROP,
+                                  rs485->resources.user);
+    }
+    if (collision != 0 && rs485->resources.error_cb != NULL) {
+        rs485->resources.error_cb((const bm_rs485_t *)rs485,
+                                  BM_RS485_ERR_COLLISION,
+                                  rs485->resources.user);
+    }
+    if (frame_len > 0u && rs485->resources.frame_rx_cb != NULL) {
         rs485->resources.frame_rx_cb((const bm_rs485_t *)rs485,
-                                     rs485->state.rx_buf,
-                                     rs485->state.rx_len,
+                                     rs485->state.rx_buf_ptr,
+                                     frame_len,
                                      rs485->resources.user);
     }
+
+    irq_state = BM_CRITICAL_ENTER();
     rs485->state.rx_len = 0u;
+    BM_CRITICAL_EXIT(irq_state);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -185,39 +239,87 @@ int bm_rs485_init(bm_rs485_t *rs485) {
         return rc;
     }
 
-    /* 配置 UART ring buffer 为本机帧缓冲 */
-    (void)bm_hal_uart_set_rx_buffer(rs485->config.uart,
-                                    rs485->state.rx_buf,
-                                    sizeof(rs485->state.rx_buf));
+    /* 配置 UART ring buffer：优先使用 App 提供的外部缓冲 */
+    if (rs485->config.rx_buf != NULL && rs485->config.rx_buf_len > 0u) {
+        rs485->state.rx_buf_ptr = rs485->config.rx_buf;
+        rs485->state.rx_buf_len = rs485->config.rx_buf_len;
+    } else {
+        rs485->state.rx_buf_ptr = rs485->state.rx_internal_buf;
+        rs485->state.rx_buf_len = sizeof(rs485->state.rx_internal_buf);
+    }
+    rc = bm_hal_uart_set_rx_buffer(rs485->config.uart,
+                                   rs485->state.rx_buf_ptr,
+                                   rs485->state.rx_buf_len);
+    if (rc != BM_OK) {
+        return rc;
+    }
 
     /* 注册回调 */
-    (void)bm_hal_uart_set_tx_complete_callback(
+    rc = bm_hal_uart_set_tx_complete_callback(
         rs485->config.uart, bm_rs485_tx_complete_cb, rs485);
-    (void)bm_hal_uart_set_rx_frame_callback(
+    if (rc != BM_OK) {
+        return rc;
+    }
+    rc = bm_hal_uart_set_rx_frame_callback(
         rs485->config.uart, bm_rs485_rx_frame_cb, rs485);
+    if (rc != BM_OK) {
+        (void)bm_hal_uart_set_tx_complete_callback(
+            rs485->config.uart, NULL, NULL);
+        return rc;
+    }
 
-    /* DE 初始化为接收方向 */
-    bm_rs485_set_de(rs485, BM_RS485_DIR_RX);
+    /* DE 初始化为接收方向；软件 DE 时先把 GPIO 配置为输出 */
+    if (rs485->config.hardware_de == 0 && rs485->config.de_gpio != NULL) {
+        rc = bm_hal_gpio_configure(rs485->config.de_gpio,
+                                   rs485->config.de_pin,
+                                   BM_GPIO_OUTPUT);
+        if (rc != BM_OK) {
+            (void)bm_hal_uart_set_rx_frame_callback(
+                rs485->config.uart, NULL, NULL);
+            (void)bm_hal_uart_set_tx_complete_callback(
+                rs485->config.uart, NULL, NULL);
+            return rc;
+        }
+    }
+    rc = bm_rs485_set_de(rs485, BM_RS485_DIR_RX);
+    if (rc != BM_OK) {
+        (void)bm_hal_uart_set_rx_frame_callback(
+            rs485->config.uart, NULL, NULL);
+        (void)bm_hal_uart_set_tx_complete_callback(
+            rs485->config.uart, NULL, NULL);
+        return rc;
+    }
 
     return BM_OK;
 }
 
 void bm_rs485_reset(bm_rs485_t *rs485) {
+    bm_irq_state_t irq_state;
+
     if (rs485 == NULL) {
         return;
     }
+
+    irq_state = BM_CRITICAL_ENTER();
     rs485->state.dir = BM_RS485_DIR_RX;
     rs485->state.rx_len = 0u;
-    rs485->state.echo_pending = 0;
-    rs485->state.echo_len = 0u;
+    rs485->state.tx_data = NULL;
+    rs485->state.tx_len = 0u;
+    rs485->state.tx_pre_start_us = 0u;
+    bm_rs485_clear_tx_echo(rs485);
     rs485->state.tx_end_us = 0u;
     (void)memset(&rs485->state.stats, 0, sizeof(rs485->state.stats));
-    bm_rs485_set_de(rs485, BM_RS485_DIR_RX);
+    BM_CRITICAL_EXIT(irq_state);
+
+    /* 中止 UART 并强制 DE 回到接收方向 */
     (void)bm_hal_uart_abort(rs485->config.uart);
+    (void)bm_rs485_set_de(rs485, BM_RS485_DIR_RX);
 }
 
 int bm_rs485_send(bm_rs485_t *rs485, const uint8_t *data, size_t len) {
     int rc;
+    bm_irq_state_t irq_state;
+    uint64_t now;
 
     if (rs485 == NULL || data == NULL) {
         return BM_ERR_INVALID;
@@ -225,79 +327,188 @@ int bm_rs485_send(bm_rs485_t *rs485, const uint8_t *data, size_t len) {
     if (len == 0u) {
         return BM_OK;
     }
+
+    irq_state = BM_CRITICAL_ENTER();
     if (rs485->state.dir != BM_RS485_DIR_RX) {
+        BM_CRITICAL_EXIT(irq_state);
         return BM_ERR_BUSY;
     }
 
-    rs485->state.dir = BM_RS485_DIR_TX;
     rs485->state.rx_len = 0u;
+
+    /* 记录发送数据，供 TX_PRE 启动和回显过滤使用 */
+    rs485->state.tx_data = data;
+    rs485->state.tx_len = len;
 
     if (rs485->config.filter_echo != 0) {
         rs485->state.echo_pending = 1;
+        rs485->state.echo_buf_ptr = data;
         rs485->state.echo_len = len;
+        rs485->state.echo_offset = 0u;
     }
 
-    bm_rs485_set_de(rs485, BM_RS485_DIR_TX);
+    /* 先占用方向，再退出临界区执行 GPIO/UART 操作 */
+    if (rs485->config.pre_delay_us == 0u) {
+        rs485->state.dir = BM_RS485_DIR_TX;
+    } else {
+        now = bm_uptime_us();
+        rs485->state.dir = BM_RS485_DIR_TX_PRE;
+        rs485->state.tx_pre_start_us = now;
+    }
+    BM_CRITICAL_EXIT(irq_state);
 
-    rc = bm_hal_uart_send(rs485->config.uart, data, len);
+    rc = bm_rs485_set_de(rs485, BM_RS485_DIR_TX);
     if (rc != BM_OK) {
+        irq_state = BM_CRITICAL_ENTER();
         rs485->state.dir = BM_RS485_DIR_RX;
-        bm_rs485_set_de(rs485, BM_RS485_DIR_RX);
-        rs485->state.echo_pending = 0;
-        rs485->state.echo_len = 0u;
+        bm_rs485_clear_tx_echo(rs485);
+        BM_CRITICAL_EXIT(irq_state);
         return rc;
     }
 
-    rs485->state.stats.tx_frame_count++;
-    rs485->state.stats.tx_byte_count += (uint32_t)len;
+    /* 无前置保持时间：立即启动 UART 发送 */
+    if (rs485->config.pre_delay_us == 0u) {
+        rc = bm_hal_uart_send(rs485->config.uart, data, len);
+        if (rc != BM_OK) {
+            irq_state = BM_CRITICAL_ENTER();
+            rs485->state.dir = BM_RS485_DIR_RX;
+            bm_rs485_clear_tx_echo(rs485);
+            BM_CRITICAL_EXIT(irq_state);
+            (void)bm_rs485_set_de(rs485, BM_RS485_DIR_RX);
+            return rc;
+        }
+
+        irq_state = BM_CRITICAL_ENTER();
+        rs485->state.stats.tx_frame_count++;
+        rs485->state.stats.tx_byte_count += (uint32_t)len;
+        BM_CRITICAL_EXIT(irq_state);
+    }
+
     return BM_OK;
 }
 
 void bm_rs485_poll(bm_rs485_t *rs485) {
     uint64_t now;
+    bm_uart_stats_t uart_stats;
+    int rc;
+    bm_irq_state_t irq_state;
+    uint32_t dir;
+    const uint8_t *tx_data;
+    size_t tx_len;
 
     if (rs485 == NULL) {
         return;
     }
 
-    /* TX_TAIL：等待 post_delay 后切回 RX */
-    if (rs485->state.dir == BM_RS485_DIR_TX_TAIL) {
-        now = bm_uptime_us();
-        if ((now - rs485->state.tx_end_us) >= rs485->config.post_delay_us) {
-            rs485->state.dir = BM_RS485_DIR_RX;
-            bm_rs485_set_de(rs485, BM_RS485_DIR_RX);
+    now = bm_uptime_us();
+
+    irq_state = BM_CRITICAL_ENTER();
+    dir = rs485->state.dir;
+    BM_CRITICAL_EXIT(irq_state);
+
+    /* TX_PRE：等待 pre_delay 到期后启动 UART 发送 */
+    if (dir == BM_RS485_DIR_TX_PRE) {
+        irq_state = BM_CRITICAL_ENTER();
+        tx_data = rs485->state.tx_data;
+        tx_len = rs485->state.tx_len;
+        BM_CRITICAL_EXIT(irq_state);
+
+        if ((now - rs485->state.tx_pre_start_us)
+            >= rs485->config.pre_delay_us) {
+            irq_state = BM_CRITICAL_ENTER();
+            rs485->state.dir = BM_RS485_DIR_TX;
+            BM_CRITICAL_EXIT(irq_state);
+
+            rc = bm_hal_uart_send(rs485->config.uart, tx_data, tx_len);
+            if (rc != BM_OK) {
+                irq_state = BM_CRITICAL_ENTER();
+                rs485->state.dir = BM_RS485_DIR_RX;
+                bm_rs485_clear_tx_echo(rs485);
+                rs485->state.stats.last_errors |= BM_RS485_ERR_UART;
+                BM_CRITICAL_EXIT(irq_state);
+                (void)bm_rs485_set_de(rs485, BM_RS485_DIR_RX);
+                if (rs485->resources.error_cb != NULL) {
+                    rs485->resources.error_cb((const bm_rs485_t *)rs485,
+                                              BM_RS485_ERR_UART,
+                                              rs485->resources.user);
+                }
+            } else {
+                irq_state = BM_CRITICAL_ENTER();
+                rs485->state.stats.tx_frame_count++;
+                rs485->state.stats.tx_byte_count += (uint32_t)tx_len;
+                BM_CRITICAL_EXIT(irq_state);
+            }
         }
     }
 
-    /* RX 空闲超时检测 */
+    /* TX_TAIL：等待 post_delay 后切回 RX */
+    irq_state = BM_CRITICAL_ENTER();
+    dir = rs485->state.dir;
+    BM_CRITICAL_EXIT(irq_state);
+    if (dir == BM_RS485_DIR_TX_TAIL) {
+        if ((now - rs485->state.tx_end_us) >= rs485->config.post_delay_us) {
+            irq_state = BM_CRITICAL_ENTER();
+            rs485->state.dir = BM_RS485_DIR_RX;
+            BM_CRITICAL_EXIT(irq_state);
+            (void)bm_rs485_set_de(rs485, BM_RS485_DIR_RX);
+        }
+    }
+
+    /* UART 底层错误透传 */
+    if (bm_hal_uart_get_stats(rs485->config.uart, &uart_stats) == BM_OK
+        && uart_stats.last_errors != 0u) {
+        irq_state = BM_CRITICAL_ENTER();
+        rs485->state.stats.last_errors |= BM_RS485_ERR_UART;
+        BM_CRITICAL_EXIT(irq_state);
+        if (rs485->resources.error_cb != NULL) {
+            rs485->resources.error_cb((const bm_rs485_t *)rs485,
+                                      BM_RS485_ERR_UART,
+                                      rs485->resources.user);
+        }
+    }
+
+    /* RX 空闲超时检测：只触发一次，新数据到达后由 rx_frame_cb 复位 */
+    irq_state = BM_CRITICAL_ENTER();
     if (rs485->config.rx_idle_timeout_us != 0u
         && rs485->state.dir == BM_RS485_DIR_RX
-        && rs485->state.stats.rx_byte_count > 0u) {
-        now = bm_uptime_us();
-        if ((now - rs485->state.last_rx_us)
-            >= rs485->config.rx_idle_timeout_us) {
-            rs485->state.stats.rx_idle_timeout_count++;
-            rs485->state.stats.last_errors |= BM_RS485_ERR_RX_IDLE_TIMEOUT;
-            rs485->state.last_rx_us = now;
-            if (rs485->resources.error_cb != NULL) {
-                rs485->resources.error_cb((const bm_rs485_t *)rs485,
-                    BM_RS485_ERR_RX_IDLE_TIMEOUT, rs485->resources.user);
-            }
+        && rs485->state.rx_idle_timeout_fired == 0
+        && rs485->state.stats.rx_byte_count > 0u
+        && (now - rs485->state.last_rx_us)
+           >= rs485->config.rx_idle_timeout_us) {
+        rs485->state.rx_idle_timeout_fired = 1;
+        rs485->state.stats.rx_idle_timeout_count++;
+        rs485->state.stats.last_errors |= BM_RS485_ERR_RX_IDLE_TIMEOUT;
+        BM_CRITICAL_EXIT(irq_state);
+        if (rs485->resources.error_cb != NULL) {
+            rs485->resources.error_cb((const bm_rs485_t *)rs485,
+                BM_RS485_ERR_RX_IDLE_TIMEOUT, rs485->resources.user);
         }
+    } else {
+        BM_CRITICAL_EXIT(irq_state);
     }
 }
 
 int bm_rs485_get_stats(const bm_rs485_t *rs485, bm_rs485_stats_t *stats) {
+    bm_irq_state_t irq_state;
+
     if (rs485 == NULL || stats == NULL) {
         return BM_ERR_INVALID;
     }
+    irq_state = BM_CRITICAL_ENTER();
     *stats = rs485->state.stats;
+    BM_CRITICAL_EXIT(irq_state);
     return BM_OK;
 }
 
 uint32_t bm_rs485_dir(const bm_rs485_t *rs485) {
+    bm_irq_state_t irq_state;
+    uint32_t dir;
+
     if (rs485 == NULL) {
         return BM_RS485_DIR_RX;
     }
-    return rs485->state.dir;
+    irq_state = BM_CRITICAL_ENTER();
+    dir = rs485->state.dir;
+    BM_CRITICAL_EXIT(irq_state);
+    return dir;
 }

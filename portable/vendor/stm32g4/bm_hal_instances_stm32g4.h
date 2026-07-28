@@ -241,13 +241,25 @@
 #ifndef BM_STM32G4_USART3_GPIO_AF
 #define BM_STM32G4_USART3_GPIO_AF  7u
 #endif
-/** @brief USART3 TX 引脚（GPIOB，默认 PB10）。 */
+/** @brief USART3 TX 端口（0=A,1=B,2=C,3=D,4=E,5=F,6=G；默认 GPIOB）。 */
+#ifndef BM_STM32G4_USART3_TX_PORT
+#define BM_STM32G4_USART3_TX_PORT  1u
+#endif
+/** @brief USART3 TX 引脚号（默认 PB10）。 */
 #ifndef BM_STM32G4_USART3_TX_PIN
 #define BM_STM32G4_USART3_TX_PIN  10u
 #endif
-/** @brief USART3 RX 引脚（GPIOB，默认 PB11）。 */
+/** @brief USART3 RX 端口（0=A,1=B,2=C,3=D,4=E,5=F,6=G；默认 GPIOB）。 */
+#ifndef BM_STM32G4_USART3_RX_PORT
+#define BM_STM32G4_USART3_RX_PORT  1u
+#endif
+/** @brief USART3 RX 引脚号（默认 PB11）。 */
 #ifndef BM_STM32G4_USART3_RX_PIN
 #define BM_STM32G4_USART3_RX_PIN  11u
+#endif
+/** @brief USART3 TX DMA 控制器（1=DMA1,2=DMA2；默认 DMA1）。 */
+#ifndef BM_STM32G4_USART3_TX_DMA_CTRL
+#define BM_STM32G4_USART3_TX_DMA_CTRL  1u
 #endif
 /** @brief USART3 TX DMA 通道号（1-based，默认 DMA1_CH4）。 */
 #ifndef BM_STM32G4_USART3_TX_DMA_CH
@@ -256,6 +268,10 @@
 /** @brief USART3 TX DMAMUX 请求号（RM0440：USART3_TX=27）。 */
 #ifndef BM_STM32G4_USART3_TX_DMA_REQ
 #define BM_STM32G4_USART3_TX_DMA_REQ  27u
+#endif
+/** @brief USART3 RX DMA 控制器（1=DMA1,2=DMA2；默认 DMA1）。 */
+#ifndef BM_STM32G4_USART3_RX_DMA_CTRL
+#define BM_STM32G4_USART3_RX_DMA_CTRL  1u
 #endif
 /** @brief USART3 RX DMA 通道号（1-based，默认 DMA1_CH5）。 */
 #ifndef BM_STM32G4_USART3_RX_DMA_CH

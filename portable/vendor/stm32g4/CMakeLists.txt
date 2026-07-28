@@ -26,7 +26,7 @@ add_library(bm_vendor_stm32g4 STATIC
     bm_vendor_uart_dev_stm32g4.c
     # bm_vendor_dma_usart2_rx_stm32g4.c  # Phase 3 重写中，暂隔离
     bm_vendor_hrtimer_stm32g4.c    # 接口批 1：高精度 Timer STM32G4 后端
-    # bm_vendor_usart3_stm32g4.c         # Phase 3 重写中，暂隔离
+    bm_vendor_usart3_stm32g4.c     # 接口批 1：USART3 IDLE + DMA TX/RX 后端
     bm_hal_can_stm32g4.c           # 接口批 1：FDCAN1/FDCAN2 寄存器级后端
     bm_hal_cpu_freq_stm32g4.c
 )

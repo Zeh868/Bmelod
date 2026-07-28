@@ -36,11 +36,13 @@ struct bm_rs485;
 typedef struct bm_rs485 bm_rs485_t;
 
 /** @brief 方向状态：接收 */
-#define BM_RS485_DIR_RX  0u
-/** @brief 方向状态：发送 */
-#define BM_RS485_DIR_TX  1u
+#define BM_RS485_DIR_RX      0u
+/** @brief 方向状态：发送前置保持（DE 已拉起，等待 pre_delay） */
+#define BM_RS485_DIR_TX_PRE  1u
+/** @brief 方向状态：发送中 */
+#define BM_RS485_DIR_TX      2u
 /** @brief 方向状态：发送尾保持（等待 UART TC 后切回 RX） */
-#define BM_RS485_DIR_TX_TAIL 2u
+#define BM_RS485_DIR_TX_TAIL 3u
 
 /** @brief 错误标志：半双工冲突（TX 期间收到非预期数据） */
 #define BM_RS485_ERR_COLLISION       (1u << 0u)
@@ -50,6 +52,8 @@ typedef struct bm_rs485 bm_rs485_t;
 #define BM_RS485_ERR_RX_IDLE_TIMEOUT (1u << 2u)
 /** @brief 错误标志：UART 底层错误 */
 #define BM_RS485_ERR_UART            (1u << 3u)
+/** @brief 错误标志：GPIO 写入失败 */
+#define BM_RS485_ERR_GPIO            (1u << 4u)
 
 /** @brief 最大接收帧长度（含环回测试场景）。 */
 #define BM_RS485_MAX_FRAME_LEN 256u
@@ -65,6 +69,8 @@ typedef struct {
     uint32_t             rx_idle_timeout_us; /**< 接收空闲超时（µs），0 表示不检测 */
     int                  filter_echo;      /**< 非零：过滤本机发送回显 */
     int                  hardware_de;      /**< 非零：使用硬件自动 DE，忽略 de_gpio */
+    uint8_t             *rx_buf;           /**< 可选外部 RX 帧缓冲；NULL 用内部缓冲 */
+    size_t               rx_buf_len;       /**< 外部缓冲长度；0 用内部缓冲 */
 } bm_rs485_config_t;
 
 /** @brief 资源回调（用户填写） */
@@ -108,13 +114,21 @@ typedef struct {
 /** @brief 运行状态（组件维护） */
 typedef struct {
     uint32_t dir;                 /**< 当前方向 BM_RS485_DIR_* */
-    uint8_t  rx_buf[BM_RS485_MAX_FRAME_LEN]; /**< 当前接收帧缓冲 */
+    uint8_t *rx_buf_ptr;          /**< 当前接收帧缓冲指针 */
+    size_t   rx_buf_len;          /**< 当前接收帧缓冲长度 */
+    uint8_t  rx_internal_buf[BM_RS485_MAX_FRAME_LEN]; /**< 默认内部缓冲 */
     size_t   rx_len;              /**< 当前接收帧长度 */
+    const uint8_t *tx_data;       /**< TX_PRE 状态暂存的发送数据指针 */
+    size_t   tx_len;              /**< TX_PRE 状态暂存的发送长度 */
+    uint64_t tx_pre_start_us;     /**< TX_PRE 起始时刻 */
     uint64_t last_rx_us;          /**< 最近 RX 时间戳 */
     uint64_t tx_end_us;           /**< 期望发送结束时刻 */
     bm_rs485_stats_t stats;       /**< 统计 */
     int      echo_pending;        /**< 正在过滤回显 */
+    const uint8_t *echo_buf_ptr;  /**< 回显参照数据指针（发送数据） */
     size_t   echo_len;            /**< 待过滤回显长度 */
+    size_t   echo_offset;         /**< 已过滤回显字节数 */
+    int      rx_idle_timeout_fired; /**< 接收空闲超时已触发，等待新数据 */
 } bm_rs485_state_t;
 
 /** @brief RS485 实例（用户静态分配） */
@@ -148,6 +162,9 @@ void bm_rs485_reset(bm_rs485_t *rs485);
 
 /**
  * @brief 发送一帧数据（非阻塞，回调通知完成）
+ *
+ * `data` 缓冲区在 RS485 方向切回 RX 前必须保持有效（含 pre/post delay
+ * 及可能的回显过滤阶段）。发送期间再次调用返回 `BM_ERR_BUSY`。
  *
  * @param rs485 RS485 实例
  * @param data  帧数据

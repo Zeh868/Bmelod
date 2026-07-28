@@ -557,8 +557,8 @@ static int bm_can_stm32g4_validate_config(const bm_can_stm32g4_config_t *cfg) {
 /**
  * @brief 计算并返回实际波特率（bps）与采样点（千分比）。
  */
-void bm_can_stm32g4_calc_bitrate(const bm_can_stm32g4_config_t *cfg,
-                                 uint32_t *bitrate, uint32_t *sample_pt_promille) {
+static void bm_can_stm32g4_calc_bitrate(const bm_can_stm32g4_config_t *cfg,
+                                        uint32_t *bitrate, uint32_t *sample_pt_promille) {
     LL_RCC_ClocksTypeDef clocks;
     uint32_t pclk;
     uint32_t tq;
