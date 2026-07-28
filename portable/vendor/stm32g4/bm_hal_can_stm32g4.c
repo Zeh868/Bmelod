@@ -6,38 +6,40 @@
  * STM32CubeG4 未提供 FDCAN LL 头文件，因此本后端基于 CMSIS 寄存器定义直接操作，
  * 仅依赖 `stm32g4xx.h`、`stm32g4xx_ll_bus.h`/`ll_gpio.h`/`ll_rcc.h` 做时钟/GPIO。
  *
- * STM32G4 的 FDCAN Message RAM 布局为**硬件固定**（每个实例 212 words，约 848 bytes）：
- * - 标准过滤器 28 个（1 word/个）
- * - 扩展过滤器 8 个（2 words/个）
- * - RX FIFO0 / RX FIFO1 各 3 个元素（18 words/个，64 byte payload）
- * - TX Event FIFO 3 个元素（2 words/个）
- * - TX FIFO/Queue 3 个元素（18 words/个，64 byte payload）
+ * 重要硬件约束（STM32G4 参考手册 RM0440）：
+ * - FDCAN Message RAM 布局由硬件固定，每个实例 212 words（848 bytes），不可通过
+ *   SIDFC/XIDFC/RXF0C/RXF1C/RXESC/TXESC/TXEFC 寄存器配置（这些寄存器在 G4 上不存在）。
+ * - 每个实例固定：28 个标准过滤器、8 个扩展过滤器、RX FIFO0/1 各 3 元素、
+ *   TX Event FIFO 3 元素、TX FIFO/Queue 3 元素；RX/TX 元素固定 64 字节。
+ * - `bm_can_stm32g4_config_t` 中的 `*_count` 字段仅决定软件实际使用数量，不能超过
+ *   上述硬件上限；`message_ram_offset` 决定本实例在全局 10KB Message RAM 中的起始
+ *   word 偏移，FDCAN1/FDCAN2 区域不可重叠。
  *
- * 因此 `bm_can_stm32g4_config_t` 中的 *_count 字段只决定实际使能数量，不能超过
- * 上述硬件上限；本后端在 init 时做校验。
+ * 本后端支持：
+ * - FDCAN1/FDCAN2 多实例，引脚/AF/IRQ 由 App 配置。
+ * - 标准帧与扩展帧硬件过滤器。
+ * - RX FIFO0 有界循环处理、FIFO 满/消息丢失检测、TX FIFO 满检测。
+ * - Bus-off / error warning / error passive 检测与手动恢复。
+ * - 真实接收时间戳（`bm_uptime_us()`）。
  *
- * 当前能力：
- * - FDCAN1/FDCAN2 多实例，默认 PB8/PB9 与 PB12/PB13（AF9）。
- * - Classic CAN 发送/接收；CAN FD 能力标志仅在 `fd_enabled != 0` 时使能硬件。
- * - 硬件过滤器：标准帧范围/掩码/列表；扩展帧暂不支持（返回 NOT_SUPPORTED）。
- * - RX FIFO0、TX FIFO，ISR 仅做帧搬运与事件派发。
- * - Bus-off / error warning / error passive 检测。
- *
- * 应用通过 `bm_can_stm32g4_config_t` 指定 FDCANx/引脚/位时序；Bmelod 不固定
- * FDCAN 编号与产品引脚。
+ * 应用通过 `bm_can_stm32g4_config_t` 指定 FDCANx/引脚/位时序/IRQ；
+ * Bmelod 不固定 FDCAN 编号与产品引脚。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 STM32G4 FDCAN 寄存器级后端
+ * 2026-07-28       1.1            zeh            使用 message_ram_offset、扩展过滤器、
+ *                                                真实时间戳、bus-off 恢复
  */
 #include "bm_vendor_can_stm32g4.h"
 #include "bm_hal_instances_stm32g4.h"
 #include "bm/common/bm_types.h"
+#include "bm/common/bm_uptime.h"
 #include "drv/bm_drv_can.h"
 
 #include <stddef.h>
@@ -55,7 +57,10 @@
 /** @brief STM32G4 全局 FDCAN Message RAM 基址（10KB，2560 words）。 */
 #define BM_CAN_STM32G4_MSG_RAM_BASE 0x4000A400u
 
-/* ---------- STM32G4 固定 Message RAM 布局（RM0440 44.3.3 / HAL 内部一致） ---------- */
+/** @brief 全局 Message RAM 总容量（words）。 */
+#define BM_CAN_STM32G4_MSG_RAM_WORDS 2560u
+
+/* ---------- STM32G4 固定 Message RAM 布局（RM0440 / HAL 一致） ---------- */
 
 #define BM_CAN_G4_FLS_NBR 28u   /**< 标准过滤器最大数。 */
 #define BM_CAN_G4_FLE_NBR 8u    /**< 扩展过滤器最大数。 */
@@ -126,6 +131,31 @@
 #define FDCAN_DBTP_DBRP_Pos   16u
 #endif
 
+/* TXBC */
+#ifndef FDCAN_TXBC_TFQS_Pos
+#define FDCAN_TXBC_TFQS_Pos 30u
+#endif
+
+/* RXGFC */
+#ifndef FDCAN_RXGFC_RRFE
+#define FDCAN_RXGFC_RRFE (1u << 0u)
+#endif
+#ifndef FDCAN_RXGFC_RRFS
+#define FDCAN_RXGFC_RRFS (1u << 1u)
+#endif
+#ifndef FDCAN_RXGFC_ANFE_Pos
+#define FDCAN_RXGFC_ANFE_Pos 2u
+#endif
+#ifndef FDCAN_RXGFC_ANFS_Pos
+#define FDCAN_RXGFC_ANFS_Pos 4u
+#endif
+#ifndef FDCAN_RXGFC_LSS_Pos
+#define FDCAN_RXGFC_LSS_Pos 16u
+#endif
+#ifndef FDCAN_RXGFC_LSE_Pos
+#define FDCAN_RXGFC_LSE_Pos 24u
+#endif
+
 /* IR / IE */
 #ifndef FDCAN_IR_RF0N
 #define FDCAN_IR_RF0N  (1u << 0u)
@@ -166,31 +196,6 @@
 #endif
 #ifndef FDCAN_PSR_BO
 #define FDCAN_PSR_BO (1u << 7u)
-#endif
-
-/* RXGFC */
-#ifndef FDCAN_RXGFC_RRFE
-#define FDCAN_RXGFC_RRFE (1u << 0u)
-#endif
-#ifndef FDCAN_RXGFC_RRFS
-#define FDCAN_RXGFC_RRFS (1u << 1u)
-#endif
-#ifndef FDCAN_RXGFC_ANFE_Pos
-#define FDCAN_RXGFC_ANFE_Pos 2u
-#endif
-#ifndef FDCAN_RXGFC_ANFS_Pos
-#define FDCAN_RXGFC_ANFS_Pos 4u
-#endif
-#ifndef FDCAN_RXGFC_LSS_Pos
-#define FDCAN_RXGFC_LSS_Pos 16u
-#endif
-#ifndef FDCAN_RXGFC_LSE_Pos
-#define FDCAN_RXGFC_LSE_Pos 24u
-#endif
-
-/* TXBC */
-#ifndef FDCAN_TXBC_TFQS_Pos
-#define FDCAN_TXBC_TFQS_Pos 30u
 #endif
 
 /* Message RAM element masks */
@@ -270,12 +275,13 @@ static const bm_can_stm32g4_config_t g_can_cfg_1 = {
     .nbtr = BM_STM32G4_CAN_NBTR,
     .dbtr = { .prescaler = 8u, .tseg1 = 7u, .tseg2 = 2u, .sjw = 1u },
     .fd_enabled = 0u,
-    .message_ram_offset = 0u,
+    .message_ram_offset = BM_STM32G4_CAN1_MSG_RAM_OFFSET,
     .std_filter_count = 8u,
     .ext_filter_count = 0u,
     .rx_fifo0_count = BM_CAN_G4_RF0_NBR,
     .rx_fifo1_count = 0u,
     .tx_fifo_count = BM_CAN_G4_TFQ_NBR,
+    .tx_event_fifo_count = 0u,
     .rx_elmt_size = 7u, /* 64 bytes（硬件固定） */
     .tx_elmt_size = 7u,
     .irqn = FDCAN1_IT0_IRQn,
@@ -292,12 +298,13 @@ static const bm_can_stm32g4_config_t g_can_cfg_2 = {
     .nbtr = BM_STM32G4_CAN_NBTR,
     .dbtr = { .prescaler = 8u, .tseg1 = 7u, .tseg2 = 2u, .sjw = 1u },
     .fd_enabled = 0u,
-    .message_ram_offset = 0u,
+    .message_ram_offset = BM_STM32G4_CAN2_MSG_RAM_OFFSET,
     .std_filter_count = 8u,
     .ext_filter_count = 0u,
     .rx_fifo0_count = BM_CAN_G4_RF0_NBR,
     .rx_fifo1_count = 0u,
     .tx_fifo_count = BM_CAN_G4_TFQ_NBR,
+    .tx_event_fifo_count = 0u,
     .rx_elmt_size = 7u,
     .tx_elmt_size = 7u,
     .irqn = FDCAN2_IT0_IRQn,
@@ -370,16 +377,6 @@ static bm_can_stm32g4_context_t *bm_can_stm32g4_ctx_for_fdcan(
 }
 
 /**
- * @brief 由 FDCAN 实例获取 Message RAM 实例索引。
- */
-static uint32_t bm_can_stm32g4_instance_index(FDCAN_GlobalTypeDef *fdcan) {
-    if (fdcan == FDCAN2) {
-        return 1u;
-    }
-    return 0u;
-}
-
-/**
  * @brief 计算引脚所在 GPIO 端口与位掩码。
  */
 static GPIO_TypeDef *bm_can_stm32g4_port(uint32_t pin_encoding, uint32_t *pin_num) {
@@ -391,6 +388,9 @@ static GPIO_TypeDef *bm_can_stm32g4_port(uint32_t pin_encoding, uint32_t *pin_nu
     case 1u: return GPIOB;
     case 2u: return GPIOC;
     case 3u: return GPIOD;
+    case 4u: return GPIOE;
+    case 5u: return GPIOF;
+    case 6u: return GPIOG;
     default: return NULL;
     }
 }
@@ -398,7 +398,7 @@ static GPIO_TypeDef *bm_can_stm32g4_port(uint32_t pin_encoding, uint32_t *pin_nu
 /**
  * @brief 配置 CAN TX/RX GPIO 复用。
  */
-static void bm_can_stm32g4_gpio_init(const bm_can_stm32g4_config_t *cfg) {
+static int bm_can_stm32g4_gpio_init(const bm_can_stm32g4_config_t *cfg) {
     GPIO_TypeDef *tx_port, *rx_port;
     uint32_t tx_pin, rx_pin;
     uint32_t tx_mask, rx_mask;
@@ -406,7 +406,7 @@ static void bm_can_stm32g4_gpio_init(const bm_can_stm32g4_config_t *cfg) {
     tx_port = bm_can_stm32g4_port(cfg->tx_pin, &tx_pin);
     rx_port = bm_can_stm32g4_port(cfg->rx_pin, &rx_pin);
     if (tx_port == NULL || rx_port == NULL) {
-        return;
+        return BM_ERR_INVALID;
     }
 
     LL_AHB2_GRP1_EnableClock(LL_AHB2_GRP1_PERIPH_GPIOA |
@@ -436,6 +436,8 @@ static void bm_can_stm32g4_gpio_init(const bm_can_stm32g4_config_t *cfg) {
     } else {
         LL_GPIO_SetAFPin_8_15(rx_port, rx_mask, cfg->gpio_af);
     }
+
+    return BM_OK;
 }
 
 /**
@@ -453,13 +455,13 @@ static int bm_can_stm32g4_wait_init(FDCAN_GlobalTypeDef *fdcan, uint32_t target)
 /**
  * @brief 获取 Message RAM 中某实例区域的绝对地址。
  *
- * @param instance  FDCAN 实例索引（0=FDCAN1，1=FDCAN2）
- * @param offset    实例内 32-bit word 偏移
+ * @param cfg     FDCAN 平台配置（含 message_ram_offset）
+ * @param offset  实例内 32-bit word 偏移
  */
-static volatile uint32_t *bm_can_stm32g4_msg_ram(uint32_t instance,
-                                                 uint32_t offset) {
+static volatile uint32_t *bm_can_stm32g4_msg_ram(
+    const bm_can_stm32g4_config_t *cfg, uint32_t offset) {
     uint32_t addr = BM_CAN_STM32G4_MSG_RAM_BASE +
-                    ((instance * BM_CAN_G4_SIZE) + offset) * 4u;
+                    (cfg->message_ram_offset + offset) * 4u;
 
     return (volatile uint32_t *)addr;
 }
@@ -488,32 +490,120 @@ static int bm_can_stm32g4_leave_init(FDCAN_GlobalTypeDef *fdcan) {
 }
 
 /* -------------------------------------------------------------------------- */
+/*  配置校验                                                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * @brief 校验位时序参数范围。
+ */
+static int bm_can_stm32g4_validate_timing(const bm_can_stm32g4_bit_timing_t *bt) {
+    if (bt->prescaler < 1u || bt->prescaler > 512u ||
+        bt->tseg1 < 1u || bt->tseg1 > 256u ||
+        bt->tseg2 < 1u || bt->tseg2 > 128u ||
+        bt->sjw < 1u || bt->sjw > 128u) {
+        return BM_ERR_INVALID;
+    }
+    return BM_OK;
+}
+
+/**
+ * @brief 校验整个 FDCAN 配置。
+ */
+static int bm_can_stm32g4_validate_config(const bm_can_stm32g4_config_t *cfg) {
+    if (cfg == NULL) {
+        return BM_ERR_INVALID;
+    }
+    if (cfg->fdcan != FDCAN1 && cfg->fdcan != FDCAN2) {
+        return BM_ERR_INVALID;
+    }
+    if (cfg->gpio_af > 15u) {
+        return BM_ERR_INVALID;
+    }
+    if (bm_can_stm32g4_port(cfg->tx_pin, &(uint32_t){0u}) == NULL ||
+        bm_can_stm32g4_port(cfg->rx_pin, &(uint32_t){0u}) == NULL) {
+        return BM_ERR_INVALID;
+    }
+    if (cfg->irqn != FDCAN1_IT0_IRQn && cfg->irqn != FDCAN1_IT1_IRQn &&
+        cfg->irqn != FDCAN2_IT0_IRQn && cfg->irqn != FDCAN2_IT1_IRQn) {
+        return BM_ERR_INVALID;
+    }
+    if (bm_can_stm32g4_validate_timing(&cfg->nbtr) != BM_OK) {
+        return BM_ERR_INVALID;
+    }
+    if (cfg->fd_enabled != 0u) {
+        if (bm_can_stm32g4_validate_timing(&cfg->dbtr) != BM_OK) {
+            return BM_ERR_INVALID;
+        }
+    }
+    if (cfg->std_filter_count > BM_CAN_G4_FLS_NBR ||
+        cfg->ext_filter_count > BM_CAN_G4_FLE_NBR ||
+        cfg->rx_fifo0_count > BM_CAN_G4_RF0_NBR ||
+        cfg->rx_fifo1_count > BM_CAN_G4_RF1_NBR ||
+        cfg->tx_fifo_count > BM_CAN_G4_TFQ_NBR ||
+        cfg->tx_event_fifo_count > BM_CAN_G4_TEF_NBR) {
+        return BM_ERR_INVALID;
+    }
+    /* G4 硬件固定 64 字节元素；rx_elmt_size/tx_elmt_size 保留字段，只接受 7 */
+    if (cfg->rx_elmt_size != 7u || cfg->tx_elmt_size != 7u) {
+        return BM_ERR_INVALID;
+    }
+    if ((cfg->message_ram_offset + BM_CAN_G4_SIZE) > BM_CAN_STM32G4_MSG_RAM_WORDS) {
+        return BM_ERR_INVALID;
+    }
+
+    return BM_OK;
+}
+
+/**
+ * @brief 计算并返回实际波特率（bps）与采样点（千分比）。
+ */
+void bm_can_stm32g4_calc_bitrate(const bm_can_stm32g4_config_t *cfg,
+                                 uint32_t *bitrate, uint32_t *sample_pt_promille) {
+    LL_RCC_ClocksTypeDef clocks;
+    uint32_t pclk;
+    uint32_t tq;
+    uint32_t sp;
+
+    LL_RCC_GetSystemClocksFreq(&clocks);
+    pclk = clocks.PCLK1_Frequency;
+
+    tq = cfg->nbtr.prescaler * (cfg->nbtr.tseg1 + cfg->nbtr.tseg2 + 1u);
+    if (tq == 0u) {
+        *bitrate = 0u;
+        *sample_pt_promille = 0u;
+        return;
+    }
+    *bitrate = pclk / tq;
+
+    sp = ((cfg->nbtr.tseg1 + 1u) * 1000u) /
+         (cfg->nbtr.tseg1 + cfg->nbtr.tseg2 + 1u);
+    *sample_pt_promille = sp;
+}
+
+/* -------------------------------------------------------------------------- */
 /*  硬件初始化                                                                  */
 /* -------------------------------------------------------------------------- */
 
 static int bm_can_stm32g4_hw_init(bm_can_stm32g4_context_t *ctx) {
     const bm_can_stm32g4_config_t *cfg = ctx->cfg;
     FDCAN_GlobalTypeDef *fdcan = cfg->fdcan;
-    uint32_t instance = bm_can_stm32g4_instance_index(fdcan);
     uint32_t nbtp, dbtp;
     uint32_t i;
+    int rc;
 
-    if (cfg->fdcan != FDCAN1 && cfg->fdcan != FDCAN2) {
-        return BM_ERR_INVALID;
-    }
-    if (cfg->std_filter_count > BM_CAN_G4_FLS_NBR ||
-        cfg->ext_filter_count > BM_CAN_G4_FLE_NBR ||
-        cfg->rx_fifo0_count > BM_CAN_G4_RF0_NBR ||
-        cfg->rx_fifo1_count > BM_CAN_G4_RF1_NBR ||
-        cfg->tx_fifo_count > BM_CAN_G4_TFQ_NBR) {
-        return BM_ERR_INVALID;
+    rc = bm_can_stm32g4_validate_config(cfg);
+    if (rc != BM_OK) {
+        return rc;
     }
 
     /* 使能时钟（FDCAN1/FDCAN2 共享 APB1 的 FDCANEN 位） */
     LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_FDCAN);
 
     /* 配置 GPIO */
-    bm_can_stm32g4_gpio_init(cfg);
+    rc = bm_can_stm32g4_gpio_init(cfg);
+    if (rc != BM_OK) {
+        return rc;
+    }
 
     /* 进入 INIT + CCE */
     if (bm_can_stm32g4_enter_init(fdcan) != BM_OK) {
@@ -543,17 +633,19 @@ static int bm_can_stm32g4_hw_init(bm_can_stm32g4_context_t *ctx) {
 
     /* 清零本实例 Message RAM */
     for (i = 0u; i < BM_CAN_G4_SIZE; ++i) {
-        bm_can_stm32g4_msg_ram(instance, i)[0] = 0u;
+        bm_can_stm32g4_msg_ram(cfg, i)[0] = 0u;
     }
 
-    /* 全局过滤器：默认拒绝所有非匹配帧（fail-closed），应用通过 add_filter 开通 */
+    /* 全局过滤器：默认拒绝所有非匹配帧（fail-closed），应用通过 add_filter 开通。
+     * STM32G4 无 SIDFC/XIDFC/RXF0C/RXF1C/RXESC/TXESC/TXEFC 寄存器，
+     * 过滤器/RX/TX 数量与元素大小由硬件固定，仅通过 RXGFC 的 LSS/LSE 控制实际使用数。 */
     fdcan->RXGFC = FDCAN_RXGFC_RRFE | FDCAN_RXGFC_RRFS |
                    (2u << FDCAN_RXGFC_ANFE_Pos) |
                    (2u << FDCAN_RXGFC_ANFS_Pos) |
                    ((cfg->std_filter_count & 0xFFu) << FDCAN_RXGFC_LSS_Pos) |
                    ((cfg->ext_filter_count & 0xFFu) << FDCAN_RXGFC_LSE_Pos);
 
-    /* TX FIFO 大小（TXBC 寄存器存在；起始地址固定，只配数量） */
+    /* TX FIFO 大小（G4 固定 3 个元素；TXBC 只配 FIFO/Queue 模式） */
     fdcan->TXBC = ((cfg->tx_fifo_count & 0x3Fu) << FDCAN_TXBC_TFQS_Pos);
 
     /* 中断：使能 RX FIFO0 新消息、TX 完成、bus-off、error warning/passive */
@@ -570,6 +662,33 @@ static int bm_can_stm32g4_hw_init(bm_can_stm32g4_context_t *ctx) {
 }
 
 /* -------------------------------------------------------------------------- */
+/*  反初始化 / 复位                                                               */
+/* -------------------------------------------------------------------------- */
+
+static int bm_can_stm32g4_hw_deinit(bm_can_stm32g4_context_t *ctx) {
+    const bm_can_stm32g4_config_t *cfg = ctx->cfg;
+    FDCAN_GlobalTypeDef *fdcan;
+
+    if (cfg == NULL) {
+        return BM_ERR_INVALID;
+    }
+    fdcan = cfg->fdcan;
+
+    NVIC_DisableIRQ(cfg->irqn);
+    if (bm_can_stm32g4_enter_init(fdcan) != BM_OK) {
+        return BM_ERR_TIMEOUT;
+    }
+
+    fdcan->CCCR = FDCAN_CCCR_INIT | FDCAN_CCCR_CCE;
+    fdcan->IE = 0u;
+    fdcan->ILE = 0u;
+    fdcan->IR = fdcan->IR;
+
+    /* 时钟由 FDCAN1/FDCAN2 共享，这里不关闭，避免影响另一实例 */
+    return BM_OK;
+}
+
+/* -------------------------------------------------------------------------- */
 /*  过滤器配置                                                                  */
 /* -------------------------------------------------------------------------- */
 
@@ -578,7 +697,6 @@ static int bm_can_stm32g4_add_std_filter(bm_can_stm32g4_context_t *ctx,
                                          uint32_t *filter_id) {
     const bm_can_stm32g4_config_t *cfg = ctx->cfg;
     FDCAN_GlobalTypeDef *fdcan = cfg->fdcan;
-    uint32_t instance = bm_can_stm32g4_instance_index(fdcan);
     volatile uint32_t *sf_addr;
     uint32_t sfec;
     uint32_t sft;
@@ -593,7 +711,7 @@ static int bm_can_stm32g4_add_std_filter(bm_can_stm32g4_context_t *ctx,
         return BM_ERR_INVALID;
     }
 
-    sf_addr = bm_can_stm32g4_msg_ram(instance, BM_CAN_G4_FLSSA);
+    sf_addr = bm_can_stm32g4_msg_ram(cfg, BM_CAN_G4_FLSSA);
     idx = cfg->std_filter_count;
     for (i = 0u; i < cfg->std_filter_count; ++i) {
         /* 检查是否已禁用（SFEC=0） */
@@ -632,6 +750,81 @@ static int bm_can_stm32g4_add_std_filter(bm_can_stm32g4_context_t *ctx,
     if (filter_id != NULL) {
         *filter_id = idx;
     }
+
+    /* 若目标为 FIFO1，使能 FIFO1 新消息中断 */
+    if (filter->fifo == BM_CAN_FILTER_FIFO1) {
+        fdcan->IE |= FDCAN_IR_RF1N;
+    }
+
+    return BM_OK;
+}
+
+static int bm_can_stm32g4_add_ext_filter(bm_can_stm32g4_context_t *ctx,
+                                         const bm_can_filter_t *filter,
+                                         uint32_t *filter_id) {
+    const bm_can_stm32g4_config_t *cfg = ctx->cfg;
+    FDCAN_GlobalTypeDef *fdcan = cfg->fdcan;
+    volatile uint32_t *ef_addr;
+    uint32_t efec;
+    uint32_t eft;
+    uint32_t word0, word1;
+    uint32_t idx;
+    uint32_t i;
+
+    if (cfg->ext_filter_count == 0u) {
+        return BM_ERR_NOT_SUPPORTED;
+    }
+    if (filter->fifo > BM_CAN_FILTER_FIFO1) {
+        return BM_ERR_INVALID;
+    }
+    if (filter->id > BM_CAN_EXT_ID_MAX || filter->mask > BM_CAN_EXT_ID_MAX) {
+        return BM_ERR_INVALID;
+    }
+
+    ef_addr = bm_can_stm32g4_msg_ram(cfg, BM_CAN_G4_FLESA);
+    idx = cfg->ext_filter_count;
+    for (i = 0u; i < cfg->ext_filter_count; ++i) {
+        if ((ef_addr[i * 2u] & (0x7u << 29u)) == 0u) {
+            idx = i;
+            break;
+        }
+    }
+    if (idx >= cfg->ext_filter_count) {
+        return BM_ERR_NO_MEM;
+    }
+
+    efec = (filter->fifo == BM_CAN_FILTER_FIFO0) ? FDCAN_EFEC_FIFO0 : FDCAN_EFEC_FIFO1;
+
+    switch (filter->type) {
+    case BM_CAN_FILTER_TYPE_RANGE:
+        eft = FDCAN_EFT_RANGE;
+        break;
+    case BM_CAN_FILTER_TYPE_MASK:
+        eft = FDCAN_EFT_MASK;
+        break;
+    case BM_CAN_FILTER_TYPE_LIST:
+        eft = FDCAN_EFT_DUAL;
+        break;
+    default:
+        return BM_ERR_INVALID;
+    }
+
+    word0 = ((eft & 0x3u) << 30u) |
+            ((efec & 0x7u) << 29u) |
+            (filter->id & 0x1FFFFFFFu);
+    word1 = filter->mask & 0x1FFFFFFFu;
+
+    ef_addr[idx * 2u] = word0;
+    ef_addr[idx * 2u + 1u] = word1;
+
+    if (filter_id != NULL) {
+        *filter_id = idx + cfg->std_filter_count;
+    }
+
+    if (filter->fifo == BM_CAN_FILTER_FIFO1) {
+        fdcan->IE |= FDCAN_IR_RF1N;
+    }
+
     return BM_OK;
 }
 
@@ -667,7 +860,6 @@ static int bm_can_stm32g4_send(const struct bm_hal_can *dev,
     bm_can_stm32g4_context_t *ctx = bm_can_stm32g4_ctx_for(dev);
     const bm_can_stm32g4_config_t *cfg;
     FDCAN_GlobalTypeDef *fdcan;
-    uint32_t instance;
     volatile uint32_t *tx_addr;
     uint32_t put_idx;
     uint32_t word0, word1;
@@ -682,7 +874,6 @@ static int bm_can_stm32g4_send(const struct bm_hal_can *dev,
     }
     cfg = ctx->cfg;
     fdcan = cfg->fdcan;
-    instance = bm_can_stm32g4_instance_index(fdcan);
 
     if (!ctx->initialized) {
         return BM_ERR_NOT_INIT;
@@ -724,8 +915,7 @@ static int bm_can_stm32g4_send(const struct bm_hal_can *dev,
         word1 |= FDCAN_ELEMENT_MASK_BRS;
     }
 
-    /* 写入 TX FIFO（固定布局中 TX FIFO/Queue 起始偏移 = BM_CAN_G4_TFQSA） */
-    tx_addr = bm_can_stm32g4_msg_ram(instance,
+    tx_addr = bm_can_stm32g4_msg_ram(cfg,
                                      BM_CAN_G4_TFQSA +
                                      (put_idx * BM_CAN_G4_TFQ_SIZE));
 
@@ -751,12 +941,11 @@ static int bm_can_stm32g4_send(const struct bm_hal_can *dev,
 /* -------------------------------------------------------------------------- */
 
 /**
- * @brief 读取 RX FIFO0 中的一帧并派发回调。
+ * @brief 从 RX FIFO0 读取一帧。
  */
-static void bm_can_stm32g4_rx_fifo0_isr(bm_can_stm32g4_context_t *ctx) {
+static void bm_can_stm32g4_rx_fifo0_read(bm_can_stm32g4_context_t *ctx) {
     const bm_can_stm32g4_config_t *cfg = ctx->cfg;
     FDCAN_GlobalTypeDef *fdcan = cfg->fdcan;
-    uint32_t instance = bm_can_stm32g4_instance_index(fdcan);
     volatile uint32_t *rx_addr;
     bm_can_frame_t frame;
     uint32_t get_idx;
@@ -765,13 +954,13 @@ static void bm_can_stm32g4_rx_fifo0_isr(bm_can_stm32g4_context_t *ctx) {
     uint32_t data_words;
     uint32_t i;
 
-    if ((fdcan->RXF0S & 0xFu) == 0u) {
+    if ((fdcan->RXF0S & 0x7Fu) == 0u) {
         return;
     }
 
     get_idx = (fdcan->RXF0S >> 8u) & 0x3Fu; /* F0GI field */
 
-    rx_addr = bm_can_stm32g4_msg_ram(instance,
+    rx_addr = bm_can_stm32g4_msg_ram(cfg,
                                      BM_CAN_G4_RF0SA +
                                      (get_idx * BM_CAN_G4_RF0_SIZE));
 
@@ -808,8 +997,8 @@ static void bm_can_stm32g4_rx_fifo0_isr(bm_can_stm32g4_context_t *ctx) {
         frame.data[i * 4 + 3] = (uint8_t)(dw >> 24u);
     }
 
-    /* 时间戳：当前无 TSC 配置，填 0 */
-    frame.timestamp_us = 0u;
+    /* 真实时间戳 */
+    frame.timestamp_us = bm_uptime_us();
 
     /* 确认读取 */
     fdcan->RXF0A = get_idx;
@@ -817,6 +1006,19 @@ static void bm_can_stm32g4_rx_fifo0_isr(bm_can_stm32g4_context_t *ctx) {
     ctx->stats.rx_count++;
     if (ctx->rx_cb != NULL) {
         ctx->rx_cb(ctx->dev, &frame, ctx->rx_user);
+    }
+}
+
+/**
+ * @brief RX FIFO0 ISR：有界循环读取所有待处理帧。
+ */
+static void bm_can_stm32g4_rx_fifo0_isr(bm_can_stm32g4_context_t *ctx) {
+    FDCAN_GlobalTypeDef *fdcan = ctx->cfg->fdcan;
+    uint32_t iter = 0u;
+
+    while (((fdcan->RXF0S & 0x7Fu) != 0u) && (iter < 8u)) {
+        bm_can_stm32g4_rx_fifo0_read(ctx);
+        iter++;
     }
 }
 
@@ -871,6 +1073,13 @@ static void bm_can_stm32g4_isr(FDCAN_GlobalTypeDef *fdcan) {
     }
     if ((ir & (FDCAN_IR_RF0F | FDCAN_IR_RF0L)) != 0u) {
         fdcan->IR = (ir & (FDCAN_IR_RF0F | FDCAN_IR_RF0L));
+        if ((ir & FDCAN_IR_RF0F) != 0u) {
+            ctx->stats.rx_overflow_count++;
+            ctx->stats.last_errors |= BM_CAN_EVT_RX_OVERFLOW;
+            if (ctx->event_cb != NULL) {
+                ctx->event_cb(ctx->dev, BM_CAN_EVT_RX_OVERFLOW, ctx->event_user);
+            }
+        }
         if ((ir & FDCAN_IR_RF0L) != 0u) {
             ctx->stats.rx_overflow_count++;
             ctx->stats.last_errors |= BM_CAN_EVT_RX_OVERFLOW;
@@ -918,22 +1127,44 @@ void FDCAN2_IT0_IRQHandler(void) {
 static int bm_can_stm32g4_init(const struct bm_hal_can *dev, void *config) {
     bm_can_stm32g4_context_t *ctx;
     const bm_can_stm32g4_config_t *cfg;
+    int rc;
 
-    (void)config;
+    if (dev == NULL) {
+        return BM_ERR_INVALID;
+    }
     ctx = bm_can_stm32g4_ctx_for(dev);
     if (ctx == NULL) {
         return BM_ERR_INVALID;
     }
-    cfg = (const bm_can_stm32g4_config_t *)dev->config;
+
+    /* App 可通过 config 参数覆盖 dev->config；NULL 则使用设备默认值 */
+    cfg = (config != NULL)
+              ? (const bm_can_stm32g4_config_t *)config
+              : (const bm_can_stm32g4_config_t *)dev->config;
+    if (cfg == NULL) {
+        return BM_ERR_INVALID;
+    }
+
+    /* 先清零再初始化；硬件初始化失败时不置 initialized */
     ctx->dev = dev;
     ctx->cfg = cfg;
     ctx->initialized = 0;
     ctx->started = 0;
     ctx->bus_off = 0;
     ctx->tx_put_index = 0u;
+    ctx->rx_cb = NULL;
+    ctx->rx_user = NULL;
+    ctx->event_cb = NULL;
+    ctx->event_user = NULL;
     (void)memset(&ctx->stats, 0, sizeof(ctx->stats));
 
-    bm_can_stm32g4_hw_init(ctx);
+    rc = bm_can_stm32g4_hw_init(ctx);
+    if (rc != BM_OK) {
+        /* 回滚已配置的 GPIO/时钟/中断 */
+        (void)bm_can_stm32g4_hw_deinit(ctx);
+        ctx->cfg = NULL;
+        return rc;
+    }
 
     ctx->initialized = 1;
     return BM_OK;
@@ -992,28 +1223,39 @@ static int bm_can_stm32g4_add_filter(const struct bm_hal_can *dev,
     if (filter->id_format == BM_CAN_FILTER_STD) {
         return bm_can_stm32g4_add_std_filter(ctx, filter, filter_id);
     }
-    /* 扩展帧过滤器可后续按同样模式扩展 */
-    return BM_ERR_NOT_SUPPORTED;
+    if (filter->id_format == BM_CAN_FILTER_EXT) {
+        return bm_can_stm32g4_add_ext_filter(ctx, filter, filter_id);
+    }
+    return BM_ERR_INVALID;
 }
 
 static int bm_can_stm32g4_remove_filter(const struct bm_hal_can *dev,
                                         uint32_t filter_id) {
     bm_can_stm32g4_context_t *ctx = bm_can_stm32g4_ctx_for(dev);
     const bm_can_stm32g4_config_t *cfg;
-    uint32_t instance;
     volatile uint32_t *sf_addr;
+    volatile uint32_t *ef_addr;
 
     if (ctx == NULL || ctx->cfg == NULL) {
         return BM_ERR_INVALID;
     }
-    cfg = ctx->cfg;
-    instance = bm_can_stm32g4_instance_index(cfg->fdcan);
-    if (filter_id >= cfg->std_filter_count) {
-        return BM_ERR_INVALID;
+    if (!ctx->initialized) {
+        return BM_ERR_NOT_INIT;
     }
-    sf_addr = bm_can_stm32g4_msg_ram(instance, BM_CAN_G4_FLSSA);
-    sf_addr[filter_id] = 0u; /* SFEC=0 禁用 */
-    return BM_OK;
+    cfg = ctx->cfg;
+
+    if (filter_id < cfg->std_filter_count) {
+        sf_addr = bm_can_stm32g4_msg_ram(cfg, BM_CAN_G4_FLSSA);
+        sf_addr[filter_id] = 0u; /* SFEC=0 禁用 */
+        return BM_OK;
+    }
+    filter_id -= cfg->std_filter_count;
+    if (filter_id < cfg->ext_filter_count) {
+        ef_addr = bm_can_stm32g4_msg_ram(cfg, BM_CAN_G4_FLESA);
+        ef_addr[filter_id * 2u] = 0u; /* EFEC=0 禁用 */
+        return BM_OK;
+    }
+    return BM_ERR_INVALID;
 }
 
 static uint32_t bm_can_stm32g4_get_capabilities(const struct bm_hal_can *dev) {
@@ -1024,6 +1266,12 @@ static uint32_t bm_can_stm32g4_get_capabilities(const struct bm_hal_can *dev) {
         return 0u;
     }
     caps = BM_CAN_CAP_STD_FILTER | BM_CAN_CAP_FIFO0 | BM_CAN_CAP_TX_FIFO;
+    if (ctx->cfg->ext_filter_count > 0u) {
+        caps |= BM_CAN_CAP_EXT_FILTER;
+    }
+    if (ctx->cfg->rx_fifo1_count > 0u) {
+        caps |= BM_CAN_CAP_FIFO1;
+    }
     if (ctx->cfg->fd_enabled != 0u) {
         caps |= BM_CAN_CAP_FD;
     }
@@ -1064,6 +1312,55 @@ static int bm_can_stm32g4_set_event_callback(const struct bm_hal_can *dev,
     }
     ctx->event_cb = cb;
     ctx->event_user = user;
+    return BM_OK;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Vendor 特定 API                                                             */
+/* -------------------------------------------------------------------------- */
+
+int bm_can_stm32g4_recover(const struct bm_hal_can *dev) {
+    bm_can_stm32g4_context_t *ctx = bm_can_stm32g4_ctx_for(dev);
+    FDCAN_GlobalTypeDef *fdcan;
+
+    if (ctx == NULL || ctx->cfg == NULL) {
+        return BM_ERR_INVALID;
+    }
+    if (!ctx->initialized) {
+        return BM_ERR_NOT_INIT;
+    }
+    fdcan = ctx->cfg->fdcan;
+
+    if (bm_can_stm32g4_enter_init(fdcan) != BM_OK) {
+        return BM_ERR_TIMEOUT;
+    }
+    fdcan->IR = FDCAN_IR_BO;
+    if (bm_can_stm32g4_leave_init(fdcan) != BM_OK) {
+        return BM_ERR_TIMEOUT;
+    }
+    ctx->bus_off = 0;
+    return BM_OK;
+}
+
+int bm_can_stm32g4_get_bitrate(const struct bm_hal_can *dev,
+                               uint32_t *bitrate_bps,
+                               uint32_t *sample_pt_promille) {
+    bm_can_stm32g4_context_t *ctx = bm_can_stm32g4_ctx_for(dev);
+    uint32_t bitrate;
+    uint32_t sample_pt;
+
+    if (ctx == NULL || ctx->cfg == NULL) {
+        return BM_ERR_INVALID;
+    }
+
+    bm_can_stm32g4_calc_bitrate(ctx->cfg, &bitrate, &sample_pt);
+
+    if (bitrate_bps != NULL) {
+        *bitrate_bps = bitrate;
+    }
+    if (sample_pt_promille != NULL) {
+        *sample_pt_promille = sample_pt;
+    }
     return BM_OK;
 }
 

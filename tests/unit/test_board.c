@@ -11,7 +11,7 @@
  * 最后验证重复注册。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -20,6 +20,7 @@
  * 2026-07-28       1.0            zeh            新增 Board 接入契约单测
  * 2026-07-28       1.1            zeh            调整 RUN_TEST 顺序，避免
  *                                                一次性注册状态污染失败用例
+ * 2026-07-28       1.2            zeh            增加资源数组冲突检查用例
  */
 #include "unity.h"
 #include "board/bm_board.h"
@@ -144,6 +145,102 @@ static void test_board_before_registration(void) {
         .count = 2u,
         .capabilities = 0u,
     };
+    /* 资源数组冲突：同一 PIN 被 UART 与 SPI 占用 */
+    static const bm_board_resource_t pin_res_uart[] = {
+        { BM_BOARD_RES_PIN, 1u, 6u, 0u }, /* GPIOB6 */
+    };
+    static const bm_board_resource_t pin_res_spi[] = {
+        { BM_BOARD_RES_PIN, 1u, 6u, 0u }, /* GPIOB6 冲突 */
+    };
+    static const bm_board_device_t dup_pin[] = {
+        {
+            .type = BM_BOARD_DEV_TYPE_UART,
+            .instance = 0u,
+            .name = "uart_pin",
+            .hal_dev = &s_dummy_uart,
+            .config = NULL,
+            .resources = pin_res_uart,
+            .resource_count = 1u,
+        },
+        {
+            .type = BM_BOARD_DEV_TYPE_SPI,
+            .instance = 0u,
+            .name = "spi_pin",
+            .hal_dev = &s_dummy_spi,
+            .config = NULL,
+            .resources = pin_res_spi,
+            .resource_count = 1u,
+        },
+    };
+    static const bm_board_table_t dup_pin_table = {
+        .devices = dup_pin,
+        .count = 2u,
+        .capabilities = 0u,
+    };
+    /* 资源数组冲突：DMA 通道冲突 */
+    static const bm_board_resource_t dma_res_a[] = {
+        { BM_BOARD_RES_DMA, 1u, 4u, 0u }, /* DMA1_CH4 */
+    };
+    static const bm_board_resource_t dma_res_b[] = {
+        { BM_BOARD_RES_DMA, 1u, 4u, 0u }, /* DMA1_CH4 冲突 */
+    };
+    static const bm_board_device_t dup_dma[] = {
+        {
+            .type = BM_BOARD_DEV_TYPE_UART,
+            .instance = 1u,
+            .name = "uart_dma",
+            .hal_dev = &s_dummy_uart,
+            .config = NULL,
+            .resources = dma_res_a,
+            .resource_count = 1u,
+        },
+        {
+            .type = BM_BOARD_DEV_TYPE_SPI,
+            .instance = 1u,
+            .name = "spi_dma",
+            .hal_dev = &s_dummy_spi,
+            .config = NULL,
+            .resources = dma_res_b,
+            .resource_count = 1u,
+        },
+    };
+    static const bm_board_table_t dup_dma_table = {
+        .devices = dup_dma,
+        .count = 2u,
+        .capabilities = 0u,
+    };
+    /* 资源数组冲突：FDCAN Message RAM 重叠 */
+    static const bm_board_resource_t can1_ram[] = {
+        { BM_BOARD_RES_MSG_RAM, 1u, 0u, 128u }, /* FDCAN1: [0, 128) */
+    };
+    static const bm_board_resource_t can2_ram[] = {
+        { BM_BOARD_RES_MSG_RAM, 2u, 64u, 128u }, /* FDCAN2: [64, 192) 与 FDCAN1 重叠 */
+    };
+    static const bm_board_device_t overlap_can[] = {
+        {
+            .type = BM_BOARD_DEV_TYPE_CAN,
+            .instance = 0u,
+            .name = "can1",
+            .hal_dev = &s_dummy_can,
+            .config = NULL,
+            .resources = can1_ram,
+            .resource_count = 1u,
+        },
+        {
+            .type = BM_BOARD_DEV_TYPE_CAN,
+            .instance = 1u,
+            .name = "can2",
+            .hal_dev = &s_dummy_can,
+            .config = NULL,
+            .resources = can2_ram,
+            .resource_count = 1u,
+        },
+    };
+    static const bm_board_table_t overlap_can_table = {
+        .devices = overlap_can,
+        .count = 2u,
+        .capabilities = 0u,
+    };
 
     /* 未注册时的查询行为 */
     TEST_ASSERT_EQUAL(0u, bm_board_device_count());
@@ -161,6 +258,9 @@ static void test_board_before_registration(void) {
     TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_board_register(&dup_instance_table));
     TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_board_register(&dup_res_table));
     TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_board_register(&dup_name_table));
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_board_register(&dup_pin_table));
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_board_register(&dup_dma_table));
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_board_register(&overlap_can_table));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -168,6 +268,16 @@ static void test_board_before_registration(void) {
 /* -------------------------------------------------------------------------- */
 
 static void test_board_register_and_find(void) {
+    static const bm_board_resource_t uart_res[] = {
+        { BM_BOARD_RES_PIN, 1u, 10u, 0u }, /* GPIOB10 */
+        { BM_BOARD_RES_DMA, 1u, 4u, 0u },  /* DMA1_CH4 */
+        { BM_BOARD_RES_IRQ, 0u, 39u, 0u }, /* USART3_IRQn ≈ 39 */
+    };
+    static const bm_board_resource_t spi_res[] = {
+        { BM_BOARD_RES_PIN, 1u, 13u, 0u }, /* GPIOB13 */
+        { BM_BOARD_RES_DMA, 1u, 5u, 0u },  /* DMA1_CH5 */
+        { BM_BOARD_RES_IRQ, 0u, 35u, 0u }, /* SPI1_IRQn ≈ 35 */
+    };
     static const bm_board_device_t devices[] = {
         {
             .type = BM_BOARD_DEV_TYPE_UART,
@@ -175,6 +285,8 @@ static void test_board_register_and_find(void) {
             .name = "uart_console",
             .hal_dev = &s_dummy_uart,
             .config = NULL,
+            .resources = uart_res,
+            .resource_count = 3u,
             .resource_tag = 0u,
         },
         {
@@ -183,6 +295,8 @@ static void test_board_register_and_find(void) {
             .name = "spi_flash",
             .hal_dev = &s_dummy_spi,
             .config = NULL,
+            .resources = spi_res,
+            .resource_count = 3u,
             .resource_tag = 0u,
         },
     };
@@ -236,6 +350,22 @@ static void test_board_register_already(void) {
     TEST_ASSERT_EQUAL(BM_ERR_ALREADY, bm_board_register(&table));
 }
 
+static void test_board_init_devices_already(void) {
+    static const bm_board_device_t dev[] = {
+        {
+            .type = BM_BOARD_DEV_TYPE_UART,
+            .instance = 1u,
+            .name = "uart_extra",
+            .hal_dev = &s_dummy_uart,
+            .config = NULL,
+        },
+    };
+
+    /* board 已注册，init_devices 也应返回 ALREADY */
+    TEST_ASSERT_EQUAL(BM_ERR_ALREADY,
+                      bm_board_init_devices(dev, 1u, 0u));
+}
+
 /* -------------------------------------------------------------------------- */
 /*  主函数                                                                      */
 /* -------------------------------------------------------------------------- */
@@ -245,5 +375,6 @@ int main(void) {
     RUN_TEST(test_board_before_registration);
     RUN_TEST(test_board_register_and_find);
     RUN_TEST(test_board_register_already);
+    RUN_TEST(test_board_init_devices_already);
     return UNITY_END();
 }

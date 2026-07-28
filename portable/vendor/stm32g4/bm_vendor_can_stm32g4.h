@@ -10,13 +10,15 @@
  * CAN FD 作为可选能力暴露，数据段波特率由 App 在 dbtr 中配置。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 STM32G4 FDCAN1/FDCAN2 后端
+ * 2026-07-28       1.1            zeh            动态 Message RAM 布局、扩展过滤器、
+ *                                                真实时间戳、bus-off 恢复接口
  */
 #ifndef BM_VENDOR_CAN_STM32G4_H
 #define BM_VENDOR_CAN_STM32G4_H
@@ -71,8 +73,9 @@ typedef struct {
     uint32_t std_filter_count;  /**< 标准过滤器数量 */
     uint32_t ext_filter_count;  /**< 扩展过滤器数量 */
     uint32_t rx_fifo0_count;    /**< RX FIFO0 元素数量 */
-    uint32_t rx_fifo1_count;    /**< RX FIFO1 元素数量 */
-    uint32_t tx_fifo_count;     /**< TX FIFO/Queue 元素数量 */
+    uint32_t rx_fifo1_count;      /**< RX FIFO1 元素数量 */
+    uint32_t tx_fifo_count;       /**< TX FIFO/Queue 元素数量 */
+    uint32_t tx_event_fifo_count; /**< TX Event FIFO 元素数量；0 表示禁用 */
 
     /**
      * @brief RX/TX element 数据段大小编码（0=8,1=12,2=16,3=20,4=24,5=32,6=48,7=64 bytes）
@@ -89,6 +92,29 @@ extern const struct bm_hal_can bm_stm32g4_can1;
 
 /** @brief 默认 FDCAN2 实例（PB12/PB13，AF9，500k Classic CAN）。 */
 extern const struct bm_hal_can bm_stm32g4_can2;
+
+/**
+ * @brief 手动从 bus-off 恢复
+ *
+ * 进入 INIT 模式、清零错误计数与 bus-off 标志、再退出 INIT。
+ * 也可通过 `bm_hal_can_stop()` + `bm_hal_can_start()` 序列完成同样动作。
+ *
+ * @param dev FDCAN 设备实例
+ * @return BM_OK 成功；BM_ERR_INVALID 参数非法；BM_ERR_TIMEOUT 硬件未响应
+ */
+int bm_can_stm32g4_recover(const struct bm_hal_can *dev);
+
+/**
+ * @brief 查询当前配置的实际仲裁段波特率与采样点
+ *
+ * @param dev                 FDCAN 设备实例
+ * @param bitrate_bps         输出实际波特率（bps）；可为 NULL
+ * @param sample_pt_promille  输出采样点（千分比）；可为 NULL
+ * @return BM_OK 成功；BM_ERR_INVALID 参数非法
+ */
+int bm_can_stm32g4_get_bitrate(const struct bm_hal_can *dev,
+                               uint32_t *bitrate_bps,
+                               uint32_t *sample_pt_promille);
 
 #ifdef __cplusplus
 }

@@ -7,13 +7,14 @@
  * 资源冲突检查。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 Board 接入契约实现
+ * 2026-07-28       1.1            zeh            增加资源数组冲突检查与 init_devices
  *
  */
 #include "board/bm_board.h"
@@ -92,13 +93,111 @@ static size_t bm_board_str_len(const char *s, size_t max) {
     return n;
 }
 
+/**
+ * @brief 检查两条资源是否冲突
+ *
+ * 冲突规则：
+ * - PIN：同端口同引脚。
+ * - DMA：同控制器同通道。
+ * - IRQ：同 IRQn 编号。
+ * - TIMER_CH：同 TIM 实例同通道。
+ * - MSG_RAM：[index, index+flags) 区间重叠。
+ * - AF：同 AF 编号不视为冲突（多引脚可共用 AF）。
+ */
+static int bm_board_resource_conflicts(const bm_board_resource_t *a,
+                                       const bm_board_resource_t *b) {
+    if (a->type != b->type) {
+        return 0;
+    }
+
+    switch (a->type) {
+    case BM_BOARD_RES_PIN:
+    case BM_BOARD_RES_DMA:
+    case BM_BOARD_RES_IRQ:
+    case BM_BOARD_RES_TIMER_CH:
+        return (a->periph_id == b->periph_id && a->index == b->index) ? 1 : 0;
+
+    case BM_BOARD_RES_MSG_RAM: {
+        uint32_t a_start = a->index;
+        uint32_t a_end = a_start + a->flags;
+        uint32_t b_start = b->index;
+        uint32_t b_end = b_start + b->flags;
+
+        return (a_start < b_end && b_start < a_end) ? 1 : 0;
+    }
+
+    case BM_BOARD_RES_AF:
+    default:
+        return 0;
+    }
+}
+
+/**
+ * @brief 检查两个设备的资源数组是否存在冲突
+ */
+static int bm_board_device_resources_conflict(const bm_board_device_t *a,
+                                              const bm_board_device_t *b) {
+    uint32_t i;
+    uint32_t j;
+
+    if (a->resources == NULL || a->resource_count == 0u ||
+        b->resources == NULL || b->resource_count == 0u) {
+        return 0;
+    }
+
+    for (i = 0u; i < a->resource_count; i++) {
+        for (j = 0u; j < b->resource_count; j++) {
+            if (bm_board_resource_conflicts(&a->resources[i],
+                                            &b->resources[j]) != 0) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+/**
+ * @brief 检查已注册表中是否存在冲突（公共实现）
+ */
+static int bm_board_check_conflicts_impl(const bm_board_table_t *table) {
+    uint32_t i;
+    uint32_t j;
+
+    if (table == NULL) {
+        return BM_ERR_INVALID;
+    }
+
+    for (i = 0u; i < table->count; i++) {
+        const bm_board_device_t *a = &table->devices[i];
+
+        for (j = i + 1u; j < table->count; j++) {
+            const bm_board_device_t *b = &table->devices[j];
+
+            if (a->type == b->type && a->instance == b->instance) {
+                return BM_ERR_INVALID;
+            }
+            if (a->resource_tag != 0u &&
+                a->resource_tag == b->resource_tag) {
+                return BM_ERR_INVALID;
+            }
+            if (a->name != NULL && b->name != NULL &&
+                bm_board_str_equal(a->name, b->name)) {
+                return BM_ERR_INVALID;
+            }
+            if (bm_board_device_resources_conflict(a, b) != 0) {
+                return BM_ERR_INVALID;
+            }
+        }
+    }
+    return BM_OK;
+}
+
 /* -------------------------------------------------------------------------- */
 /*  公共 API                                                                   */
 /* -------------------------------------------------------------------------- */
 
 int bm_board_register(const bm_board_table_t *table) {
     uint32_t i;
-    uint32_t j;
 
     if (s_board_table != NULL) {
         return BM_ERR_ALREADY;
@@ -124,25 +223,8 @@ int bm_board_register(const bm_board_table_t *table) {
         }
     }
 
-    /* 实例号唯一性 + 资源标签唯一性 + 名称唯一性 */
-    for (i = 0u; i < table->count; i++) {
-        const bm_board_device_t *a = &table->devices[i];
-
-        for (j = i + 1u; j < table->count; j++) {
-            const bm_board_device_t *b = &table->devices[j];
-
-            if (a->type == b->type && a->instance == b->instance) {
-                return BM_ERR_INVALID;
-            }
-            if (a->resource_tag != 0u &&
-                a->resource_tag == b->resource_tag) {
-                return BM_ERR_INVALID;
-            }
-            if (a->name != NULL && b->name != NULL &&
-                bm_board_str_equal(a->name, b->name)) {
-                return BM_ERR_INVALID;
-            }
-        }
+    if (bm_board_check_conflicts_impl(table) != BM_OK) {
+        return BM_ERR_INVALID;
     }
 
     s_board_table = table;
@@ -204,33 +286,21 @@ const bm_board_device_t *bm_board_find_by_name(const char *name) {
 }
 
 int bm_board_check_conflicts(void) {
-    uint32_t i;
-    uint32_t j;
+    return bm_board_check_conflicts_impl(s_board_table);
+}
 
-    if (s_board_table == NULL) {
+int bm_board_init_devices(const bm_board_device_t *devices, uint32_t count,
+                          uint32_t capabilities) {
+    static bm_board_table_t table;
+
+    if (devices == NULL || count == 0u) {
         return BM_ERR_INVALID;
     }
 
-    for (i = 0u; i < s_board_table->count; i++) {
-        const bm_board_device_t *a = &s_board_table->devices[i];
-
-        for (j = i + 1u; j < s_board_table->count; j++) {
-            const bm_board_device_t *b = &s_board_table->devices[j];
-
-            if (a->type == b->type && a->instance == b->instance) {
-                return BM_ERR_INVALID;
-            }
-            if (a->resource_tag != 0u &&
-                a->resource_tag == b->resource_tag) {
-                return BM_ERR_INVALID;
-            }
-            if (a->name != NULL && b->name != NULL &&
-                bm_board_str_equal(a->name, b->name)) {
-                return BM_ERR_INVALID;
-            }
-        }
-    }
-    return BM_OK;
+    table.devices = devices;
+    table.count = count;
+    table.capabilities = capabilities;
+    return bm_board_register(&table);
 }
 
 uint32_t bm_board_device_count(void) {
