@@ -21,7 +21,7 @@
  *   已配置的 NVIC/时钟。kernel_clock_hz==0 时假定 USART 时钟=PCLK1。
  *
  * @author zeh (china_qzh@163.com)
- * @version 3.2
+ * @version 3.3
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -38,9 +38,12 @@
  *                                                会话并回调上层
  * 2026-07-28       3.2            zeh            HT 不再交付 FRAME_END；支持
  *                                                kernel_clock_hz
+ * 2026-07-29       3.3            zeh            RX 环形缓冲改用单调 produced/consumed
+ *                                                计数，消除整圈丢失风险
  */
 #include "bm_vendor_usart3_stm32g4.h"
 #include "bm_dma_irq_stm32g4.h"
+#include "bm_dma_circular_ring.h"
 #include "bm_hal_instances_stm32g4.h"
 #include "bm/common/bm_types.h"
 
@@ -91,9 +94,7 @@ typedef struct {
 
     uint8_t                           *rx_buf;
     size_t                             rx_len;
-    size_t                             rx_write_pos; /**< DMA 当前写位置 */
-    size_t                             rx_read_pos;  /**< 软件已读位置 */
-    size_t                             rx_event_len; /**< 本次事件时累计未读字节数 */
+    bm_dma_circ_ring_t                 rx_ring;      /**< DMA 循环接收记账 */
 
     bm_uart_tx_complete_callback_t     tx_complete_cb;
     void                              *tx_complete_user;
@@ -232,9 +233,8 @@ static void bm_usart3_rx_dma_start(bm_usart3_context_t *ctx) {
     dma = bm_usart3_dma_ctrl(ctx->cfg->rx_dma_ctrl);
     ch = ctx->cfg->rx_dma_ch;
 
-    ctx->rx_write_pos = 0u;
-    ctx->rx_read_pos = 0u;
-    ctx->rx_event_len = 0u;
+    bm_dma_circ_ring_reset(&ctx->rx_ring, ctx->rx_buf,
+                           (uint32_t)ctx->rx_len);
 
     bm_usart3_rx_dma_config(ctx, dma, ch);
     LL_DMA_EnableIT_TC(dma, ch);
@@ -276,27 +276,10 @@ static void bm_usart3_tx_dma_stop(bm_usart3_context_t *ctx) {
 }
 
 /**
- * @brief 计算 DMA 当前写位置（对环形缓冲区取模）。
- */
-static size_t bm_usart3_rx_dma_write_pos(const bm_usart3_context_t *ctx) {
-    DMA_TypeDef *dma;
-    uint32_t ch;
-    uint32_t ndtr;
-
-    if (ctx->cfg == NULL || ctx->rx_len == 0u) {
-        return 0u;
-    }
-    dma = bm_usart3_dma_ctrl(ctx->cfg->rx_dma_ctrl);
-    ch = ctx->cfg->rx_dma_ch;
-    ndtr = LL_DMA_GetDataLength(dma, ch);
-    if (ndtr > ctx->rx_len) {
-        ndtr = (uint32_t)ctx->rx_len;
-    }
-    return (size_t)((ctx->rx_len - (size_t)ndtr) % ctx->rx_len);
-}
-
-/**
  * @brief 更新 RX 写指针与溢出统计；可选通知上层帧事件。
+ *
+ * 使用单调 produced/consumed 计数，避免 DMA 接收整圈时 write_pos == read_pos
+ * 被误判为"无数据"。
  *
  * @param ctx    运行时上下文
  * @param event  本次事件标志（notify=0 时可传 0）
@@ -304,35 +287,38 @@ static size_t bm_usart3_rx_dma_write_pos(const bm_usart3_context_t *ctx) {
  */
 static void bm_usart3_rx_update(bm_usart3_context_t *ctx, uint32_t event,
                                 int notify) {
-    size_t new_write_pos;
-    size_t new_bytes;
-    size_t occupied;
-    size_t free_space;
+    DMA_TypeDef *dma;
+    uint32_t ch;
+    uint32_t ndtr;
+    uint32_t new_bytes;
+    uint32_t free_space;
+    uint32_t pending;
 
     if (ctx->rx_buf == NULL || ctx->rx_len == 0u) {
         return;
     }
 
-    new_write_pos = bm_usart3_rx_dma_write_pos(ctx);
-    new_bytes = (new_write_pos + ctx->rx_len - ctx->rx_write_pos) % ctx->rx_len;
-    ctx->rx_write_pos = new_write_pos;
-
-    /* 已占用空间 = (write - read + len) % len */
-    occupied = (ctx->rx_write_pos + ctx->rx_len - ctx->rx_read_pos) % ctx->rx_len;
-    free_space = ctx->rx_len - occupied;
-
-    if (new_bytes > free_space) {
-        /* 软件读取不及时导致覆盖：丢弃最旧数据，使 read 跟上 write */
-        ctx->stats.rx_overflow_count++;
-        ctx->stats.last_errors |= BM_UART_ERR_OVERFLOW;
-        ctx->rx_read_pos = ctx->rx_write_pos;
+    dma = bm_usart3_dma_ctrl(ctx->cfg->rx_dma_ctrl);
+    ch = ctx->cfg->rx_dma_ch;
+    ndtr = LL_DMA_GetDataLength(dma, ch);
+    if (ndtr > ctx->rx_len) {
+        ndtr = (uint32_t)ctx->rx_len;
     }
 
-    ctx->rx_event_len = (ctx->rx_write_pos + ctx->rx_len - ctx->rx_read_pos) % ctx->rx_len;
-    ctx->stats.rx_count += (uint32_t)new_bytes;
+    free_space = bm_dma_circ_ring_free_space(&ctx->rx_ring);
+    new_bytes = bm_dma_circ_ring_update(&ctx->rx_ring, ndtr);
+    if (new_bytes > free_space) {
+        /* 软件读取不及时导致覆盖：丢弃全部已缓冲数据 */
+        ctx->stats.rx_overflow_count++;
+        ctx->stats.last_errors |= BM_UART_ERR_OVERFLOW;
+        bm_dma_circ_ring_drop_all(&ctx->rx_ring);
+    }
 
-    if (notify != 0 && ctx->rx_frame_cb != NULL && ctx->rx_event_len > 0u) {
-        ctx->rx_frame_cb(ctx->dev, event, ctx->rx_event_len, ctx->rx_frame_user);
+    pending = bm_dma_circ_ring_pending(&ctx->rx_ring);
+    ctx->stats.rx_count += new_bytes;
+
+    if (notify != 0 && ctx->rx_frame_cb != NULL && pending > 0u) {
+        ctx->rx_frame_cb(ctx->dev, event, (size_t)pending, ctx->rx_frame_user);
     }
 }
 
@@ -558,6 +544,9 @@ static void bm_usart3_rx_dma_isr(bm_usart3_context_t *ctx) {
     }
     if ((dma->ISR & tc_flag) != 0u) {
         dma->IFCR = tc_flag;
+        /* TC 表示完整一圈已完成；先推进 produced 到下一周期边界，
+         * 再 update 读取当前 NDTR，避免整圈数据被漏计。 */
+        bm_dma_circ_ring_mark_full_round(&ctx->rx_ring);
         bm_usart3_rx_update(ctx, BM_UART_EVT_RX_FULL, 1);
     }
 }
@@ -640,9 +629,7 @@ static int bm_vendor_usart3_init(const struct bm_hal_uart *dev, void *config) {
     ctx->tx_busy = 0;
     ctx->rx_buf = NULL;
     ctx->rx_len = 0u;
-    ctx->rx_write_pos = 0u;
-    ctx->rx_read_pos = 0u;
-    ctx->rx_event_len = 0u;
+    bm_dma_circ_ring_reset(&ctx->rx_ring, NULL, 0u);
     ctx->tx_complete_cb = NULL;
     ctx->tx_complete_user = NULL;
     ctx->rx_frame_cb = NULL;
@@ -779,8 +766,7 @@ static int bm_vendor_usart3_send(const struct bm_hal_uart *dev,
 static size_t bm_vendor_usart3_recv(const struct bm_hal_uart *dev,
                                     uint8_t *data, size_t max_len) {
     bm_usart3_context_t *ctx = &g_usart3_ctx;
-    size_t occupied;
-    size_t i;
+    uint32_t copied;
 
     (void)dev;
     if (ctx->initialized == 0 || data == NULL || max_len == 0u ||
@@ -789,18 +775,10 @@ static size_t bm_vendor_usart3_recv(const struct bm_hal_uart *dev,
     }
 
     /* 同步一次写位置，确保读取的是最新数据 */
-    ctx->rx_write_pos = bm_usart3_rx_dma_write_pos(ctx);
+    bm_usart3_rx_update(ctx, 0u, 0);
 
-    occupied = (ctx->rx_write_pos + ctx->rx_len - ctx->rx_read_pos) % ctx->rx_len;
-    if (occupied > max_len) {
-        occupied = max_len;
-    }
-
-    for (i = 0u; i < occupied; ++i) {
-        data[i] = ctx->rx_buf[ctx->rx_read_pos];
-        ctx->rx_read_pos = (ctx->rx_read_pos + 1u) % ctx->rx_len;
-    }
-    return occupied;
+    copied = bm_dma_circ_ring_consume(&ctx->rx_ring, data, (uint32_t)max_len);
+    return (size_t)copied;
 }
 
 static void bm_vendor_usart3_set_rx_callback(const struct bm_hal_uart *dev,
@@ -823,9 +801,8 @@ static int bm_vendor_usart3_abort(const struct bm_hal_uart *dev) {
     ctx->tx_busy = 0;
 
     bm_usart3_rx_dma_stop(ctx);
-    ctx->rx_write_pos = 0u;
-    ctx->rx_read_pos = 0u;
-    ctx->rx_event_len = 0u;
+    bm_dma_circ_ring_reset(&ctx->rx_ring, ctx->rx_buf,
+                           (uint32_t)ctx->rx_len);
     return BM_OK;
 }
 
@@ -887,9 +864,7 @@ static int bm_vendor_usart3_set_rx_buffer(const struct bm_hal_uart *dev,
     if (buf == NULL || len == 0u) {
         ctx->rx_buf = NULL;
         ctx->rx_len = 0u;
-        ctx->rx_write_pos = 0u;
-        ctx->rx_read_pos = 0u;
-        ctx->rx_event_len = 0u;
+        bm_dma_circ_ring_reset(&ctx->rx_ring, NULL, 0u);
         return BM_ERR_INVALID;
     }
 

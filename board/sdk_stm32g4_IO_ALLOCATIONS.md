@@ -112,7 +112,7 @@ rg -n "bm_hal_(encoder_read|uart_|spi_|nvs_|timer_)" include Source tests
 | `bm_hal_encoder_read` | `motor_foc_sensored`；实例/后端缺失为 `BM_ERR_NOT_INIT`，输出指针 NULL 为 `BM_ERR_INVALID`，否则透传平台错误码 |
 | `bm_hal_uart_*` | `tmc2209` 使用 `send/recv`；QEMU smoke 使用默认 console；hard-RT profile 下阻塞发送返回 `BM_ERR_NOT_SUPPORTED`，接收为 0，RX 回调注册 fail-closed |
 | `bm_hal_spi_*` | `abs_encoder` 使用同步 transfer；未绑定为 `BM_ERR_NOT_INIT`，无异步能力为 `BM_ERR_NOT_SUPPORTED`，非法缓冲/长度为 `BM_ERR_INVALID` |
-| `bm_hal_nvs_*` | 仅 `bm_persist` 调用；load/save 是同步接口。`sdk_stm32g4` 已提供双槽 Flash 后端（`BM_DRV_HAS_NVS_BACKEND`）；Board 须先 `bm_nvs_stm32g4_set_layout`。无 NVS 后端构建下 `bm_persist` 保持 RAM KV，`commit` 返回 `BM_ERR_NOT_SUPPORTED`（非静默成功） |
+| `bm_hal_nvs_*` | 仅 `bm_persist` 调用；load/save 是同步接口。`sdk_stm32g4` 已提供双槽 Flash 后端（`BM_DRV_HAS_NVS_BACKEND`）；Board 须先 `bm_nvs_stm32g4_set_layout`，且槽基地址/大小须按当前页大小对齐（双 Bank 2KB、单 Bank 4KB）、互不重叠、位于有效 Flash 范围内。App 链接脚本必须显式保留这两段 Flash 空间。无 NVS 后端构建下 `bm_persist` 保持 RAM KV，`commit` 返回 `BM_ERR_NOT_SUPPORTED`（非静默成功） |
 | `bm_hal_timer_*` | `bm_hrt`、`bm_exec`、`bm_mp*`、watchdog/时间辅助和测试使用；现有周期 timer 不等价于 Task 6 的一次性 deadline timer |
 
 裸负值断言扫描发现：

@@ -1,5 +1,7 @@
 if(BOARD STREQUAL "qemu_cortex_m0")
     include(${CMAKE_CURRENT_LIST_DIR}/toolchain-arm-none-eabi.cmake)
+elseif(BOARD STREQUAL "stm32g4")
+    include(${CMAKE_CURRENT_LIST_DIR}/toolchain-arm-none-eabi-g4.cmake)
 elseif(BOARD STREQUAL "qemu_riscv32")
     include(${CMAKE_CURRENT_LIST_DIR}/toolchain-riscv-none-elf.cmake)
 elseif(BOARD STREQUAL "qemu_riscv64")

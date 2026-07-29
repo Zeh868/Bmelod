@@ -9,13 +9,14 @@
  * Flash 操作按 RM0440：解锁 → 页擦除（含双 Bank BKER）→ 64-bit 编程 → 上锁。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-28
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 G4 Flash 双槽 NVS 后端
+ * 2026-07-29       1.1            zeh            从 Flash size register 取容量；按运行时页大小校验布局与擦除
  *
  */
 #include "bm_hal_nvs_stm32g4.h"
@@ -33,6 +34,10 @@
 
 #ifndef FLASH_BASE
 #define FLASH_BASE 0x08000000u
+#endif
+
+#ifndef FLASHSIZE_BASE
+#define FLASHSIZE_BASE 0x1FFF75E0u
 #endif
 
 /** @brief 擦除/编程轮询上限（有界路径）。 */
@@ -53,23 +58,50 @@ static uint8_t s_slot_a_cache[BM_NVS_STM32G4_SLOT_BUF_MAX];
 static uint8_t s_slot_b_cache[BM_NVS_STM32G4_SLOT_BUF_MAX];
 
 /**
- * @brief 地址是否落在主 Flash 且 8 字节对齐。
+ * @brief 从 factory ROM 读取主 Flash 容量（字节）。
+ *
+ * G4 系列 Flash size register 地址为 0x1FFF75E0，低 16 位以 KB 为单位。
+ * 不依赖 FLASH_SIZE 宏，因此兼容不同版本 CMSIS 头文件。
+ */
+static uint32_t bm_nvs_flash_size_bytes(void) {
+    uint32_t size_kb = (uint32_t)(*(volatile uint16_t *)FLASHSIZE_BASE);
+    return size_kb * 1024u;
+}
+
+/**
+ * @brief 获取当前主 Flash 页大小。
+ *
+ * Cat3 器件（如 G474）支持单/双 Bank：双 Bank 时页大小 2KB，单 Bank 时 4KB。
+ * 无 DBANK 位的器件按 2KB 处理。
+ */
+static uint32_t bm_nvs_flash_page_size(void) {
+#if defined(FLASH_OPTR_DBANK)
+    if ((FLASH->OPTR & FLASH_OPTR_DBANK) != 0u) {
+        return 2048u;
+    }
+    return 4096u;
+#else
+    return 2048u;
+#endif
+}
+
+/**
+ * @brief 地址是否落在主 Flash 且按实际页大小对齐。
  */
 static int bm_nvs_flash_addr_ok(uint32_t addr, uint32_t len) {
     uint32_t flash_end;
+    uint32_t page_size = bm_nvs_flash_page_size();
 
-    if ((addr & 7u) != 0u) {
-        return 0;
-    }
     if (len == 0u || addr < FLASH_BASE) {
         return 0;
     }
-#if defined(FLASH_SIZE)
-    flash_end = FLASH_BASE + (uint32_t)FLASH_SIZE;
-#else
-    /* 无宏时按 G474 512KB 上界保守校验；Board 仍须保证真实容量内 */
-    flash_end = FLASH_BASE + (512u * 1024u);
-#endif
+    if ((addr % page_size) != 0u) {
+        return 0;
+    }
+    if ((len % page_size) != 0u) {
+        return 0;
+    }
+    flash_end = FLASH_BASE + bm_nvs_flash_size_bytes();
     if (addr > flash_end || len > (flash_end - addr)) {
         return 0;
     }
@@ -81,11 +113,15 @@ int bm_nvs_stm32g4_set_layout(uint32_t base_a, uint32_t base_b,
     if (slot_size == 0u || slot_size > BM_NVS_STM32G4_SLOT_BUF_MAX) {
         return BM_ERR_INVALID;
     }
+    if (base_a > (UINT32_MAX - slot_size) ||
+        base_b > (UINT32_MAX - slot_size)) {
+        return BM_ERR_INVALID;
+    }
     if (bm_nvs_flash_addr_ok(base_a, slot_size) == 0 ||
         bm_nvs_flash_addr_ok(base_b, slot_size) == 0) {
         return BM_ERR_INVALID;
     }
-    /* 区间不重叠 */
+    /* 区间不重叠（base/size 已按页对齐，此处即擦除页不重叠） */
     if (!(base_a + slot_size <= base_b || base_b + slot_size <= base_a)) {
         return BM_ERR_INVALID;
     }
@@ -146,39 +182,44 @@ static void bm_nvs_flash_lock(void) {
  * @brief 擦除覆盖 [addr, addr+len) 的全部页。
  */
 static int bm_nvs_flash_erase_range(uint32_t addr, uint32_t len) {
-    uint32_t end = addr + len;
+    uint32_t page_size = bm_nvs_flash_page_size();
+    uint32_t flash_size = bm_nvs_flash_size_bytes();
+    uint32_t end;
     uint32_t page_addr;
     int rc;
+
+    if (len == 0u || addr > (UINT32_MAX - len)) {
+        return BM_ERR_INVALID;
+    }
+    end = addr + len;
 
     rc = bm_nvs_flash_wait_ready();
     if (rc != BM_OK) {
         return rc;
     }
 
-    for (page_addr = addr - (addr % FLASH_PAGE_SIZE);
-         page_addr < end;
-         page_addr += FLASH_PAGE_SIZE) {
+    for (page_addr = addr; page_addr < end; page_addr += page_size) {
         uint32_t page;
         uint32_t bank_pages;
 
 #if defined(FLASH_OPTR_DBANK)
         if ((FLASH->OPTR & FLASH_OPTR_DBANK) != 0u) {
-            bank_pages = ((uint32_t)FLASH_SIZE / 2u) / FLASH_PAGE_SIZE;
-            if ((page_addr - FLASH_BASE) >= ((uint32_t)FLASH_SIZE / 2u)) {
-                page = ((page_addr - FLASH_BASE) -
-                        ((uint32_t)FLASH_SIZE / 2u)) / FLASH_PAGE_SIZE;
+            bank_pages = (flash_size / 2u) / page_size;
+            if ((page_addr - FLASH_BASE) >= (flash_size / 2u)) {
+                page = ((page_addr - FLASH_BASE) - (flash_size / 2u))
+                       / page_size;
                 FLASH->CR |= FLASH_CR_BKER;
             } else {
-                page = (page_addr - FLASH_BASE) / FLASH_PAGE_SIZE;
+                page = (page_addr - FLASH_BASE) / page_size;
                 FLASH->CR &= ~FLASH_CR_BKER;
             }
             (void)bank_pages;
         } else {
-            page = (page_addr - FLASH_BASE) / FLASH_PAGE_SIZE;
+            page = (page_addr - FLASH_BASE) / page_size;
             FLASH->CR &= ~FLASH_CR_BKER;
         }
 #else
-        page = (page_addr - FLASH_BASE) / FLASH_PAGE_SIZE;
+        page = (page_addr - FLASH_BASE) / page_size;
 #endif
 
         FLASH->SR = FLASH_SR_PROGERR | FLASH_SR_WRPERR | FLASH_SR_PGAERR |

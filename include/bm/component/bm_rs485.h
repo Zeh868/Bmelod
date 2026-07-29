@@ -15,7 +15,7 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.3
+ * @version 1.4
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -25,6 +25,7 @@
  * 2026-07-28       1.1            zeh            审查整改：独立帧拼装缓冲、UART 错误去重、TX 超时
  * 2026-07-28       1.2            zeh            UART 所有权归 Board；TX 错误立即回 RX
  * 2026-07-28       1.3            zeh            文档强调 send 缓冲生命周期（含 pre_delay）
+ * 2026-07-29       1.4            zeh            取消 UART 错误粘滞位去重，对齐 read-clear 接口约定
  */
 #ifndef BM_RS485_H
 #define BM_RS485_H
@@ -138,7 +139,6 @@ typedef struct {
     uint64_t tx_start_us;         /**< 发送启动时刻（TX 超时检测基准） */
     uint64_t last_rx_us;          /**< 最近 RX 时间戳 */
     uint64_t tx_end_us;           /**< 期望发送结束时刻 */
-    uint32_t uart_err_reported;   /**< 已透报过的 UART 底层错误位（粘滞位去重） */
     bm_rs485_stats_t stats;       /**< 统计 */
     int      echo_pending;        /**< 正在过滤回显 */
     const uint8_t *echo_buf_ptr;  /**< 回显参照数据指针（发送数据） */

@@ -101,6 +101,14 @@ bm_add_test_special(
     LIBS bm_config
     INCLUDES ${CMAKE_SOURCE_DIR}/portable/vendor/stm32g4)
 
+# DMA 循环模式环形缓冲记账（平台无关核心，host 测满圈/多圈/溢出）
+bm_add_test_special(
+    NAME test_dma_circular_ring
+    SRCS test_dma_circular_ring.c
+         ${CMAKE_SOURCE_DIR}/portable/vendor/stm32g4/bm_dma_circular_ring.c
+    LIBS bm_config
+    INCLUDES ${CMAKE_SOURCE_DIR}/portable/vendor/stm32g4)
+
 # Board 接入契约单测
 bm_add_test(test_board test_board.c bm_core)
 

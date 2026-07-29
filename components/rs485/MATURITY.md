@@ -2,7 +2,7 @@
 
 Maturity: E1 - 前期应用探索
 
-Validated: native_sim / Board 先 init UART / DE 方向控制（高有效）/ pre/post delay 状态机 / 回显过滤（含跨 DMA 事件）/ 半双工冲突检测（含 TX_PRE）/ 帧长上限丢帧 / UART 错误粘滞位去重 / TX 态遇 UART 错误立即回 RX / 复位回 RX / 链路统计
+Validated: native_sim / Board 先 init UART / DE 方向控制（高有效）/ pre/post delay 状态机 / 回显过滤（含跨 DMA 事件）/ 半双工冲突检测（含 TX_PRE）/ 帧长上限丢帧 / UART 错误 read-clear 语义（取消粘滞位去重）/ TX 态遇 UART 错误立即回 RX / 复位回 RX / 链路统计
 
 Not validated: 真实 RS485 收发器总线时序、STM32G4 USART 后端、硬件自动 DE、TX 超时回退真机行为
 

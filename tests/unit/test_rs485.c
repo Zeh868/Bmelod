@@ -4,7 +4,7 @@
  * @brief RS485 包装组件单元测试
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.2
+ * @version 1.3
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -13,6 +13,7 @@
  * 2026-07-28       1.0            zeh            新增 RS485 单测
  * 2026-07-28       1.1            zeh            审查整改：补帧长上限与 UART 错误去重用例
  * 2026-07-28       1.2            zeh            Board 先 init UART；TX 错误回 RX 用例
+ * 2026-07-29       1.3            zeh            UART 错误去重用例改为 read-clear 语义
  */
 #include "unity.h"
 #include "bm/component/bm_rs485.h"
@@ -318,65 +319,6 @@ static void test_rs485_validate_config(void) {
     TEST_ASSERT_EQUAL(BM_OK, bm_rs485_validate_config(&cfg));
 }
 
-/* ---------- 粘滞错误统计的假 UART（模拟读后不清零的后端语义） ---------- */
-static uint32_t g_sticky_errors;
-
-static int sticky_uart_init(const struct bm_hal_uart *dev, void *config) {
-    (void)dev; (void)config;
-    return BM_OK;
-}
-static int sticky_uart_send(const struct bm_hal_uart *dev,
-                            const uint8_t *data, size_t len) {
-    (void)dev; (void)data; (void)len;
-    return BM_OK;
-}
-static size_t sticky_uart_recv(const struct bm_hal_uart *dev,
-                               uint8_t *data, size_t max_len) {
-    (void)dev; (void)data; (void)max_len;
-    return 0u;
-}
-static void sticky_uart_rxcb(const struct bm_hal_uart *dev,
-                             void (*cb)(uint8_t c)) {
-    (void)dev; (void)cb;
-}
-static int sticky_uart_abort(const struct bm_hal_uart *dev) {
-    (void)dev;
-    return BM_OK;
-}
-static int sticky_uart_flush(const struct bm_hal_uart *dev) {
-    (void)dev;
-    return BM_OK;
-}
-static int sticky_uart_set_txc(const struct bm_hal_uart *dev,
-                               bm_uart_tx_complete_callback_t cb, void *user) {
-    (void)dev; (void)cb; (void)user;
-    return BM_OK;
-}
-static int sticky_uart_set_rxf(const struct bm_hal_uart *dev,
-                               bm_uart_rx_frame_callback_t cb, void *user) {
-    (void)dev; (void)cb; (void)user;
-    return BM_OK;
-}
-static int sticky_uart_set_rx_buf(const struct bm_hal_uart *dev,
-                                  uint8_t *buf, size_t len) {
-    (void)dev; (void)buf; (void)len;
-    return BM_OK;
-}
-static int sticky_uart_get_stats(const struct bm_hal_uart *dev,
-                                 bm_uart_stats_t *stats) {
-    (void)dev;
-    (void)memset(stats, 0, sizeof(*stats));
-    stats->last_errors = g_sticky_errors; /* 粘滞：get_stats 读后不清零 */
-    return BM_OK;
-}
-
-static const struct bm_uart_driver_api g_sticky_uart_api = {
-    sticky_uart_init, sticky_uart_send, sticky_uart_recv, sticky_uart_rxcb,
-    sticky_uart_abort, sticky_uart_flush, sticky_uart_set_txc,
-    sticky_uart_set_rxf, sticky_uart_set_rx_buf, sticky_uart_get_stats,
-};
-static const bm_hal_uart_t g_sticky_uart = { &g_sticky_uart_api, NULL };
-
 /**
  * @brief 帧长上限以内部拼装缓冲（256）为准，与 App 外部环形缓冲大小无关：
  *        超长帧丢弃并上报 FRAME_DROP，上限内长帧正常拼装上报
@@ -426,32 +368,32 @@ static void test_rs485_frame_len_limit(void) {
 }
 
 /**
- * @brief UART 底层 last_errors 为粘滞位时，同一错误位仅上报一次，
- *        新增位出现时再次上报
+ * @brief UART 底层 last_errors 为 read-clear 语义：只要本次 get_stats 返回非零
+ *        就代表新的错误事件，同一错误位连续发生须连续上报。
  */
 static void test_rs485_uart_error_reported_once(void) {
     bm_rs485_t rs485;
 
     (void)memset(&rs485, 0, sizeof(rs485));
-    rs485.config.uart = &g_sticky_uart;
+    rs485.config.uart = &bm_native_uart1;
     rs485.config.hardware_de = 1;
     rs485.resources.error_cb = test_rs485_error_cb;
 
-    g_sticky_errors = BM_UART_ERR_FRAMING;
     TEST_ASSERT_EQUAL(BM_OK, bm_rs485_init(&rs485));
 
-    /* 粘滞位首次出现：上报一次 */
+    /* 首次注入 framing 错误：上报一次 */
+    bm_hal_uart_native_inject_error(&bm_native_uart1, BM_UART_ERR_FRAMING);
     bm_rs485_poll(&rs485);
     TEST_ASSERT_EQUAL(BM_RS485_ERR_UART, s_error_flags);
     TEST_ASSERT_EQUAL(1u, s_error_calls);
 
-    /* 同一粘滞位未变化：重复 poll 不得重复上报 */
+    /* native 后端已 read-clear，再次 poll 无新错误，不得重复上报 */
     bm_rs485_poll(&rs485);
     bm_rs485_poll(&rs485);
     TEST_ASSERT_EQUAL(1u, s_error_calls);
 
-    /* 新增错误位出现：再次上报 */
-    g_sticky_errors |= BM_UART_ERR_OVERRUN;
+    /* 同一错误位再次注入：视为新事件，再次上报 */
+    bm_hal_uart_native_inject_error(&bm_native_uart1, BM_UART_ERR_FRAMING);
     bm_rs485_poll(&rs485);
     TEST_ASSERT_EQUAL(2u, s_error_calls);
 }

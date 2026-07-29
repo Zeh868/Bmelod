@@ -10,6 +10,19 @@ LL 头文件与所用 `.c` 由 `cmake/bm_sdk_stm32g4.cmake` 的
 `Drivers/STM32G4xx_HAL_Driver` 是 STM32CubeG4 的 submodule，
 稀疏检出后须 `git submodule update --init Drivers/STM32G4xx_HAL_Driver`。
 
+构建须使用独立的 G4 工具链（`cmake/toolchain-arm-none-eabi-g4.cmake`），
+默认 `-mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard`；
+若 App/Cube 工程使用 softfp，可通过
+`-DBM_ARM_NONE_EABI_G4_FLOAT_ABI=softfp` 对齐：
+
+```bash
+cmake -B build_g4 -G Ninja \
+  -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-arm-none-eabi-g4.cmake \
+  -DBM_BACKEND=sdk_stm32g4 \
+  -DBM_STM32_CUBE_PATH=/path/to/STM32CubeG4 \
+  -DBM_ARM_NONE_EABI_G4_FLOAT_ABI=hard
+```
+
 ## 实现路线（LL 库）
 
 用到的 LL 模块（`stm32g4xx_ll_*.h`，均头文件内联）：
@@ -105,8 +118,10 @@ target_link_libraries(my_app PRIVATE bm_framework bm_hal_stm32g4)
 
 - NVS/flash：STM32G4 提供双槽 Flash 后端（`bm_drv_nvs_flash_stm32g4.c` +
   `bm_nvs_dual_slot`）；pack 声明 `BM_DRV_HAS_NVS_BACKEND`。Board 须在
-  `bm_persist_init()` 前调用 `bm_nvs_stm32g4_set_layout(base_a, base_b, slot_size)`
-  （建议每槽 ≥2KB 页对齐）；未注入布局时 load/save 返回 `BM_ERR_NOT_INIT`；
+  `bm_persist_init()` 前调用 `bm_nvs_stm32g4_set_layout(base_a, base_b, slot_size)`。
+  布局强制校验：基地址与 `slot_size` 均按当前主 Flash 页大小对齐（双 Bank 2KB，
+  单 Bank 4KB），两槽页区间不重叠，且完全落在有效 Flash 范围内；**App 链接脚本必须
+  显式保留这两段空间**；未注入布局时 load/save 返回 `BM_ERR_NOT_INIT`；
 - DMA 通道 IRQ 由 `bm_dma_irq_stm32g4` 统一持有 Handler；USART3/SPI1 等
   经 `bm_dma_irq_register` 挂接，Board 须保证通道不重叠（冲突返回
   `BM_ERR_BUSY`）；

@@ -10,7 +10,7 @@
  * 回调、管理 DE。TX 路径遇 UART 错误时立即切回 RX 并上报。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.2
+ * @version 1.3
  * @date 2026-07-28
  *
  * @par 修改日志:
@@ -19,6 +19,7 @@
  * 2026-07-28       1.0            zeh            新增 RS485 包装组件
  * 2026-07-28       1.1            zeh            审查整改：独立帧拼装缓冲消除越界/覆盖、UART 错误粘滞位去重、TX_PRE 冲突判定、TX 超时回退、时间戳读取临界区
  * 2026-07-28       1.2            zeh            不再 init UART；TX 态遇 UART 错误立即回 RX
+ * 2026-07-29       1.3            zeh            取消 UART 错误粘滞位去重，对齐 read-clear 接口约定
  */
 #include "bm/component/bm_rs485.h"
 
@@ -115,9 +116,6 @@ static void bm_rs485_tx_complete_cb(const bm_hal_uart_t *dev, void *user) {
     if (rs485->config.uart != NULL
         && bm_hal_uart_get_stats(rs485->config.uart, &uart_stats) == BM_OK
         && uart_stats.last_errors != 0u) {
-        irq_state = BM_CRITICAL_ENTER();
-        rs485->state.uart_err_reported |= uart_stats.last_errors;
-        BM_CRITICAL_EXIT(irq_state);
         bm_rs485_abort_tx_to_rx(rs485);
         return;
     }
@@ -466,7 +464,6 @@ void bm_rs485_poll(bm_rs485_t *rs485) {
     uint64_t pre_start_us = 0u;
     uint64_t tx_end_us = 0u;
     int      tx_timed_out = 0;
-    uint32_t new_uart_errors = 0u;
 
     if (rs485 == NULL) {
         return;
@@ -555,27 +552,24 @@ void bm_rs485_poll(bm_rs485_t *rs485) {
         }
     }
 
-    /* UART 底层错误：TX 路径立即回 RX；其它方向仅透传新增位 */
-    if (bm_hal_uart_get_stats(rs485->config.uart, &uart_stats) == BM_OK) {
+    /* UART 底层错误：TX 路径立即回 RX；其它方向透传。
+     * UART last_errors 为 read-clear 语义，get_stats 已返回本次新错误。 */
+    if (bm_hal_uart_get_stats(rs485->config.uart, &uart_stats) == BM_OK
+        && uart_stats.last_errors != 0u) {
         irq_state = BM_CRITICAL_ENTER();
-        new_uart_errors = uart_stats.last_errors
-                          & ~rs485->state.uart_err_reported;
-        rs485->state.uart_err_reported |= uart_stats.last_errors;
         dir = rs485->state.dir;
         BM_CRITICAL_EXIT(irq_state);
-        if (new_uart_errors != 0u) {
-            if (dir == BM_RS485_DIR_TX_PRE || dir == BM_RS485_DIR_TX
-                || dir == BM_RS485_DIR_TX_TAIL) {
-                bm_rs485_abort_tx_to_rx(rs485);
-            } else {
-                irq_state = BM_CRITICAL_ENTER();
-                rs485->state.stats.last_errors |= BM_RS485_ERR_UART;
-                BM_CRITICAL_EXIT(irq_state);
-                if (rs485->resources.error_cb != NULL) {
-                    rs485->resources.error_cb((const bm_rs485_t *)rs485,
-                                              BM_RS485_ERR_UART,
-                                              rs485->resources.user);
-                }
+        if (dir == BM_RS485_DIR_TX_PRE || dir == BM_RS485_DIR_TX
+            || dir == BM_RS485_DIR_TX_TAIL) {
+            bm_rs485_abort_tx_to_rx(rs485);
+        } else {
+            irq_state = BM_CRITICAL_ENTER();
+            rs485->state.stats.last_errors |= BM_RS485_ERR_UART;
+            BM_CRITICAL_EXIT(irq_state);
+            if (rs485->resources.error_cb != NULL) {
+                rs485->resources.error_cb((const bm_rs485_t *)rs485,
+                                          BM_RS485_ERR_UART,
+                                          rs485->resources.user);
             }
         }
     }

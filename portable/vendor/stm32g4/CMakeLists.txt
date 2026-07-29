@@ -26,6 +26,7 @@ add_library(bm_vendor_stm32g4 STATIC
     bm_vendor_uart_dev_stm32g4.c
     # bm_vendor_dma_usart2_rx_stm32g4.c  # Phase 3 重写中，暂隔离
     bm_dma_irq_stm32g4.c           # DMA 通道 IRQ 统一路由器（唯一 Handler 集）
+    bm_dma_circular_ring.c         # DMA 循环模式环形缓冲记账（USART3 RX 用）
     bm_nvs_dual_slot.c             # NVS 双槽格式（平台无关核心）
     bm_drv_nvs_flash_stm32g4.c     # Flash 双槽 NVS 后端（bm_hal_nvs_*）
     bm_vendor_hrtimer_stm32g4.c    # 接口批 1：高精度 Timer STM32G4 后端

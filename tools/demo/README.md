@@ -21,6 +21,9 @@ build/demo/<variant>/<example>/   # 各示例可执行产物（*.elf 或 *.exe�
 | `make` | `qemu_example.mk` / Makefile 示例 | `ultra_blink` 等 |
 | `board` | 板级/厂商工程（非脚本路径） | 各示例 `board/` README |
 
+STM32G4 板级工程须使用 `cmake/toolchain-arm-none-eabi-g4.cmake`
+（Cortex-M4F），不可复用 QEMU 的 M0 工具链。
+
 ## 统一构建（推荐）
 
 ```bash
