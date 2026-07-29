@@ -21,8 +21,8 @@
  *   已配置的 NVIC/时钟。kernel_clock_hz==0 时假定 USART 时钟=PCLK1。
  *
  * @author zeh (china_qzh@163.com)
- * @version 3.3
- * @date 2026-07-28
+ * @version 3.4
+ * @date 2026-07-29
  *
  * @par 修改日志:
  *
@@ -40,6 +40,8 @@
  *                                                kernel_clock_hz
  * 2026-07-29       3.3            zeh            RX 环形缓冲改用单调 produced/consumed
  *                                                计数，消除整圈丢失风险
+ * 2026-07-29       3.4            zeh            TC ISR 用 produced_before 计算整圈新增量，
+ *                                                修正 HT→TC 后一半字节统计与溢出判断
  */
 #include "bm_vendor_usart3_stm32g4.h"
 #include "bm_dma_irq_stm32g4.h"
@@ -281,16 +283,19 @@ static void bm_usart3_tx_dma_stop(bm_usart3_context_t *ctx) {
  * 使用单调 produced/consumed 计数，避免 DMA 接收整圈时 write_pos == read_pos
  * 被误判为"无数据"。
  *
- * @param ctx    运行时上下文
- * @param event  本次事件标志（notify=0 时可传 0）
- * @param notify 非零：在有未读数据时调用 rx_frame_cb；HT 须传 0，避免半缓冲误拆帧
+ * @param ctx         运行时上下文
+ * @param event       本次事件标志（notify=0 时可传 0）
+ * @param notify      非零：在有未读数据时调用 rx_frame_cb；HT 须传 0，避免半缓冲误拆帧
+ * @param extra_bytes 调用前已通过 mark_full_round 等方式推进 produced 但未统计的字节数；
+ *                    TC 路径须传入本次完整一圈内的总新增量，普通路径传 0
  */
 static void bm_usart3_rx_update(bm_usart3_context_t *ctx, uint32_t event,
-                                int notify) {
+                                int notify, uint32_t extra_bytes) {
     DMA_TypeDef *dma;
     uint32_t ch;
     uint32_t ndtr;
     uint32_t new_bytes;
+    uint32_t total_new;
     uint32_t free_space;
     uint32_t pending;
 
@@ -306,8 +311,14 @@ static void bm_usart3_rx_update(bm_usart3_context_t *ctx, uint32_t event,
     }
 
     free_space = bm_dma_circ_ring_free_space(&ctx->rx_ring);
+    /* extra_bytes 在调用前已推进 produced，当前 free_space 已扣减该部分；
+     * 加回后得到事件触发前的真实剩余空间，用于正确判断溢出。 */
+    if (extra_bytes != 0u) {
+        free_space += extra_bytes;
+    }
     new_bytes = bm_dma_circ_ring_update(&ctx->rx_ring, ndtr);
-    if (new_bytes > free_space) {
+    total_new = new_bytes + extra_bytes;
+    if (total_new > free_space) {
         /* 软件读取不及时导致覆盖：丢弃全部已缓冲数据 */
         ctx->stats.rx_overflow_count++;
         ctx->stats.last_errors |= BM_UART_ERR_OVERFLOW;
@@ -315,7 +326,7 @@ static void bm_usart3_rx_update(bm_usart3_context_t *ctx, uint32_t event,
     }
 
     pending = bm_dma_circ_ring_pending(&ctx->rx_ring);
-    ctx->stats.rx_count += new_bytes;
+    ctx->stats.rx_count += total_new;
 
     if (notify != 0 && ctx->rx_frame_cb != NULL && pending > 0u) {
         ctx->rx_frame_cb(ctx->dev, event, (size_t)pending, ctx->rx_frame_user);
@@ -473,7 +484,7 @@ void USART3_IRQHandler(void) {
 
     if ((isr & USART_ISR_IDLE) != 0u) {
         LL_USART_ClearFlag_IDLE(USART3);
-        bm_usart3_rx_update(ctx, BM_UART_EVT_IDLE, 1);
+        bm_usart3_rx_update(ctx, BM_UART_EVT_IDLE, 1, 0u);
     }
 
     if ((isr & USART_ISR_TC) != 0u) {
@@ -540,14 +551,20 @@ static void bm_usart3_rx_dma_isr(bm_usart3_context_t *ctx) {
     if ((dma->ISR & ht_flag) != 0u) {
         dma->IFCR = ht_flag;
         /* HT 仅推进写指针/溢出检测，不交付帧（避免长帧在半缓冲处被误拆） */
-        bm_usart3_rx_update(ctx, 0u, 0);
+        bm_usart3_rx_update(ctx, 0u, 0, 0u);
     }
     if ((dma->ISR & tc_flag) != 0u) {
+        uint32_t produced_before;
+        uint32_t extra;
+
         dma->IFCR = tc_flag;
-        /* TC 表示完整一圈已完成；先推进 produced 到下一周期边界，
-         * 再 update 读取当前 NDTR，避免整圈数据被漏计。 */
+        /* TC 表示完整一圈已完成；先记录 produced_before，再推进 produced
+         * 到下一周期边界，使 HT→TC 的后一半字节也被计入本次新增量，
+         * 避免漏统计与溢出判断延后。 */
+        produced_before = ctx->rx_ring.produced;
         bm_dma_circ_ring_mark_full_round(&ctx->rx_ring);
-        bm_usart3_rx_update(ctx, BM_UART_EVT_RX_FULL, 1);
+        extra = ctx->rx_ring.produced - produced_before;
+        bm_usart3_rx_update(ctx, BM_UART_EVT_RX_FULL, 1, extra);
     }
 }
 
@@ -775,7 +792,7 @@ static size_t bm_vendor_usart3_recv(const struct bm_hal_uart *dev,
     }
 
     /* 同步一次写位置，确保读取的是最新数据 */
-    bm_usart3_rx_update(ctx, 0u, 0);
+    bm_usart3_rx_update(ctx, 0u, 0, 0u);
 
     copied = bm_dma_circ_ring_consume(&ctx->rx_ring, data, (uint32_t)max_len);
     return (size_t)copied;

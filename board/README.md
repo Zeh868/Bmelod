@@ -59,7 +59,7 @@ cmake -S <应用工程> -B <构建目录> -G Ninja \
   -DBM_STM32_DEVICE=STM32G474xx \
   -DBM_ENABLE_ALGORITHM=ON \
   -DBM_ENABLE_COMPONENT_MOTOR=ON \
-  -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-arm-none-eabi.cmake
+  -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-arm-none-eabi-g4.cmake
 ```
 
 启动文件/链接脚本经 `BM_STM32G4_STARTUP` / `BM_STM32G4_LD` 从 Cube 包引用，

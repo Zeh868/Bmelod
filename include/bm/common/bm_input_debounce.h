@@ -7,13 +7,14 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-07-28
+ * @version 1.1
+ * @date 2026-07-29
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            下沉输入防抖共享词汇与纯算法
+ * 2026-07-29       1.1            zeh            补 <stddef.h>，修正 NULL 未定义
  */
 #ifndef BM_COMMON_INPUT_DEBOUNCE_H
 #define BM_COMMON_INPUT_DEBOUNCE_H
@@ -21,6 +22,7 @@
 #include "bm/common/bm_types.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus

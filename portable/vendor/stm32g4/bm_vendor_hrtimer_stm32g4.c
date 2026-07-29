@@ -9,8 +9,8 @@
  * ISR 有界：仅清除标志、更新 compare、递增统计、派发回调；不解析业务协议。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-07-28
+ * @version 1.2
+ * @date 2026-07-29
  *
  * @par 修改日志:
  *
@@ -20,6 +20,7 @@
  *                                                删除 TIM6 handler（TIM6_DAC_IRQn 被 tick 占用）；
  *                                                init 支持 config 覆盖入参、补 initialized
  *                                                标志与失败回滚；ctx_for 改按 dev 匹配
+ * 2026-07-29       1.2            zeh            删除未使用的 bm_vendor_hrtimer_get_ccr()
  */
 #include "bm_vendor_hrtimer_stm32g4.h"
 #include "bm_hal_instances_stm32g4.h"
@@ -179,24 +180,6 @@ static void bm_vendor_hrtimer_set_ccr(TIM_TypeDef *tim, uint32_t channel,
         break;
     default:
         break;
-    }
-}
-
-/**
- * @brief 读取指定通道的比较寄存器。
- */
-static uint32_t bm_vendor_hrtimer_get_ccr(TIM_TypeDef *tim, uint32_t channel) {
-    switch (channel) {
-    case LL_TIM_CHANNEL_CH1:
-        return LL_TIM_OC_GetCompareCH1(tim);
-    case LL_TIM_CHANNEL_CH2:
-        return LL_TIM_OC_GetCompareCH2(tim);
-    case LL_TIM_CHANNEL_CH3:
-        return LL_TIM_OC_GetCompareCH3(tim);
-    case LL_TIM_CHANNEL_CH4:
-        return LL_TIM_OC_GetCompareCH4(tim);
-    default:
-        return 0u;
     }
 }
 

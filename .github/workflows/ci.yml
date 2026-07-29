@@ -41,6 +41,34 @@ jobs:
       - name: Check bm_config.h.template stays in sync with include/bm_config.h
         run: python3 tools/check_config_template.py
 
+  sdk-stm32g4-product:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ARM toolchain and Ninja
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi ninja-build
+      - name: Fetch STM32CubeG4 (shallow)
+        run: |
+          git clone --depth=1 --recurse-submodules --shallow-submodules \
+            https://github.com/STMicroelectronics/STM32CubeG4.git \
+            /tmp/STM32CubeG4
+      - name: Configure sdk_stm32g4 product build
+        run: |
+          cmake -G Ninja -B build-g4-product \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-arm-none-eabi-g4.cmake \
+            -DBM_BACKEND=sdk_stm32g4 \
+            -DBM_STM32_CUBE_PATH=/tmp/STM32CubeG4 \
+            -DBM_ENABLE_HRT=ON \
+            -DBM_ENABLE_ALGORITHM=ON \
+            -DBM_ENABLE_COMPONENT_MOTOR=ON \
+            -DBM_ENABLE_COMPONENT_DIAGNOSTICS=ON \
+            -DBM_BUILD_TESTS=OFF \
+            -DCMAKE_C_FLAGS="-Werror"
+      - name: Build sdk_stm32g4 product
+        run: cmake --build build-g4-product
+
   cmake-matrix:
     runs-on: windows-latest
     strategy:

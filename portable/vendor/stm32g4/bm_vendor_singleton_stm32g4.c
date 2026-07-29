@@ -26,8 +26,8 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.3
- * @date 2026-07-28
+ * @version 1.4
+ * @date 2026-07-29
  *
  * @par 修改日志:
  *
@@ -37,6 +37,7 @@
  * 2026-07-27       1.2            zeh            UART 统一实例化：单例 bm_drv_uart_api 改为
  *                                                默认控制台设备 bm_uart_default（统一实例模型）
  * 2026-07-28       1.3            zeh            UART、LSI 与 IWDG 就绪轮询改为命名上限并返回超时
+ * 2026-07-29       1.4            zeh            控制台 UART API 表补 .abort 成员
  *
  */
 #include "bm_drv_timer.h"
@@ -433,12 +434,30 @@ static void stm32g4_uart_set_rx_callback(const struct bm_hal_uart *dev,
     NVIC_EnableIRQ(LPUART1_IRQn);
 }
 
+/**
+ * @brief 中止当前控制台 UART 操作：关闭 RXNE 中断、清除回调。
+ * @return BM_OK 成功；BM_ERR_NOT_INIT 未初始化。
+ */
+static int stm32g4_uart_abort(const struct bm_hal_uart *dev)
+{
+    (void)dev;
+
+    if (g_uart_ready == 0u) {
+        return BM_ERR_NOT_INIT;
+    }
+    LL_LPUART_DisableIT_RXNE_RXFNE(LPUART1);
+    NVIC_DisableIRQ(LPUART1_IRQn);
+    g_rx_callback = NULL;
+    return BM_OK;
+}
+
 /** @brief UART 驱动 API 表。 */
 static const struct bm_uart_driver_api g_uart_api = {
-    stm32g4_uart_init,
-    stm32g4_uart_send,
-    stm32g4_uart_recv,
-    stm32g4_uart_set_rx_callback,
+    .init = stm32g4_uart_init,
+    .send = stm32g4_uart_send,
+    .recv = stm32g4_uart_recv,
+    .set_rx_callback = stm32g4_uart_set_rx_callback,
+    .abort = stm32g4_uart_abort,
 };
 
 /** @brief 默认控制台 UART 设备（LPUART1，统一实例模型，见 bm_hal_uart.h）。 */
