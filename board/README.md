@@ -19,6 +19,10 @@ STM32G4 PIL **待实机填写示例**（诚实标注，非验收证据）：[`re
 正点原子 ATK-DMG474（STM32G474VET6）最小真机工程见 [`atk_dmg474_smoke/`](atk_dmg474_smoke/)；
 构建：`powershell -File tools/board/build_atk_dmg474_smoke.ps1`；
 验收：J-Link 烧写 + RTT Viewer Channel 0 心跳。
+**2026-07-30 实机已通过。** Port 说明：
+[`docs/03-移植与IDE集成/10-STM32G4-Port实机.md`](../docs/03-移植与IDE集成/10-STM32G4-Port实机.md)。
+
+Cube SDK 推荐外置：`D:\Code\Bmelod-sdks\stm32\STM32CubeG4`（`BM_STM32_CUBE_PATH`）。
 
 `sdk_stm32g4` 后端（`portable/packs/sdk_stm32g4` = arch/armv7em + vendor/stm32g4）
 的 compile+link 验证以本地 smoke 工程 `build_tests_stm32g4/smoke/`（gitignore

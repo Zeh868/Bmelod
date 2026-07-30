@@ -1,23 +1,35 @@
 # sdk_stm32g4 实机验收清单（M5 脚手架）
 
-与 `bm_board_envelope_stm32g4.h`、`WCET_REPORT_TEMPLATE.md` 及 `tools/board/build_stm32g4_motor_foc.ps1` 配套使用。
+与 `bm_board_envelope_stm32g4.h`、`WCET_REPORT_TEMPLATE.md` 配套使用。
+Port 总览见 [`docs/03-移植与IDE集成/10-STM32G4-Port实机.md`](../docs/03-移植与IDE集成/10-STM32G4-Port实机.md)。
+
+## 0. 冒烟基线（ATK-DMG474，2026-07-30 已通过）
+
+- [x] arm-none-eabi-gcc + Ninja 可构建 `board/atk_dmg474_smoke`
+- [x] `BM_STM32_CUBE_PATH` 指向外置 Cube（如 `D:\Code\Bmelod-sdks\stm32\STM32CubeG4`）
+- [x] 目标器件 STM32G474VET6；J-Link SWD 可连接
+- [x] 烧写 `.elf` 后 RTT Viewer Channel 0 可见心跳
+
+未覆盖项（仍属后续）：HSE/PLL 170MHz、RS485/FDCAN/NVS、电机环 WCET。
 
 ## 1. 环境
 
-- [ ] arm-none-eabi-gcc 已安装并在 PATH
-- [ ] STM32CubeG4 路径已设置（`BM_STM32_CUBE_PATH` 或脚本 `-Stm32CubePath`）
-- [ ] 目标器件与 Nucleo/自定义板一致（默认 `STM32G474xx`）
-- [ ] ST-Link / OpenOCD 可连接目标
+- [x] arm-none-eabi-gcc 已安装并在 PATH（冒烟机已验）
+- [x] STM32CubeG4 路径已设置（`BM_STM32_CUBE_PATH`）
+- [ ] 目标器件与 Nucleo/自定义板引脚表一致（电机工程须覆盖 instances）
+- [x] 调试器可连接目标（J-Link；ST-Link 亦可烧写，RTT Viewer 需 J-Link）
 
 ## 2. 构建
 
+冒烟（推荐起点）：
+
 ```powershell
-.\tools\board\build_stm32g4_motor_foc.ps1 -Stm32CubePath C:\STM32CubeG4
+.\tools\board\build_atk_dmg474_smoke.ps1
 ```
 
-- [ ] CMake 配置无错误（`BM_BACKEND=sdk_stm32g4`）
-- [ ] `motor_foc_sensored` 链接成功
-- [ ] 生成 `.elf` / `.hex` 可烧录
+- [x] CMake 配置无错误（`BM_BACKEND=sdk_stm32g4`）
+- [x] `atk_dmg474_smoke` 链接成功并生成 `.elf` / `.bin`
+- [ ] 电机 / 全功能 Demo 链接成功（脚本 `build_stm32g4_motor_foc.ps1` 已下线，待重建）
 
 ## 3. 板级与 HAL
 

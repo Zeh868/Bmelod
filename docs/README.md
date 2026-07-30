@@ -55,6 +55,7 @@ docs/
 | [03-Port移植层bm_port](03-移植与IDE集成/03-Port移植层bm_port.md) | `bm_port.c` 模板与后端 |
 | [04-STM32-CubeMX集成](03-移植与IDE集成/04-STM32-CubeMX集成.md) | STM32 CubeMX |
 | [05-NXP-MCUXpresso集成](03-移植与IDE集成/05-NXP-MCUXpresso集成.md) | NXP MCUXpresso |
+| [10-STM32G4-Port实机](03-移植与IDE集成/10-STM32G4-Port实机.md) | sdk_stm32g4 + ATK-DMG474 冒烟 |
 | [06-Keil-MDK集成](03-移植与IDE集成/06-Keil-MDK集成.md) | Keil MDK |
 | [07-IAR-EWARM集成](03-移植与IDE集成/07-IAR-EWARM集成.md) | IAR EWARM |
 | [08-ESP-IDF与灯哥平衡车集成](03-移植与IDE集成/08-ESP-IDF与灯哥平衡车集成.md) | ESP-IDF + 灯哥板 |
@@ -114,6 +115,12 @@ docs/
 1. [03-移植与IDE集成/08-ESP-IDF与灯哥平衡车集成](03-移植与IDE集成/08-ESP-IDF与灯哥平衡车集成.md)
 2. [portable/vendor/esp32_idf/README.md](../portable/vendor/esp32_idf/README.md)
 3. [03-移植与IDE集成/01-HAL契约与移植要点](03-移植与IDE集成/01-HAL契约与移植要点.md)
+
+### 路径 E：STM32G4 实机（ATK-DMG474）
+
+1. [03-移植与IDE集成/10-STM32G4-Port实机](03-移植与IDE集成/10-STM32G4-Port实机.md)
+2. [board/atk_dmg474_smoke/README.md](../board/atk_dmg474_smoke/README.md)
+3. [portable/vendor/stm32g4/README.md](../portable/vendor/stm32g4/README.md)
 
 排障与约束：[04-测试与排障/03-运行时约束与排障](04-测试与排障/03-运行时约束与排障.md)。
 

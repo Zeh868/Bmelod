@@ -1,6 +1,10 @@
 # ATK-DMG474 真机冒烟（STM32G474VET6 + J-Link RTT）
 
+> **实机状态（2026-07-30）：已通过** — 上电烧写后 RTT Viewer 可见周期心跳。
+
 最小工程：烧写固件后，用 **J-Link RTT Viewer** 看每秒心跳日志；可选翻转 LED。
+
+Port 总览：[`docs/03-移植与IDE集成/10-STM32G4-Port实机.md`](../../docs/03-移植与IDE集成/10-STM32G4-Port实机.md)。
 
 ## 前置
 

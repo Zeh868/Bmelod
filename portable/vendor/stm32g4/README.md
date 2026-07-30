@@ -106,13 +106,20 @@ target_link_libraries(my_app PRIVATE bm_framework bm_hal_stm32g4)
 
 启动文件/链接脚本经 `BM_STM32G4_STARTUP` / `BM_STM32G4_LD` 从 Cube 包引用
 （见 `cmake/bm_sdk_stm32g4.cmake` 头注释）；`system_stm32g4xx.c` 由应用工程
-从 Cube 引入（vendor 不接管时钟树）。最小 smoke 工程（compile+link 验证）
-见仓库 `build_tests_stm32g4/smoke/`（gitignore 覆盖的本地验证稿）。
+从 Cube 引入（vendor 不接管时钟树）。
+
+**Cube 路径（推荐外置，不进本仓库）：**
+`D:\Code\Bmelod-sdks\stm32\STM32CubeG4`（`-DBM_STM32_CUBE_PATH=...`）。
+
+**实机冒烟（已通过，2026-07-30）：** 正点原子 ATK-DMG474 / STM32G474VET6，
+工程 `board/atk_dmg474_smoke/`（J-Link 烧写 + RTT Viewer 心跳）。
+总览文档：[`docs/03-移植与IDE集成/10-STM32G4-Port实机.md`](../../../docs/03-移植与IDE集成/10-STM32G4-Port实机.md)。
 
 ## 成熟度与已知缺口（E1）
 
-当前 **E1**：外设语义按 RM0440 与 LL 库实现，交叉编译/链接已验证，
-**未做实机时序/PIL/WCET 验收**（按 `board/sdk_stm32g4_CHECKLIST.md` 移交）。
+当前 **E1**：外设语义按 RM0440 与 LL 库实现；交叉编译/链接已验证；
+**ATK-DMG474 已完成 RTT 冒烟实机**（启动 + console/RTT + 可选 GPIO）。
+电机环 / 通信 / NVS 落盘 / WCET 等仍按 `board/sdk_stm32g4_CHECKLIST.md` 移交。
 
 已知缺口：
 

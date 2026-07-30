@@ -228,6 +228,7 @@ int bm_hal_cpu_freq_check_config(void);
 |------|------|
 | [02-挂库到现有工程](02-挂库到现有工程.md) | 两步挂库总览 |
 | [04-STM32-CubeMX集成](04-STM32-CubeMX集成.md) | Cube 工程 |
+| [10-STM32G4-Port实机](10-STM32G4-Port实机.md) | sdk_stm32g4 + ATK-DMG474 冒烟验收 |
 | [05-NXP-MCUXpresso集成](05-NXP-MCUXpresso集成.md) | MCUX 工程 |
 | [06-Keil-MDK集成](06-Keil-MDK集成.md) / [07-IAR-EWARM集成](07-IAR-EWARM集成.md) | IDE 手工集成 |
 | [08-ESP-IDF与灯哥平衡车集成](08-ESP-IDF与灯哥平衡车集成.md) | ESP-IDF + 灯哥板（无需 `bm_port.c`） |
