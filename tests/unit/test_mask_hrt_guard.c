@@ -11,18 +11,22 @@
  *   bm_event_publish_copy（非 ISR 变体）同样 BM_ERR_BUSY、
  *   bm_ultra_queue_push/pop → BM_ERR_BUSY、bm_ultra_queue_reset 被拒绝、
  *   bm_mempool_alloc → NULL、bm_mempool_try_free → BM_ERR_BUSY、
- *   bm_mempool_reset 被拒绝（池内容不变）；
+ *   bm_mempool_reset 被拒绝（池内容不变）、
+ *   bm_event_reset 静默拒绝（订阅与队列保持原状）、
+ *   bm_event_process → BM_ERR_BUSY（队列不被触碰）；
  * - 低于 HRT 阈值的 from_isr 与普通主循环路径不受影响（BM_OK）；
  * - 正常入队确实以 BM_CONFIG_HRT_PRIORITY_THRESHOLD 进入阈值掩码临界区。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-07-31
  * @par 修改日志:
  *    Date         Version        Author          Description
  * 2026-07-30       1.0            zeh            正式发布
  * 2026-07-31       1.1            zeh            补非 ISR 变体与 ultra 队列拦截
  *                                                用例；setUp 复位内存池
+ * 2026-07-31       1.2            zeh            补 bm_event_reset/process 拦截用例
+ *                                                （对齐 ultra/mempool 的 reset 语义）
  */
 
 #include "unity.h"
@@ -48,12 +52,22 @@ typedef struct {
 
 BM_MEMPOOL_DEFINE(g_pool, guard_obj_t, 4u);
 
+/* 事件回调计数（event reset/process 拦截用例的观测点） */
+static unsigned g_guard_cb_count;
+
+static void guard_counting_cb(const bm_event_t *event, void *user_data) {
+    (void)event;
+    (void)user_data;
+    g_guard_cb_count++;
+}
+
 /* bm_ultra.c 依赖应用侧实例化的回调表；本用例只验证入队拦截，全部留空 */
 BM_ULTRA_CALLBACK_TABLE_DEFINE();
 
 void setUp(void) {
     bm_mask_guard_fake_reset();
     bm_event_reset();
+    g_guard_cb_count = 0u;
     /* 计数器跨用例必须保持平衡；此处防御性确认无残留 HRT 上下文 */
     TEST_ASSERT_EQUAL_INT(0, bm_in_hrt_isr());
     /* 池与 ultra 队列跨用例复位，消除用例间顺序耦合 */
@@ -186,6 +200,42 @@ void test_mempool_reset_hrt_isr_rejected(void) {
     bm_mempool_reset(&g_pool);
 }
 
+/* event reset：HRT 级上下文中静默拒绝，订阅与队列保持原状 */
+void test_event_reset_hrt_isr_rejected(void) {
+    TEST_ASSERT_EQUAL(BM_OK, bm_event_register_type(GUARD_EVT_TYPE, "guard"));
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_event_subscribe(GUARD_EVT_TYPE, guard_counting_cb, NULL, NULL));
+    bm_event_freeze_subscriptions();
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_event_publish_copy(GUARD_EVT_TYPE, GUARD_EVT_PRIO, NULL, 0u));
+
+    bm_hrt_isr_enter();
+    bm_event_reset();
+    bm_hrt_isr_exit();
+
+    /* reset 被拒绝：订阅仍在且事件未丢，process 正常分发 */
+    TEST_ASSERT_EQUAL(1, bm_event_process(4u));
+    TEST_ASSERT_EQUAL_UINT(1u, g_guard_cb_count);
+}
+
+/* event process：HRT 级上下文中 fail-closed 返回 BM_ERR_BUSY，队列不被触碰 */
+void test_event_process_hrt_isr_rejected(void) {
+    TEST_ASSERT_EQUAL(BM_OK, bm_event_register_type(GUARD_EVT_TYPE, "guard"));
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_event_subscribe(GUARD_EVT_TYPE, guard_counting_cb, NULL, NULL));
+    bm_event_freeze_subscriptions();
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_event_publish_copy(GUARD_EVT_TYPE, GUARD_EVT_PRIO, NULL, 0u));
+
+    bm_hrt_isr_enter();
+    TEST_ASSERT_EQUAL(BM_ERR_BUSY, bm_event_process(4u));
+    bm_hrt_isr_exit();
+
+    /* 退出上下文后事件仍在队列中，可正常分发 */
+    TEST_ASSERT_EQUAL(1, bm_event_process(4u));
+    TEST_ASSERT_EQUAL_UINT(1u, g_guard_cb_count);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_publish_from_below_threshold_isr_ok);
@@ -195,5 +245,7 @@ int main(void) {
     RUN_TEST(test_ultra_hrt_isr_rejected);
     RUN_TEST(test_mempool_hrt_isr_rejected);
     RUN_TEST(test_mempool_reset_hrt_isr_rejected);
+    RUN_TEST(test_event_reset_hrt_isr_rejected);
+    RUN_TEST(test_event_process_hrt_isr_rejected);
     return UNITY_END();
 }

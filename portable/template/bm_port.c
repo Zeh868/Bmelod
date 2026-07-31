@@ -18,10 +18,17 @@
  *    ISR 入口默认不保存/不开启浮点协处理器现场，中断内直接跑浮点会踩坑
  *    （轻则现场污染，重则触发协处理器异常复位，详见该头文件各架构平台
  *    真相注释）。见 `bm_port_timer_isr` 内的示范。
+ * 6. Hardware HRT 端口契约：任何会在 HRT 优先级派发框架回调的厂商 IRQ
+ *    handler（ADC/PWM 完成、DMA 完成等，即不经 hrt_dispatch 的直驱链路），
+ *    必须在回调派发首尾成对调用 `bm/common/bm_critical_wrap.h` 的
+ *    `bm_hrt_isr_enter/exit`——掩码模式（BM_CONFIG_ENABLE_PRIORITY_MASK=1）
+ *    对 event/ultra/mempool 的 fail-closed 拦截依赖该上下文标记；非掩码
+ *    模式仅维护计数，零行为差异。参考实现：
+ *    `portable/vendor/stm32g4/bm_vendor_adc_stm32g4.c` 的 ADC1_2_IRQHandler。
  *
  * @author zeh (china_qzh@163.com)
- * @version 2.2
- * @date 2026-07-11
+ * @version 2.3
+ * @date 2026-07-31
  *
  * @par 修改日志:
  *
@@ -29,6 +36,8 @@
  * 2026-06-15       2.0            zeh            组合模板：arch 头 + vendor 弱钩子
  * 2026-06-15       2.1            zeh            修正弱符号覆盖点为全局 API 对象
  * 2026-07-11       2.2            zeh            timer_isr 补 ISR FPU 守卫调用示范（bm_arch_isr_fpu.h）
+ * 2026-07-31       2.3            zeh            补 Hardware HRT 端口 bm_hrt_isr_enter/exit
+ *                                                接线契约说明（要点 6 与示范代码）
  *
  */
 #include <stddef.h>
@@ -98,6 +107,20 @@ BM_PORT_WEAK const struct bm_timer_driver_api bm_drv_timer_api = {
  *         g_tick_cb();
  *     }
  *     bm_arch_isr_fpu_exit(g_fpu_sa, prev);
+ * }
+ * @endcode
+ *
+ * @note Hardware HRT 端口（不经 hrt_dispatch 的厂商 IRQ 直驱回调链路）
+ *       还须成对调用 bm_hrt_isr_enter/exit 标记 HRT ISR 上下文，示范：
+ * @code
+ * #include "bm_critical_wrap.h"
+ * void ADC_IRQHandler(void) {
+ *     ... 清标志 ...
+ *     bm_hrt_isr_enter();
+ *     if (complete_cb) {
+ *         complete_cb(user);
+ *     }
+ *     bm_hrt_isr_exit();
  * }
  * @endcode
  */

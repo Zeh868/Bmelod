@@ -25,6 +25,10 @@
  * 2026-07-31       1.7            zeh            拦截改为只依据上下文（非 ISR
  *                                                变体在 HRT 回调中同样拒绝）；
  *                                                拒绝日志改 log-once
+ * 2026-07-31       1.8            zeh            bm_event_reset 静默拒绝、
+ *                                                bm_event_process 返回 BM_ERR_BUSY，
+ *                                                补齐 HRT 级上下文的 fail-closed
+ *                                                拦截缺口（对齐 ultra/mempool）
  *
  */
 #include "bm/core/bm_cpu_local.h"
@@ -263,16 +267,24 @@ void bm_event_freeze_subscriptions(void) {
     BM_LOGD("event", "subscriptions frozen for deterministic dispatch");
 }
 
+/* 定义在发布实现旁（HRT 拒绝诊断区），此处前置声明供 reset/process 使用 */
+static void event_log_hrt_reject_op_once(const char *op);
+
 /**
  * @brief 重置当前核的事件总线状态
  *
  * 清空事件类型、订阅者、优先级队列与统计计数器。
+ * 处于 HRT 级上下文时静默拒绝（队列保持原状，对齐 ultra/mempool reset）。
  */
 void bm_event_reset(void) {
     bm_event_cpu_state_t *state = bm_event_this();
     bm_irq_state_t s;
 
     if (state == NULL) {
+        return;
+    }
+    if (BM_SRT_QUEUE_API_FORBIDDEN()) {
+        event_log_hrt_reject_op_once("reset");
         return;
     }
     s = BM_CRITICAL_ENTER();
@@ -575,6 +587,20 @@ static void event_log_hrt_reject_once(bm_event_type_t type) {
         logged = 1;
         BM_LOGE("event", "publish from HRT-level ISR rejected type=%u",
                 (unsigned)type);
+    }
+}
+
+/**
+ * @brief HRT 级上下文拒绝 reset/process 时输出一次诊断日志
+ *
+ * 与 event_log_hrt_reject_once 同理：log-once 保证不把无界 I/O 留在 HRT 路径。
+ */
+static void event_log_hrt_reject_op_once(const char *op) {
+    static volatile int logged;
+
+    if (!logged) {
+        logged = 1;
+        BM_LOGE("event", "%s from HRT-level ISR rejected", op);
     }
 }
 
@@ -925,7 +951,7 @@ uint32_t bm_event_get_reentrancy_rejected_count(void) {
  * @brief 分发最多 max_events 个事件给订阅者
  *
  * @param max_events 本轮最大处理事件数
- * @return 实际处理事件数；负值表示错误
+ * @return 实际处理事件数；负值表示错误（HRT 级上下文调用返回 BM_ERR_BUSY）
  */
 int bm_event_process(uint32_t max_events) {
     bm_event_cpu_state_t *state = bm_event_this();
@@ -935,6 +961,16 @@ int bm_event_process(uint32_t max_events) {
 
     if (state == NULL) {
         return BM_ERR_INVALID;
+    }
+
+    /*
+     * fail-closed：HRT 级 ISR 与 SRT 队列的阈值掩码临界区不互斥，
+     * 放行会损坏 prio_read/prio_write 索引（对齐 bm_ultra_process 经 pop
+     * 获得的间接拦截）。
+     */
+    if (BM_SRT_QUEUE_API_FORBIDDEN()) {
+        event_log_hrt_reject_op_once("process");
+        return BM_ERR_BUSY;
     }
 
     /*

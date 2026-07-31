@@ -16,8 +16,8 @@
  *       性能为待硬件验证项。
  *
  * @author zeh (china_qzh@163.com)
- * @version 3.7
- * @date 2026-07-16
+ * @version 3.8
+ * @date 2026-07-31
  *
  * @par 修改日志:
  *
@@ -72,6 +72,9 @@
  * 2026-07-16       3.7            zeh            BM_VENDOR_PWM_TIMER_PRESCALE 由 B2 诊断值
  *                                                20 恢复为正常工作值 4（载波回 20 kHz），
  *                                                同步清理诊断注释
+ * 2026-07-31       3.8            zeh            TEZ ISR 回调派发首尾成对调用
+ *                                                bm_hrt_isr_enter/exit，落地 Hardware HRT
+ *                                                端口的掩码模式拦截契约
  *
  */
 #include "bm_vendor_pwm_esp32_idf.h"
@@ -79,6 +82,7 @@
 #include "xtensa/bm_arch_isr_fpu.h"
 #include "bm_hal_instances_esp32wroom32e.h"
 #include "bm_types.h"
+#include "bm_critical_wrap.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -459,7 +463,12 @@ static void IRAM_ATTR bm_vendor_pwm_isr(void *arg)
      * ESP 中断上下文默认禁用 FPU(CP0)，须用守卫开 CP0 并存/恢复被打断现场。
      * 两个回调共用一对 enter/exit，减少 CP0 存/恢复次数。
      * 守卫顺序铁律：开 CP0 → 存现场 → 跑浮点 → 复现场 → 还原 CPENABLE。
+     *
+     * Hardware HRT 端口契约（bm_critical_wrap.h）：回调派发首尾成对标记
+     * HRT ISR 上下文，使掩码模式对 SRT 队列 API 的 fail-closed 拦截在
+     * 本链路生效；非掩码模式仅维护计数，不改变行为。
      */
+    bm_hrt_isr_enter();
     {
         unsigned cp_prev = bm_arch_isr_fpu_enter(ctx->cp0_sa);
 
@@ -475,6 +484,7 @@ static void IRAM_ATTR bm_vendor_pwm_isr(void *arg)
 
         bm_arch_isr_fpu_exit(ctx->cp0_sa, cp_prev);
     }
+    bm_hrt_isr_exit();
 }
 
 /**

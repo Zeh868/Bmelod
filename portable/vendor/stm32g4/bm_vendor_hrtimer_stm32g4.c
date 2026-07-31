@@ -9,8 +9,8 @@
  * ISR 有界：仅清除标志、更新 compare、递增统计、派发回调；不解析业务协议。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.2
- * @date 2026-07-29
+ * @version 1.3
+ * @date 2026-07-31
  *
  * @par 修改日志:
  *
@@ -21,10 +21,14 @@
  *                                                init 支持 config 覆盖入参、补 initialized
  *                                                标志与失败回滚；ctx_for 改按 dev 匹配
  * 2026-07-29       1.2            zeh            删除未使用的 bm_vendor_hrtimer_get_ccr()
+ * 2026-07-31       1.3            zeh            ISR 回调派发首尾成对调用
+ *                                                bm_hrt_isr_enter/exit，落地 Hardware HRT
+ *                                                端口的掩码模式拦截契约
  */
 #include "bm_vendor_hrtimer_stm32g4.h"
 #include "bm_hal_instances_stm32g4.h"
 #include "bm_types.h"
+#include "bm_critical_wrap.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -395,7 +399,11 @@ static void bm_vendor_hrtimer_isr(bm_vendor_hrtimer_context_t *ctx) {
     }
 
     if (ctx->callback != NULL) {
+        /* Hardware HRT 端口契约（bm_critical_wrap.h）：回调派发首尾成对
+         * 标记 HRT ISR 上下文，使掩码模式的 fail-closed 拦截生效 */
+        bm_hrt_isr_enter();
         ctx->callback(ctx->dev, ctx->user);
+        bm_hrt_isr_exit();
     }
 }
 

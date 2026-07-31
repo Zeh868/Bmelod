@@ -8,8 +8,8 @@
  * 测试可通过 `bm_hal_hrtimer_native_advance_us()` 推进虚拟时间并触发回调。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.2
- * @date 2026-07-28
+ * @version 1.3
+ * @date 2026-07-31
  *
  * @par 修改日志:
  *
@@ -19,11 +19,15 @@
  * 2026-07-28       1.2            zeh            PERIODIC 回调内 stop/重武装被尊重；
  *                                             大跨度 advance 有界合并；set_compare
  *                                             保留当前模式与运行状态；改纯虚拟时间基
+ * 2026-07-31       1.3            zeh            回调派发首尾成对调用
+ *                                             bm_hrt_isr_enter/exit，与真实 Hardware
+ *                                             HRT 端口一致，消除"仿真放行、真机拒绝"分叉
  */
 #include "bm_drv_hrtimer.h"
 #include "hal/bm_hal_hrtimer.h"
 #include "bm_hal_hrtimer_native.h"
 #include "bm/common/bm_types.h"
+#include "bm/common/bm_critical_wrap.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -135,7 +139,11 @@ static void bm_native_hrtimer_fire_one(bm_native_hrtimer_state_t *state,
         }
 
         if (state->callback != NULL) {
+            /* 与真实 Hardware HRT 端口一致（bm_critical_wrap.h 契约）：
+             * 回调派发标记 HRT ISR 上下文，避免"仿真放行、真机拒绝"分叉 */
+            bm_hrt_isr_enter();
             state->callback(state->dev, state->user);
+            bm_hrt_isr_exit();
         }
 
         if (state->mode == BM_HRTIMER_MODE_PERIODIC) {

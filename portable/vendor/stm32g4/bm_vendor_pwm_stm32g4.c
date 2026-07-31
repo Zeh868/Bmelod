@@ -25,19 +25,23 @@
  * 的 NVIC_* 函数，逐处注释）。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-07-27
+ * @version 1.2
+ * @date 2026-07-31
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-27       1.0            zeh            新增（STM32G474xB 移植）
  * 2026-07-27       1.1            zeh            寄存器级改写为 STM32 LL 库实现（决策变更：提高可读性）
+ * 2026-07-31       1.2            zeh            update ISR 回调派发首尾成对调用
+ *                                                bm_hrt_isr_enter/exit，落地 Hardware HRT
+ *                                                端口的掩码模式拦截契约
  *
  */
 #include "bm_vendor_pwm_stm32g4.h"
 #include "bm_hal_instances_stm32g4.h"
 #include "bm_types.h"
+#include "bm_critical_wrap.h"
 #include "armv7em/bm_arch_isr_fpu.h"
 
 #include <stddef.h>
@@ -260,11 +264,16 @@ void TIM1_UP_TIM16_IRQHandler(void)
     }
     LL_TIM_ClearFlag_UPDATE(TIM1);
 
+    /* Hardware HRT 端口契约（bm_critical_wrap.h）：回调派发首尾成对标记
+     * HRT ISR 上下文，使掩码模式对 SRT 队列 API 的 fail-closed 拦截在
+     * 本链路生效；非掩码模式仅维护计数，不改变行为 */
+    bm_hrt_isr_enter();
     fpu_prev = bm_arch_isr_fpu_enter(ctx->fpu_sa);
     if (ctx->update_binding.callback != NULL) {
         ctx->update_binding.callback(ctx->update_binding.context);
     }
     bm_arch_isr_fpu_exit(ctx->fpu_sa, fpu_prev);
+    bm_hrt_isr_exit();
 }
 
 /* ---------- HAL API 实现 ---------- */

@@ -2,17 +2,20 @@
  * @file test_hrt.c
  * @brief 硬实时调度器（HRT）多槽、截止期与边界条件单元测试
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-10
+ * @version 1.1
+ * @date 2026-07-31
  * @par 修改日志:
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
+ * 2026-07-31       1.1            zeh            补端到端接线用例：hrt_dispatch
+ *                                                驱动的槽回调内 bm_in_hrt_isr()==1
  */
 
 #include "unity.h"
 #include "bm_hrt.h"
 #include "bm_log.h"
 #include "bm_hal_timer_native.h"
+#include "bm_critical_wrap.h"
 
 static uint32_t g_slot_a;
 static uint32_t g_slot_b;
@@ -24,6 +27,13 @@ static void slot_a_cb(void *context) {
 static void slot_b_cb(void *context) {
     (void)context;
     g_slot_b++;
+}
+
+/* 端到端接线观测：hrt_dispatch 驱动的槽回调内是否处于 HRT ISR 上下文 */
+static int g_cb_in_hrt_isr_seen;
+static void slot_ctx_probe_cb(void *context) {
+    (void)context;
+    g_cb_in_hrt_isr_seen = bm_in_hrt_isr();
 }
 
 void setUp(void) {
@@ -175,6 +185,28 @@ void test_hrt_rejects_slot_overflow(void) {
                       bm_hrt_init(&slot, BM_CONFIG_HRT_MAX_SLOTS + 1u));
 }
 
+/**
+ * @brief 端到端接线断言：hrt_dispatch 驱动的槽回调必须运行在
+ *        bm_hrt_isr_enter/exit 标记的 HRT ISR 上下文内（掩码模式对
+ *        event/ultra/mempool 的 fail-closed 拦截依赖该标记），
+ *        且回调返回后上下文已退出。非掩码默认配置下计数同样维护，
+ *        本断言在两档配置下均有效。
+ */
+void test_hrt_dispatch_marks_hrt_isr_context(void) {
+    static const bm_hrt_slot_t slots[] = {
+        { 1000u, BM_HRT_TRIGGER_TIMER, slot_ctx_probe_cb, NULL, "probe" },
+    };
+
+    g_cb_in_hrt_isr_seen = -1;
+    TEST_ASSERT_EQUAL(BM_OK, bm_hrt_init(slots, 1u));
+    TEST_ASSERT_EQUAL(BM_OK, bm_hrt_start());
+
+    TEST_ASSERT_EQUAL(0, bm_in_hrt_isr());
+    bm_hal_timer_native_advance_ticks(10u);
+    TEST_ASSERT_EQUAL(1, g_cb_in_hrt_isr_seen);
+    TEST_ASSERT_EQUAL(0, bm_in_hrt_isr());
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_hrt_schedules_multiple_slots);
@@ -188,5 +220,6 @@ int main(void) {
     RUN_TEST(test_hrt_tick_wraparound);
     RUN_TEST(test_hrt_rejects_slot_overflow);
     RUN_TEST(test_hrt_rejects_init_while_started);
+    RUN_TEST(test_hrt_dispatch_marks_hrt_isr_context);
     return UNITY_END();
 }

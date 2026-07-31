@@ -26,8 +26,8 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.4
- * @date 2026-07-29
+ * @version 1.5
+ * @date 2026-07-31
  *
  * @par 修改日志:
  *
@@ -38,6 +38,11 @@
  *                                                默认控制台设备 bm_uart_default（统一实例模型）
  * 2026-07-28       1.3            zeh            UART、LSI 与 IWDG 就绪轮询改为命名上限并返回超时
  * 2026-07-29       1.4            zeh            控制台 UART API 表补 .abort 成员
+ * 2026-07-31       1.5            zeh            uptime 64 位扩展（s_last/s_high RMW）
+ *                                                加 BM_CRITICAL 互斥，修复 ISR 与主循环
+ *                                                并发读取可能丢回绕进位、破坏跨上下文
+ *                                                单调性的问题；文件行尾归一为 LF
+ *                                                （.gitattributes eol=lf）
  *
  */
 #include "bm_drv_timer.h"
@@ -46,6 +51,7 @@
 #include "bm_drv_wdg.h"
 #include "bm_hal_instances_stm32g4.h"
 #include "bm_hal_uptime.h"
+#include "bm_critical_wrap.h"
 #include "bm_types.h"
 #include "armv7em/bm_arch_isr_fpu.h"
 
@@ -583,12 +589,19 @@ uint64_t bm_hal_uptime_ns_raw(void)
         s_dwt_ready = 1u;
     }
 
-    cycles = DWT->CYCCNT;
-    if (cycles < s_last) {
-        s_high++;
-    }
-    s_last = cycles;
+    /* s_last/s_high 的读-改-写与 64 位拼接须互斥：ISR 与主循环并发调用时，
+     * 无保护的扩展可能丢失或重复一次回绕进位，破坏 uptime 的跨上下文单调性。
+     * BM_CRITICAL_ENTER 在 Cortex-M 上为 PRIMASK 操作，ISR 内调用同样安全。 */
+    {
+        bm_irq_state_t irq_state = BM_CRITICAL_ENTER();
 
-    total = ((uint64_t)s_high << 32) | cycles;
+        cycles = DWT->CYCCNT;
+        if (cycles < s_last) {
+            s_high++;
+        }
+        s_last = cycles;
+        total = ((uint64_t)s_high << 32) | cycles;
+        BM_CRITICAL_EXIT(irq_state);
+    }
     return (total / freq) * 1000000000ull + (total % freq) * 1000000000ull / freq;
 }
