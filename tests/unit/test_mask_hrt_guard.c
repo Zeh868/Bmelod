@@ -4,21 +4,25 @@
  * @brief 掩码模式（BM_CONFIG_ENABLE_PRIORITY_MASK=1）下 SRT 队列 API 对
  *        HRT 级 ISR 上下文 fail-closed 的运行期拦截单元测试
  *
- * 测试目标直接编译 Source/core/bm_event.c 与 bm_mempool.c（掩码宏开），
- * 临界区两层符号由 fakes/bm_mask_guard_fake.c 提供。断言：
+ * 测试目标直接编译 Source/core/bm_event.c、bm_ultra.c 与 bm_mempool.c
+ * （掩码宏开），临界区两层符号由 fakes/bm_mask_guard_fake.c 提供。断言：
  * - HRT ISR 上下文（bm_hrt_isr_enter 标记）中：
  *   bm_event_publish_copy_from_isr → BM_ERR_BUSY（且不触阈值掩码临界区）、
+ *   bm_event_publish_copy（非 ISR 变体）同样 BM_ERR_BUSY、
+ *   bm_ultra_queue_push/pop → BM_ERR_BUSY、bm_ultra_queue_reset 被拒绝、
  *   bm_mempool_alloc → NULL、bm_mempool_try_free → BM_ERR_BUSY、
  *   bm_mempool_reset 被拒绝（池内容不变）；
  * - 低于 HRT 阈值的 from_isr 与普通主循环路径不受影响（BM_OK）；
  * - 正常入队确实以 BM_CONFIG_HRT_PRIORITY_THRESHOLD 进入阈值掩码临界区。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-07-30
+ * @version 1.1
+ * @date 2026-07-31
  * @par 修改日志:
  *    Date         Version        Author          Description
  * 2026-07-30       1.0            zeh            正式发布
+ * 2026-07-31       1.1            zeh            补非 ISR 变体与 ultra 队列拦截
+ *                                                用例；setUp 复位内存池
  */
 
 #include "unity.h"
@@ -26,6 +30,7 @@
 #include "bm/core/bm_mempool_impl.h"
 #include "bm/common/bm_critical_wrap.h"
 #include "bm/common/bm_types.h"
+#include "bm_ultra.h"
 
 #include <stdint.h>
 
@@ -43,11 +48,17 @@ typedef struct {
 
 BM_MEMPOOL_DEFINE(g_pool, guard_obj_t, 4u);
 
+/* bm_ultra.c 依赖应用侧实例化的回调表；本用例只验证入队拦截，全部留空 */
+BM_ULTRA_CALLBACK_TABLE_DEFINE();
+
 void setUp(void) {
     bm_mask_guard_fake_reset();
     bm_event_reset();
     /* 计数器跨用例必须保持平衡；此处防御性确认无残留 HRT 上下文 */
     TEST_ASSERT_EQUAL_INT(0, bm_in_hrt_isr());
+    /* 池与 ultra 队列跨用例复位，消除用例间顺序耦合 */
+    bm_mempool_reset(&g_pool);
+    bm_ultra_queue_reset();
 }
 
 void tearDown(void) {}
@@ -89,6 +100,52 @@ void test_publish_normal_path_ok(void) {
     TEST_ASSERT_EQUAL(BM_OK, bm_event_register_type(GUARD_EVT_TYPE, "guard"));
     TEST_ASSERT_EQUAL(BM_OK,
         bm_event_publish_copy(GUARD_EVT_TYPE, GUARD_EVT_PRIO, NULL, 0u));
+}
+
+/*
+ * HRT 回调里误用非 ISR 变体同样不安全（阈值掩码不互斥），拦截只看上下文，
+ * 不看调用的是哪个变体
+ */
+void test_publish_normal_variant_in_hrt_context_rejected(void) {
+    unsigned before;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_event_register_type(GUARD_EVT_TYPE, "guard"));
+
+    bm_hrt_isr_enter();
+    before = bm_mask_guard_fake_enter_below_count();
+    TEST_ASSERT_EQUAL(BM_ERR_BUSY,
+        bm_event_publish_copy(GUARD_EVT_TYPE, GUARD_EVT_PRIO, NULL, 0u));
+    TEST_ASSERT_EQUAL_UINT(before, bm_mask_guard_fake_enter_below_count());
+    bm_hrt_isr_exit();
+
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_event_publish_copy(GUARD_EVT_TYPE, GUARD_EVT_PRIO, NULL, 0u));
+}
+
+/* ultra 队列：HRT 级上下文中 push/pop/reset 均 fail-closed */
+void test_ultra_hrt_isr_rejected(void) {
+    bm_ultra_queue_item_t item;
+    bm_ultra_queue_item_t out;
+    unsigned before;
+
+    item.event_type = 0u;
+    item.data_len = 0u;
+    TEST_ASSERT_EQUAL(BM_OK, bm_ultra_queue_push(&item));
+    TEST_ASSERT_EQUAL_UINT8(1u, bm_ultra_queue_count());
+
+    bm_hrt_isr_enter();
+    before = bm_mask_guard_fake_enter_below_count();
+    TEST_ASSERT_EQUAL(BM_ERR_BUSY, bm_ultra_queue_push(&item));
+    TEST_ASSERT_EQUAL(BM_ERR_BUSY, bm_ultra_queue_pop(&out));
+    bm_ultra_queue_reset();
+    /* 三次调用都在进入队列临界区之前被拦下 */
+    TEST_ASSERT_EQUAL_UINT(before, bm_mask_guard_fake_enter_below_count());
+    bm_hrt_isr_exit();
+
+    /* reset 被拒绝：先前入队的项仍在，退出上下文后可正常弹出 */
+    TEST_ASSERT_EQUAL_UINT8(1u, bm_ultra_queue_count());
+    TEST_ASSERT_EQUAL(BM_OK, bm_ultra_queue_pop(&out));
+    TEST_ASSERT_EQUAL_UINT8(0u, bm_ultra_queue_count());
 }
 
 /* mempool：HRT 级 ISR 中 alloc/try_free 均 fail-closed */
@@ -134,6 +191,8 @@ int main(void) {
     RUN_TEST(test_publish_from_below_threshold_isr_ok);
     RUN_TEST(test_publish_from_hrt_isr_rejected);
     RUN_TEST(test_publish_normal_path_ok);
+    RUN_TEST(test_publish_normal_variant_in_hrt_context_rejected);
+    RUN_TEST(test_ultra_hrt_isr_rejected);
     RUN_TEST(test_mempool_hrt_isr_rejected);
     RUN_TEST(test_mempool_reset_hrt_isr_rejected);
     return UNITY_END();

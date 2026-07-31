@@ -6,8 +6,8 @@
  * 位图标记空闲槽，临界区保护分配/释放。
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.4
- * @date 2026-07-30
+ * @version 1.5
+ * @date 2026-07-31
  *
  * @par 修改日志:
  *
@@ -19,6 +19,9 @@
  * 2026-07-30       1.4            zeh            掩码模式 HRT 级 ISR 调用运行期
  *                                                fail-closed；统一与 bm_event.c
  *                                                的 ISR 契约口径
+ * 2026-07-31       1.5            zeh            改用共享的
+ *                                                BM_SRT_QUEUE_API_FORBIDDEN()；
+ *                                                拒绝日志改 log-once
  *
  */
 #include "bm_mempool.h"
@@ -81,26 +84,27 @@ static inline int mempool_lock(bm_mempool_t *pool, bm_irq_state_t *s) {
 #define MEMPOOL_UNLOCK(p, s)        BM_CRITICAL_EXIT(s)
 #endif
 
-#if BM_CONFIG_ENABLE_PRIORITY_MASK
 /**
- * @brief 掩码模式下判定当前是否处于禁止调用本模块的 HRT 级 ISR
+ * @brief HRT 级上下文拒绝服务时输出一次诊断日志
  *
- * BM_CRITICAL_ENTER() 仅屏蔽低于 HRT 阈值的中断，HRT 级（>= 阈值）ISR 与
- * SRT 路径不互斥。按"确定性流式 ISR 安全契约"（见 bm_event.c 注释），HRT 级
- * ISR 不得调用 event/ultra/mempool API；契约由 bm_hrt_isr_enter/exit 维护的
- * 上下文标记运行期强制，本模块各入口据此 fail-closed。
+ * 掩码模式下 BM_CRITICAL_ENTER() 仅屏蔽低于 HRT 阈值的中断，HRT 级（>= 阈值）
+ * ISR 与 SRT 路径不互斥。按"确定性流式 ISR 安全契约"（见 bm_event.c 注释），
+ * HRT 级上下文不得调用 event/ultra/mempool API，本模块各入口据
+ * BM_SRT_QUEUE_API_FORBIDDEN() fail-closed。
  *
- * @return 非 0 表示处于 HRT 级 ISR，调用方须拒绝服务
+ * 该路径只可能在 HRT 级 ISR 内命中，日志按"首次拒绝"输出一次即止：bm_log
+ * 在非 ring 配置下直写 UART 属无界 I/O，不可留在 HRT 路径上反复执行。
+ *
+ * @param op 被拒绝的操作名（alloc/free/reset）
  */
-static inline int mempool_hrt_isr_forbidden(void) {
-    return bm_in_hrt_isr();
+static void mempool_log_hrt_reject_once(const char *op) {
+    static volatile int logged;
+
+    if (!logged) {
+        logged = 1;
+        BM_LOGE("mempool", "%s from HRT-level ISR rejected", op);
+    }
 }
-#else
-/** @brief 非掩码模式：全关中断下任何 ISR 调用均互斥安全，无需拦截 */
-static inline int mempool_hrt_isr_forbidden(void) {
-    return 0;
-}
-#endif
 
 /**
  * @brief 校验内存池描述符基本字段
@@ -170,8 +174,8 @@ void *bm_mempool_alloc(bm_mempool_t *pool) {
         BM_LOGE("mempool", "alloc invalid pool");
         return NULL;
     }
-    if (mempool_hrt_isr_forbidden()) {
-        BM_LOGE("mempool", "alloc from HRT-level ISR rejected");
+    if (BM_SRT_QUEUE_API_FORBIDDEN()) {
+        mempool_log_hrt_reject_once("alloc");
         return NULL;
     }
 
@@ -205,7 +209,7 @@ void *bm_mempool_alloc(bm_mempool_t *pool) {
                      * 包括掩码模式下允许调用本 API 的低于 HRT 阈值的 ISR。
                      * HRT 级（>= 阈值）ISR 按契约禁止调用本 API（见 bm_event.c
                      * "确定性流式 ISR 安全契约"），掩码模式下由入口处的
-                     * mempool_hrt_isr_forbidden() 运行期拦截。
+                     * BM_SRT_QUEUE_API_FORBIDDEN() 运行期拦截。
                      * 对象大小固定且有界，临界区时长仍确定。
                      *
                      * [F-1 IRQ-off 窗口] BM_CRITICAL 关中断的最坏时长 ∝ 最大
@@ -247,8 +251,8 @@ int bm_mempool_try_free(bm_mempool_t *pool, void *obj) {
         BM_LOGE("mempool", "free invalid args");
         return BM_ERR_INVALID;
     }
-    if (mempool_hrt_isr_forbidden()) {
-        BM_LOGE("mempool", "free from HRT-level ISR rejected");
+    if (BM_SRT_QUEUE_API_FORBIDDEN()) {
+        mempool_log_hrt_reject_once("free");
         return BM_ERR_BUSY;
     }
     if (mempool_pool_end(pool, &pool_end) != BM_OK) {
@@ -318,8 +322,8 @@ void bm_mempool_reset(bm_mempool_t *pool) {
         BM_LOGE("mempool", "reset invalid pool");
         return;
     }
-    if (mempool_hrt_isr_forbidden()) {
-        BM_LOGE("mempool", "reset from HRT-level ISR rejected");
+    if (BM_SRT_QUEUE_API_FORBIDDEN()) {
+        mempool_log_hrt_reject_once("reset");
         return;
     }
 

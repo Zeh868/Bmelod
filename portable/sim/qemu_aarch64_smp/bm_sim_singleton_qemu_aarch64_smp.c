@@ -6,8 +6,8 @@
  * 临界区与内存屏障由 `bm_port_arch_aarch64` 提供。
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.5
- * @date 2026-07-28
+ * @version 1.6
+ * @date 2026-07-30
  *
  * @par 修改日志:
  *

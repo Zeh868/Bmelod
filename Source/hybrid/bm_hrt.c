@@ -5,8 +5,8 @@
  *
  * 基于 HAL 定时器 ISR 按周期触发回调；支持 deadline 错过弱钩子。
  * @author zeh (china_qzh@163.com)
- * @version 1.8
- * @date 2026-07-30
+ * @version 1.9
+ * @date 2026-07-31
  *
  * @par 修改日志:
  *
@@ -26,6 +26,10 @@
  *                                               （bm_hrt_isr_enter/exit）；
  *                                               bm_hrt_poll 全关中断包裹 dispatch，
  *                                               消除与硬件 ISR 的数据竞争
+ * 2026-07-31       1.9            zeh            上下文标记与临界区下沉进
+ *                                               hrt_dispatch：仅槽状态推进加锁，
+ *                                               用户回调移出 IRQ-off 窗口，
+ *                                               ISR 与 poll 两路径语义对齐
  *
  */
 #include "bm_hrt.h"
@@ -158,6 +162,16 @@ static void hrt_stop_locked(bm_hrt_cpu_state_t *state) {
 /**
  * @brief 扫描所有槽并触发到期回调
  *
+ * 到期判定与槽状态推进（next_tick / deadline_missed）在全关中断的临界区内
+ * 完成，回调与 deadline 钩子在锁外调用。这样定时器 ISR 与协作式
+ * bm_hrt_poll 可并发驱动同一核而不竞争槽状态——本周期先被哪条路径"认领"，
+ * 另一条就看到已推进的 next_tick 而不会重复触发——同时用户回调不被圈进
+ * IRQ-off 窗口，与真实 ISR 中回调仍可被更高优先级中断抢占的行为一致。
+ *
+ * 全程标记 HRT 级 ISR 上下文：ISR 与 poll 两条驱动路径由此获得同一套 SRT
+ * 队列 fail-closed 语义，避免"仿真放行、真机拒绝"的分叉（见
+ * bm_critical_wrap.h）。
+ *
  * @param state 当前核 HRT 状态（调用方须持有非 NULL）
  */
 static void hrt_dispatch(bm_hrt_cpu_state_t *state) {
@@ -165,6 +179,7 @@ static void hrt_dispatch(bm_hrt_cpu_state_t *state) {
     uint32_t i;
     uint32_t fired = 0u;
 
+    bm_hrt_isr_enter();
     /*
      * 遍历槽位并分派就绪回调，受 BM_CONFIG_HRT_DISPATCH_PER_ISR 限制；
      * 各回调 WCET 须相对 BM_CONFIG_HRT_TICK_US 预算，以保证 ISR
@@ -173,14 +188,20 @@ static void hrt_dispatch(bm_hrt_cpu_state_t *state) {
     for (i = 0u; i < state->slot_count &&
          fired < BM_CONFIG_HRT_DISPATCH_PER_ISR; ++i) {
         bm_hrt_runtime_slot_t *slot = &state->slots[i];
+        bm_irq_state_t s;
+        int missed;
 
+        /* trigger 与 period_ticks 在 start 后冻结，可在锁外读 */
         if (slot->pub.trigger != BM_HRT_TRIGGER_TIMER) {
             continue;
         }
         if (slot->period_ticks == 0u) {
             continue;
         }
+
+        s = bm_critical_enter();
         if (!bm_time_reached_u32(now, slot->next_tick)) {
+            bm_critical_exit(s);
             continue;
         }
         if ((uint32_t)(now - slot->next_tick) >= slot->period_ticks) {
@@ -191,6 +212,17 @@ static void hrt_dispatch(bm_hrt_cpu_state_t *state) {
 
             slot->deadline_missed =
                 bm_u32_saturating_add(slot->deadline_missed, missed_periods);
+            slot->next_tick = hrt_deadline_from(now, slot->period_ticks);
+            missed = 1;
+        } else {
+            slot->next_tick =
+                hrt_deadline_from(slot->next_tick, slot->period_ticks);
+            missed = 0;
+        }
+        bm_critical_exit(s);
+
+        /* next_tick 推进后本周期已被认领，回调可安全地在锁外执行 */
+        if (missed) {
             bm_hrt_deadline_missed_hook(&slot->pub);
 #if BM_CONFIG_HRT_RUN_MISSED_CALLBACK
             if (slot->pub.callback) {
@@ -198,24 +230,22 @@ static void hrt_dispatch(bm_hrt_cpu_state_t *state) {
                 fired++;
             }
 #endif
-            slot->next_tick = hrt_deadline_from(now, slot->period_ticks);
             continue;
         }
         if (slot->pub.callback) {
             slot->pub.callback(slot->pub.context);
             fired++;
         }
-        slot->next_tick =
-            hrt_deadline_from(slot->next_tick, slot->period_ticks);
     }
+    bm_hrt_isr_exit();
 }
 
 /**
  * @brief HAL 定时器 ISR 入口，分派 HRT 回调
  *
  * ISR 回调签名固定为 void(void)，无法接收上层参数，须在此自行取 state。
- * bm_hrt_isr_enter/exit 标记 HRT 级 ISR 上下文：掩码模式下 event/mempool
- * 等 SRT 队列 API 据此对 HRT 级上下文 fail-closed（见 bm_critical_wrap.h）。
+ * HRT 级 ISR 上下文的标记由 hrt_dispatch 统一维护（ISR 与 poll 两条驱动
+ * 路径共用同一语义）。
  */
 static void hrt_timer_isr(void) {
     bm_hrt_cpu_state_t *state = bm_hrt_this();
@@ -223,26 +253,21 @@ static void hrt_timer_isr(void) {
     if (state == NULL) {
         return;
     }
-    bm_hrt_isr_enter();
     hrt_dispatch(state);
-    bm_hrt_isr_exit();
 }
 
 /**
  * @brief 协作式轮询 HRT（用于 QEMU 慢仿真等无精确中断场景）
  *
- * dispatch 经 bm_critical_enter/exit（全关中断）包裹：同核硬件 HRT ISR 只能
- * 等本轮 dispatch 完成后触发，next_tick/deadline_missed 序列化，与 ISR 并发
- * 驱动同一核不再存在数据竞争。dispatch 有界（BM_CONFIG_HRT_DISPATCH_PER_ISR
- * 封顶），IRQ-off 窗口与一次真实 ISR 等价；mask 模式下 poll 语义即"ISR 的
- * 协作式替身"，同样使用全屏蔽而非阈值掩码。
+ * 与硬件 HRT 定时器中断（hrt_timer_isr）并存是安全的：二者共用 hrt_dispatch，
+ * 槽状态推进在全关中断的临界区内完成，同一周期只会被先到的一方认领一次。
+ * 用户回调在锁外执行，本函数不会因此延长全局中断关闭时长。
  *
- * @note 仍建议与硬件 HRT 中断二选一：并存虽正确，但同一周期可能被 ISR 与
- * poll 各检查一次，仅徒增一次空扫描，语义上属冗余驱动。
+ * @note 并存时同一周期可能被 ISR 与 poll 各检查一次，仅徒增一次空扫描，
+ * 语义上属冗余驱动；无精确中断的仿真场景之外仍建议二选一。
  */
 void bm_hrt_poll(void) {
     bm_hrt_cpu_state_t *state = bm_hrt_this();
-    bm_irq_state_t irq_state;
 
     if (bm_hal_in_isr()) {
         return;
@@ -250,9 +275,7 @@ void bm_hrt_poll(void) {
     if (state == NULL || !state->started) {
         return;
     }
-    irq_state = bm_critical_enter();
     hrt_dispatch(state);
-    bm_critical_exit(irq_state);
 }
 
 int bm_hrt_validate_period_us(uint32_t period_us) {

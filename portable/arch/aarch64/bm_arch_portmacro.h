@@ -6,7 +6,7 @@
  * AArch64 临界区快照为 DAIF 寄存器值（64 位语义，经 bm_irq_state_t 截断传递）。
  * @author zeh (china_qzh@163.com)
  * @version 1.1
- * @date 2026-06-15
+ * @date 2026-07-30
  *
  * @par 修改日志:
  *

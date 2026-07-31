@@ -10,13 +10,16 @@
  * 每核独立 HRT 定时器与槽表，bm_hrt_init/start/stop 仅影响调用者所在 CPU。
  * 不同核的 HRT 周期彼此独立，通过 bm_sync 进行硬件级相位对齐。
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-10
+ * @version 1.1
+ * @date 2026-07-31
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
+ * 2026-07-31       1.1            zeh            bm_hrt_poll 文档补充与硬件 ISR
+ *                                                并存语义、HRT 级上下文标记与
+ *                                                中断关闭范围
  *
  */
 #ifndef BM_HRT_H
@@ -123,7 +126,13 @@ int bm_hrt_is_started(void);
 /**
  * @brief 协作式分派到期 HRT 槽（非 ISR 上下文可调用）
  *
- * QEMU 等慢仿真环境下，主循环可显式调用以补充定时器 IRQ 调度。
+ * QEMU 等慢仿真环境下，主循环可显式调用以补充定时器 IRQ 调度。与硬件 HRT
+ * 定时器中断并存安全：同一周期只会被先到的一方认领一次。
+ *
+ * 分派期间当前核被标记为 HRT 级上下文，与真机 ISR 路径一致——掩码模式下
+ * HRT 回调中调用 event/ultra/mempool 等 SRT 队列 API 同样会被 fail-closed
+ * 拒绝（见 include/bm/common/bm_critical_wrap.h）。槽状态推进会短暂全关
+ * 中断，用户回调本身在中断开启状态下执行。
  */
 void bm_hrt_poll(void);
 

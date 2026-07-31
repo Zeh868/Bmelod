@@ -6,8 +6,8 @@
  * 按优先级分 FIFO 队列 + 不可变链表订阅者；临界区保护多生产者/消费者。
  * 订阅表初始化后冻结，分发直接遍历链表——无快照，WCET 可预测。
  * @author zeh (china_qzh@163.com)
- * @version 1.6
- * @date 2026-07-30
+ * @version 1.7
+ * @date 2026-07-31
  *
  * @par 修改日志:
  *
@@ -22,6 +22,9 @@
  *                                                消除默认配置下 MSVC C2233
  * 2026-07-30       1.6            zeh            掩码模式 HRT 级 ISR 发布运行期
  *                                                fail-closed（bm_in_hrt_isr）
+ * 2026-07-31       1.7            zeh            拦截改为只依据上下文（非 ISR
+ *                                                变体在 HRT 回调中同样拒绝）；
+ *                                                拒绝日志改 log-once
  *
  */
 #include "bm/core/bm_cpu_local.h"
@@ -558,6 +561,24 @@ static int _prio_push_copy(bm_event_cpu_state_t *state, bm_event_priority_t prio
 }
 
 /**
+ * @brief HRT 级上下文拒绝发布时输出一次诊断日志
+ *
+ * 该路径只可能在 HRT 级 ISR 内命中，而 bm_log 在非 ring 配置下直写 UART，
+ * 属无界 I/O；高频 HRT 上误用一次即可形成日志洪水。故只在首次拒绝时输出，
+ * 足以定位问题又不把无界开销留在 HRT 路径上。标志的并发写是良性竞争，
+ * 最坏结果仅为重复输出一条。
+ */
+static void event_log_hrt_reject_once(bm_event_type_t type) {
+    static volatile int logged;
+
+    if (!logged) {
+        logged = 1;
+        BM_LOGE("event", "publish from HRT-level ISR rejected type=%u",
+                (unsigned)type);
+    }
+}
+
+/**
  * @brief 通用的发布实现：校验 → 路由转发 → 入队
  *
  * 冻结后无 _dispatch_active 检查；从回调发布事件链是确定性的正常操作。
@@ -584,28 +605,26 @@ static int event_publish_impl(bm_event_type_t type, bm_event_priority_t prio,
      *     实时队列；HRT 级路径只应经 HRT binding（直驱硬件）与 stream/relay
      *     通道交互。刻意不在此处升级为全关中断——否则 HRT ISR 在队列操作期间
      *     被阻塞，反而增大 HRT 抖动，违背确定性流式对最高优先级路径的保证。
-     *   · 该禁令有运行期强制：框架 Scheduled HRT 路径（hrt_timer_isr）经
-     *     bm_hrt_isr_enter/exit 标记上下文，下方检查对 HRT 级 from_isr 发布
+     *   · 该禁令有运行期强制：框架 Scheduled HRT 路径（hrt_dispatch）经
+     *     bm_hrt_isr_enter/exit 标记上下文，下方检查对 HRT 级上下文的发布
      *     fail-closed 返回 BM_ERR_BUSY；Hardware HRT 端口（厂商 IRQ handler）
      *     须成对调用 bm_hrt_isr_enter/exit 以获得同等拦截（见
      *     bm_critical_wrap.h）。
      * - 单核路径：每核独立事件队列，转发钩子按注册规则路由；ISR 内 publish
      *   无需额外自旋路径。
      */
-#if BM_CONFIG_ENABLE_PRIORITY_MASK
-    if (from_isr && bm_in_hrt_isr()) {
+    (void)from_isr;
+
+    if (BM_SRT_QUEUE_API_FORBIDDEN()) {
         /*
          * fail-closed：HRT 级 ISR 与 SRT 队列的阈值掩码临界区不互斥，
-         * 放行会导致 prio_read/prio_write 索引静默损坏。在路由转发与入队
-         * 之前拦截，跨核转发链（bm_mp_ipc）一并覆盖。
+         * 放行会导致 prio_read/prio_write 索引静默损坏。判定只看上下文而不
+         * 看 from_isr——在 HRT 回调里误用非 ISR 变体同样会损坏队列。在路由
+         * 转发与入队之前拦截，跨核转发链（bm_mp_ipc）一并覆盖。
          */
-        BM_LOGE("event", "publish from HRT-level ISR rejected type=%u",
-                (unsigned)type);
+        event_log_hrt_reject_once(type);
         return BM_ERR_BUSY;
     }
-#else
-    (void)from_isr;
-#endif
 
     if (state == NULL) {
         return BM_ERR_INVALID;

@@ -716,12 +716,14 @@ if(BM_BUILD_TESTS)
     bm_add_test(test_hrt_isr_context test_hrt_isr_context.c bm_core)
     set_tests_properties(test_hrt_isr_context PROPERTIES LABELS "determinism")
 
-    # 掩码模式 HRT 级 ISR fail-closed：直编 bm_event.c/bm_mempool.c（掩码宏开），
-    # 临界区两层符号由 fake 提供（静态库 bm_hal_critical.o 因此不被拉入）
+    # 掩码模式 HRT 级 ISR fail-closed：直编 bm_event.c/bm_ultra.c/bm_mempool.c
+    # （掩码宏开），临界区两层符号由 fake 提供（静态库 bm_hal_critical.o 因此
+    # 不被拉入）
     bm_add_test_special(
         NAME test_mask_hrt_guard
         SRCS test_mask_hrt_guard.c fakes/bm_mask_guard_fake.c
             ${CMAKE_SOURCE_DIR}/Source/core/bm_event.c
+            ${CMAKE_SOURCE_DIR}/Source/core/bm_ultra.c
             ${CMAKE_SOURCE_DIR}/Source/core/bm_mempool.c
         LIBS bm_core bm_hal bm_hal_native
         DEFS BM_CONFIG_ENABLE_PRIORITY_MASK=1 BM_HAL_HAS_PRIORITY_MASK=1

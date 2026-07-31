@@ -6,8 +6,8 @@
  * 默认路径下全局单例队列 + 计数器；按 CPU 路由时采用分域数组，各域独立。
  * 两条编译路径共享同一套队列逻辑，仅存储布局与 ultra_this() 的实现不同。
  * @author zeh (china_qzh@163.com)
- * @version 1.3
- * @date 2026-07-02
+ * @version 1.4
+ * @date 2026-07-31
  *
  * @par 修改日志:
  *
@@ -17,10 +17,13 @@
  * 2026-07-02       1.2            zeh            两路径去重：统一 state 指针访问
  * 2026-07-02       1.3            zeh            QD-6：cache-line 补齐改用 union，
  *                                                消除 MSVC C2233
+ * 2026-07-31       1.4            zeh            掩码模式 HRT 级上下文调用
+ *                                                push/pop/reset 运行期 fail-closed
  *
  */
 #include "bm_ultra.h"
 #include "bm_critical_wrap.h"
+#include "bm_log.h"
 #include "bm_safety.h"
 #include "bm/core/bm_cpu_local.h"
 
@@ -85,6 +88,25 @@ static bm_ultra_cpu_state_t *ultra_this(void) {
 
 #endif /* BM_CPU_LOCAL_ENABLE_ROUTE */
 
+/**
+ * @brief HRT 级上下文拒绝服务时输出一次诊断日志
+ *
+ * 掩码模式下 BM_CRITICAL_ENTER() 仅屏蔽低于 HRT 阈值的中断，HRT 级 ISR 与本
+ * 队列的临界区不互斥，放行会静默损坏 read_idx/write_idx。按"确定性流式 ISR
+ * 安全契约"（见 bm_event.c 注释）各入口据 BM_SRT_QUEUE_API_FORBIDDEN()
+ * fail-closed；日志只输出首次，避免在 HRT 路径上反复触发无界 UART 写。
+ *
+ * @param op 被拒绝的操作名（push/pop/reset）
+ */
+static void ultra_log_hrt_reject_once(const char *op) {
+    static volatile int logged;
+
+    if (!logged) {
+        logged = 1;
+        BM_LOGE("ultra", "%s from HRT-level ISR rejected", op);
+    }
+}
+
 /** @brief 校验 ultra 队列读写索引在合法掩码范围内 */
 static int ultra_indices_valid(uint8_t read_idx, uint8_t write_idx) {
     uint8_t mask = (uint8_t)(BM_CONFIG_ULTRA_QUEUE_DEPTH - 1u);
@@ -95,7 +117,7 @@ static int ultra_indices_valid(uint8_t read_idx, uint8_t write_idx) {
  * @brief 向当前核的 ultra 队列推入一个事件
  *
  * @param item 事件项指针
- * @return BM_OK 成功；负值表示失败原因
+ * @return BM_OK 成功；BM_ERR_BUSY 处于 HRT 级上下文被拒绝；负值表示其他失败
  */
 int bm_ultra_queue_push(const bm_ultra_queue_item_t *item) {
     bm_ultra_cpu_state_t *state = ultra_this();
@@ -113,6 +135,10 @@ int bm_ultra_queue_push(const bm_ultra_queue_item_t *item) {
     }
     if (state == NULL) {
         return BM_ERR_INVALID;
+    }
+    if (BM_SRT_QUEUE_API_FORBIDDEN()) {
+        ultra_log_hrt_reject_once("push");
+        return BM_ERR_BUSY;
     }
 
     s = BM_CRITICAL_ENTER();
@@ -137,7 +163,8 @@ int bm_ultra_queue_push(const bm_ultra_queue_item_t *item) {
  * @brief 从当前核的 ultra 队列弹出一个事件
  *
  * @param item 输出事件项指针
- * @return BM_OK 成功；BM_ERR_WOULD_BLOCK 队列为空；负值表示其他失败
+ * @return BM_OK 成功；BM_ERR_WOULD_BLOCK 队列为空；BM_ERR_BUSY 处于 HRT 级
+ *         上下文被拒绝；负值表示其他失败
  */
 int bm_ultra_queue_pop(bm_ultra_queue_item_t *item) {
     bm_ultra_cpu_state_t *state = ultra_this();
@@ -148,6 +175,10 @@ int bm_ultra_queue_pop(bm_ultra_queue_item_t *item) {
     }
     if (state == NULL) {
         return BM_ERR_INVALID;
+    }
+    if (BM_SRT_QUEUE_API_FORBIDDEN()) {
+        ultra_log_hrt_reject_once("pop");
+        return BM_ERR_BUSY;
     }
 
     s = BM_CRITICAL_ENTER();
@@ -168,12 +199,18 @@ int bm_ultra_queue_pop(bm_ultra_queue_item_t *item) {
 
 /**
  * @brief 重置当前核的 ultra 队列与统计计数
+ *
+ * 处于 HRT 级上下文时静默拒绝（队列保持原状）。
  */
 void bm_ultra_queue_reset(void) {
     bm_ultra_cpu_state_t *state = ultra_this();
     bm_irq_state_t s;
 
     if (state == NULL) {
+        return;
+    }
+    if (BM_SRT_QUEUE_API_FORBIDDEN()) {
+        ultra_log_hrt_reject_once("reset");
         return;
     }
     s = BM_CRITICAL_ENTER();
