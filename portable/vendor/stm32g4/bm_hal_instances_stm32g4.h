@@ -11,8 +11,8 @@
  * stm32g4xx.h 使用，本头只放可独立包含的宏常量。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.3
- * @date 2026-07-28
+ * @version 1.4
+ * @date 2026-07-31
  *
  * @par 修改日志:
  *
@@ -24,10 +24,28 @@
  * 2026-07-28       1.3            zeh            修正 BM_STM32G4_CANx_TX/RX_PIN 为 (port<<4|num)
  *                                                编码（0x18/0x19/0x1C/0x1D = PB8/PB9/PB12/PB13），
  *                                                对齐 bm_hal_can_stm32g4.c 的解析方式
+ * 2026-07-31       1.4            zeh            SRT 域 IRQ 默认优先级 2/3→5
+ *                                                （UART/USART2/USART3 及其 DMA、SPI1 DMA、
+ *                                                CAN），不低于 HRT 阈值，封堵掩码模式下
+ *                                                fail-closed 拦截绕过面；文件头新增
+ *                                                NVIC 优先级红线说明
  *
  */
 #ifndef BM_HAL_INSTANCES_STM32G4_H
 #define BM_HAL_INSTANCES_STM32G4_H
+
+/* ---------- NVIC 优先级红线（掩码模式 BM_CONFIG_ENABLE_PRIORITY_MASK=1） ----------
+ *
+ * 掩码模式下 BM_CRITICAL_ENTER() 写 BASEPRI=BM_CONFIG_HRT_PRIORITY_THRESHOLD
+ *（默认 4），只屏蔽优先级数值 ≥ 阈值的中断。因此本头全部 IRQ 默认值分两级：
+ * - Hardware HRT 端口（tick=2、PWM=1、ADC=1、hrtimer）：优先级 < 阈值，
+ *   handler 首尾已接线 bm_hrt_isr_enter/exit，其上下文误调 SRT 队列 API
+ *   由运行期 fail-closed 拦截；
+ * - SRT 域 IRQ（console/串口及其 DMA、SPI DMA、CAN、GPIO EXTI）：默认优先级
+ *   必须 ≥ 阈值（统一取 5，与既有 EXTI 默认一致），保证与 SRT 临界区互斥。
+ *   板级覆盖这些宏时不得降到阈值以下，否则掩码模式下 fail-closed 拦截与
+ *   BASEPRI 临界区对其失效，队列索引可能静默损坏。
+ */
 
 /* ---------- 系统 tick（默认 TIM6 基本定时器，APB1 定时器时钟 170MHz） ---------- */
 
@@ -62,9 +80,9 @@
 #ifndef BM_STM32G4_UART_GPIO_AF
 #define BM_STM32G4_UART_GPIO_AF  12u
 #endif
-/** @brief UART RX 中断 NVIC 优先级。 */
+/** @brief UART RX 中断 NVIC 优先级（SRT 域，不得低于 HRT 阈值，见文件头红线）。 */
 #ifndef BM_STM32G4_UART_IRQ_PRIORITY
-#define BM_STM32G4_UART_IRQ_PRIORITY  3u
+#define BM_STM32G4_UART_IRQ_PRIORITY  5u
 #endif
 
 /* ---------- 三相 PWM（默认 TIM1 三相互补，NUCLEO-G474RE：PA8/PA9/PA10 + PB13/PB14/PB15） ---------- */
@@ -284,17 +302,17 @@
 #ifndef BM_STM32G4_USART3_RX_DMA_REQ
 #define BM_STM32G4_USART3_RX_DMA_REQ  28u
 #endif
-/** @brief USART3 全局中断 NVIC 优先级。 */
+/** @brief USART3 全局中断 NVIC 优先级（SRT 域，不得低于 HRT 阈值，见文件头红线）。 */
 #ifndef BM_STM32G4_USART3_IRQ_PRIORITY
-#define BM_STM32G4_USART3_IRQ_PRIORITY  3u
+#define BM_STM32G4_USART3_IRQ_PRIORITY  5u
 #endif
 /** @brief USART3 TX DMA 完成中断 NVIC 优先级。 */
 #ifndef BM_STM32G4_USART3_TX_DMA_IRQ_PRIORITY
-#define BM_STM32G4_USART3_TX_DMA_IRQ_PRIORITY  3u
+#define BM_STM32G4_USART3_TX_DMA_IRQ_PRIORITY  5u
 #endif
 /** @brief USART3 RX DMA 完成中断 NVIC 优先级。 */
 #ifndef BM_STM32G4_USART3_RX_DMA_IRQ_PRIORITY
-#define BM_STM32G4_USART3_RX_DMA_IRQ_PRIORITY  3u
+#define BM_STM32G4_USART3_RX_DMA_IRQ_PRIORITY  5u
 #endif
 
 /* ---------- USART2 设备实例（TMC2209 等，支持单线半双工） ---------- */
@@ -319,9 +337,9 @@
 #ifndef BM_STM32G4_USART2_RX_PIN
 #define BM_STM32G4_USART2_RX_PIN  10u
 #endif
-/** @brief USART2 RX 中断 NVIC 优先级。 */
+/** @brief USART2 RX 中断 NVIC 优先级（SRT 域，不得低于 HRT 阈值，见文件头红线）。 */
 #ifndef BM_STM32G4_USART2_IRQ_PRIORITY
-#define BM_STM32G4_USART2_IRQ_PRIORITY  3u
+#define BM_STM32G4_USART2_IRQ_PRIORITY  5u
 #endif
 
 /* ---------- DMA 通道/请求（SPI1 异步 DMA、USART2 RX DMA；G4 DMAMUX 请求号） ---------- */
@@ -349,13 +367,13 @@
 #ifndef BM_STM32G4_USART2_RX_DMA_REQ
 #define BM_STM32G4_USART2_RX_DMA_REQ  26u
 #endif
-/** @brief SPI1 RX DMA 完成中断 NVIC 优先级。 */
+/** @brief SPI1 RX DMA 完成中断 NVIC 优先级（SRT 域，不得低于 HRT 阈值，见文件头红线）。 */
 #ifndef BM_STM32G4_SPI1_DMA_IRQ_PRIORITY
-#define BM_STM32G4_SPI1_DMA_IRQ_PRIORITY  2u
+#define BM_STM32G4_SPI1_DMA_IRQ_PRIORITY  5u
 #endif
 /** @brief USART2 RX DMA 半满/全满中断 NVIC 优先级。 */
 #ifndef BM_STM32G4_USART2_RX_DMA_IRQ_PRIORITY
-#define BM_STM32G4_USART2_RX_DMA_IRQ_PRIORITY  3u
+#define BM_STM32G4_USART2_RX_DMA_IRQ_PRIORITY  5u
 #endif
 
 /* ---------- 时间基（DWT CYCCNT） ---------- */
@@ -388,9 +406,9 @@
 #ifndef BM_STM32G4_CAN_GPIO_AF
 #define BM_STM32G4_CAN_GPIO_AF  9u
 #endif
-/** @brief FDCAN 中断 NVIC 优先级。 */
+/** @brief FDCAN 中断 NVIC 优先级（SRT 域，不得低于 HRT 阈值，见文件头红线）。 */
 #ifndef BM_STM32G4_CAN_IRQ_PRIORITY
-#define BM_STM32G4_CAN_IRQ_PRIORITY  2u
+#define BM_STM32G4_CAN_IRQ_PRIORITY  5u
 #endif
 /** @brief FDCAN1 Message RAM 固定 word 偏移（0）；后端强制，勿依赖 App 覆盖。 */
 #define BM_STM32G4_CAN1_MSG_RAM_OFFSET  0u

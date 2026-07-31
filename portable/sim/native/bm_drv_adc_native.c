@@ -4,16 +4,20 @@
  * @brief native_sim ADC 设备驱动
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-14
+ * @version 1.1
+ * @date 2026-07-31
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
+ * 2026-07-31       1.1            zeh            fire_complete 回调派发首尾成对调用
+ *                                                bm_hrt_isr_enter/exit，与真实 Hardware
+ *                                                HRT 端口一致，消除"仿真放行、真机拒绝"分叉
  *
  */
 #include "bm_hal_adc_sim.h"
+#include "bm/common/bm_critical_wrap.h"
 #include "bm_log.h"
 
 #define BM_SIM_ADC_RANKS      16u
@@ -103,5 +107,10 @@ void bm_hal_adc_sim_fire_complete(const bm_hal_adc_t *adc) {
     if (!state || !state->complete_binding.callback) {
         return;
     }
+    /* 与真实 Hardware HRT 端口一致（bm_critical_wrap.h 契约）：
+     * 派发等价于硬件 IRQ 的回调须标记 HRT ISR 上下文，
+     * 避免"仿真放行、真机拒绝"分叉 */
+    bm_hrt_isr_enter();
     state->complete_binding.callback(state->complete_binding.context);
+    bm_hrt_isr_exit();
 }

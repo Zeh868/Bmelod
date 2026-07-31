@@ -5,7 +5,7 @@
  *
  * 基于 HAL 定时器 ISR 按周期触发回调；支持 deadline 错过弱钩子。
  * @author zeh (china_qzh@163.com)
- * @version 1.9
+ * @version 1.10
  * @date 2026-07-31
  *
  * @par 修改日志:
@@ -30,6 +30,10 @@
  *                                               hrt_dispatch：仅槽状态推进加锁，
  *                                               用户回调移出 IRQ-off 窗口，
  *                                               ISR 与 poll 两路径语义对齐
+ * 2026-07-31       1.10           zeh            start/stop/reset 启停沿临界区改用
+ *                                               全局 bm_critical_enter/exit：掩码模式下
+ *                                               BM_CRITICAL_ENTER 掩不住 tick ISR，
+ *                                               全局关中断使"全屏障"假设两模式均成立
  *
  */
 #include "bm_hrt.h"
@@ -378,7 +382,14 @@ out:
  */
 int bm_hrt_start(void) {
     bm_hrt_cpu_state_t *state = bm_hrt_this();
-    bm_irq_state_t irq_state = BM_CRITICAL_ENTER();
+    /*
+     * 启停沿一律用全局关中断（非 BM_CRITICAL_ENTER 阈值掩码）：掩码模式下
+     * tick ISR 优先级高于阈值，可在 set_callback/next_tick 重算/started 置位
+     * 之间抢占，多跑一次 dispatch；全局关中断使 stop_locked 注释中的
+     * "全屏障"假设在两种模式下均成立。本路径为启停期一次性路径，不在稳态
+     * HRT 上，临界区时长有界（O(slot_count)）。
+     */
+    bm_irq_state_t irq_state = bm_critical_enter();
     int rc = BM_OK;
 
     if (state == NULL) {
@@ -397,7 +408,7 @@ int bm_hrt_start(void) {
         goto out;
     }
 
-    BM_CRITICAL_EXIT(irq_state);
+    bm_critical_exit(irq_state);
 
     rc = hrt_require_irq_released();
     if (rc != BM_OK) {
@@ -412,13 +423,13 @@ int bm_hrt_start(void) {
         return rc;
     }
 
-    irq_state = BM_CRITICAL_ENTER();
+    irq_state = bm_critical_enter();
     if (state->started || !state->initialized) {
         if (state->started) {
             bm_hal_timer_stop();
             bm_hal_timer_set_callback(NULL);
         }
-        BM_CRITICAL_EXIT(irq_state);
+        bm_critical_exit(irq_state);
         BM_LOGW("hrt", "start race: started=%d init=%d",
                 (int)state->started, (int)state->initialized);
         return state->started ? BM_ERR_ALREADY : BM_ERR_NOT_INIT;
@@ -439,7 +450,7 @@ int bm_hrt_start(void) {
     state->started = 1;
 
 out:
-    BM_CRITICAL_EXIT(irq_state);
+    bm_critical_exit(irq_state);
     if (rc == BM_ERR_ALREADY) {
         BM_LOGW("hrt", "already started");
     } else if (rc == BM_ERR_NOT_INIT) {
@@ -455,14 +466,16 @@ out:
  */
 void bm_hrt_stop(void) {
     bm_hrt_cpu_state_t *state = bm_hrt_this();
-    bm_irq_state_t irq_state = BM_CRITICAL_ENTER();
+    /* 全局关中断（非阈值掩码）：与 bm_hrt_start 同理，排除掩码模式下
+     * tick ISR 在 stop 各阶段间被取走而多 dispatch 一次 */
+    bm_irq_state_t irq_state = bm_critical_enter();
     int stopped = 0;
 
     if (state != NULL && state->started) {
         hrt_stop_locked(state);
         stopped = 1;
     }
-    BM_CRITICAL_EXIT(irq_state);
+    bm_critical_exit(irq_state);
     if (stopped) {
         BM_LOGI("hrt", "stopped");
     }
@@ -473,11 +486,12 @@ void bm_hrt_stop(void) {
  */
 void bm_hrt_reset(void) {
     bm_hrt_cpu_state_t *state = bm_hrt_this();
-    bm_irq_state_t irq_state = BM_CRITICAL_ENTER();
+    /* 全局关中断：memset 清槽期间不得被 tick ISR 抢占（掩码模式同） */
+    bm_irq_state_t irq_state = bm_critical_enter();
     int reset = 0;
 
     if (state == NULL) {
-        BM_CRITICAL_EXIT(irq_state);
+        bm_critical_exit(irq_state);
         return;
     }
     hrt_stop_locked(state);
@@ -485,7 +499,7 @@ void bm_hrt_reset(void) {
     state->slot_count = 0u;
     state->initialized = 0;
     reset = 1;
-    BM_CRITICAL_EXIT(irq_state);
+    bm_critical_exit(irq_state);
     if (reset) {
         BM_LOGI("hrt", "reset");
     }

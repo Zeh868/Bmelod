@@ -7,8 +7,8 @@
  * 在 `BM_MP_BOOT_IRQ_RELEASE` 之前，`bm_hrt_start()` 与外设 IRQ 须返回
  * `BM_ERR_NOT_INIT`。
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-07-15
+ * @version 1.2
+ * @date 2026-07-31
  *
  * @par 修改日志:
  *
@@ -17,6 +17,10 @@
  * 2026-07-15       1.1            zeh            barrier 超时宏别名桥接移到 include 之后，
  *                                                修独立库形态下 MP↔非MP 宏循环引用致
  *                                                使用点 undeclared
+ * 2026-07-31       1.2            zeh            修正 wait_matrix_phase 文档：timeout_us=0
+ *                                                实际使用有界默认超时
+ *                                                （BM_CONFIG_MP_BOOT_BARRIER_TIMEOUT_US），
+ *                                                并非"不超时"
  *
  */
 #ifndef BM_MP_BOOT_H
@@ -106,7 +110,8 @@ void bm_mp_boot_report_failure(void);
  * @brief 等待共享矩阵 boot_phase 达到目标阶段
  *
  * @param phase 目标阶段
- * @param timeout_us 超时微秒；0 表示不超时
+ * @param timeout_us 超时微秒；0 表示使用有界默认超时
+ *        （BM_CONFIG_MP_BOOT_BARRIER_TIMEOUT_US），并非不超时
  * @return BM_OK 成功；BM_ERR_TIMEOUT 超时
  */
 int bm_mp_boot_wait_matrix_phase(bm_mp_boot_phase_t phase, uint32_t timeout_us);

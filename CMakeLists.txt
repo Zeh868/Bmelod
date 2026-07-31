@@ -102,7 +102,9 @@ if(BM_BUILD_TESTS)
     set(BM_ENABLE_HRT ON CACHE BOOL "" FORCE)
     set(BM_ENABLE_TICKER ON CACHE BOOL "" FORCE)
     set(BM_ENABLE_SHELL ON CACHE BOOL "" FORCE)   # #11 shell 业务命令集成
-    if(NOT BM_BACKEND)
+    # SMP 时默认后端须留给下方 SMP 段解析为 native_sim_mp；
+    # 在此落定 native_sim 会使 SMP 块 NOT BM_BACKEND 判定失效
+    if(NOT BM_BACKEND AND NOT BM_CONFIG_SMP)
         set(BM_BACKEND "native_sim")
     endif()
 endif()

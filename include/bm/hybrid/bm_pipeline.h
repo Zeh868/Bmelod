@@ -6,13 +6,15 @@
  * 格式链校验。DAG 与 fan-out 留待后续里程碑。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-13
+ * @version 1.1
+ * @date 2026-07-31
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
+ * 2026-07-31       1.1            zeh            文档对齐实现 v1.2：reset 对 bypass
+ *                                                节点同样回调，删除已过时的不对称警告
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -58,7 +60,7 @@ int bm_pipeline_init(bm_pipeline_t *pipeline,
                      bm_pipeline_node_t *nodes,
                      uint32_t node_count);
 
-/** @brief 复位链上各节点（跳过 bypass 节点） */
+/** @brief 复位链上各节点（含 bypass 节点，与 init/prepare 对称） */
 void bm_pipeline_reset(bm_pipeline_t *pipeline);
 
 /**
@@ -82,9 +84,8 @@ int bm_pipeline_process_inplace(bm_pipeline_t *pipeline, bm_block_t *block);
  * @warning 别名安全契约（P2-2）：非原位调用（input != output）时，仅首节点为
  *          input→output，从**第 2 个节点起**实际为 output→output 原位调用。
  *          故各节点 `process` 实现必须**别名安全**（in 与 out 可指向同一块）。
- * @note reset/init 一致性（P2-2）：`bm_pipeline_reset` 跳过 bypass 节点，而
- *       init/prepare 与处理失败回滚**不跳过** bypass 节点，行为不对称——节点的
- *       init/reset 须容忍这一差异。
+ * @note reset/init 一致性（P2-2）：`bm_pipeline_reset` 与 init/prepare 一致，
+ *       对 bypass 节点同样回调 reset（实现 v1.2 起），节点无需容忍跳过差异。
  */
 int bm_pipeline_process(bm_pipeline_t *pipeline,
                         bm_block_t *input,

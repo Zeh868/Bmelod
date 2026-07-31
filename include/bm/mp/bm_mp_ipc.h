@@ -7,8 +7,8 @@
  * 目标核 `endpoint[target]`，禁止函数级 static `last_seq`。
  * 阶段 2 新增 N×N cmd_ring（FIFO）与 tel_channel（seqlock 最新值）payload 通道。
  * @author zeh (china_qzh@163.com)
- * @version 1.3
- * @date 2026-07-02
+ * @version 1.4
+ * @date 2026-07-31
  *
  * @par 修改日志:
  *
@@ -18,6 +18,8 @@
  * 2026-06-27       1.2            zeh            新增 cmd_ring/tel_channel N×N payload 通道；layout 版本 5→6
  * 2026-07-02       1.3            zeh            QD-6：cursor 补齐改用 union，与其余
  *                                                cache-line storage 站点写法统一
+ * 2026-07-31       1.4            zeh            publish_event_forward 补 HRT 级上下文
+ *                                                禁调契约与 BM_ERR_BUSY 返回说明
  *
  */
 #ifndef BM_MP_IPC_H
@@ -200,7 +202,12 @@ bm_mp_ipc_matrix_t *bm_mp_ipc_matrix(void);
  * @param event 事件描述
  * @param data inline 载荷（可为 NULL）
  * @param len 载荷长度
- * @return BM_OK 成功；BM_ERR_OVERFLOW 环满
+ * @return BM_OK 成功；BM_ERR_OVERFLOW 环满；BM_ERR_BUSY 在 HRT 级 ISR
+ *         上下文调用被 fail-closed 拦截
+ * @note 仅限 SRT 域上下文调用：掩码模式下 HRT 级 ISR 与内部阈值临界区
+ *       不互斥，入口经 BM_SRT_QUEUE_API_FORBIDDEN() 运行期拦截
+ *       （与 event/ultra/mempool 域口径一致）；跨核事件发布应优先经
+ *       bm_event 路由，由事件系统统一拦截后再到本函数。
  */
 int bm_mp_ipc_publish_event_forward(uint8_t target_cpu,
                                     const bm_event_t *event,

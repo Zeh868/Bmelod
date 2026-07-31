@@ -33,14 +33,14 @@ STM32G474xB / NUCLEO-G474RE 参考绑定：
 | 角色 | 外设/通道 | Pin / AF | DMA / 请求 | IRQ / 优先级 | 结论 |
 |---|---|---|---|---|---|
 | framework tick | TIM6 update；可切 TIM7 | — | — | `TIM6_DAC_IRQn` 或 `TIM7_IRQn` / 2 | TIM6 向量与 DAC 共用；若产品占用 DAC，须决定 TIM6/TIM7 |
-| console | LPUART1 | PA2 TX、PA3 RX / AF12 | — | `LPUART1_IRQn` / 3 | TX 轮询；RX ISR 逐字节回调 |
+| console | LPUART1 | PA2 TX、PA3 RX / AF12 | — | `LPUART1_IRQn` / 5 | TX 轮询；RX ISR 逐字节回调 |
 | 三相 PWM 高边 | TIM1 CH1/2/3 | PA8/PA9/PA10 / AF6 | — | `TIM1_UP_TIM16_IRQn` / 1 | PA9/PA10 与 USART2 冲突 |
 | 三相 PWM 低边 | TIM1 CH1N/2N/3N | PB13/PB14/PB15 / AF6 | — | 同上 | 与高边共同占用 TIM1 |
 | 相电流 ia/ib | ADC1 injected IN1/IN2 | PA0/PA1 / analog | — | `ADC1_2_IRQn` / 1 | TIM1 TRGO2 触发，rank 数为 2 |
 | 过流保护 | COMP1 → TIM1_BKIN | PA1 同相输入；反相默认内部 1/2 VREFINT | — | 硬件 break，无独立软件 IRQ | PA1 与 ADC1_IN2 是刻意共享的模拟拓扑，产品原理图必须确认 |
 | 增量编码器 | TIM3 CH1/CH2 | PA6/PA7 / AF2 | — | — | 轮询读计数；PA6/PA7 与 SPI1 冲突 |
-| SPI 设备 | SPI1 + 软件 CS | PA5 SCK、PA6 MISO、PA7 MOSI / AF5；PA4 CS | **配置宏**：DMA1 CH1 RX / 请求 10；CH2 TX / 请求 11 | RX NVIC 由 `DMA1_Channel1_IRQn + (RX_CH - 1)` 计算；默认解析为 `DMA1_Channel1_IRQn` / 2，handler 支持 RX CH1/CH2 | 与 TIM3 编码器冲突；当前只有单控制器全局异步状态 |
-| TMC/UART 设备 | USART2，默认单线半双工 | PA9 TX、PA10 RX / AF7 | **配置宏**：DMA1 CH3 RX / 请求 26 | USART2 / 3；DMA NVIC 由 `DMA1_Channel1_IRQn + (RX_CH - 1)` 计算，默认在 G474 CMSIS 中解析为 `DMA1_Channel3_IRQn` / 3；实际只编译 `DMA1_Channel3_IRQHandler` | 与 TIM1 PWM 高边冲突；DMA 缓冲块由调用者提供 |
+| SPI 设备 | SPI1 + 软件 CS | PA5 SCK、PA6 MISO、PA7 MOSI / AF5；PA4 CS | **配置宏**：DMA1 CH1 RX / 请求 10；CH2 TX / 请求 11 | RX NVIC 由 `DMA1_Channel1_IRQn + (RX_CH - 1)` 计算；默认解析为 `DMA1_Channel1_IRQn` / 5，handler 支持 RX CH1/CH2 | 与 TIM3 编码器冲突；当前只有单控制器全局异步状态 |
+| TMC/UART 设备 | USART2，默认单线半双工 | PA9 TX、PA10 RX / AF7 | **配置宏**：DMA1 CH3 RX / 请求 26 | USART2 / 5；DMA NVIC 由 `DMA1_Channel1_IRQn + (RX_CH - 1)` 计算，默认在 G474 CMSIS 中解析为 `DMA1_Channel3_IRQn` / 5；实际只编译 `DMA1_Channel3_IRQHandler` | 与 TIM1 PWM 高边冲突；DMA 缓冲块由调用者提供 |
 | 看门狗 | IWDG / LSI | — | — | — | LSI 仅有 32 kHz 参考值，产品需实测频偏 |
 | 单调时间 | DWT CYCCNT | — | — | — | 依赖产品实际 CPU 时钟；当前默认 170 MHz |
 | 通用 GPIO 设备 | GPIOA–GPIOG | 未分配 | — | 不支持 GPIO IRQ 绑定 | 不能据此认定任意 pin 可供新角色使用 |

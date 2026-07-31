@@ -5,8 +5,8 @@
  *
  * N×N 有向 SPSC 事件环；读游标保存在目标核 endpoint 状态。
  * @author zeh (china_qzh@163.com)
- * @version 1.2
- * @date 2026-06-18
+ * @version 1.3
+ * @date 2026-07-31
  *
  * @par 修改日志:
  *
@@ -14,6 +14,10 @@
  * 2026-06-14       1.0            zeh            正式发布
  * 2026-06-15       1.1            zeh            seq 异常计数与 source_seq 跳零
  * 2026-06-18       1.2            zeh            seq 异常触发故障钩子，硬实时下可 safe-stop
+ * 2026-07-31       1.3            zeh            publish_event_forward 入口补
+ *                                                BM_SRT_QUEUE_API_FORBIDDEN() fail-closed
+ *                                                拦截（log-once 诊断），直调路径与
+ *                                                bm_event 路由口径对齐
  *
  */
 #include "bm/mp/bm_mp_ipc.h"
@@ -87,6 +91,22 @@ static bm_mp_ipc_event_ring_t *ring_for(uint8_t source, uint8_t target) {
     return &s_matrix->event_ring[source][target];
 }
 
+/**
+ * @brief HRT 级上下文直调发布被拦截时输出一次诊断日志
+ *
+ * 与 bm_event.c 的 log-once 同理：该路径只可能在 HRT 级 ISR 内命中，
+ * log-once 保证不把无界 I/O 留在 HRT 路径。标志并发写是良性竞争，
+ * 最坏结果仅为重复输出一条。
+ */
+static void ipc_log_hrt_reject_once(void) {
+    static volatile int logged;
+
+    if (!logged) {
+        logged = 1;
+        BM_LOGE("mp_ipc", "publish_event_forward from HRT-level ISR rejected");
+    }
+}
+
 int bm_mp_ipc_publish_event_forward(uint8_t target_cpu,
                                     const bm_event_t *event,
                                     const void *data,
@@ -98,6 +118,17 @@ int bm_mp_ipc_publish_event_forward(uint8_t target_cpu,
     uint32_t next;
     bm_mp_ipc_event_slot_t *slot;
     bm_irq_state_t irq_state;
+
+    /*
+     * fail-closed：掩码模式下 HRT 级 ISR 与下方 BM_CRITICAL_ENTER 阈值临界区
+     * 不互斥，直调放行会与 SRT 路径并发推进同一 SPSC 环 head，静默丢事件或
+     * 损坏环。经 bm_event 路由进入的路径已在 bm_event.c 统一拦截，此处兜底
+     * 直调路径，口径与 event/ultra/mempool 域一致。
+     */
+    if (BM_SRT_QUEUE_API_FORBIDDEN()) {
+        ipc_log_hrt_reject_once();
+        return BM_ERR_BUSY;
+    }
 
     if (!event || target_cpu >= BM_CONFIG_CPU_COUNT ||
         source >= BM_CONFIG_CPU_COUNT || source == target_cpu ||
