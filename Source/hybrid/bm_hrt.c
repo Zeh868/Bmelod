@@ -5,8 +5,8 @@
  *
  * 基于 HAL 定时器 ISR 按周期触发回调；支持 deadline 错过弱钩子。
  * @author zeh (china_qzh@163.com)
- * @version 1.7
- * @date 2026-07-09
+ * @version 1.8
+ * @date 2026-07-30
  *
  * @par 修改日志:
  *
@@ -22,6 +22,10 @@
  * 2026-07-09       1.7            zeh            H3：hrt_dispatch 连错多周期时
  *                                                deadline_missed 按实际错过
  *                                                周期数累加，而非固定 +1
+ * 2026-07-30       1.8            zeh            hrt_timer_isr 标记 HRT ISR 上下文
+ *                                               （bm_hrt_isr_enter/exit）；
+ *                                               bm_hrt_poll 全关中断包裹 dispatch，
+ *                                               消除与硬件 ISR 的数据竞争
  *
  */
 #include "bm_hrt.h"
@@ -210,6 +214,8 @@ static void hrt_dispatch(bm_hrt_cpu_state_t *state) {
  * @brief HAL 定时器 ISR 入口，分派 HRT 回调
  *
  * ISR 回调签名固定为 void(void)，无法接收上层参数，须在此自行取 state。
+ * bm_hrt_isr_enter/exit 标记 HRT 级 ISR 上下文：掩码模式下 event/mempool
+ * 等 SRT 队列 API 据此对 HRT 级上下文 fail-closed（见 bm_critical_wrap.h）。
  */
 static void hrt_timer_isr(void) {
     bm_hrt_cpu_state_t *state = bm_hrt_this();
@@ -217,19 +223,26 @@ static void hrt_timer_isr(void) {
     if (state == NULL) {
         return;
     }
+    bm_hrt_isr_enter();
     hrt_dispatch(state);
+    bm_hrt_isr_exit();
 }
 
 /**
  * @brief 协作式轮询 HRT（用于 QEMU 慢仿真等无精确中断场景）
  *
- * @warning 本函数与硬件 HRT 定时器中断（hrt_timer_isr）共享同核 state，
- * 且 hrt_dispatch 内部无临界区保护。⚠️ 本函数仅用于硬件 HRT 定时器中断
- * 未启用的场景；禁止与硬件 HRT 中断并发驱动同一核，否则 hrt_dispatch
- * 存在数据竞争。二者在设计上二选一，框架不做运行期互斥检查。
+ * dispatch 经 bm_critical_enter/exit（全关中断）包裹：同核硬件 HRT ISR 只能
+ * 等本轮 dispatch 完成后触发，next_tick/deadline_missed 序列化，与 ISR 并发
+ * 驱动同一核不再存在数据竞争。dispatch 有界（BM_CONFIG_HRT_DISPATCH_PER_ISR
+ * 封顶），IRQ-off 窗口与一次真实 ISR 等价；mask 模式下 poll 语义即"ISR 的
+ * 协作式替身"，同样使用全屏蔽而非阈值掩码。
+ *
+ * @note 仍建议与硬件 HRT 中断二选一：并存虽正确，但同一周期可能被 ISR 与
+ * poll 各检查一次，仅徒增一次空扫描，语义上属冗余驱动。
  */
 void bm_hrt_poll(void) {
     bm_hrt_cpu_state_t *state = bm_hrt_this();
+    bm_irq_state_t irq_state;
 
     if (bm_hal_in_isr()) {
         return;
@@ -237,7 +250,9 @@ void bm_hrt_poll(void) {
     if (state == NULL || !state->started) {
         return;
     }
+    irq_state = bm_critical_enter();
     hrt_dispatch(state);
+    bm_critical_exit(irq_state);
 }
 
 int bm_hrt_validate_period_us(uint32_t period_us) {

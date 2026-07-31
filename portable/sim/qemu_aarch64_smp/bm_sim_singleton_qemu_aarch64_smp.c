@@ -18,6 +18,8 @@
  * 2026-07-16       1.3            zeh            g_ticks/g_tick_cb/g_tick_freq_hz 改 per-CPU 数组（原共享标量双核互覆、tick 双倍计数），对齐 cortexa SMP 实现；配套 IRQ 向量补存 x8-x18 与 q0-q31/FPCR/FPSR 现场、启动使能 CPACR_EL1.FPEN 并 daifclr 开 IRQ（复位 DAIF 全屏蔽曾致 tick 永不触发）
  * 2026-07-16       1.4            zeh            IRQ 分发跳过 GICv2 保留/伪 IRQ ID（1022/1023），避免无条件写 GICC_EOIR
  * 2026-07-28       1.5            zeh            PL011 发送轮询加入命名上限，超时返回 BM_ERR_TIMEOUT
+ * 2026-07-30       1.6            zeh            IRQ 分发首尾接入 bm_arch_aarch64_irq_enter/exit，
+ *                                               支撑 aarch64 真实的 bm_arch_in_isr 判定
  *
  */
 #include "bm_drv_timer.h"
@@ -29,6 +31,7 @@
 #include "hal/bm_hal_cpu.h"
 #include "hal/bm_hal_uptime.h"
 #include "aarch64/bm_arch_isr_fpu.h"
+#include "aarch64/bm_arch_portmacro.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -216,10 +219,16 @@ static uint8_t g_tick_cp0_sa[BM_ARCH_ISR_FPU_SA_SIZE] __attribute__((aligned(16)
  */
 void bm_qemu_aarch64_irq_dispatch(void) {
     uint32_t cpu = aarch64_smp_cpu_index();
-    uint32_t iar = GICC_IAR;
-    uint32_t irq_id = iar & 0x3FFu;
+    uint32_t iar;
+    uint32_t irq_id;
     void (*cb)(void);
     unsigned cp_prev;
+
+    /* 按核 IRQ 嵌套计数：bm_arch_in_isr 据此判定 ISR 上下文（aarch64 无
+       CPSR.mode 类硬件字段），覆盖回调全路径后再写 EOIR。 */
+    bm_arch_aarch64_irq_enter();
+    iar = GICC_IAR;
+    irq_id = iar & 0x3FFu;
 
     if (irq_id == BM_AARCH64_TIMER_IRQ_ID) {
         g_ticks[cpu]++;
@@ -235,6 +244,7 @@ void bm_qemu_aarch64_irq_dispatch(void) {
     if (irq_id < 1022u) {
         GICC_EOIR = iar;
     }
+    bm_arch_aarch64_irq_exit();
 }
 
 static int aarch64_uart_init(const struct bm_hal_uart *dev, void *config) {

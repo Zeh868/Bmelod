@@ -208,6 +208,7 @@ endif()
 add_library(bm_core STATIC
     Source/core/bm_mempool.c
     Source/core/bm_critical.c
+    Source/core/bm_hrt_isr_context.c
     Source/core/bm_event.c
     Source/core/bm_log.c
     Source/core/bm_ultra.c
