@@ -9,14 +9,21 @@
  *
  * 本模块零上层依赖，仅依赖 C 标准库，可直接在 host 单测中验证。
  *
+ * 互斥契约：本模块内部不做任何并发保护。produced/consumed 的读-改-写
+ * （update/mark_full_round/consume/drop_all）若会被多个可相互抢占的上下文
+ * （ISR 与主循环、不同优先级 ISR）调用，调用方必须自行序列化——参考
+ * bm_vendor_usart3_stm32g4.c 用全局 bm_critical_enter 保护各读写段。
+ *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-07-29
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-29       1.0            zeh            新增 DMA 循环模式环形缓冲记账模块
+ * 2026-07-31       1.1            zeh            头注释补互斥契约：模块无内部并发保护，
+ *                                                多上下文调用方须自行序列化
  *
  */
 #ifndef BM_DMA_CIRCULAR_RING_H

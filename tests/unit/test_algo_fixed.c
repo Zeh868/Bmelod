@@ -7,14 +7,16 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-07-28
+ * @version 1.2
+ * @date 2026-07-31
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-02       1.0            zeh            自 test_algorithm.c 拆分
  * 2026-07-28       1.1            zeh            状态错误断言改用 BM_ERR_INVALID
+ * 2026-07-31       1.2            zeh            pwm_sample_window_valid 补 norm_deg_f 回归：
+ *                                                有限巨值（±1e20f）O(1) 归一化与回绕一致性
  *
  */
 
@@ -101,6 +103,18 @@ static void test_batch3_k0_extensions(void) {
 
     TEST_ASSERT_EQUAL(1, bm_algo_pwm_sample_window_valid(0u, 30.0f, 20.0f));
     TEST_ASSERT_EQUAL(0, bm_algo_pwm_sample_window_valid(0u, 90.0f, 10.0f));
+    /* norm_deg_f 回归：有限巨值必须 O(1) 归一化（修复前 while 逐圈迭代
+     * ~1e17 次等同挂死），且语义与 fmodf 归一化后的等价角度一致 */
+    TEST_ASSERT_EQUAL(
+        bm_algo_pwm_sample_window_valid(0u, fmodf(1e20f, 360.0f), 20.0f),
+        bm_algo_pwm_sample_window_valid(0u, 1e20f, 20.0f));
+    TEST_ASSERT_EQUAL(
+        bm_algo_pwm_sample_window_valid(0u, fmodf(-1e20f, 360.0f) + 360.0f,
+                                        20.0f),
+        bm_algo_pwm_sample_window_valid(0u, -1e20f, 20.0f));
+    /* 正常回绕：725° == 5° */
+    TEST_ASSERT_EQUAL(bm_algo_pwm_sample_window_valid(0u, 5.0f, 30.0f),
+                      bm_algo_pwm_sample_window_valid(0u, 725.0f, 30.0f));
 
     bm_algo_biquad_reset(&bq_st);
     TEST_ASSERT_EQUAL(BM_OK, bm_algo_biquad_notch_update(&bq_cfg, &bq_st,

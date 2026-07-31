@@ -26,7 +26,7 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.5
+ * @version 1.6
  * @date 2026-07-31
  *
  * @par 修改日志:
@@ -43,6 +43,10 @@
  *                                                并发读取可能丢回绕进位、破坏跨上下文
  *                                                单调性的问题；文件行尾归一为 LF
  *                                                （.gitattributes eol=lf）
+ * 2026-07-31       1.6            zeh            uptime 互斥由 BM_CRITICAL_ENTER() 改全局
+ *                                                bm_critical_enter()：掩码模式下前者为
+ *                                                BASEPRI 阈值掩码，挡不住 HRT 级 ISR 的
+ *                                                wcet_mon/stream 打戳并发读 uptime
  *
  */
 #include "bm_drv_timer.h"
@@ -591,9 +595,12 @@ uint64_t bm_hal_uptime_ns_raw(void)
 
     /* s_last/s_high 的读-改-写与 64 位拼接须互斥：ISR 与主循环并发调用时，
      * 无保护的扩展可能丢失或重复一次回绕进位，破坏 uptime 的跨上下文单调性。
-     * BM_CRITICAL_ENTER 在 Cortex-M 上为 PRIMASK 操作，ISR 内调用同样安全。 */
+     * 必须用全局 bm_critical_enter 而非 BM_CRITICAL_ENTER()：掩码模式
+     * （BM_CONFIG_ENABLE_PRIORITY_MASK=1）下后者是 BASEPRI 阈值掩码，挡不住
+     * HRT 级 ISR——wcet_mon 探针与 stream commit 打戳均可从 HRT 上下文调 uptime。
+     * 窗口仅 O(1) 算术，两模式下中断关闭代价都可忽略。 */
     {
-        bm_irq_state_t irq_state = BM_CRITICAL_ENTER();
+        bm_irq_state_t irq_state = bm_critical_enter();
 
         cycles = DWT->CYCCNT;
         if (cycles < s_last) {
@@ -601,7 +608,7 @@ uint64_t bm_hal_uptime_ns_raw(void)
         }
         s_last = cycles;
         total = ((uint64_t)s_high << 32) | cycles;
-        BM_CRITICAL_EXIT(irq_state);
+        bm_critical_exit(irq_state);
     }
     return (total / freq) * 1000000000ull + (total % freq) * 1000000000ull / freq;
 }

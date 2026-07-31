@@ -21,8 +21,8 @@
  *   已配置的 NVIC/时钟。kernel_clock_hz==0 时假定 USART 时钟=PCLK1。
  *
  * @author zeh (china_qzh@163.com)
- * @version 3.4
- * @date 2026-07-29
+ * @version 3.5
+ * @date 2026-07-31
  *
  * @par 修改日志:
  *
@@ -42,12 +42,19 @@
  *                                                计数，消除整圈丢失风险
  * 2026-07-29       3.4            zeh            TC ISR 用 produced_before 计算整圈新增量，
  *                                                修正 HT→TC 后一半字节统计与溢出判断
+ * 2026-07-31       3.5            zeh            RX ring 的 produced/consumed 读写序列加全局
+ *                                                bm_critical_enter 互斥（rx_update 记账段、
+ *                                                TC mark_full_round 段、recv update+consume 段），
+ *                                                修复 IDLE/DMA ISR 与 SRT recv 多上下文抢占
+ *                                                导致 produced 回退、pending 下溢回绕、
+ *                                                数据重复/错乱交付的竞争；回调均在锁外
  */
 #include "bm_vendor_usart3_stm32g4.h"
 #include "bm_dma_irq_stm32g4.h"
 #include "bm_dma_circular_ring.h"
 #include "bm_hal_instances_stm32g4.h"
 #include "bm/common/bm_types.h"
+#include "bm/common/bm_critical_wrap.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -310,23 +317,35 @@ static void bm_usart3_rx_update(bm_usart3_context_t *ctx, uint32_t event,
         ndtr = (uint32_t)ctx->rx_len;
     }
 
-    free_space = bm_dma_circ_ring_free_space(&ctx->rx_ring);
-    /* extra_bytes 在调用前已推进 produced，当前 free_space 已扣减该部分；
-     * 加回后得到事件触发前的真实剩余空间，用于正确判断溢出。 */
-    if (extra_bytes != 0u) {
-        free_space += extra_bytes;
-    }
-    new_bytes = bm_dma_circ_ring_update(&ctx->rx_ring, ndtr);
-    total_new = new_bytes + extra_bytes;
-    if (total_new > free_space) {
-        /* 软件读取不及时导致覆盖：丢弃全部已缓冲数据 */
-        ctx->stats.rx_overflow_count++;
-        ctx->stats.last_errors |= BM_UART_ERR_OVERFLOW;
-        bm_dma_circ_ring_drop_all(&ctx->rx_ring);
-    }
+    /* produced/consumed 的读-改-写序列必须整体互斥：本函数同时被 USART IDLE
+     * ISR、RX DMA HT/TC ISR 与 SRT recv() 调用，三者优先级可不同、可无吊顶
+     * 抢占。无锁时 produced 回退会使 pending = produced - consumed 下溢回绕
+     * 为巨大值，consume 据此超额、重复交付。用全局 bm_critical_enter 而非
+     * BM_CRITICAL_ENTER()，与板级 IRQ 优先级配置（阈值上下）解耦；
+     * 窗口仅 O(1) 记账，回调留在锁外（不把用户代码圈进 IRQ-off）。
+     * bm_critical_enter 可嵌套，与 TC 分支/recv 的外层锁共存无害。 */
+    {
+        bm_irq_state_t irq_state = bm_critical_enter();
 
-    pending = bm_dma_circ_ring_pending(&ctx->rx_ring);
-    ctx->stats.rx_count += total_new;
+        free_space = bm_dma_circ_ring_free_space(&ctx->rx_ring);
+        /* extra_bytes 在调用前已推进 produced，当前 free_space 已扣减该部分；
+         * 加回后得到事件触发前的真实剩余空间，用于正确判断溢出。 */
+        if (extra_bytes != 0u) {
+            free_space += extra_bytes;
+        }
+        new_bytes = bm_dma_circ_ring_update(&ctx->rx_ring, ndtr);
+        total_new = new_bytes + extra_bytes;
+        if (total_new > free_space) {
+            /* 软件读取不及时导致覆盖：丢弃全部已缓冲数据 */
+            ctx->stats.rx_overflow_count++;
+            ctx->stats.last_errors |= BM_UART_ERR_OVERFLOW;
+            bm_dma_circ_ring_drop_all(&ctx->rx_ring);
+        }
+
+        pending = bm_dma_circ_ring_pending(&ctx->rx_ring);
+        ctx->stats.rx_count += total_new;
+        bm_critical_exit(irq_state);
+    }
 
     if (notify != 0 && ctx->rx_frame_cb != NULL && pending > 0u) {
         ctx->rx_frame_cb(ctx->dev, event, (size_t)pending, ctx->rx_frame_user);
@@ -560,10 +579,18 @@ static void bm_usart3_rx_dma_isr(bm_usart3_context_t *ctx) {
         dma->IFCR = tc_flag;
         /* TC 表示完整一圈已完成；先记录 produced_before，再推进 produced
          * 到下一周期边界，使 HT→TC 的后一半字节也被计入本次新增量，
-         * 避免漏统计与溢出判断延后。 */
-        produced_before = ctx->rx_ring.produced;
-        bm_dma_circ_ring_mark_full_round(&ctx->rx_ring);
-        extra = ctx->rx_ring.produced - produced_before;
+         * 避免漏统计与溢出判断延后。
+         * mark_full_round 是 produced 读-改-写，须与 IDLE ISR / recv 的
+         * rx_update 互斥（全局关中断，O(1) 窗口）；extra 算出后 rx_update
+         * 在锁外调用，避免把 rx_frame_cb 回调圈进 IRQ-off。 */
+        {
+            bm_irq_state_t irq_state = bm_critical_enter();
+
+            produced_before = ctx->rx_ring.produced;
+            bm_dma_circ_ring_mark_full_round(&ctx->rx_ring);
+            extra = ctx->rx_ring.produced - produced_before;
+            bm_critical_exit(irq_state);
+        }
         bm_usart3_rx_update(ctx, BM_UART_EVT_RX_FULL, 1, extra);
     }
 }
@@ -791,10 +818,20 @@ static size_t bm_vendor_usart3_recv(const struct bm_hal_uart *dev,
         return 0u;
     }
 
-    /* 同步一次写位置，确保读取的是最新数据 */
-    bm_usart3_rx_update(ctx, 0u, 0, 0u);
+    /* 同步一次写位置，确保读取的是最新数据。update + consume 须整体互斥：
+     * consume 逐字节 RMW consumed，若中途被 ISR 的 drop_all（consumed =
+     * produced）抢占，consumed 会越过 produced 导致 pending 下溢回绕。
+     * rx_update(notify=0) 内部不会再触回调，故整段可安全置于 IRQ-off；
+     * 窗口上界 O(max_len)，有界（与事件队列 inline memcpy 的 IRQ-off
+     * 先例一致）。 */
+    {
+        bm_irq_state_t irq_state = bm_critical_enter();
 
-    copied = bm_dma_circ_ring_consume(&ctx->rx_ring, data, (uint32_t)max_len);
+        bm_usart3_rx_update(ctx, 0u, 0, 0u);
+        copied = bm_dma_circ_ring_consume(&ctx->rx_ring, data,
+                                          (uint32_t)max_len);
+        bm_critical_exit(irq_state);
+    }
     return (size_t)copied;
 }
 

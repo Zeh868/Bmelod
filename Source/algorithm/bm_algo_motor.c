@@ -15,6 +15,8 @@
  *                                                ±Inf 时 while 归一化死循环
  *                                                （公共 API bm_algo_pwm_sample_window_valid
  *                                                可达），非有限输入返回 0.0f
+ * 2026-07-31       1.4            zeh            norm_deg_f 逐圈 while 改 fmodf O(1) 归一化，
+ *                                                修复有限巨值（如 1e20f）入参的 WCET 无界
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -351,18 +353,21 @@ float bm_algo_fw_id_adjust(float id_ref_a, float vd, float vq, float v_max_pu) {
 }
 
 static float norm_deg_f(float deg) {
-    /* 非有限输入护栏：±Inf 会让下方 while 归一化永不收敛（死循环）；
-     * 返回 0.0f 安全值（处于合法角度域内），调用方按常规角度处理。 */
+    float r;
+
+    /* 非有限输入护栏：±Inf/NaN 无合法角度语义，返回 0.0f 安全值
+     * （处于合法角度域内），调用方按常规角度处理。 */
     if (!bm_algo_is_finite_f(deg)) {
         return 0.0f;
     }
-    while (deg < 0.0f) {
-        deg += 360.0f;
+    /* fmodf 单次 O(1) 归一化：旧 while 逐圈加减对有限巨值（如 1e20f）
+     * 迭代次数天文数字，构成算法层 WCET 无界点。巨值归一化精度随幅值
+     * 下降，对角度语义可接受。 */
+    r = fmodf(deg, 360.0f);
+    if (r < 0.0f) {
+        r += 360.0f;
     }
-    while (deg >= 360.0f) {
-        deg -= 360.0f;
-    }
-    return deg;
+    return r;
 }
 
 static float ang_diff_deg(float a, float b) {
