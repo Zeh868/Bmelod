@@ -9,6 +9,8 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
+ * 2026-08-01       1.1            zeh            事件订阅由 start 前移到 init
+ *                                                 （bm_module_boot 冻结订阅表）
  *
  */
 #include "app_stream.h"
@@ -47,21 +49,17 @@ static int supervisor_init(void) {
     if (rc != BM_OK) {
         return rc;
     }
-    return BM_OK;
-}
-
-static int supervisor_start(void) {
-    int rc;
-
+    /* 订阅须落在 init：bm_module_boot 在 init 结束后冻结订阅表，
+     * start 中订阅会被拒绝（BM_ERR_BUSY），与 bus_servo 同一约定 */
     rc = bm_event_subscribe(EVENT_STREAM_ENABLE, on_stream_event, NULL, &s_sub_id);
     if (rc != BM_OK) {
         return rc;
     }
     rc = bm_event_subscribe(EVENT_STREAM_POLL, on_stream_event, NULL, &s_sub_id);
-    if (rc != BM_OK) {
-        return rc;
-    }
+    return rc;
+}
 
+static int supervisor_start(void) {
     (void)bm_event_publish_copy(EVENT_STREAM_ENABLE, 1u, NULL, 0u);
     BM_LOGI(TAG, "supervisor started");
     return BM_OK;

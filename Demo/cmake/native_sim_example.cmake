@@ -8,7 +8,10 @@ function(bm_demo_apply_native_sim_example_flags)
         set(BM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
         set(BM_BUILD_ALL_COMPONENTS ON CACHE BOOL "" FORCE)
         set(BM_ENABLE_MODULE ON CACHE BOOL "" FORCE)
-        set(BM_ENABLE_SHELL OFF CACHE BOOL "" FORCE)
+        # 统一构建所有 Demo 共享一份框架配置：bus_servo 链接 bm_shell，
+        # 置 ON 让框架多编一个 bm_shell 库，不需要的 Demo 不链即可
+        #（与 qemu_example.cmake 统一分支行为一致）
+        set(BM_ENABLE_SHELL ON CACHE BOOL "" FORCE)
         set(BM_ENABLE_WDG ON CACHE BOOL "" FORCE)
         set(BM_ENABLE_HRT ON CACHE BOOL "" FORCE)
         set(BM_ENABLE_TT_SCHEDULE ON CACHE BOOL "" FORCE)
@@ -44,10 +47,15 @@ function(bm_demo_apply_native_sim_example_flags)
 endfunction()
 
 function(bm_demo_ensure_native_sim)
-    if(BM_DEMO_NATIVE_INIT)
+    # 去重守卫只在单次 configure 内生效：GLOBAL 属性随 configure 结束即弃。
+    # 此前用 INTERNAL 缓存（BM_DEMO_NATIVE_INIT）会跨 configure 残留，
+    # 导致 standalone Demo 目录在框架 CMakeLists 变更后的增量 reconfigure
+    # 静默跳过 add_subdirectory，build.ninja 退化为裸 -lbm_* 链接。
+    get_property(_bm_demo_native_init GLOBAL PROPERTY BM_DEMO_NATIVE_INIT_DONE)
+    if(_bm_demo_native_init)
         return()
     endif()
-    set(BM_DEMO_NATIVE_INIT ON CACHE INTERNAL "" FORCE)
+    set_property(GLOBAL PROPERTY BM_DEMO_NATIVE_INIT_DONE ON)
     bm_demo_apply_native_sim_example_flags()
     if(BM_DEMO_UNIFIED_BUILD)
         set(BM_CONFIG_FILE "" CACHE FILEPATH "" FORCE)

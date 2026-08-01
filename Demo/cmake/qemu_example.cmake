@@ -8,7 +8,10 @@ function(bm_demo_apply_qemu_example_flags)
         set(BM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
         set(BM_BUILD_ALL_COMPONENTS ON CACHE BOOL "" FORCE)
         set(BM_ENABLE_MODULE ON CACHE BOOL "" FORCE)
-        set(BM_ENABLE_SHELL OFF CACHE BOOL "" FORCE)
+        # 统一构建所有 Demo 共享一份框架配置：bus_servo 链接 bm_shell，
+        # 置 ON 让框架多编一个 bm_shell 库，不需要的 Demo 不链即可
+        #（与 native_sim_example.cmake 统一分支行为一致）
+        set(BM_ENABLE_SHELL ON CACHE BOOL "" FORCE)
         set(BM_ENABLE_WDG ON CACHE BOOL "" FORCE)
         set(BM_ENABLE_HRT ON CACHE BOOL "" FORCE)
         set(BM_ENABLE_TICKER ON CACHE BOOL "" FORCE)

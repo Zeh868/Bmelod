@@ -11,6 +11,11 @@
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-07-28       1.1            zeh            补 bm_stream_impl.h include
  *                                                 （BM_STREAM_* 宏已迁入内部头）
+ * 2026-08-01       1.2            zeh            bm_exec 改指定初始化对齐 struct bm_exec
+ *                                                 （owner_cpu 字段）；主循环补
+ *                                                 bm_exec_drain_streams（Block/Frame
+ *                                                 槽唯一消费路径）；native 下 ticker
+ *                                                 时间基随仿真 tick 推进虚拟时钟
  *
  */
 #include "app_vision.h"
@@ -31,6 +36,7 @@
 
 #ifdef NATIVE_SIM
 #include "bm_hal_timer_native.h"
+#include "bm_hal_uptime_native.h"
 #endif
 #ifdef BM_EXAMPLE_QEMU
 #include "qemu_delay.h"
@@ -331,9 +337,13 @@ static const bm_exec_ops_t g_vision_ops = {
     vision_exec_init, vision_exec_start, vision_exec_safe_stop
 };
 
+/* 指定初始化对齐 struct bm_exec 字段定义（含 owner_cpu），
+ * 与 hrt_servo_stub 同一修复范式 */
 static const bm_exec_t g_vision_exec = {
-    1u, "vision_frame", &g_vision_state, NULL, NULL,
-    g_vision_slots, 2u, NULL, 0u, &g_vision_ops
+    .id = 1u, .owner_cpu = 0u, .name = "vision_frame",
+    .state = &g_vision_state, .config = NULL, .resources = NULL,
+    .slots = g_vision_slots, .slot_count = 2u,
+    .claims = NULL, .claim_count = 0u, .ops = &g_vision_ops
 };
 
 static const bm_exec_t *const g_instances[] = { &g_vision_exec };
@@ -353,12 +363,17 @@ static void run_sim(uint32_t cycles) {
     for (i = 0u; i < cycles; ++i) {
 #ifdef NATIVE_SIM
         bm_hal_timer_native_advance_ticks(1u);
+        /* ticker 时间基为 bm_uptime_us（#9-2b），native 下与仿真 tick
+         *（BM_CONFIG_HRT_TICK_US=100 µs/tick）同步推进虚拟时钟 */
+        bm_hal_uptime_native_advance_us(BM_CONFIG_HRT_TICK_US);
 #elif defined(BM_EXAMPLE_QEMU)
         bm_example_qemu_spin();
 #else
         for (volatile uint32_t d = 0u; d < 20u; ++d) {
         }
 #endif
+        /* Block/Frame 槽仅由主循环 bm_exec_drain_streams 消费（流式契约） */
+        (void)bm_exec_drain_streams(4u);
         (void)bm_ticker_poll();
         (void)bm_event_process(8u);
     }
@@ -378,6 +393,11 @@ int main(void) {
     }
 
     (void)bm_hal_timer_init(1000000u / BM_CONFIG_HRT_TICK_US);
+#ifdef NATIVE_SIM
+    /* 纯虚拟时钟：ticker/uptime 只随 run_sim 的仿真 tick 推进（确定性） */
+    bm_hal_uptime_native_set_virtual(1);
+    bm_hal_uptime_native_reset();
+#endif
     rc = bm_exec_init_all(g_instances, 1u);
     if (rc != BM_OK) {
         hybrid_print("EXAMPLE_STREAM_VISION_FRAME: FAIL init\n");

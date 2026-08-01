@@ -12,6 +12,10 @@
  * 2026-07-28       1.1            zeh            补 bm_stream_impl.h include
  *                                                 （BM_STREAM_* 宏已迁入内部头）；
  *                                                 bm_exec_t 位置初始化器补 owner_cpu 字段
+ * 2026-08-01       1.2            zeh            主循环补 bm_exec_drain_streams
+ *                                                 （Block/Frame 槽唯一消费路径）；
+ *                                                 native 下 ticker 时间基随仿真 tick
+ *                                                 推进虚拟时钟
  *
  * E1 范围：bm_stream 零拷贝交接 + bm_exec Block 槽 + 块级 RMS；
  * 实机 DMA 由 bm_hal_dma_stream 对接（本示例用 Periodic 槽模拟填充）。
@@ -31,6 +35,7 @@
 
 #ifdef NATIVE_SIM
 #include "bm_hal_timer_native.h"
+#include "bm_hal_uptime_native.h"
 #endif
 #ifdef BM_EXAMPLE_QEMU
 #include "qemu_delay.h"
@@ -253,12 +258,17 @@ static void run_sim(uint32_t cycles) {
     for (i = 0u; i < cycles; ++i) {
 #ifdef NATIVE_SIM
         bm_hal_timer_native_advance_ticks(1u);
+        /* ticker 时间基为 bm_uptime_us（#9-2b），native 下与仿真 tick
+         *（BM_CONFIG_HRT_TICK_US=100 µs/tick）同步推进虚拟时钟 */
+        bm_hal_uptime_native_advance_us(BM_CONFIG_HRT_TICK_US);
 #elif defined(BM_EXAMPLE_QEMU)
         bm_example_qemu_spin();
 #else
         for (volatile uint32_t d = 0u; d < 20u; ++d) {
         }
 #endif
+        /* Block/Frame 槽仅由主循环 bm_exec_drain_streams 消费（流式契约） */
+        (void)bm_exec_drain_streams(4u);
         (void)bm_ticker_poll();
         (void)bm_event_process(8u);
     }
@@ -279,6 +289,11 @@ int main(void) {
     }
 
     (void)bm_hal_timer_init(1000000u / BM_CONFIG_HRT_TICK_US);
+#ifdef NATIVE_SIM
+    /* 纯虚拟时钟：ticker/uptime 只随 run_sim 的仿真 tick 推进（确定性） */
+    bm_hal_uptime_native_set_virtual(1);
+    bm_hal_uptime_native_reset();
+#endif
 
     rc = bm_exec_init_all(g_instances, 1u);
     if (rc != BM_OK) {

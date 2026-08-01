@@ -9,6 +9,8 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
+ * 2026-08-01       1.1            zeh            事件订阅由 start 前移到 init
+ *                                                 （bm_module_boot 冻结订阅表）
  *
  */
 #include "app_vision.h"
@@ -43,20 +45,20 @@ static int vision_pipeline_init(void) {
         return rc;
     }
     rc = bm_event_register_type(EVENT_VISION_POLL, "VIS_POLL");
-    return rc;
-}
-
-static int vision_pipeline_start(void) {
-    int rc;
-
+    if (rc != BM_OK) {
+        return rc;
+    }
+    /* 订阅须落在 init：bm_module_boot 在 init 结束后冻结订阅表，
+     * start 中订阅会被拒绝（BM_ERR_BUSY），与 bus_servo 同一约定 */
     rc = bm_event_subscribe(EVENT_VISION_ENABLE, on_vision_event, NULL, &s_sub_id);
     if (rc != BM_OK) {
         return rc;
     }
     rc = bm_event_subscribe(EVENT_VISION_POLL, on_vision_event, NULL, &s_sub_id);
-    if (rc != BM_OK) {
-        return rc;
-    }
+    return rc;
+}
+
+static int vision_pipeline_start(void) {
     (void)bm_event_publish_copy(EVENT_VISION_ENABLE, 1u, NULL, 0u);
     return BM_OK;
 }
