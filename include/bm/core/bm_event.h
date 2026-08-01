@@ -11,7 +11,7 @@
  * 事件路由由注册的转发钩子负责，对发布者透明。
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.2
+ * @version 1.3
  * @date 2026-08-01
  *
  * @par 修改日志:
@@ -21,6 +21,7 @@
  * 2026-06-14       1.1            zeh            订阅冻结机制，移除分发快照，确定性流式
  * 2026-08-01       1.2            zeh            补全完整事件发布与掩码模式 HRT
  *                                                fail-closed 公开契约
+ * 2026-08-01       1.3            zeh            公开契约改为两模式 HRT 禁调口径
  *
  */
 #ifndef BM_EVENT_H
@@ -151,9 +152,9 @@ int bm_event_publish_copy_from_source(bm_event_type_t type,
 /**
  * @brief SRT 域 ISR 上下文发布事件（内部拷贝数据）
  *
- * 非掩码模式使用全关中断临界区，允许 HRT ISR 仅执行有界入队，不在本路径执行
- * 订阅回调；掩码模式 HRT 级 ISR 与 SRT 队列临界区不互斥，运行期返回
- * BM_ERR_BUSY。
+ * 契约上仅限非 HRT 级 ISR（掩码模式下低于 HRT 阈值的普通 ISR）。两模式
+ * 下 HRT 级上下文均 fail-closed 返回 BM_ERR_BUSY；成功时仅有界入队，不在
+ * 本路径执行订阅回调。
  *
  * @param type 事件类型 ID
  * @param prio 事件优先级
@@ -161,7 +162,7 @@ int bm_event_publish_copy_from_source(bm_event_type_t type,
  * @param len 载荷字节长度
  * @return BM_OK 成功；BM_ERR_OVERFLOW 队列已满；BM_ERR_NO_MEM 载荷过大；
  *         BM_ERR_NOT_INIT 类型未注册；BM_ERR_INVALID 参数无效；
- *         BM_ERR_BUSY 掩码模式下从 HRT 级 ISR 调用
+ *         BM_ERR_BUSY HRT 级上下文禁调（两模式）
  */
 int bm_event_publish_copy_from_isr(bm_event_type_t type, bm_event_priority_t prio,
                                    const void *data, size_t len);
@@ -169,29 +170,29 @@ int bm_event_publish_copy_from_isr(bm_event_type_t type, bm_event_priority_t pri
 /**
  * @brief 发布完整事件结构（载荷拷贝到内联缓冲，≤ BM_CONFIG_EVENT_INLINE_DATA_SIZE）
  *
- * 默认关闭该入口并返回 BM_ERR_NOT_SUPPORTED；启用后仍复制载荷。掩码模式 HRT
+ * 默认关闭该入口并返回 BM_ERR_NOT_SUPPORTED；启用后仍复制载荷。两模式 HRT
  * 级上下文在参数和特性检查之前 fail-closed 返回 BM_ERR_BUSY。
  *
  * @param event 事件描述指针
  * @return BM_OK 成功；BM_ERR_OVERFLOW 队列已满；BM_ERR_NO_MEM 载荷过大；
  *         BM_ERR_NOT_INIT 类型未注册；BM_ERR_INVALID 参数无效；
  *         BM_ERR_NOT_SUPPORTED 功能关闭或 hard-RT 剖面拒绝；
- *         BM_ERR_BUSY 掩码模式 HRT 级上下文禁调
+ *         BM_ERR_BUSY HRT 级上下文禁调（两模式）
  */
 int bm_event_publish_event(const bm_event_t *event);
 
 /**
  * @brief SRT 域 ISR 上下文发布完整事件结构
  *
- * 契约上仅限 SRT 域 ISR。掩码模式 HRT 级上下文在参数和特性检查之前
- * fail-closed 返回 BM_ERR_BUSY；非掩码模式保持既有实现行为，但 HRT ISR 应使用
+ * 契约上仅限非 HRT 级 ISR。两模式 HRT 级上下文在参数和特性检查之前
+ * fail-closed 返回 BM_ERR_BUSY；普通 ISR 应优先使用
  * bm_event_publish_copy_from_isr()。
  *
  * @param event 事件描述指针
  * @return BM_OK 成功；BM_ERR_OVERFLOW 队列已满；BM_ERR_NO_MEM 载荷过大；
  *         BM_ERR_NOT_INIT 类型未注册；BM_ERR_INVALID 参数无效；
  *         BM_ERR_NOT_SUPPORTED 功能关闭或 hard-RT 剖面拒绝；
- *         BM_ERR_BUSY 掩码模式 HRT 级上下文禁调
+ *         BM_ERR_BUSY HRT 级上下文禁调（两模式）
  */
 int bm_event_publish_event_from_isr(const bm_event_t *event);
 

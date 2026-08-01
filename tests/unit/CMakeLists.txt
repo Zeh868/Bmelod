@@ -718,7 +718,6 @@ if(BM_BUILD_TESTS)
         SRCS test_priority_mask.c fakes/bm_hal_priority_mask_fake.c
         LIBS bm_config
         DEFS BM_CONFIG_ENABLE_PRIORITY_MASK=1 BM_HAL_HAS_PRIORITY_MASK=1
-            BM_ENABLE_EVENT_TEST_HOOK=1 BM_ENABLE_ULTRA_TEST_HOOK=1
         INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/fakes)
 
     # HRT ISR 上下文标记原语：嵌套/平衡/防下溢语义（域隔离运行期拦截的基础）

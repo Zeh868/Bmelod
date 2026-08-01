@@ -7,7 +7,7 @@
  * 订阅表初始化后冻结，分发直接遍历链表——无快照，WCET 可预测。
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 2.0
+ * @version 2.1
  * @date 2026-08-01
  *
  * @par 修改日志:
@@ -34,6 +34,8 @@
  *                                                优先于参数、特性与普通日志分支
  * 2026-08-01       2.0            zeh            订阅四入口与 test_inject 补 HRT
  *                                                FORBIDDEN（对齐 reset/process）
+ * 2026-08-01       2.1            zeh            契约注释改两模式口径；test_inject
+ *                                                FORBIDDEN 前置于入参检查
  *
  */
 #include "bm/core/bm_cpu_local.h"
@@ -651,31 +653,25 @@ static int event_publish_impl(bm_event_type_t type, bm_event_priority_t prio,
     /*
      * 确定性流式 ISR 安全契约（事件/ultra/mempool 软实时队列通用）：
      *
-     * - 非掩码模式（BM_CONFIG_ENABLE_PRIORITY_MASK=0，默认）：
-     *   BM_CRITICAL_ENTER() 全关中断，任何 ISR 与主循环路径互斥，*_from_isr
-     *   变体安全。
-     * - 掩码模式（=1）：BM_CRITICAL_ENTER() 仅屏蔽低于 HRT 阈值的中断。因此：
-     *   · 低于 HRT 阈值的普通 ISR 调用 *_from_isr 仍被正确互斥——这是预期用法。
-     *   · **HRT 级（>= 阈值）ISR 不得调用 event/ultra/mempool API**。这些是软
-     *     实时队列；HRT 级路径只应经 HRT binding（直驱硬件）与 stream/relay
-     *     通道交互。刻意不在此处升级为全关中断——否则 HRT ISR 在队列操作期间
-     *     被阻塞，反而增大 HRT 抖动，违背确定性流式对最高优先级路径的保证。
-     *   · 该禁令有运行期强制：框架 Scheduled HRT 路径（hrt_dispatch）经
-     *     bm_hrt_isr_enter/exit 标记上下文，下方检查对 HRT 级上下文的发布
-     *     fail-closed 返回 BM_ERR_BUSY；Hardware HRT 端口（厂商 IRQ handler）
-     *     须成对调用 bm_hrt_isr_enter/exit 以获得同等拦截（见
-     *     bm_critical_wrap.h）。
-     * - 单核路径：每核独立事件队列，转发钩子按注册规则路由；ISR 内 publish
-     *   无需额外自旋路径。
+     * - 两模式（掩码与非掩码）下，HRT 级上下文经 BM_SRT_QUEUE_API_FORBIDDEN()
+     *   fail-closed（返回 BM_ERR_BUSY 等）；拦截只看 bm_in_hrt_isr()，不看
+     *   from_isr 变体。Scheduled HRT 由 hrt_dispatch 自动接线 enter/exit；
+     *   Hardware HRT 端口须成对调用（见 bm_critical_wrap.h）。
+     * - 掩码模式（BM_CONFIG_ENABLE_PRIORITY_MASK=1）：BM_CRITICAL_ENTER() 仅
+     *   屏蔽低于 HRT 阈值的中断。低于阈值的普通 ISR 调用 *_from_isr 仍被互斥
+     *   ——这是预期用法。刻意不在此处升级为全关中断——否则 HRT ISR 在队列
+     *   操作期间被阻塞，反而增大抖动。
+     * - 非掩码模式（默认）：BM_CRITICAL_ENTER() 全关中断，任意 ISR 与主循环
+     *   互斥；即便互斥安全，HRT 级上下文仍 fail-closed（防御深度）。
+     * - 单核路径：每核独立事件队列，转发钩子按注册规则路由。
      */
     (void)from_isr;
 
     if (BM_SRT_QUEUE_API_FORBIDDEN()) {
         /*
-         * fail-closed：HRT 级 ISR 与 SRT 队列的阈值掩码临界区不互斥，
-         * 放行会导致 prio_read/prio_write 索引静默损坏。判定只看上下文而不
-         * 看 from_isr——在 HRT 回调里误用非 ISR 变体同样会损坏队列。在路由
-         * 转发与入队之前拦截，跨核转发链（bm_mp_ipc）一并覆盖。
+         * fail-closed：两模式下 HRT 级上下文禁止触碰 SRT 队列。掩码模式下
+         * 与阈值临界区不互斥，放行会损坏 prio_read/prio_write；非掩码下虽
+         * 全关中断互斥安全，仍统一拒绝。判定只看上下文而不看 from_isr。
          */
         event_log_hrt_reject_once(type);
         return BM_ERR_BUSY;
@@ -1106,12 +1102,12 @@ int bm_event_test_inject(const bm_event_t *event, bm_event_priority_t prio) {
     bm_queue_item_t *item;
     bm_irq_state_t s;
 
-    if (state == NULL) {
-        return BM_ERR_INVALID;
-    }
     if (BM_SRT_QUEUE_API_FORBIDDEN()) {
         event_log_hrt_reject_op_once("test_inject");
         return BM_ERR_BUSY;
+    }
+    if (state == NULL) {
+        return BM_ERR_INVALID;
     }
     if (!event || prio >= BM_CONFIG_EVENT_PRIORITIES) {
         return BM_ERR_INVALID;

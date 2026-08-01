@@ -25,8 +25,8 @@
  * 2026-07-27       1.3            zeh            struct bm_stream 下沉到 .c，头文件改为不透明指针 + accessor
  * 2026-07-28       1.4            zeh            accessor 声明补 Doxygen 中文注释（含 NULL 入参语义）
  * 2026-08-01       1.5            zeh            明确 bm_stream_drain 的 budget=
- *                                                最大 ready 通知次数（非消费块数）
- * 2026-08-01       1.5            zeh           补齐 Doxygen 合规元数据
+ *                                                最大 ready 通知次数（非消费块数）；
+ *                                                补齐 Doxygen 合规元数据
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

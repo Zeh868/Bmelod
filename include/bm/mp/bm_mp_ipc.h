@@ -8,7 +8,7 @@
  * 阶段 2 新增 N×N cmd_ring（FIFO）与 tel_channel（seqlock 最新值）payload 通道。
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.6
+ * @version 1.7
  * @date 2026-08-01
  *
  * @par 修改日志:
@@ -21,10 +21,10 @@
  *                                                cache-line storage 站点写法统一
  * 2026-07-31       1.4            zeh            publish_event_forward 补 HRT 级上下文
  *                                                禁调契约与 BM_ERR_BUSY 返回说明
- * 2026-08-01       1.5            zeh           补齐 Doxygen 合规元数据
- * 2026-08-01       1.5            zeh            drain_on_this_cpu 补 HRT 禁调契约与
+ * 2026-08-01       1.5            zeh            补齐 Doxygen 合规元数据
+ * 2026-08-01       1.6            zeh            drain_on_this_cpu 补 HRT 禁调契约与
  *                                                BM_ERR_BUSY 返回说明
- * 2026-08-01       1.6            zeh            HRT 禁调注释改为两模式口径
+ * 2026-08-01       1.7            zeh            HRT 禁调注释改为两模式口径
  *
  */
 #ifndef BM_MP_IPC_H

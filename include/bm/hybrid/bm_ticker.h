@@ -18,8 +18,8 @@
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
  * 2026-06-26       1.1            zeh            新增 bm_ticker_get_dropped_total（对称 hrt total getter）
- * 2026-08-01       1.1            zeh           补齐 Doxygen 合规元数据
- * 2026-08-01       1.2            zeh            文档化 poll 在 ISR 上下文立即返回 0
+ * 2026-08-01       1.2            zeh            补齐 Doxygen；文档化 poll 在 ISR
+ *                                                上下文立即返回 0
  *
  */
 #ifndef BM_TICKER_H

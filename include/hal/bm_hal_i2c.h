@@ -8,20 +8,22 @@
  *
  * 调用上下文约束（所有后端适用，与 `bm_drv_i2c.h` 一致）：
  * - **禁止在 HRT 上下文调用**（忙等预算由 config `timeout_ms` 承载）；
- * - 同一总线实例须单上下文或经端口互斥串行；跨上下文交错未定义。
+ * - 同一总线实例须单上下文或经端口互斥串行；跨上下文交错未定义；
+ * - ESP32 端口跨核 CAS 锁争用最坏约 100 ms 忙等（见 drv 契约）。
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-08-01
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-08-01       1.0            zeh            新增（I2C 总线契约，接口批 2）
- * 2026-08-01       1.0            zeh           补全 Doxygen 合规注释
+ * 2026-08-01       1.0            zeh            补全 Doxygen 合规注释
  * 2026-08-01       1.1            zeh            补上下文约束：禁止 HRT、单上下文
  *                                                或经端口互斥串行
+ * 2026-08-01       1.2            zeh            文档注明 ESP32 锁争用最坏约 100 ms
  *
  */
 #ifndef BM_HAL_I2C_H

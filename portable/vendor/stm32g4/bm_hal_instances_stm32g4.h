@@ -47,8 +47,8 @@
  * - tick（默认优先级 2）：**不**在 tick ISR 额外接线 enter/exit——依赖
  *   `hrt_dispatch` 传递覆盖（定时器 ISR / `bm_hrt_poll` 共用同一语义）。
  *   应用若自绑 tick 回调且绕过 hrt_dispatch，须自行成对调用 enter/exit，
- *   否则掩码模式下拦截 fail-open；切勿在 tick ISR 再套一层 enter/exit
- *   （会与 hrt_dispatch 嵌套）。
+ *   否则掩码模式下拦截 fail-open；经 hrt_dispatch 传递时再套一层 enter/exit
+ *   虽嵌套计数安全，但属冗余，不必重复接线。
  * - SRT 域 IRQ（console/串口及其 DMA、SPI DMA、CAN、GPIO EXTI）：默认优先级
  *   必须 ≥ 阈值（统一取 5，与既有 EXTI 默认一致），保证与 SRT 临界区互斥。
  *   板级覆盖这些宏时不得降到阈值以下，否则掩码模式下 fail-closed 拦截与

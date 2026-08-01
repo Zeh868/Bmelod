@@ -4,8 +4,8 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.3
- * @date 2026-07-28
+ * @version 1.4
+ * @date 2026-08-01
  *
  * @par 修改日志:
  *
@@ -15,7 +15,7 @@
  * 2026-07-27       1.2            zeh            新增 bm_algo_lpf1_alpha_saturate；
  *                                                LPF/HPF step 改用公共饱和函数
  * 2026-07-28       1.3            zeh            状态返回改用 BM_OK/BM_ERR_*
- * 2026-08-01       1.3            zeh           补齐 static 辅助函数 Doxygen
+ * 2026-08-01       1.4            zeh            补齐 static 辅助函数 Doxygen
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

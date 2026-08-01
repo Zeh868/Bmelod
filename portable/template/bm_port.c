@@ -21,9 +21,9 @@
  * 6. Hardware HRT 端口契约：任何会在 HRT 优先级派发框架回调的厂商 IRQ
  *    handler（ADC/PWM 完成、DMA 完成等，即不经 hrt_dispatch 的直驱链路），
  *    必须在回调派发首尾成对调用 `bm/common/bm_critical_wrap.h` 的
- *    `bm_hrt_isr_enter/exit`——掩码模式（BM_CONFIG_ENABLE_PRIORITY_MASK=1）
- *    对 event/ultra/mempool 的 fail-closed 拦截依赖该上下文标记；非掩码
- *    模式仅维护计数，零行为差异。参考实现：
+ *    `bm_hrt_isr_enter/exit`——两模式（掩码与非掩码）下 event/ultra/mempool
+ *    的 fail-closed 拦截均依赖该上下文标记；漏接则 HRT 误调 SRT 队列 API
+ *    会 fail-open。参考实现：
  *    `portable/vendor/stm32g4/bm_vendor_adc_stm32g4.c` 的 ADC1_2_IRQHandler。
  * 7. 实例出口：新后端须在后端 include 目录提供 `bm_hal_devices_<backend>.h`
  *    （`#include` 既有实例头聚合声明 + `bm_<class>_default` 首选实例别名，

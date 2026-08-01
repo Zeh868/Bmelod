@@ -8,7 +8,7 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.4
+ * @version 0.5
  * @date 2026-08-01
  *
  * @par 修改日志:
@@ -16,9 +16,10 @@
  *    Date         Version        Author          Description
  * 2026-06-17       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 validate_config 字段校验；补 exec_ops 封装
- * 2026-08-01       0.2            zeh           补全 Doxygen 合规注释
- * 2026-08-01       0.3            zeh            对齐 power_control：CMD_ENABLED/FAULT 状态机
- * 2026-08-01       0.4            zeh            exec_safe_stop 复位 MPPT，对齐 power_control
+ * 2026-08-01       0.3            zeh            补全 Doxygen 合规注释
+ * 2026-08-01       0.4            zeh            对齐 power_control：CMD_ENABLED/FAULT 状态机；
+ *                                                exec_safe_stop 复位 MPPT
+ * 2026-08-01       0.5            zeh            read_iv 未绑定按零值继续（对齐 grid_control）
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -191,7 +192,7 @@ void bm_solar_control_step(bm_solar_control_axis_t *axis) {
         return;
     }
 
-    if (axis->resources.read_iv == NULL ||
+    if (axis->resources.read_iv != NULL &&
         axis->resources.read_iv(axis->resources.read_iv_user,
                                 &voltage, &current) != 0) {
         latch_fault(axis);

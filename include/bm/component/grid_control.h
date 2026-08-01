@@ -4,10 +4,12 @@
  *
  * 封装 SOGI-PLL 锁相与 PR 谐振电流环，提供 bm_exec_ops_t 调度接口。
  * 默认未使能：须经 apply_command 置 ENABLED 后 step 才跑环。
+ * 故障锁存（fault_latched / CMD_FAULT）仅能经 reset 清除；清除命令 FAULT
+ * 位不会自动解锁。
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.4
+ * @version 0.5
  * @date 2026-08-01
  *
  * @par 修改日志:
@@ -17,6 +19,7 @@
  * 2026-06-23       0.2            zeh            补 exec_ops 声明；validate_config 增加 PLL/PR 参数校验
  * 2026-08-01       0.3            zeh            对齐 power_control：CMD_ENABLED/FAULT 状态机
  * 2026-08-01       0.4            zeh            exec_safe_stop 复位 PLL/PR；reset NULL 契约对齐
+ * 2026-08-01       0.5            zeh            文档化故障仅 reset 清除；read_io 未绑定按零值
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -85,7 +88,7 @@ typedef int (*bm_grid_control_read_command_fn)(void *user,
                                                bm_grid_ctrl_cmd_t *command);
 
 typedef struct {
-    bm_grid_control_read_fn         read_io;
+    bm_grid_control_read_fn         read_io;           /**< 可为 NULL；未绑定按零值继续 */
     void                           *read_io_user;
     bm_grid_control_write_fn        write_output;
     void                           *write_output_user;
@@ -110,7 +113,7 @@ typedef struct {
     float                    v_cmd;
     uint32_t                 step_count;
     bm_grid_ctrl_cmd_t       cmd;           /**< 最新控制命令 */
-    int                      fault_latched; /**< 非零：故障已锁存 */
+    int                      fault_latched; /**< 非零：故障已锁存；仅 reset 可清除 */
     bm_grid_control_telemetry_t telemetry;
 } bm_grid_control_state_t;
 
@@ -162,7 +165,8 @@ void bm_grid_control_apply_command(bm_grid_control_axis_t *axis,
  * @brief 执行一拍 SOGI-PLL + PR 电流环控制
  *
  * 先 sync_command；故障或未 ENABLED 时停止调制并复位控制器。
- * read_io 失败时锁存故障并发布 FAULT/STALE 遥测。
+ * read_io 未绑定则按零值继续；读失败时锁存故障并发布 FAULT/STALE 遥测。
+ * 故障锁存仅能经 reset 清除。
  *
  * @param axis 控制轴指针；NULL 时静默返回
  */

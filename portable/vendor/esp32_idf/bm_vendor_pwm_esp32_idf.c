@@ -466,8 +466,8 @@ static void IRAM_ATTR bm_vendor_pwm_isr(void *arg)
      * 守卫顺序铁律：开 CP0 → 存现场 → 跑浮点 → 复现场 → 还原 CPENABLE。
      *
      * Hardware HRT 端口契约（bm_critical_wrap.h）：回调派发首尾成对标记
-     * HRT ISR 上下文，使掩码模式对 SRT 队列 API 的 fail-closed 拦截在
-     * 本链路生效；非掩码模式仅维护计数，不改变行为。
+     * HRT ISR 上下文，使两模式对 SRT 队列 API 的 fail-closed 拦截在
+     * 本链路生效。
      */
     bm_hrt_isr_enter();
     {

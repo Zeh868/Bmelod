@@ -7,7 +7,7 @@
  * CMD_ENABLED/FAULT 状态机。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.2
+ * @version 1.3
  * @date 2026-08-01
  *
  * @par 修改日志:
@@ -16,6 +16,7 @@
  * 2026-06-17       1.0            zeh            正式发布
  * 2026-06-23       1.1            zeh            补 validate 拒绝测试、power=0 边界、exec_ops 测试
  * 2026-08-01       1.2            zeh            补 ENABLED/FAULT 状态机用例；步进前须使能
+ * 2026-08-01       1.3            zeh            补 read_iv 未绑定不锁故障用例
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -168,6 +169,23 @@ void test_solar_read_fail_marks_stale(void) {
     TEST_ASSERT_NOT_EQUAL(0u, axis.state.telemetry.status & BM_SOLAR_CTRL_TEL_FAULT);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, axis.state.v_ref_v);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, g_vref_out);
+}
+
+/* ================================================================
+ * 测试 4a：read_iv 未绑定按零值继续，不锁故障（对齐 grid_control）
+ * ================================================================ */
+void test_solar_unbound_read_iv_continues_without_fault(void) {
+    bm_solar_control_axis_t axis;
+
+    build_default_axis(&axis);
+    axis.resources.read_iv = NULL;
+    TEST_ASSERT_EQUAL(BM_OK, bm_solar_control_init(&axis));
+    enable_axis(&axis);
+
+    bm_solar_control_step(&axis);
+
+    TEST_ASSERT_EQUAL(0, axis.state.fault_latched);
+    TEST_ASSERT_EQUAL(0u, axis.state.telemetry.status & BM_SOLAR_CTRL_TEL_FAULT);
 }
 
 /* ================================================================
@@ -351,6 +369,7 @@ int main(void) {
     RUN_TEST(test_solar_power_limit_flags_limited);
     RUN_TEST(test_solar_power_zero_no_limit_flag);
     RUN_TEST(test_solar_read_fail_marks_stale);
+    RUN_TEST(test_solar_unbound_read_iv_continues_without_fault);
     RUN_TEST(test_solar_default_disabled_no_output);
     RUN_TEST(test_solar_fault_latches_and_reset_clears);
     RUN_TEST(test_solar_null_safety);

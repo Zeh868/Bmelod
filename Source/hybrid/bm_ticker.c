@@ -165,9 +165,10 @@ int bm_ticker_init(const bm_ticker_slot_t *slots, uint32_t slot_count) {
 /**
  * @brief 轮询到期槽并向事件总线发布事件
  *
- * 非可重入，仅限主循环调用。
+ * 非可重入，仅限主循环调用；ISR 上下文中调用立即返回 0（对齐 bm_hrt_poll /
+ * 头文件契约）。
  *
- * @return 本次发布的事件数；BM_ERR_NOT_INIT 未初始化
+ * @return 本次发布的事件数；BM_ERR_NOT_INIT 未初始化；ISR 内返回 0
  */
 int bm_ticker_poll(void) {
     bm_ticker_cpu_state_t *state = bm_ticker_this();

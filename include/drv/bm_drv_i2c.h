@@ -12,22 +12,25 @@
  *   默认，通常约 10 ms），HRT 域代价灾难性；
  * - 同一 `bm_drv_i2c` / `bm_hal_i2c` 实例须**单上下文**使用，或经端口级
  *   互斥串行；跨 HRT/SRT（或任意两消费者）寄存器级交错未定义。
+ * - ESP32 端口另有跨核 CAS 事务锁：争用最坏约 100 ms 忙等后返回
+ *   `BM_ERR_TIMEOUT`（与 `timeout_ms` 事务预算叠加，SRT 侧须纳入周期预算）。
  *
  * 后端扩展配置约定：dev->config 可指向首成员为 bm_i2c_config_t 的
  * 后端私有结构（携带引脚/端口号），分发层不触碰 config。
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
+ * @version 1.2
  * @date 2026-08-01
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-08-01       1.0            zeh            新增（I2C 总线契约，接口批 2）
- * 2026-08-01       1.0            zeh           补全 Doxygen 合规注释
+ * 2026-08-01       1.0            zeh            补全 Doxygen 合规注释
  * 2026-08-01       1.1            zeh            补上下文约束：禁止 HRT、单上下文
  *                                                或经端口互斥串行
+ * 2026-08-01       1.2            zeh            文档注明 ESP32 锁争用最坏约 100 ms
  *
  */
 #ifndef BM_DRV_I2C_H

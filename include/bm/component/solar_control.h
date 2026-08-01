@@ -5,10 +5,12 @@
  * 封装 P&O/增量电导 MPPT 与功率限额降额，输出工作点参考。
  * 提供 bm_exec_ops_t 接口，可直接挂入框架调度器。
  * 默认未使能：须经 apply_command 置 ENABLED 后 step 才跑环。
+ * 故障锁存（fault_latched / CMD_FAULT）仅能经 reset 清除；清除命令 FAULT
+ * 位不会自动解锁。
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.4
+ * @version 0.5
  * @date 2026-08-01
  *
  * @par 修改日志:
@@ -18,6 +20,7 @@
  * 2026-06-23       0.2            zeh            补 exec_ops 封装声明；validate_config 字段校验
  * 2026-08-01       0.3            zeh            对齐 power_control：CMD_ENABLED/FAULT 状态机
  * 2026-08-01       0.4            zeh            exec_safe_stop 复位 MPPT；reset NULL 契约对齐
+ * 2026-08-01       0.5            zeh            read_iv 未绑定按零值继续；文档化故障仅 reset 清除
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -89,7 +92,7 @@ typedef int (*bm_solar_read_command_fn)(void *user,
                                         bm_solar_ctrl_cmd_t *command);
 
 typedef struct {
-    bm_solar_read_iv_fn       read_iv;
+    bm_solar_read_iv_fn       read_iv;           /**< 可为 NULL；未绑定按零值继续 */
     void                     *read_iv_user;
     bm_solar_write_vref_fn    write_vref;
     void                     *write_vref_user;
@@ -114,7 +117,7 @@ typedef struct {
     float last_power_w;
     uint32_t step_count;
     bm_solar_ctrl_cmd_t cmd;           /**< 最新控制命令 */
-    int fault_latched;                 /**< 非零：故障已锁存 */
+    int fault_latched;                 /**< 非零：故障已锁存；仅 reset 可清除 */
     bm_solar_control_telemetry_t telemetry;
 } bm_solar_control_state_t;
 
@@ -166,7 +169,8 @@ void bm_solar_control_apply_command(bm_solar_control_axis_t *axis,
  * @brief 执行一拍 MPPT 步进并处理功率限额降额
  *
  * 先 sync_command；故障或未 ENABLED 时停止 MPPT 并复位。
- * read_iv 失败时锁存故障并发布 FAULT/STALE 遥测。
+ * read_iv 未绑定则按零值继续；读失败时锁存故障并发布 FAULT/STALE 遥测。
+ * 故障锁存仅能经 reset 清除。
  *
  * @param axis 控制轴指针；NULL 时静默返回
  */

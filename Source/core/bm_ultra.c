@@ -7,7 +7,7 @@
  * 两条编译路径共享同一套队列逻辑，仅存储布局与 ultra_this() 的实现不同。
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.5
+ * @version 1.6
  * @date 2026-08-01
  *
  * @par 修改日志:
@@ -20,10 +20,9 @@
  *                                                消除 MSVC C2233
  * 2026-07-31       1.4            zeh            掩码模式 HRT 级上下文调用
  *                                                push/pop/reset 运行期 fail-closed
- * 2026-08-01       1.4            zeh           补齐 Doxygen 合规元数据
- * 2026-08-01       1.5            zeh            test_inject 补 HRT FORBIDDEN
- *
- * 2026-08-01       1.5            zeh            test_inject 补 HRT FORBIDDEN
+ * 2026-08-01       1.5            zeh            补齐 Doxygen 合规元数据
+ * 2026-08-01       1.6            zeh            test_inject 补 HRT FORBIDDEN
+ *                                                （FORBIDDEN 前置于入参检查）
  */
 #include "bm_ultra.h"
 #include "bm_critical_wrap.h"
@@ -95,10 +94,10 @@ static bm_ultra_cpu_state_t *ultra_this(void) {
 /**
  * @brief HRT 级上下文拒绝服务时输出一次诊断日志
  *
- * 掩码模式下 BM_CRITICAL_ENTER() 仅屏蔽低于 HRT 阈值的中断，HRT 级 ISR 与本
- * 队列的临界区不互斥，放行会静默损坏 read_idx/write_idx。按"确定性流式 ISR
- * 安全契约"（见 bm_event.c 注释）各入口据 BM_SRT_QUEUE_API_FORBIDDEN()
- * fail-closed；日志只输出首次，避免在 HRT 路径上反复触发无界 UART 写。
+ * 两模式（掩码与非掩码）下 HRT 级上下文均经 BM_SRT_QUEUE_API_FORBIDDEN()
+ * fail-closed；掩码模式下阈值临界区与 HRT 不互斥，放行会静默损坏
+ * read_idx/write_idx。按"确定性流式 ISR 安全契约"（见 bm_event.c 注释）
+ * 各入口拦截；日志只输出首次，避免在 HRT 路径上反复触发无界 UART 写。
  *
  * @param op 被拒绝的操作名（push/pop/reset）
  */
@@ -350,15 +349,15 @@ int bm_ultra_test_inject(const bm_ultra_queue_item_t *item) {
     uint8_t next;
     bm_irq_state_t s;
 
+    if (BM_SRT_QUEUE_API_FORBIDDEN()) {
+        ultra_log_hrt_reject_once("test_inject");
+        return BM_ERR_BUSY;
+    }
     if (!item) {
         return BM_ERR_INVALID;
     }
     if (state == NULL) {
         return BM_ERR_INVALID;
-    }
-    if (BM_SRT_QUEUE_API_FORBIDDEN()) {
-        ultra_log_hrt_reject_once("test_inject");
-        return BM_ERR_BUSY;
     }
 
     s = BM_CRITICAL_ENTER();

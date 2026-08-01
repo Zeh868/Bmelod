@@ -5,10 +5,12 @@
  * 外环输出作为内环设定；饱和与抗饱和由 bm_algo_pi 承担。
  * 提供 bm_exec_ops_t 标准封装，可直接接入调度框架。
  * 默认未使能：须经 apply_command 置 ENABLED 后 step 才跑环。
+ * 故障锁存（fault_latched / CMD_FAULT）仅能经 reset 清除；清除命令 FAULT
+ * 位不会自动解锁。
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.5
+ * @version 0.6
  * @date 2026-08-01
  *
  * @par 修改日志:
@@ -19,6 +21,7 @@
  * 2026-07-27       0.3            zeh            新增 bm_control_loop_init 四段式入口
  * 2026-07-27       0.4            zeh            init/validate 复用 bm_component_common.h 公共宏
  * 2026-08-01       0.5            zeh            对齐 power_control：CMD_ENABLED/FAULT 状态机
+ * 2026-08-01       0.6            zeh            文档化故障仅 reset 清除；read_plant 未绑定按零值
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -71,7 +74,7 @@ typedef int (*bm_control_loop_read_command_fn)(void *user,
                                                bm_control_loop_cmd_t *command);
 
 typedef struct {
-    bm_control_loop_read_plant_fn    read_plant;
+    bm_control_loop_read_plant_fn    read_plant;        /**< 可为 NULL；未绑定按零值继续 */
     void                            *read_plant_user;
     bm_control_loop_write_output_fn  write_output;
     void                            *write_output_user;
@@ -86,7 +89,7 @@ typedef struct {
     float                 inner_out;
     uint32_t              step_count;
     bm_control_loop_cmd_t cmd;           /**< 最新控制命令 */
-    int                   fault_latched; /**< 非零：故障已锁存 */
+    int                   fault_latched; /**< 非零：故障已锁存；仅 reset 可清除 */
 } bm_control_loop_state_t;
 
 typedef struct {
@@ -136,7 +139,8 @@ void bm_control_loop_apply_command(bm_control_loop_axis_t *axis,
  * @brief 执行一次串级控制环计算
  *
  * 先 sync_command；故障或未 ENABLED 时清输出、复位积分器并返回。
- * read_plant 失败时锁存故障。
+ * read_plant 未绑定则按零值继续；读失败时锁存故障。
+ * 故障锁存仅能经 reset 清除。
  *
  * @param axis 控制环实例；NULL 时静默返回
  */
