@@ -2,6 +2,7 @@
 /**
  * @file bm_hal_can_stm32g4.c
  * @brief STM32G4 FDCAN1/FDCAN2 后端（寄存器级直接操作，等效 LL 风格）
+ * @maturity E1
  *
  * STM32CubeG4 未提供 FDCAN LL 头文件，因此本后端基于 CMSIS 寄存器定义直接操作，
  * 仅依赖 `stm32g4xx.h`、`stm32g4xx_ll_bus.h`/`ll_gpio.h`/`ll_rcc.h` 做时钟/GPIO。
@@ -46,6 +47,7 @@
  * 2026-07-28       1.3            zeh            Message RAM 偏移按实例强制 0/212；
  *                                                忽略 App 可配 message_ram_offset
  * 2026-07-28       1.4            zeh            bitrate 推算支持 kernel_clock_hz
+ * 2026-08-01       1.4            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_vendor_can_stm32g4.h"
 #include "bm_hal_instances_stm32g4.h"
@@ -354,6 +356,11 @@ static const uint8_t bm_can_dlc_to_bytes[16] = {
     12u, 16u, 20u, 24u, 32u, 48u, 64u
 };
 
+/**
+ * @brief 将 CAN FD 数据长度转换为 DLC 编码。
+ * @param len 缓冲区中的有效数据长度，单位为字节。
+ * @return 对应的 CAN FD DLC 编码（0–15）。
+ */
 static uint8_t bm_can_bytes_to_dlc(uint8_t len) {
     if (len <= 8u) {
         return len;
@@ -814,6 +821,13 @@ static int bm_can_stm32g4_add_std_filter(bm_can_stm32g4_context_t *ctx,
     return BM_OK;
 }
 
+/**
+ * @brief 添加 STM32G4 CAN 扩展帧过滤器。
+ * @param ctx 设备驱动上下文；不得为 NULL。
+ * @param filter CAN 过滤器配置；不得为 NULL。
+ * @param filter_id 用于接收新过滤器标识符的输出指针；不得为 NULL。
+ * @return 成功返回 BM_OK；操作不受支持时返回 BM_ERR_NOT_SUPPORTED；设备或参数无效时返回 BM_ERR_INVALID；无可用静态槽位时返回 BM_ERR_NO_MEM。
+ */
 static int bm_can_stm32g4_add_ext_filter(bm_can_stm32g4_context_t *ctx,
                                          const bm_can_filter_t *filter,
                                          uint32_t *filter_id) {
@@ -910,6 +924,12 @@ static int bm_can_stm32g4_validate_frame(const bm_can_frame_t *frame,
     return BM_OK;
 }
 
+/**
+ * @brief 通过CAN发送数据。
+ * @param dev CAN 设备实例。
+ * @param frame 待发送的 CAN 帧；不得为 NULL。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID；设备未初始化时返回 BM_ERR_NOT_INIT；资源忙或队列已满时返回 BM_ERR_BUSY；底层操作失败时透传其错误码。
+ */
 static int bm_can_stm32g4_send(const struct bm_hal_can *dev,
                                const bm_can_frame_t *frame) {
     bm_can_stm32g4_context_t *ctx = bm_can_stm32g4_ctx_for(dev);
@@ -1286,7 +1306,7 @@ static int bm_can_stm32g4_init(const struct bm_hal_can *dev, void *config) {
         return BM_ERR_INVALID;
     }
 
-    /* App 可通过 config 参数覆盖 dev->config；NULL 则使用设备默认值 */
+    /* App 可通过 config 实参覆盖 dev->config；NULL 则使用设备默认值 */
     cfg = (config != NULL)
               ? (const bm_can_stm32g4_config_t *)config
               : (const bm_can_stm32g4_config_t *)dev->config;
@@ -1319,6 +1339,11 @@ static int bm_can_stm32g4_init(const struct bm_hal_can *dev, void *config) {
     return BM_OK;
 }
 
+/**
+ * @brief 启动CAN设备。
+ * @param dev CAN 设备实例。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID；设备未初始化时返回 BM_ERR_NOT_INIT；等待超时时返回 BM_ERR_TIMEOUT。
+ */
 static int bm_can_stm32g4_start(const struct bm_hal_can *dev) {
     bm_can_stm32g4_context_t *ctx = bm_can_stm32g4_ctx_for(dev);
     FDCAN_GlobalTypeDef *fdcan;
@@ -1337,6 +1362,11 @@ static int bm_can_stm32g4_start(const struct bm_hal_can *dev) {
     return BM_OK;
 }
 
+/**
+ * @brief 停止CAN设备。
+ * @param dev CAN 设备实例。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID；设备未初始化时返回 BM_ERR_NOT_INIT；等待超时时返回 BM_ERR_TIMEOUT。
+ */
 static int bm_can_stm32g4_stop(const struct bm_hal_can *dev) {
     bm_can_stm32g4_context_t *ctx = bm_can_stm32g4_ctx_for(dev);
     FDCAN_GlobalTypeDef *fdcan;
@@ -1355,6 +1385,13 @@ static int bm_can_stm32g4_stop(const struct bm_hal_can *dev) {
     return BM_OK;
 }
 
+/**
+ * @brief 向CAN设备添加接收过滤器。
+ * @param dev CAN 设备实例。
+ * @param filter CAN 过滤器配置；不得为 NULL。
+ * @param filter_id 用于接收新过滤器标识符的输出指针；不得为 NULL。
+ * @return 设备或参数无效时返回 BM_ERR_INVALID；设备未初始化时返回 BM_ERR_NOT_INIT；底层操作失败时透传其错误码。
+ */
 static int bm_can_stm32g4_add_filter(const struct bm_hal_can *dev,
                                      const bm_can_filter_t *filter,
                                      uint32_t *filter_id) {
@@ -1378,6 +1415,12 @@ static int bm_can_stm32g4_add_filter(const struct bm_hal_can *dev,
     return BM_ERR_INVALID;
 }
 
+/**
+ * @brief 从CAN设备移除接收过滤器。
+ * @param dev CAN 设备实例。
+ * @param filter_id CAN 过滤器标识符。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID；设备未初始化时返回 BM_ERR_NOT_INIT。
+ */
 static int bm_can_stm32g4_remove_filter(const struct bm_hal_can *dev,
                                         uint32_t filter_id) {
     bm_can_stm32g4_context_t *ctx = bm_can_stm32g4_ctx_for(dev);
@@ -1407,6 +1450,11 @@ static int bm_can_stm32g4_remove_filter(const struct bm_hal_can *dev,
     return BM_ERR_INVALID;
 }
 
+/**
+ * @brief 读取CAN设备能力位掩码。
+ * @param dev CAN 设备实例。
+ * @return 设备能力位掩码；设备无效时返回 0。
+ */
 static uint32_t bm_can_stm32g4_get_capabilities(const struct bm_hal_can *dev) {
     bm_can_stm32g4_context_t *ctx = bm_can_stm32g4_ctx_for(dev);
     uint32_t caps;
@@ -1427,6 +1475,12 @@ static uint32_t bm_can_stm32g4_get_capabilities(const struct bm_hal_can *dev) {
     return caps;
 }
 
+/**
+ * @brief 读取CAN运行统计。
+ * @param dev CAN 设备实例。
+ * @param stats 用于接收运行统计的输出结构；不得为 NULL。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int bm_can_stm32g4_get_stats(const struct bm_hal_can *dev,
                                     bm_can_stats_t *stats) {
     bm_can_stm32g4_context_t *ctx = bm_can_stm32g4_ctx_for(dev);
@@ -1439,6 +1493,13 @@ static int bm_can_stm32g4_get_stats(const struct bm_hal_can *dev,
     return BM_OK;
 }
 
+/**
+ * @brief 设置CAN接收回调。
+ * @param dev CAN 设备实例。
+ * @param cb 接收回调；传入 NULL 时解除绑定。
+ * @param user 回调用户上下文，调用回调时原样传入。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int bm_can_stm32g4_set_rx_callback(const struct bm_hal_can *dev,
                                           bm_can_rx_callback_t cb, void *user) {
     bm_can_stm32g4_context_t *ctx = bm_can_stm32g4_ctx_for(dev);
@@ -1451,6 +1512,13 @@ static int bm_can_stm32g4_set_rx_callback(const struct bm_hal_can *dev,
     return BM_OK;
 }
 
+/**
+ * @brief 设置CAN事件回调。
+ * @param dev CAN 设备实例。
+ * @param cb 事件回调；传入 NULL 时解除绑定。
+ * @param user 回调用户上下文，调用回调时原样传入。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int bm_can_stm32g4_set_event_callback(const struct bm_hal_can *dev,
                                              bm_can_event_callback_t cb,
                                              void *user) {

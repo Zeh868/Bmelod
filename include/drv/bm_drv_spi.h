@@ -6,6 +6,7 @@
  * 刻意不做异步/DMA/多从机调度（dma_stream 有真实消费者再议）。
  * config 结构为契约级通用配置：时钟、模式、CS（经 bm_hal_gpio 设备）。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-07-27
@@ -14,6 +15,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-07-27       1.0            zeh            新增（接口批 1）
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_DRV_SPI_H

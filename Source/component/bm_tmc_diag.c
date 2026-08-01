@@ -3,6 +3,7 @@
  * @file bm_tmc_diag.c
  * @brief TMC DIAG 通用输入组件实现
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.1
  * @date 2026-07-28
@@ -12,6 +13,7 @@
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 TMC DIAG 通用输入组件
  * 2026-07-28       1.1            zeh            审查整改：ISR 状态更新入临界区、GPIO 读失败保持上次值、include 全路径
+ * 2026-08-01       1.1            Codex           补全 Doxygen 合规注释
  */
 #include "bm/component/bm_tmc_diag.h"
 #include "bm/common/bm_uptime.h"
@@ -19,6 +21,11 @@
 
 #include <stddef.h>
 
+/**
+ * @brief 处理 TMC 诊断引脚的外部中断并更新锁存状态
+ * @param pin 触发中断的 GPIO 引脚
+ * @param user bm_tmc_diag_t 实例指针
+ */
 static void bm_tmc_diag_exti_cb(uint32_t pin, void *user) {
     bm_tmc_diag_t *diag = (bm_tmc_diag_t *)user;
     bm_irq_state_t irq_state;

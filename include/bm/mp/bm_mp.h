@@ -5,11 +5,13 @@
  *
  * 单 ELF 多核对称运行时入口：`bm_mp_cpu_main()` 主循环顺序为
  * stream drain → IPC drain → ticker → event process。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-14
  *
  * @par 修改日志:
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
@@ -267,6 +269,9 @@ int bm_event_register_type_owner(bm_event_type_t type,
                                  const char *name,
                                  uint8_t owner_cpu);
 
+/**
+ * @brief 执行当前 CPU 的一轮协作式主循环处理
+ */
 void bm_mp_cpu_main_iteration(void);
 
 /**

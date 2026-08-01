@@ -2,6 +2,7 @@
 /**
  * @file bm_hal_instances_esp32wroom32e.h
  * @brief 灯哥 V4 平衡车 ESP32-WROOM-32E 板级引脚与电气常量
+ * @maturity E1
  *
  * 本头文件只保存与硬件绑定相关的宏定义，不直接依赖 ESP-IDF 头文件，
  * 以便在独立 CMake 语法检查和通用代码分析阶段也能被安全包含。
@@ -16,6 +17,7 @@
  * 2026-06-15       1.0            zeh            从 sdk_esp32_idf 迁入 vendor
  * 2026-06-19       2.0            zeh            补全灯哥 V4 电机 HAL 板级宏与电气常量
  *
+ * 2026-08-01       2.0            Codex            补全中文 Doxygen 合规注释
  */
 #ifndef BM_HAL_INSTANCES_ESP32WROOM32E_H
 #define BM_HAL_INSTANCES_ESP32WROOM32E_H

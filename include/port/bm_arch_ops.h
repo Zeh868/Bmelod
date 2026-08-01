@@ -5,6 +5,7 @@
  *
  * 各 `portable/arch/<id>/` 实现下列符号；`bm_arch_drv_bundle.c` 将其组装为
  * `bm_drv_critical_api` 与 `bm_drv_memory_api`。不得在此头文件中暴露厂商 SDK 类型。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-14
@@ -13,6 +14,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_ARCH_OPS_H

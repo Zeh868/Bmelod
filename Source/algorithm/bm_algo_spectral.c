@@ -10,6 +10,7 @@
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
+ * 2026-08-01       1.5            Codex           补齐 static 辅助函数 Doxygen
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-13       1.1            zeh            增加 STFT 幅度谱与阶次换算
  * 2026-06-17       1.2            zeh            增加重叠 STFT 状态机
@@ -191,6 +192,16 @@ int bm_algo_find_peak_bin(const float *spectrum,
     return BM_OK;
 }
 
+/**
+ * @brief 计算实数帧的单边 DFT 幅度谱
+ *
+ * 对前 n/2+1 个频点逐点计算，并按 n 归一化；window 为 NULL 时使用矩形窗。
+ *
+ * @param frame 长度为 n 的输入帧
+ * @param window 长度为 n 的窗系数；可为 NULL
+ * @param n 输入帧长度
+ * @param magnitude 至少容纳 n/2+1 个元素的幅度输出数组
+ */
 static void dft_magnitude(const float *frame,
                           const float *window,
                           uint32_t n,

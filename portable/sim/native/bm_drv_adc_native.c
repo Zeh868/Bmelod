@@ -2,6 +2,7 @@
 /**
  * @file bm_drv_adc_native.c
  * @brief native_sim ADC 设备驱动
+ * @maturity E1
  *
  * @author zeh (china_qzh@163.com)
  * @version 1.1
@@ -15,6 +16,9 @@
  *                                                bm_hrt_isr_enter/exit，与真实 Hardware
  *                                                HRT 端口一致，消除"仿真放行、真机拒绝"分叉
  *
+ *
+ * @par ????:
+ * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_hal_adc_sim.h"
 #include "bm/common/bm_critical_wrap.h"
@@ -35,6 +39,11 @@ typedef struct {
 
 static adc_sim_state_t g_adc_state[BM_SIM_ADC_INSTANCES];
 
+/**
+ * @brief 获取 ADC 设备绑定的仿真状态。
+ * @param adc ADC 设备实例。
+ * @return 有效时返回设备状态指针；设备或配置无效时返回 NULL。
+ */
 static adc_sim_state_t *adc_state_for(const bm_hal_adc_t *adc) {
     const bm_adc_native_config_t *cfg;
 
@@ -48,6 +57,13 @@ static adc_sim_state_t *adc_state_for(const bm_hal_adc_t *adc) {
     return &g_adc_state[cfg->id];
 }
 
+/**
+ * @brief 读取 ADC 注入序列的仿真采样值。
+ * @param adc ADC 设备实例。
+ * @param rank ADC 注入序列排名。
+ * @param value 用于接收读取值的输出指针；不得为 NULL。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int native_adc_read_injected(const struct bm_hal_adc *adc,
                                     uint32_t rank, uint16_t *value) {
     adc_sim_state_t *state = adc_state_for(adc);
@@ -60,6 +76,12 @@ static int native_adc_read_injected(const struct bm_hal_adc *adc,
     return BM_OK;
 }
 
+/**
+ * @brief 绑定 ADC 转换完成的 HRT 回调。
+ * @param adc ADC 设备实例。
+ * @param binding HRT 回调绑定信息；传入 NULL 时解除绑定。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int native_adc_bind_complete(const struct bm_hal_adc *adc,
                                     const bm_hal_hrt_binding_t *binding) {
     const bm_adc_native_config_t *cfg;

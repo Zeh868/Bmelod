@@ -6,8 +6,8 @@
  * 位图标记空闲槽，临界区保护分配/释放。
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.5
- * @date 2026-07-31
+ * @version 1.6
+ * @date 2026-08-01
  *
  * @par 修改日志:
  *
@@ -22,6 +22,7 @@
  * 2026-07-31       1.5            zeh            改用共享的
  *                                                BM_SRT_QUEUE_API_FORBIDDEN()；
  *                                                拒绝日志改 log-once
+ * 2026-08-01       1.6            zeh            reset(NULL) 改为静默返回
  *
  */
 #include "bm_mempool.h"
@@ -313,11 +314,14 @@ void bm_mempool_free(bm_mempool_t *pool, void *obj) {
 /**
  * @brief 重置内存池，释放所有已分配对象
  *
- * @param pool 内存池描述符指针
+ * @param pool 内存池描述符指针；为 NULL 时静默返回
  */
 void bm_mempool_reset(bm_mempool_t *pool) {
     uint32_t bitmap_words;
 
+    if (pool == NULL) {
+        return;
+    }
     if (mempool_validate_pool(pool) != BM_OK) {
         BM_LOGE("mempool", "reset invalid pool");
         return;

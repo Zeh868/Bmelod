@@ -40,7 +40,11 @@
 /** CLINT 机器时间寄存器 */
 #define CLINT_MTIME        (*(volatile uint64_t *)(CLINT_BASE + 0xBFF8u))
 
-/** CLINT 每 hart 比较寄存器（64 位写须分步，与 RV32 相同防中间态触发） */
+/**
+ * @brief 设置当前 hart 的 CLINT mtimecmp 比较值。
+ * @param hart 目标 RISC-V hart 索引。
+ * @param val 待写入的 64 位 mtimecmp 比较值，单位为 CLINT tick。
+ */
 static void clint_set_mtimecmp(uint32_t hart, uint64_t val) {
     volatile uint32_t *lo = (volatile uint32_t *)(CLINT_BASE + 0x4000u + 8u * hart);
     volatile uint32_t *hi = lo + 1;
@@ -100,6 +104,11 @@ static void rv64_smp_timer_arm(uint32_t cpu) {
     __asm volatile ("csrsi mstatus, 8" ::: "memory");
 }
 
+/**
+ * @brief 初始化当前逻辑 CPU 的定时器。
+ * @param freq_hz 定时器频率，单位为 Hz；传入 0 时使用该端口默认频率。
+ * @return 成功返回 BM_OK。
+ */
 static int rv64_smp_timer_init(uint32_t freq_hz) {
     uint32_t cpu = rv64_smp_cpu_index();
     uint32_t hz = (freq_hz > 0u) ? freq_hz : 1000u;
@@ -116,6 +125,9 @@ static int rv64_smp_timer_init(uint32_t freq_hz) {
     return BM_OK;
 }
 
+/**
+ * @brief 停止定时器设备。
+ */
 static void rv64_smp_timer_stop(void) {
     uint32_t cpu = rv64_smp_cpu_index();
 
@@ -123,14 +135,26 @@ static void rv64_smp_timer_stop(void) {
     g_timer_armed[cpu] = 0;
 }
 
+/**
+ * @brief 读取当前逻辑 CPU 的定时器 tick 计数。
+ * @return 当前逻辑 CPU 的定时器 tick 计数。
+ */
 static uint32_t rv64_smp_timer_get_ticks(void) {
     return g_ticks[rv64_smp_cpu_index()];
 }
 
+/**
+ * @brief 读取当前定时器频率。
+ * @return 定时器频率，单位为 Hz；设备无效时返回 0。
+ */
 static uint32_t rv64_smp_timer_get_freq(void) {
     return g_tick_freq[rv64_smp_cpu_index()];
 }
 
+/**
+ * @brief 设置定时器回调。
+ * @param cb tick 回调；传入 NULL 时解除绑定。
+ */
 static void rv64_smp_timer_set_callback(void (*cb)(void)) {
     g_tick_cb[rv64_smp_cpu_index()] = cb;
 }
@@ -180,6 +204,12 @@ void qemu_rv64_smp_on_software_irq(void) {
     CLINT_MSIP(cpu) = 0u;
 }
 
+/**
+ * @brief 初始化UART端口。
+ * @param dev UART 设备实例；当前实现不使用该参数。
+ * @param config 设备初始化配置；当前实现不使用该参数。
+ * @return 成功返回 BM_OK。
+ */
 static int rv64_smp_uart_init(const struct bm_hal_uart *dev, void *config) {
     (void)dev;
     (void)config;
@@ -187,6 +217,13 @@ static int rv64_smp_uart_init(const struct bm_hal_uart *dev, void *config) {
     return BM_OK;
 }
 
+/**
+ * @brief 通过UART发送数据。
+ * @param dev UART 设备实例；当前实现不使用该参数。
+ * @param data 待发送数据缓冲区。
+ * @param len 缓冲区中的有效数据长度，单位为字节。
+ * @return 成功返回 BM_OK；等待超时时返回 BM_ERR_TIMEOUT。
+ */
 static int rv64_smp_uart_send(const struct bm_hal_uart *dev,
                             const uint8_t *data, size_t len) {
     (void)dev;
@@ -211,6 +248,13 @@ static int rv64_smp_uart_send(const struct bm_hal_uart *dev,
     return BM_OK;
 }
 
+/**
+ * @brief 从UART接收数据。
+ * @param dev UART 设备实例；当前实现不使用该参数。
+ * @param data 接收数据缓冲区；当前仿真桩不读写该缓冲区。
+ * @param max_len 接收缓冲区容量，单位为字节。
+ * @return 实际写入接收缓冲区的字节数；无数据或参数无效时返回 0。
+ */
 static size_t rv64_smp_uart_recv(const struct bm_hal_uart *dev,
                                uint8_t *data, size_t max_len) {
     (void)dev;
@@ -219,6 +263,11 @@ static size_t rv64_smp_uart_recv(const struct bm_hal_uart *dev,
     return 0u;
 }
 
+/**
+ * @brief 设置UART接收回调。
+ * @param dev UART 设备实例；当前实现不使用该参数。
+ * @param cb 接收回调；当前仿真桩忽略该参数且不会触发回调。
+ */
 static void rv64_smp_uart_set_rx_callback(const struct bm_hal_uart *dev,
                                         void (*cb)(uint8_t c)) {
     (void)dev;
@@ -235,12 +284,20 @@ static const struct bm_uart_driver_api g_uart_api = {
 /** @brief 默认控制台 UART 设备（统一实例模型，见 bm_hal_uart.h）。 */
 const bm_hal_uart_t bm_uart_default = { &g_uart_api, NULL };
 
+/**
+ * @brief 初始化看门狗仿真桩。
+ * @param timeout_ms 看门狗超时时间，单位为毫秒；当前仿真桩不使用该值。
+ * @return 成功返回 BM_OK。
+ */
 static int rv64_smp_wdg_init(uint32_t timeout_ms) {
     (void)timeout_ms;
     BM_LOGI(TAG_WDG, "init: stub");
     return BM_OK;
 }
 
+/**
+ * @brief 喂养看门狗仿真桩。
+ */
 static void rv64_smp_wdg_feed(void) {
 }
 

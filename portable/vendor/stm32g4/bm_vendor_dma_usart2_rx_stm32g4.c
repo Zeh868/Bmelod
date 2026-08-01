@@ -2,6 +2,7 @@
 /**
  * @file bm_vendor_dma_usart2_rx_stm32g4.c
  * @brief STM32G474xB USART2 RX DMA 块流驱动（bm_drv_dma_stream 契约，STM32 LL 库）
+ * @maturity E1
  *
  * DMA1 循环模式：submit_rx 把 bm_block_t 的 data/capacity 作为环形接收
  * 缓冲，半满触发 binding.on_half、全满触发 binding.on_full（ISR 上下文，
@@ -24,6 +25,7 @@
  * 2026-07-27       1.0            zeh            新增（UART RX DMA）
  * 2026-07-28       1.1            zeh            DMA IRQ 改 bm_dma_irq 路由器注册
  *
+ * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_vendor_dma_usart2_rx_stm32g4.h"
 #include "bm_dma_irq_stm32g4.h"

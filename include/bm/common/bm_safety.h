@@ -4,6 +4,7 @@
  * @brief 框架内部安全算术与范围校验辅助（header-only）
  *
  * 用于 SIL-2 对齐的运行时防御：乘法/加法溢出检测、索引上界检查。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-10
@@ -12,6 +13,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_SAFETY_H

@@ -4,6 +4,7 @@
  * @brief 临界区进入/退出宏封装
  *
  * 根据 BM_CONFIG_ENABLE_PRIORITY_MASK 选择全局关中断或优先级阈值屏蔽。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.2
  * @date 2026-07-31
@@ -16,6 +17,7 @@
  *                                               （bm_hrt_isr_enter/exit、bm_in_hrt_isr），
  *                                               支撑掩码模式下的运行期 fail-closed
  * 2026-07-31       1.2            zeh            下沉 BM_SRT_QUEUE_API_FORBIDDEN()，
+ * 2026-08-01       1.2            Codex           补全 Doxygen 合规注释
  *                                               统一 event/ultra/mempool 的
  *                                               fail-closed 判定口径
  *

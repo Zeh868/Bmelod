@@ -9,15 +9,18 @@
  * @core_affinity 本核（per-CPU）
  * 事件总线实例仅操作调用者所在 CPU。
  * 事件路由由注册的转发钩子负责，对发布者透明。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-10
+ * @version 1.2
+ * @date 2026-08-01
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
  * 2026-06-14       1.1            zeh            订阅冻结机制，移除分发快照，确定性流式
+ * 2026-08-01       1.2            zeh            补全完整事件发布与掩码模式 HRT
+ *                                                fail-closed 公开契约
  *
  */
 #ifndef BM_EVENT_H
@@ -127,9 +130,17 @@ int bm_event_publish_copy(bm_event_type_t type, bm_event_priority_t prio,
                           const void *data, size_t len);
 
 /**
- * @brief Publish an inline copy while preserving an upstream CPU source ID.
+ * @brief 保留上游 CPU 来源并以内联拷贝方式发布事件
  *
- * Intended for deterministic IPC relay injection on the owning CPU.
+ * 仅供事件归属核上的确定性 IPC 转发注入路径调用。
+ *
+ * @param type 事件类型 ID
+ * @param prio 事件优先级
+ * @param source_id 上游来源 CPU ID
+ * @param data 载荷数据指针
+ * @param len 载荷字节长度
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效；BM_ERR_NO_MEM 载荷过大；
+ *         BM_ERR_NOT_INIT 类型未注册；BM_ERR_OVERFLOW 队列已满
  */
 int bm_event_publish_copy_from_source(bm_event_type_t type,
                                       bm_event_priority_t prio,
@@ -140,13 +151,17 @@ int bm_event_publish_copy_from_source(bm_event_type_t type,
 /**
  * @brief SRT 域 ISR 上下文发布事件（内部拷贝数据）
  *
- * 单核下通过关中断临界区实现；禁止在 HRT ISR 中调用。
+ * 非掩码模式使用全关中断临界区，允许 HRT ISR 仅执行有界入队，不在本路径执行
+ * 订阅回调；掩码模式 HRT 级 ISR 与 SRT 队列临界区不互斥，运行期返回
+ * BM_ERR_BUSY。
  *
  * @param type 事件类型 ID
  * @param prio 事件优先级
  * @param data 载荷数据指针
  * @param len 载荷字节长度
- * @return BM_OK 成功；BM_ERR_OVERFLOW 队列已满；BM_ERR_INVALID 参数无效
+ * @return BM_OK 成功；BM_ERR_OVERFLOW 队列已满；BM_ERR_NO_MEM 载荷过大；
+ *         BM_ERR_NOT_INIT 类型未注册；BM_ERR_INVALID 参数无效；
+ *         BM_ERR_BUSY 掩码模式下从 HRT 级 ISR 调用
  */
 int bm_event_publish_copy_from_isr(bm_event_type_t type, bm_event_priority_t prio,
                                    const void *data, size_t len);
@@ -154,18 +169,29 @@ int bm_event_publish_copy_from_isr(bm_event_type_t type, bm_event_priority_t pri
 /**
  * @brief 发布完整事件结构（载荷拷贝到内联缓冲，≤ BM_CONFIG_EVENT_INLINE_DATA_SIZE）
  *
+ * 默认关闭该入口并返回 BM_ERR_NOT_SUPPORTED；启用后仍复制载荷。掩码模式 HRT
+ * 级上下文在参数和特性检查之前 fail-closed 返回 BM_ERR_BUSY。
+ *
  * @param event 事件描述指针
- * @return BM_OK 成功；BM_ERR_OVERFLOW 队列已满；BM_ERR_NO_MEM 载荷过大；BM_ERR_INVALID 参数无效
+ * @return BM_OK 成功；BM_ERR_OVERFLOW 队列已满；BM_ERR_NO_MEM 载荷过大；
+ *         BM_ERR_NOT_INIT 类型未注册；BM_ERR_INVALID 参数无效；
+ *         BM_ERR_NOT_SUPPORTED 功能关闭或 hard-RT 剖面拒绝；
+ *         BM_ERR_BUSY 掩码模式 HRT 级上下文禁调
  */
 int bm_event_publish_event(const bm_event_t *event);
 
 /**
  * @brief SRT 域 ISR 上下文发布完整事件结构
  *
- * 单核下通过关中断临界区实现；禁止在 HRT ISR 中调用。
+ * 契约上仅限 SRT 域 ISR。掩码模式 HRT 级上下文在参数和特性检查之前
+ * fail-closed 返回 BM_ERR_BUSY；非掩码模式保持既有实现行为，但 HRT ISR 应使用
+ * bm_event_publish_copy_from_isr()。
  *
  * @param event 事件描述指针
- * @return BM_OK 成功；BM_ERR_OVERFLOW 队列已满；BM_ERR_INVALID 参数无效
+ * @return BM_OK 成功；BM_ERR_OVERFLOW 队列已满；BM_ERR_NO_MEM 载荷过大；
+ *         BM_ERR_NOT_INIT 类型未注册；BM_ERR_INVALID 参数无效；
+ *         BM_ERR_NOT_SUPPORTED 功能关闭或 hard-RT 剖面拒绝；
+ *         BM_ERR_BUSY 掩码模式 HRT 级上下文禁调
  */
 int bm_event_publish_event_from_isr(const bm_event_t *event);
 
@@ -203,7 +229,13 @@ uint32_t bm_event_get_dispatch_skipped_count(void);
 uint32_t bm_event_get_reentrancy_rejected_count(void);
 
 #ifdef BM_ENABLE_EVENT_TEST_HOOK
-/** 单元测试专用：绕过发布校验向队列注入事件（生产固件勿定义此宏） */
+/**
+ * @brief 绕过发布校验向队列注入测试事件
+ * @param event 事件描述指针
+ * @param prio 注入队列优先级
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效；其他为队列错误码
+ * @note 仅供单元测试，生产固件不得定义 BM_ENABLE_EVENT_TEST_HOOK。
+ */
 int bm_event_test_inject(const bm_event_t *event, bm_event_priority_t prio);
 #endif
 

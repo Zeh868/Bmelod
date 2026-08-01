@@ -4,11 +4,13 @@
  * @brief QEMU RISC-V32 virt SMP 启动：.data/.bss 初始化与从核 mailbox
  *
  * 从核由 startup 汇编唤醒后经 qemu_rv32_smp_secondary_start 跳入框架入口。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.1
  * @date 2026-07-15
  *
  * @par 修改日志:
+ * 2026-08-01       1.1            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-15       1.0            zeh            正式发布

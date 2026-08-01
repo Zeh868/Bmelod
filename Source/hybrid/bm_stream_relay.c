@@ -2,11 +2,13 @@
  * @file bm_stream_relay.c
  * @brief 跨核块 relay 实现（有界 SPSC + 显式 memcpy）
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.1
  * @date 2026-06-14
  *
  * @par 修改日志:
+ * 2026-08-01       1.1            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布

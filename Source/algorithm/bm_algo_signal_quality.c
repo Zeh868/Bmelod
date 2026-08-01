@@ -1,7 +1,7 @@
 /**
  * @file bm_algo_signal_quality.c
  * @brief 信号质量监控实现
- *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.1
  * @date 2026-06-23
@@ -9,6 +9,7 @@
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
+ * 2026-08-01       1.1            Codex           补齐 Doxygen 合规元数据
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-23       1.1            zeh            stable_count 自增前加饱和保护，防止 uint32_t 绕回导致误复位
  *

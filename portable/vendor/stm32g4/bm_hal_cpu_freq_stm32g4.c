@@ -2,6 +2,7 @@
 /**
  * @file bm_hal_cpu_freq_stm32g4.c
  * @brief STM32G4 CPU 主频接口（真机规则：SDK 时钟树拥有主频，本版不接管）
+ * @maturity E1
  *
  * 实现规则（对齐 01-HAL契约与移植要点.md §各类 port 的实现规则）：
  *   - bm_hal_cpu_freq_hz()：读运行期真值 SystemCoreClock（由 Cube
@@ -24,6 +25,7 @@
  *    Date         Version        Author          Description
  * 2026-07-27       1.0            zeh            新增（STM32G474xB 移植）
  *
+ * 2026-08-01       1.0            Codex            补全中文 Doxygen 合规注释
  */
 #include "hal/bm_hal_cpu.h"
 #include "bm_hal_instances_stm32g4.h"

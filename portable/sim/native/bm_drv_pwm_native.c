@@ -2,6 +2,7 @@
 /**
  * @file bm_drv_pwm_native.c
  * @brief native_sim PWM 设备驱动
+ * @maturity E1
  *
  * @author zeh (china_qzh@163.com)
  * @version 1.1
@@ -15,6 +16,9 @@
  *                                                bm_hrt_isr_enter/exit，与真实 Hardware
  *                                                HRT 端口一致，消除"仿真放行、真机拒绝"分叉
  *
+ *
+ * @par ????:
+ * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_hal_pwm_sim.h"
 #include "bm/common/bm_critical_wrap.h"
@@ -38,6 +42,11 @@ typedef struct {
 
 static pwm_sim_state_t g_pwm_state[BM_SIM_PWM_INSTANCES];
 
+/**
+ * @brief 获取 PWM 设备绑定的仿真状态。
+ * @param pwm PWM 设备实例。
+ * @return 有效时返回设备状态指针；设备或配置无效时返回 NULL。
+ */
 static pwm_sim_state_t *pwm_state_for(const bm_hal_pwm_t *pwm) {
     const bm_pwm_native_config_t *cfg;
 
@@ -51,6 +60,13 @@ static pwm_sim_state_t *pwm_state_for(const bm_hal_pwm_t *pwm) {
     return &g_pwm_state[cfg->id];
 }
 
+/**
+ * @brief 设置 PWM 指定相的仿真占空比值。
+ * @param pwm PWM 设备实例。
+ * @param phase PWM 相索引。
+ * @param duty PWM 占空比编码值，取值语义与 HAL 接口一致。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int native_pwm_set_duty(const struct bm_hal_pwm *pwm, uint32_t phase, uint16_t duty) {
     pwm_sim_state_t *state = pwm_state_for(pwm);
     if (!state || phase >= BM_SIM_PWM_MAX_PHASES) {
@@ -61,6 +77,12 @@ static int native_pwm_set_duty(const struct bm_hal_pwm *pwm, uint32_t phase, uin
     return BM_OK;
 }
 
+/**
+ * @brief 启用或禁用 PWM 仿真输出。
+ * @param pwm PWM 设备实例。
+ * @param enable 非 0 表示启用，0 表示禁用。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int native_pwm_enable_outputs(const struct bm_hal_pwm *pwm, int enable) {
     const bm_pwm_native_config_t *cfg;
     pwm_sim_state_t *state = pwm_state_for(pwm);
@@ -75,6 +97,11 @@ static int native_pwm_enable_outputs(const struct bm_hal_pwm *pwm, int enable) {
     return BM_OK;
 }
 
+/**
+ * @brief 将 PWM 仿真输出切换到安全状态。
+ * @param pwm PWM 设备实例。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int native_pwm_request_safe_state(const struct bm_hal_pwm *pwm) {
     const bm_pwm_native_config_t *cfg;
     pwm_sim_state_t *state = pwm_state_for(pwm);
@@ -90,6 +117,12 @@ static int native_pwm_request_safe_state(const struct bm_hal_pwm *pwm) {
     return BM_OK;
 }
 
+/**
+ * @brief 绑定 PWM 更新 HRT 回调。
+ * @param pwm PWM 设备实例。
+ * @param binding HRT 回调绑定信息；传入 NULL 时解除绑定。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int native_pwm_bind_update(const struct bm_hal_pwm *pwm,
                                   const bm_hal_hrt_binding_t *binding) {
     const bm_pwm_native_config_t *cfg;

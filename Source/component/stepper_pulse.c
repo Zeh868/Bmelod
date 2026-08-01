@@ -10,6 +10,7 @@
  * dir_wait_pending）；静止启动立即 dir_set 并置 dir_wait_pending。
  * GPIO 回调非 BM_OK 时锁存 fault、停机并尽量 STEP 拉低。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.4
  * @date 2026-07-28
@@ -22,6 +23,7 @@
  * 2026-07-28       1.2            zeh            dir_hold/min 脉宽/GPIO fault/en_set
  * 2026-07-28       1.3            zeh            dir_hold 后不再置 dir_wait_pending
  * 2026-07-28       1.4            zeh            半周期 float→uint32 越界 UB 修复
+ * 2026-08-01       1.4            Codex           补全 Doxygen 合规注释
  *                                                （isfinite+float 域钳位）；validate
  *                                                加法溢出改逐项比较；fault 态允许
  *                                                set_enable(axis,0) 断使能

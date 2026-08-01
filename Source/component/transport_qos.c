@@ -5,6 +5,7 @@
  * 基于 on_tx/on_rx 钩子测量单程延迟，EMA 滤波后触发报警；
  * 同时集成 token bucket 令牌桶对出队字节进行整形。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 0.4
  * @date 2026-07-15
@@ -17,6 +18,7 @@
  * 2026-07-09       0.3            zeh            补 have_pending_tx，修复
  *                                                 now_ms()==0 与挂起哨兵冲突（疑似-13）
  * 2026-07-15       0.4            zeh            step 超时判定去除无效双重强转，语义不变
+ * 2026-08-01       0.4            Codex           补全 Doxygen 合规注释
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

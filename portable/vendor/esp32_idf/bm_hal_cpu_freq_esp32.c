@@ -2,6 +2,7 @@
 /**
  * @file bm_hal_cpu_freq_esp32.c
  * @brief ESP32-WROOM-32E 真机 CPU 主频接口实现（查询 esp_clk，切频占位）
+ * @maturity E1
  *
  * 为 `hal/bm_hal_cpu.h` 声明的 freq_hz/freq_points/freq_set 三接口提供
  * ESP32 真机语义：freq_hz 直接查 ESP-IDF 运行期真值（`esp_clk_cpu_freq()`），
@@ -37,6 +38,7 @@
  * 2026-07-04       1.1            zeh            freq_set 由占位改安全版：命中当前频率即确认，
  *                                                 CONFIG_PM_ENABLE 时经 esp_pm 锁频，否则拒绝裸切
  *
+ * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
  */
 #include "hal/bm_hal_cpu.h"
 #include "bm/common/bm_types.h"

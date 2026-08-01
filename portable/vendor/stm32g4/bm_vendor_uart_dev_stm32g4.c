@@ -226,6 +226,11 @@ static void bm_vendor_uart_dev_set_rx_callback(const struct bm_hal_uart *dev,
     NVIC_EnableIRQ(USART2_IRQn);
 }
 
+/**
+ * @brief 中止UART当前传输。
+ * @param dev UART 设备实例；当前实现不使用该参数。
+ * @return 成功返回 BM_OK；设备未初始化时返回 BM_ERR_NOT_INIT。
+ */
 static int bm_vendor_uart_dev_abort(const struct bm_hal_uart *dev) {
     (void)dev;
     if (g_uart_ready == 0u) {
@@ -238,6 +243,11 @@ static int bm_vendor_uart_dev_abort(const struct bm_hal_uart *dev) {
     return BM_OK;
 }
 
+/**
+ * @brief 等待UART发送数据完成。
+ * @param dev UART 设备实例；当前实现不使用该参数。
+ * @return 成功返回 BM_OK；设备未初始化时返回 BM_ERR_NOT_INIT；等待超时时返回 BM_ERR_TIMEOUT。
+ */
 static int bm_vendor_uart_dev_flush(const struct bm_hal_uart *dev) {
     uint32_t timeout = 100000u;
 
@@ -252,6 +262,13 @@ static int bm_vendor_uart_dev_flush(const struct bm_hal_uart *dev) {
     return (LL_USART_IsActiveFlag_TC(USART2) != 0u) ? BM_OK : BM_ERR_TIMEOUT;
 }
 
+/**
+ * @brief 设置 UART 发送完成回调。
+ * @param dev UART 设备实例；当前实现不使用该参数。
+ * @param cb 发送完成回调；当前驱动不支持该回调并忽略此参数。
+ * @param user 回调用户上下文；当前驱动不使用该参数。
+ * @return 固定返回 BM_ERR_NOT_SUPPORTED，表示当前驱动不支持该操作。
+ */
 static int bm_vendor_uart_dev_set_tx_complete_callback(
     const struct bm_hal_uart *dev,
     bm_uart_tx_complete_callback_t cb, void *user) {
@@ -261,6 +278,13 @@ static int bm_vendor_uart_dev_set_tx_complete_callback(
     return BM_ERR_NOT_SUPPORTED;
 }
 
+/**
+ * @brief 设置 UART 接收帧回调。
+ * @param dev UART 设备实例；当前实现不使用该参数。
+ * @param cb 接收帧回调；当前驱动不支持该回调并忽略此参数。
+ * @param user 回调用户上下文；当前驱动不使用该参数。
+ * @return 固定返回 BM_ERR_NOT_SUPPORTED，表示当前驱动不支持该操作。
+ */
 static int bm_vendor_uart_dev_set_rx_frame_callback(
     const struct bm_hal_uart *dev,
     bm_uart_rx_frame_callback_t cb, void *user) {
@@ -271,6 +295,13 @@ static int bm_vendor_uart_dev_set_rx_frame_callback(
 }
 
 
+/**
+ * @brief 设置 UART 接收缓冲区。
+ * @param dev UART 设备实例；当前实现不使用该参数。
+ * @param buf 接收数据缓冲区；当前驱动不支持该操作并忽略此参数。
+ * @param len 接收缓冲区容量，单位为字节；当前驱动忽略该值。
+ * @return 固定返回 BM_ERR_NOT_SUPPORTED，表示当前驱动不支持该操作。
+ */
 static int bm_vendor_uart_dev_set_rx_buffer(const struct bm_hal_uart *dev,
                                             uint8_t *buf, size_t len) {
     (void)dev;
@@ -279,6 +310,12 @@ static int bm_vendor_uart_dev_set_rx_buffer(const struct bm_hal_uart *dev,
     return BM_ERR_NOT_SUPPORTED;
 }
 
+/**
+ * @brief 读取 UART 运行统计。
+ * @param dev UART 设备实例；当前实现不使用该参数。
+ * @param stats 用于接收运行统计的输出结构；不得为 NULL。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int bm_vendor_uart_dev_get_stats(const struct bm_hal_uart *dev,
                                         bm_uart_stats_t *stats) {
     (void)dev;

@@ -4,6 +4,16 @@
  * @brief Control 层聚合头：HRT / Ticker / 多实例控制 / 同步域
  *
  * 要求 BM_CONFIG_ENABLE_HRT=1。子组件由 BM_CONFIG_ENABLE_* 进一步裁剪。
+ *
+ * @maturity E1
+ * @author Codex
+ * @version 1.0
+ * @date 2026-08-01
+ *
+ * @par 修改日志:
+ *
+ *    Date         Version        Author          Description
+ * 2026-08-01       1.0            Codex           补齐聚合头 Doxygen 元数据
  */
 #ifndef BM_HYBRID_H
 #define BM_HYBRID_H

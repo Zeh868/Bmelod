@@ -6,6 +6,7 @@
  * 提供 bm_exec_ops_t 标准封装（exec_init/exec_start/exec_safe_stop + ops 表），
  * 可直接接入调度框架；bm_control_loop_step() 直接调用路径保持不变。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 0.3
  * @date 2026-06-17
@@ -17,6 +18,7 @@
  * 2026-06-23       0.2            zeh            补 bm_exec_ops_t 标准调度封装接口
  * 2026-07-27       0.3            zeh            新增 bm_control_loop_init 四段式入口；exec_init 复用之
  * 2026-07-27       0.4            zeh            init/validate 复用 bm_component_common.h 公共宏
+ * 2026-08-01       0.3            Codex           补全 Doxygen 合规注释
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

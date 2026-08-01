@@ -5,6 +5,7 @@
  * 封装 Smith 预估器与外环/内环 PID 串级控制，
  * 并提供 bm_exec_ops_t 调度封装。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 0.6
  * @date 2026-07-27
@@ -21,6 +22,7 @@
  *                                                 （底层 smith_predictor_init 本就拒绝，
  *                                                 原注释误称合法），注释与契约对齐
  * 2026-07-27       0.6            zeh            validate_config 中
+ * 2026-08-01       0.6            Codex           补全 Doxygen 合规注释
  *                                                 bm_algo_pid_validate_config
  *                                                 结果比较改为 BM_OK
  *

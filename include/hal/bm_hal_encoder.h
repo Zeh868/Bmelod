@@ -4,6 +4,7 @@
  * @brief 编码器 HAL 接口
  *
  * 读取增量式编码器计数值，具体硬件由平台实现绑定。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-10
@@ -12,6 +13,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_HAL_ENCODER_H

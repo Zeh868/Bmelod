@@ -4,6 +4,7 @@
  *
  * 算法库不依赖 bm_core，仅依赖 bm_config 与 C 标准库（部分模块使用 libm）。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-13
@@ -12,6 +13,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

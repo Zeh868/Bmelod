@@ -2,6 +2,15 @@
  * @file bmp_algo_bms.h
  * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief K2 · 闭源 · 需 bm_mp 的 BMS SOC 融合：库仑计量 + OCV 加权
+ * @maturity E1
+ * @author Bmelod contributors
+ * @version 1.0
+ * @date 2026-08-01
+ *
+ * @par 修改日志:
+ *
+ * Date       Version Author Description
+ * 2026-08-01 1.0     Codex  补齐规范化文件头元数据
  */
 #ifndef BMP_ALGO_BMS_H
 #define BMP_ALGO_BMS_H
@@ -37,6 +46,9 @@ typedef struct {
 
 /**
  * @brief 初始化 BMS SOC 融合状态
+ * @param state BMS SOC 融合状态
+ * @param config BMS SOC 融合配置
+ * @param soc_init 初始荷电状态
  * @return BM_OK 成功；BM_ERR_INVALID 参数无效
  */
 int bmp_bms_fusion_init(bmp_bms_state_t *state,
@@ -45,6 +57,12 @@ int bmp_bms_fusion_init(bmp_bms_state_t *state,
 
 /**
  * @brief 执行一步 BMS SOC 融合
+ * @param state BMS SOC 融合状态
+ * @param config BMS SOC 融合配置
+ * @param current_a 电池电流，单位 A
+ * @param voltage_v 电池端电压，单位 V
+ * @param dt_s 本次更新的时间间隔，单位 s
+ * @param soc_out 输出的融合荷电状态
  * @return BM_OK 成功；BM_ERR_INVALID 参数或状态无效
  */
 int bmp_bms_fusion_step(bmp_bms_state_t *state,

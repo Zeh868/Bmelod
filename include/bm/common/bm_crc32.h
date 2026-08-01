@@ -4,6 +4,7 @@
  * @brief 共享 CRC32（Ethernet 多项式 0xEDB88320）工具
  *
  * 单文件 static inline，零堆依赖；供 IPC、分区表等模块复用。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-14
@@ -12,6 +13,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_CRC32_H

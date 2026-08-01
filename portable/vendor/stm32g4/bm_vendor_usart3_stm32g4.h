@@ -2,6 +2,7 @@
 /**
  * @file bm_vendor_usart3_stm32g4.h
  * @brief STM32G4 USART3 设备实例配置与声明
+ * @maturity E1
  *
  * App 通过 `bm_usart3_stm32g4_config_t` 指定引脚/DMA/IRQ/DE；
  * Bmelod 不固定 USART3 与具体产品引脚。
@@ -24,6 +25,7 @@
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 STM32G4 USART3 后端
  * 2026-07-28       1.1            zeh            HT 不交付 FRAME_END；kernel_clock_hz
+ * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
  */
 #ifndef BM_VENDOR_USART3_STM32G4_H
 #define BM_VENDOR_USART3_STM32G4_H

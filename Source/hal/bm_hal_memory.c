@@ -4,6 +4,7 @@
  * @brief 内存屏障 HAL 分发层（契约 → driver API）
  *
  * 有 BM_DRV_HAS_BACKEND 时转发至 Port driver API；否则提供带 fence 的桩实现。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-14
@@ -12,6 +13,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  *
  */
 #include "bm_drv_memory.h"
@@ -27,10 +29,12 @@ extern const struct bm_memory_driver_api bm_drv_memory_api;
  * 仅空函数体会被编译器优化掉，导致跨语句重排。
  * 使用 atomic_thread_fence 确保最小屏障语义。
  */
+/** @brief 建立桩后端释放内存栅栏 */
 static void memory_stub_release(void) {
     bm_atomic_ipc_fence_release();
 }
 
+/** @brief 建立桩后端完整内存栅栏 */
 static void memory_stub_full(void) {
     bm_atomic_ipc_fence_full();
 }

@@ -4,11 +4,13 @@
  * @brief ARMv7-A 临界区实现（CPSR I/F 保存/恢复）
  *
  * 进入临界区时保存 CPSR 并通过 cpsid if 屏蔽 IRQ/FIQ；退出时恢复 cpsr_c。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-15
  *
  * @par 修改日志:
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-15       1.0            zeh            正式发布

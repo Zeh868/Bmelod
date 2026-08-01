@@ -2,6 +2,7 @@
 /**
  * @file bm_vendor_encoder_esp32_idf.c
  * @brief ESP32-WROOM-32E 板级 AS5600 编码器实现（I2C 总线设备消费方）
+ * @maturity E1
  *
  * 两路编码器经框架 I2C 总线实例（bm_hal_i2c_esp32_idf）读取
  * AS5600 RAW ANGLE：
@@ -33,6 +34,7 @@
  *                                                i2c_port/sda_gpio/scl_gpio 字段，
  *                                                read 改调 bm_hal_i2c_write_read；
  *                                                端口懒初始化上移总线后端
+ * 2026-08-01       2.5            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_vendor_encoder_esp32_idf.h"
 #include "bm_hal_i2c_esp32_idf.h"

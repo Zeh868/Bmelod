@@ -13,6 +13,7 @@
  * 某外设类后端无实例时不定义对应别名，应用误用为编译期报错
  * （fail-closed）。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-08-01
@@ -21,6 +22,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-08-01       1.0            zeh            新增（P1 跨后端实例出口）
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_HAL_DEVICES_H

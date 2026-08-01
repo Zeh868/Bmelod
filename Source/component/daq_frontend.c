@@ -1,6 +1,7 @@
 /**
  * @file daq_frontend.c
  * @brief DAQ 前端组件实现
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 0.4
  * @date 2026-07-09
@@ -12,6 +13,7 @@
  * 2026-06-23       0.2            zeh            补全 Doxygen 中文注释；添加 SPDX 头
  * 2026-06-23       0.3            zeh            修复预触发缓冲在触发后仍写入导致快照被污染
  * 2026-07-09       0.4            zeh            H11：copy_pre_trigger 绕回
+ * 2026-08-01       0.4            Codex           补全 Doxygen 合规注释
  *                                                判断改用 pre_trigger_count
  *                                                而非被 dst_len 截断的 n，
  *                                                修复已绕回+dst_len<cap 时

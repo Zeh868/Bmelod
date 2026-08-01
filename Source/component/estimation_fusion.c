@@ -5,6 +5,7 @@
  * 支持互补滤波、Mahony AHRS、EKF-CV 单轴 pitch 跟踪三种模式，
  * 并提供 bm_exec_ops_t 调度封装（run 驱动 IMU 读取→step→publish）。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 0.4
  * @date 2026-07-14
@@ -16,6 +17,7 @@
  * 2026-06-23       0.2            zeh            落地 EKF_CV 融合模式：放行 validate、补 step 分支
  * 2026-06-23       0.3            zeh            补 exec_ops 封装；补全公共函数 Doxygen
  * 2026-07-14       0.4            zeh            Medium-6 修复：read_imu 成功
+ * 2026-08-01       0.4            Codex           补全 Doxygen 合规注释
  *                                                返回后统一校验六轴有限性，
  *                                                非有限时跳过融合并上报 STALE，
  *                                                避免 EKF_CV 持久状态被 NaN 污染

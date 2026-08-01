@@ -4,6 +4,7 @@
  * @brief CAN/FDCAN HAL 分发层（统一实例模型：契约 → driver API）
  *
  * 设备未绑定后端（api 为 NULL）时返回 BM_ERR_NOT_INIT / 0。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-07-28
@@ -12,6 +13,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 CAN/FDCAN HAL 分发层
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  */
 #include "bm_hal_can.h"
 #include "bm_config.h"

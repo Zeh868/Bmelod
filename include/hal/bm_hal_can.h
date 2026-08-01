@@ -6,6 +6,7 @@
  * 多实例设备模型：每个 `bm_hal_can` 绑定一路 CAN 控制器。
  * App 通过 vendor 配置指定引脚/AF/波特率/Message RAM/IRQ。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-07-28
@@ -14,6 +15,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 CAN/FDCAN HAL 分发层
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  */
 #ifndef BM_HAL_CAN_H
 #define BM_HAL_CAN_H

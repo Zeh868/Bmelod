@@ -5,11 +5,13 @@
  *
  * 通过 bm_module_t 描述模块的 init/start/stop/deinit 回调，
  * 由框架按优先级统一调度。看门狗由应用 main 主循环统一喂，与模块无关。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.2
  * @date 2026-06-12
  *
  * @par 修改日志:
+ * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
@@ -198,9 +200,9 @@ int bm_module_init_on_this_cpu(void);
 int bm_module_start_on_this_cpu(void);
 
 /**
- * @brief Install the static partition owner resolver.
- *
- * Intended for the bootstrap path.
+ * @brief 安装静态分区的模块归属核解析器
+ * @param resolver 模块 ID 到归属 CPU 的解析回调；NULL 表示清除
+ * @note 仅用于系统引导阶段，运行期不得替换。
  */
 void bm_module_set_owner_resolver(bm_module_owner_resolver_t resolver);
 

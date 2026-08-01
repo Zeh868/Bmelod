@@ -5,6 +5,7 @@
  *
  * 有 BM_DRV_HAS_BACKEND 时转发至 Port driver API；否则非 hard RT 下提供带
  * 编译器屏障的桩实现。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.1
  * @date 2026-06-15
@@ -14,6 +15,7 @@
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
  * 2026-06-15       1.1            zeh            hard RT 禁止 fence-only 临界区桩
+ * 2026-08-01       1.1            Codex           补全 Doxygen 合规注释
  *
  */
 #include "bm_drv_critical.h"
@@ -36,27 +38,32 @@ extern const struct bm_critical_driver_api bm_drv_critical_api;
  * 的 load/store。在抢占式环境中使用 stub 仍不安全（缺乏真实 IRQ 屏蔽），
  * 端口必须提供真实后端。该屏障确保单核协作式环境下的基本正确性。
  */
+/** @brief 进入桩临界区并建立完整内存栅栏 @return 桩中断状态 0 */
 static bm_irq_state_t critical_stub_enter(void) {
     bm_atomic_ipc_fence_full();
     return 0;
 }
 
+/** @brief 退出桩临界区并建立完整内存栅栏 @param state 进入时保存的中断状态 */
 static void critical_stub_exit(bm_irq_state_t state) {
     (void)state;
     bm_atomic_ipc_fence_full();
 }
 
+/** @brief 查询桩后端是否处于中断上下文 @return 固定返回 0 */
 static int critical_stub_in_isr(void) {
     return 0;
 }
 
 #if BM_HAL_HAS_PRIORITY_MASK
+/** @brief 屏蔽指定优先级阈值以下中断 @param threshold 优先级阈值 @return 桩中断状态 0 */
 static bm_irq_state_t critical_stub_enter_below(uint8_t threshold) {
     (void)threshold;
     bm_atomic_ipc_fence_full();
     return 0;
 }
 
+/** @brief 恢复阈值临界区之前的中断状态 @param previous_state 之前的中断状态 */
 static void critical_stub_exit_below(bm_irq_state_t previous_state) {
     (void)previous_state;
     bm_atomic_ipc_fence_full();

@@ -15,6 +15,7 @@
  * 上限（路径必须有界；应答间字节延迟由时间窗口吸收）。
  * 写寄存器后读 IFCNT 确认写成功；连续通讯失败达阈值置 offline。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.2
  * @date 2026-07-28
@@ -25,6 +26,7 @@
  * 2026-07-27       1.0            zeh            新增（接口批 1 步进伺服栈）
  * 2026-07-28       1.1            zeh            P0：IFCNT 写确认、GSTAT、DRV_STATUS、斩波模式、离线检测
  * 2026-07-28       1.2            zeh            审查整改：recv_exact 改 bm_uptime_us 字节级超时（rx_retries 兜底）、validate_config 校验 rx_retries 上限
+ * 2026-08-01       1.2            Codex           补全 Doxygen 合规注释
  *
  */
 #include "bm/component/tmc2209.h"

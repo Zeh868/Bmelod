@@ -6,6 +6,7 @@
  * `BM_HAL_CACHE_IS_NOOP=1`（默认）：`bm_hal_cache_is_noop()` 为真，stream 仅走 fence。
  * `BM_HAL_CACHE_IS_NOOP=0`：须在 Port 中提供真实 clean/invalidate，勿仅依赖本桩。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.1
  * @date 2026-06-15
@@ -15,6 +16,7 @@
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
  * 2026-06-15       1.1            zeh            非 NOOP 禁止编译默认 fence-only 桩
+ * 2026-08-01       1.1            Codex           补全 Doxygen 合规注释
  *
  */
 #include "hal/bm_hal_cache.h"

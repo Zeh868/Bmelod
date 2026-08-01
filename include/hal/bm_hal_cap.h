@@ -3,6 +3,7 @@
  * @file bm_hal_cap.h
  * @brief HAL 能力位查询（stream IRQ 屏蔽等确定性契约）
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-14
@@ -11,6 +12,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_HAL_CAP_H

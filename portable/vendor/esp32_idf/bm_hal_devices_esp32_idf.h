@@ -2,6 +2,7 @@
 /**
  * @file bm_hal_devices_esp32_idf.h
  * @brief ESP32（ESP-IDF）后端实例出口（devices 聚合头 + default 别名）
+ * @maturity E1
  *
  * 经 `include/hal/bm_hal_devices.h` 由 pack 宏
  * `BM_HAL_DEVICES_HEADER="bm_hal_devices_esp32_idf.h"` 引入；
@@ -20,6 +21,7 @@
  *    Date         Version        Author          Description
  * 2026-08-01       1.0            zeh            新增（P1 跨后端实例出口）
  *
+ * 2026-08-01       1.0            Codex            补全中文 Doxygen 合规注释
  */
 #ifndef BM_HAL_DEVICES_ESP32_IDF_H
 #define BM_HAL_DEVICES_ESP32_IDF_H

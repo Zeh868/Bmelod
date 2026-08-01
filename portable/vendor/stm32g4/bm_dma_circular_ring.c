@@ -2,6 +2,7 @@
 /**
  * @file bm_dma_circular_ring.c
  * @brief DMA 循环模式软件读指针记账实现
+ * @maturity E1
  *
  * @author zeh (china_qzh@163.com)
  * @version 1.0
@@ -12,6 +13,7 @@
  *    Date         Version        Author          Description
  * 2026-07-29       1.0            zeh            新增 DMA 循环模式环形缓冲记账模块
  *
+ * 2026-08-01       1.0            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_dma_circular_ring.h"
 

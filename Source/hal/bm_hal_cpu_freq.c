@@ -7,6 +7,7 @@
  * bm_hal_cpu_freq_check_config 门面（喂 config 宏 + port 查询），
  * 用于开机时校验 config 声明的主频/DVFS 点集与 port 运行期真值是否一致。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-07-03
@@ -15,6 +16,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-07-03       1.0            zeh            正式发布
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  *
  */
 #include <stddef.h> /* NULL */

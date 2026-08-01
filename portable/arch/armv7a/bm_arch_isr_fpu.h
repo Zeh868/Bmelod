@@ -12,11 +12,13 @@
  *       stacking 逻辑）+ FPEXC 使能位管理，属 TODO。本头暂提供 no-op 占位，
  *       统一调用点接线；未来补齐后，既有调用方无需改动即透明获得保护。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-07-11
  *
  * @par 修改日志:
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-07-11       1.0            zeh            新增 ARMv7-A ISR FPU 守卫占位（no-op）

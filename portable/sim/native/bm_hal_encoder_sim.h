@@ -2,6 +2,7 @@
 /**
  * @file bm_hal_encoder_sim.h
  * @brief 原生仿真编码器实例与测试辅助接口
+ * @maturity E1
  *
  * @author zeh (china_qzh@163.com)
  * @version 1.0
@@ -12,6 +13,9 @@
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
  *
+ *
+ * @par ????:
+ * 2026-08-01       1.0            Codex            补全中文 Doxygen 合规注释
  */
 #ifndef BM_HAL_ENCODER_SIM_H
 #define BM_HAL_ENCODER_SIM_H
@@ -20,6 +24,11 @@
 
 extern const bm_hal_encoder_t BM_HAL_ENC_SIM0;
 
+/**
+ * @brief 设置编码器仿真计数值。
+ * @param enc 编码器设备实例。
+ * @param value 待写入的数值。
+ */
 void bm_hal_encoder_sim_set_count(const bm_hal_encoder_t *enc, int32_t value);
 
 /**

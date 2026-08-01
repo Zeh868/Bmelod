@@ -5,6 +5,16 @@
  *
  * 根据 bm_config.h 中 BM_CONFIG_ENABLE_* 暴露 module / shell / wdg。
  * 混合域请另含 bm_hybrid.h 或使用 bmelod.h。
+ *
+ * @maturity E1
+ * @author Codex
+ * @version 1.0
+ * @date 2026-08-01
+ *
+ * @par 修改日志:
+ *
+ *    Date         Version        Author          Description
+ * 2026-08-01       1.0            Codex           补齐聚合头 Doxygen 元数据
  */
 #ifndef BM_LITE_H
 #define BM_LITE_H

@@ -2,6 +2,7 @@
 /**
  * @file bm_sim_singleton_native.c
  * @brief native_sim 单例驱动（定时器 / UART / 看门狗）
+ * @maturity E1
  *
  * 临界区与屏障由所选 arch/backend 实现提供。
  * @author zeh (china_qzh@163.com)
@@ -15,6 +16,7 @@
  * 2026-06-14       1.1            zeh            临界区拆至 arch/host 与 MP 专用文件
  * 2026-07-02       1.2            zeh            新增 opt-in 纯虚拟时钟（bm_hal_uptime_native_set_virtual），消除 µs 级精确断言的墙钟泄漏
  *
+ * 2026-08-01       1.2            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_drv_timer.h"
 #include "bm_drv_wdg.h"
@@ -38,6 +40,10 @@
 
 volatile uint8_t g_sim_native_isr_depth[BM_CONFIG_CPU_COUNT];
 
+/**
+ * @brief 获取当前仿真逻辑 CPU 索引。
+ * @return 有效的逻辑 CPU 索引；越界时回落为 0。
+ */
 static uint32_t sim_native_cpu_index(void) {
     uint32_t cpu = bm_hal_cpu_id();
 
@@ -50,6 +56,11 @@ static uint32_t g_tick_count[BM_CONFIG_CPU_COUNT];
 static void (*g_tick_callback[BM_CONFIG_CPU_COUNT])(void);
 static int g_timer_init_result[BM_CONFIG_CPU_COUNT];
 
+/**
+ * @brief 初始化当前逻辑 CPU 的定时器。
+ * @param freq_hz 定时器频率，单位为 Hz；传入 0 时使用该端口默认频率。
+ * @return 返回当前 CPU 配置的初始化注入状态码；未注入失败时返回 BM_OK。
+ */
 static int native_timer_init(uint32_t freq_hz) {
     uint32_t cpu = sim_native_cpu_index();
 
@@ -60,18 +71,33 @@ static int native_timer_init(uint32_t freq_hz) {
     return BM_OK;
 }
 
+/**
+ * @brief 停止定时器设备。
+ */
 static void native_timer_stop(void) {
     g_tick_callback[sim_native_cpu_index()] = NULL;
 }
 
+/**
+ * @brief 读取当前逻辑 CPU 的定时器 tick 计数。
+ * @return 当前逻辑 CPU 的定时器 tick 计数。
+ */
 static uint32_t native_timer_get_ticks(void) {
     return g_tick_count[sim_native_cpu_index()];
 }
 
+/**
+ * @brief 读取当前定时器频率。
+ * @return 定时器频率，单位为 Hz；设备无效时返回 0。
+ */
 static uint32_t native_timer_get_freq(void) {
     return g_tick_freq[sim_native_cpu_index()];
 }
 
+/**
+ * @brief 设置定时器回调。
+ * @param cb tick 回调；传入 NULL 时解除绑定。
+ */
 static void native_timer_set_callback(void (*cb)(void)) {
     g_tick_callback[sim_native_cpu_index()] = cb;
 }
@@ -146,11 +172,19 @@ uint32_t bm_hal_timer_native_freq_on_cpu(uint32_t cpu) {
 /* --- wdg --- */
 static uint32_t g_wdg_feed_count;
 
+/**
+ * @brief 初始化看门狗仿真桩。
+ * @param timeout_ms 看门狗超时时间，单位为毫秒；当前仿真桩不使用该值。
+ * @return 成功返回 BM_OK。
+ */
 static int native_wdg_init(uint32_t timeout_ms) {
     (void)timeout_ms;
     return BM_OK;
 }
 
+/**
+ * @brief 喂养看门狗仿真桩。
+ */
 static void native_wdg_feed(void) {
     g_wdg_feed_count++;
 }

@@ -4,6 +4,7 @@
  * @brief CPU 抽象接口
  *
  * 提供 CPU ID 查询、Bootstrap/Secondary 判定、从核启动及内存屏障原语。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.2
  * @date 2026-07-03
@@ -14,6 +15,7 @@
  * 2026-06-14       1.0            zeh            正式发布
  * 2026-07-03       1.1            zeh            新增 CPU 主频接口 freq_hz/freq_points/freq_set
  * 2026-07-03       1.2            zeh            新增开机对账 freq_check/freq_check_config
+ * 2026-08-01       1.2            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_HAL_CPU_H
@@ -21,9 +23,13 @@
 
 #include "bm/common/bm_types.h"
 
+/** @brief 初始化当前 CPU 的 HAL 支持 */
 void     bm_hal_cpu_init(void);
+/** @brief 获取当前逻辑 CPU 编号 @return 当前 CPU 编号 */
 uint32_t bm_hal_cpu_id(void);
+/** @brief 判断当前 CPU 是否为引导核 @return 引导核返回 1，否则返回 0 */
 int      bm_hal_cpu_is_bootstrap(void);
+/** @brief 启动从核 @param entry_pc 从核入口地址 @return BM_OK 成功；负值表示平台错误 */
 int      bm_hal_cpu_boot_secondary(uintptr_t entry_pc);
 
 /**

@@ -12,11 +12,13 @@
  * init 阶段（运行前单线程窗口）；观测面 32 位对齐字段单核 ISR 写/主循环
  * 读无撕裂。设计全文见 docs/superpowers/specs/2026-07-02-safe2-wcet-mon-design.md。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-07-02
  *
  * @par 修改日志:
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-07-02       1.0            zeh            骨架发布（config+公共头+CMake+注册/迭代，无计时实现）

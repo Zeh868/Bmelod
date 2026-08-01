@@ -4,6 +4,7 @@
  * @brief K2 · 闭源 · 需 bm_mp 的增强 FFT：Hann 窗 + RFFT + 主峰检测
  *
  * 内部封装开源 K0 `bm_algo_rfft_f32_*`。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-16
@@ -12,6 +13,7 @@
  *
  * Date       Version Author Description
  * 2026-06-16 1.0     zeh    首版 MP 工业 API
+ * 2026-08-01 1.0     Codex  补齐文件头成熟度
  *
  */
 #ifndef BMP_ALGO_FFT_H

@@ -6,9 +6,15 @@
  * 应用只依赖 include/bm_hal_*.h；厂商 SDK 在 platform/backends/ 中实现
  * struct bm_*_driver_api 并链接对应后端库。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-12
+ * @par 修改日志:
+ *
+ *    Date         Version        Author          Description
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
+ *
  */
 #ifndef BM_DRV_H
 #define BM_DRV_H

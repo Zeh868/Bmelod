@@ -3,11 +3,13 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief MP 闭源扩展公共 API · 需 bm_mp
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-14
  *
  * @par 修改日志:
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
@@ -188,7 +190,18 @@ typedef struct {
     int       passed;
 } bm_mp_schedule_cpu_report_t;
 
+/**
+ * @brief 注册一个多核调度槽
+ *
+ * @param slot 调度槽描述
+ * @return BM_OK 成功；BM_ERR_BUSY profile 已构建；BM_ERR_INVALID 参数或
+ *         配置无效；BM_ERR_NO_MEM 调度槽表已满
+ */
 int bm_mp_schedule_register(const bm_mp_schedule_slot_t *slot);
+
+/**
+ * @brief 清空全部已注册调度槽
+ */
 void bm_mp_schedule_reset(void);
 
 /**

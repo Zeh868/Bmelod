@@ -2,6 +2,7 @@
 /**
  * @file bm_vendor_hrtimer_stm32g4.c
  * @brief STM32G4 LL 高精度 Timer 后端
+ * @maturity E1
  *
  * 支持多实例、周期/单次/Output Compare、动态改比较值、计数器回绕处理。
  * App 通过 `bm_hrtimer_stm32g4_config_t` 指定 TIM/通道/IRQ，Bmelod 不固定 TIM 编号。
@@ -24,6 +25,7 @@
  * 2026-07-31       1.3            zeh            ISR 回调派发首尾成对调用
  *                                                bm_hrt_isr_enter/exit，落地 Hardware HRT
  *                                                端口的掩码模式拦截契约
+ * 2026-08-01       1.3            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_vendor_hrtimer_stm32g4.h"
 #include "bm_hal_instances_stm32g4.h"
@@ -324,6 +326,11 @@ static int bm_vendor_hrtimer_validate_config(
     return BM_OK;
 }
 
+/**
+ * @brief 初始化 STM32G4 高分辨率定时器硬件上下文。
+ * @param ctx 设备驱动上下文；不得为 NULL。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int bm_vendor_hrtimer_hw_init(bm_vendor_hrtimer_context_t *ctx) {
     const bm_hrtimer_stm32g4_config_t *cfg = ctx->cfg;
 
@@ -440,7 +447,7 @@ static int bm_vendor_hrtimer_init(const struct bm_hal_hrtimer *dev, void *config
     if (ctx == NULL) {
         return BM_ERR_INVALID;
     }
-    /* App 可通过 config 参数覆盖 dev->config；NULL 则使用设备默认值 */
+    /* App 可通过 config 实参覆盖 dev->config；NULL 则使用设备默认值 */
     cfg = (config != NULL)
               ? (const bm_hrtimer_stm32g4_config_t *)config
               : (const bm_hrtimer_stm32g4_config_t *)dev->config;
@@ -468,6 +475,13 @@ static int bm_vendor_hrtimer_init(const struct bm_hal_hrtimer *dev, void *config
     return BM_OK;
 }
 
+/**
+ * @brief 启动高分辨率定时器设备。
+ * @param dev 高分辨率定时器 设备实例。
+ * @param mode 定时器运行模式。
+ * @param period_us 定时器周期，单位为微秒。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int bm_vendor_hrtimer_start(const struct bm_hal_hrtimer *dev,
                                    uint32_t mode, uint32_t period_us) {
     bm_vendor_hrtimer_context_t *ctx;
@@ -506,6 +520,11 @@ static int bm_vendor_hrtimer_start(const struct bm_hal_hrtimer *dev,
     return BM_OK;
 }
 
+/**
+ * @brief 停止高分辨率定时器设备。
+ * @param dev 高分辨率定时器 设备实例。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int bm_vendor_hrtimer_stop(const struct bm_hal_hrtimer *dev) {
     bm_vendor_hrtimer_context_t *ctx;
     TIM_TypeDef *tim;
@@ -522,6 +541,12 @@ static int bm_vendor_hrtimer_stop(const struct bm_hal_hrtimer *dev) {
     return BM_OK;
 }
 
+/**
+ * @brief 设置高分辨率定时器比较时刻。
+ * @param dev 高分辨率定时器 设备实例。
+ * @param compare_us 比较时刻，单位为微秒。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int bm_vendor_hrtimer_set_compare(const struct bm_hal_hrtimer *dev,
                                          uint32_t compare_us) {
     bm_vendor_hrtimer_context_t *ctx;
@@ -564,6 +589,11 @@ static int bm_vendor_hrtimer_set_compare(const struct bm_hal_hrtimer *dev,
     return BM_OK;
 }
 
+/**
+ * @brief 读取当前定时器频率。
+ * @param dev 高分辨率定时器 设备实例。
+ * @return 定时器频率，单位为 Hz；设备无效时返回 0。
+ */
 static uint32_t bm_vendor_hrtimer_get_freq(const struct bm_hal_hrtimer *dev) {
     bm_vendor_hrtimer_context_t *ctx;
 
@@ -574,6 +604,11 @@ static uint32_t bm_vendor_hrtimer_get_freq(const struct bm_hal_hrtimer *dev) {
     return bm_vendor_hrtimer_freq_hz(ctx->cfg);
 }
 
+/**
+ * @brief 读取高分辨率定时器分辨率。
+ * @param dev 高分辨率定时器 设备实例。
+ * @return 定时器分辨率，单位为纳秒；设备无效时返回 0。
+ */
 static uint32_t bm_vendor_hrtimer_get_resolution_ns(
     const struct bm_hal_hrtimer *dev) {
     bm_vendor_hrtimer_context_t *ctx;
@@ -590,6 +625,11 @@ static uint32_t bm_vendor_hrtimer_get_resolution_ns(
     return 1000000000u / freq;
 }
 
+/**
+ * @brief 读取高分辨率定时器支持的最大周期。
+ * @param dev 高分辨率定时器 设备实例。
+ * @return 支持的最大周期，单位为微秒；设备无效时返回 0。
+ */
 static uint32_t bm_vendor_hrtimer_get_max_period_us(
     const struct bm_hal_hrtimer *dev) {
     bm_vendor_hrtimer_context_t *ctx;
@@ -601,6 +641,11 @@ static uint32_t bm_vendor_hrtimer_get_max_period_us(
     return bm_vendor_hrtimer_ticks_to_us(ctx->cfg, ctx->cfg->auto_reload);
 }
 
+/**
+ * @brief 读取高分辨率定时器支持的最小周期。
+ * @param dev 高分辨率定时器 设备实例。
+ * @return 支持的最小周期，单位为微秒；设备无效时返回 0。
+ */
 static uint32_t bm_vendor_hrtimer_get_min_period_us(
     const struct bm_hal_hrtimer *dev) {
     bm_vendor_hrtimer_context_t *ctx;
@@ -612,6 +657,12 @@ static uint32_t bm_vendor_hrtimer_get_min_period_us(
     return bm_vendor_hrtimer_ticks_to_us(ctx->cfg, 1u);
 }
 
+/**
+ * @brief 读取高分辨率定时器运行统计。
+ * @param dev 高分辨率定时器 设备实例。
+ * @param stats 用于接收运行统计的输出结构；不得为 NULL。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int bm_vendor_hrtimer_get_stats(const struct bm_hal_hrtimer *dev,
                                        bm_hrtimer_stats_t *stats) {
     bm_vendor_hrtimer_context_t *ctx;
@@ -624,6 +675,13 @@ static int bm_vendor_hrtimer_get_stats(const struct bm_hal_hrtimer *dev,
     return BM_OK;
 }
 
+/**
+ * @brief 设置高分辨率定时器回调。
+ * @param dev 高分辨率定时器 设备实例。
+ * @param cb tick 回调；传入 NULL 时解除绑定。
+ * @param user 回调用户上下文，调用回调时原样传入。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int bm_vendor_hrtimer_set_callback(const struct bm_hal_hrtimer *dev,
                                           bm_hrtimer_callback_t cb, void *user) {
     bm_vendor_hrtimer_context_t *ctx;

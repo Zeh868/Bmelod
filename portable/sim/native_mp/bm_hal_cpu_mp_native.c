@@ -2,6 +2,7 @@
 /**
  * @file bm_hal_cpu_mp_native.c
  * @brief native_sim 多核 CPU HAL（TLS cpu_id + 从核线程启动）
+ * @maturity E1
  *
  * @author zeh (china_qzh@163.com)
  * @version 1.1
@@ -13,6 +14,7 @@
  * 2026-06-14       1.0            zeh            正式发布
  * 2026-07-03       1.1            zeh            新增 CPU 主频接口 freq_hz/freq_points/freq_set 实现
  *
+ * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
  */
 #include "hal/bm_hal_cpu.h"
 #include "bm_config.h"
@@ -81,6 +83,11 @@ static bm_native_secondary_context_t
     s_secondary_context[BM_CONFIG_CPU_COUNT - 1u];
 static uint32_t s_next_secondary_cpu = 1u;
 
+/**
+ * @brief 运行次级 CPU 的宿主线程入口。
+ * @param arg 次级 CPU 启动参数，传递逻辑 CPU 编号。
+ * @return Windows 实现返回 0；POSIX 实现返回 NULL。
+ */
 static DWORD WINAPI secondary_thread_main(LPVOID arg) {
     bm_native_secondary_context_t *context =
         (bm_native_secondary_context_t *)arg;
@@ -182,10 +189,18 @@ static bm_native_secondary_context_t
     s_secondary_context[BM_CONFIG_CPU_COUNT - 1u];
 static uint32_t s_next_secondary_cpu = 1u;
 
+/**
+ * @brief 创建用于保存逻辑 CPU 编号的 TLS 键。
+ */
 static void tls_cpu_key_create(void) {
     (void)pthread_key_create(&s_tls_cpu_key, NULL);
 }
 
+/**
+ * @brief 运行次级 CPU 的宿主线程入口。
+ * @param arg 次级 CPU 启动参数，传递逻辑 CPU 编号。
+ * @return Windows 实现返回 0；POSIX 实现返回 NULL。
+ */
 static void *secondary_thread_main(void *arg) {
     bm_native_secondary_context_t *context =
         (bm_native_secondary_context_t *)arg;

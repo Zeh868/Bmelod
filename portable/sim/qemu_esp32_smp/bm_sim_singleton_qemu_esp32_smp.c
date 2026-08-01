@@ -2,6 +2,7 @@
 /**
  * @file bm_sim_singleton_qemu_esp32_smp.c
  * @brief QEMU ESP32 Xtensa SMP 单例驱动（TIMG0 定时器 / UART0 / 看门狗桩）
+ * @maturity E1
  *
  * 临界区与内存屏障由 `bm_port_arch_xtensa` 提供。
  * @author zeh (china_qzh@163.com)
@@ -15,6 +16,7 @@
  * 2026-07-11       1.1            zeh            tick 回调派发接入 arch 层 FPU 守卫（bm_arch_isr_fpu.h，xtensa 路径当前仍为 no-op）
  * 2026-07-16       1.2            zeh            APP 核回调回本核派发：PRO ISR 只跑 cb[0]，APP 在自身 get_ticks 上下文按 tick 变化泵出（原 PRO 代跑全部核回调，APP 回调摸错核 per-CPU 状态）；配套 Level-1 向量改 callx4 蹦床 + 清 EXCM/置 WOE，出口改 rfe + PS/EPC1 软件自存自恢（XEA2 无 EPS1，rfi 1 还原不了原 PS；尾部以 EXCM=1 封死嵌套窗口）
  *
+ * 2026-08-01       1.2            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_drv_timer.h"
 #include "bm_drv_uart.h"
@@ -119,6 +121,11 @@ static void esp32_smp_timer_arm(uint32_t cpu) {
     esp32_smp_timer_enable_irq();
 }
 
+/**
+ * @brief 初始化当前逻辑 CPU 的定时器。
+ * @param freq_hz 定时器频率，单位为 Hz；传入 0 时使用该端口默认频率。
+ * @return 成功返回 BM_OK。
+ */
 static int esp32_smp_timer_init(uint32_t freq_hz) {
     uint32_t cpu = esp32_smp_cpu_index();
     uint32_t hz = (freq_hz > 0u) ? freq_hz : 1000u;
@@ -153,6 +160,9 @@ static int esp32_smp_timer_init(uint32_t freq_hz) {
     return BM_OK;
 }
 
+/**
+ * @brief 停止定时器设备。
+ */
 static void esp32_smp_timer_stop(void) {
     uint32_t cpu = esp32_smp_cpu_index();
 
@@ -165,6 +175,10 @@ static void esp32_smp_timer_stop(void) {
     TIMG0_T0CONFIG = 0u;
 }
 
+/**
+ * @brief 读取当前逻辑 CPU 的定时器 tick 计数。
+ * @return 当前逻辑 CPU 的定时器 tick 计数。
+ */
 static uint32_t esp32_smp_timer_get_ticks(void) {
     uint32_t cpu = esp32_smp_cpu_index();
     uint32_t t = g_ticks[0];
@@ -183,10 +197,18 @@ static uint32_t esp32_smp_timer_get_ticks(void) {
     return t;
 }
 
+/**
+ * @brief 读取当前定时器频率。
+ * @return 定时器频率，单位为 Hz；设备无效时返回 0。
+ */
 static uint32_t esp32_smp_timer_get_freq(void) {
     return g_tick_freq[esp32_smp_cpu_index()];
 }
 
+/**
+ * @brief 设置定时器回调。
+ * @param cb tick 回调；传入 NULL 时解除绑定。
+ */
 static void esp32_smp_timer_set_callback(void (*cb)(void)) {
     g_tick_cb[esp32_smp_cpu_index()] = cb;
 }
@@ -240,6 +262,12 @@ void qemu_esp32_smp_on_timer_irq(void) {
     esp32_smp_timer_arm(0u);
 }
 
+/**
+ * @brief 初始化UART端口。
+ * @param dev UART 设备实例；当前实现不使用该参数。
+ * @param config 设备初始化配置；当前实现不使用该参数。
+ * @return 成功返回 BM_OK。
+ */
 static int esp32_smp_uart_init(const struct bm_hal_uart *dev, void *config) {
     (void)dev;
     (void)config;
@@ -247,6 +275,13 @@ static int esp32_smp_uart_init(const struct bm_hal_uart *dev, void *config) {
     return BM_OK;
 }
 
+/**
+ * @brief 通过UART发送数据。
+ * @param dev UART 设备实例；当前实现不使用该参数。
+ * @param data 待发送数据缓冲区。
+ * @param len 缓冲区中的有效数据长度，单位为字节。
+ * @return 成功返回 BM_OK。
+ */
 static int esp32_smp_uart_send(const struct bm_hal_uart *dev,
                             const uint8_t *data, size_t len) {
     (void)dev;
@@ -263,6 +298,13 @@ static int esp32_smp_uart_send(const struct bm_hal_uart *dev,
     return BM_OK;
 }
 
+/**
+ * @brief 从UART接收数据。
+ * @param dev UART 设备实例；当前实现不使用该参数。
+ * @param data 接收数据缓冲区；当前仿真桩不读写该缓冲区。
+ * @param max_len 接收缓冲区容量，单位为字节。
+ * @return 实际写入接收缓冲区的字节数；无数据或参数无效时返回 0。
+ */
 static size_t esp32_smp_uart_recv(const struct bm_hal_uart *dev,
                                uint8_t *data, size_t max_len) {
     (void)dev;
@@ -271,6 +313,11 @@ static size_t esp32_smp_uart_recv(const struct bm_hal_uart *dev,
     return 0u;
 }
 
+/**
+ * @brief 设置UART接收回调。
+ * @param dev UART 设备实例；当前实现不使用该参数。
+ * @param cb 接收回调；当前仿真桩忽略该参数且不会触发回调。
+ */
 static void esp32_smp_uart_set_rx_callback(const struct bm_hal_uart *dev,
                                         void (*cb)(uint8_t c)) {
     (void)dev;
@@ -287,12 +334,20 @@ static const struct bm_uart_driver_api g_uart_api = {
 /** @brief 默认控制台 UART 设备（统一实例模型，见 bm_hal_uart.h）。 */
 const bm_hal_uart_t bm_uart_default = { &g_uart_api, NULL };
 
+/**
+ * @brief 初始化看门狗仿真桩。
+ * @param timeout_ms 看门狗超时时间，单位为毫秒；当前仿真桩不使用该值。
+ * @return 成功返回 BM_OK。
+ */
 static int esp32_smp_wdg_init(uint32_t timeout_ms) {
     (void)timeout_ms;
     BM_LOGI(TAG_WDG, "init: stub");
     return BM_OK;
 }
 
+/**
+ * @brief 喂养看门狗仿真桩。
+ */
 static void esp32_smp_wdg_feed(void) {
 }
 

@@ -8,11 +8,13 @@
  * @core_affinity 同核
  * 同步域的所有成员实例须在同一 CPU 上。configure/arm/trigger
  * 须由成员所在 CPU 调用。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-10
  *
  * @par 修改日志:
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布

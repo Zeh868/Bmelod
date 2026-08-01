@@ -6,15 +6,17 @@
  * 驻留时间（steps[].timeout_s，实为最短保持时间而非超时门限）后进入下一步；
  * 联锁不满足时仅阻塞在当前步等待，本状态机不实现故障态，也无超时转故障逻辑。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.2
- * @date 2026-06-17
+ * @version 0.3
+ * @date 2026-08-01
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-17       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 SPDX 与函数级 Doxygen
+ * 2026-08-01       0.3            Codex          新增兼容的 exec 生命周期适配
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -150,3 +152,89 @@ void bm_process_sequence_step(bm_process_sequence_axis_t *axis,
         }
     }
 }
+
+/**
+ * @brief exec 生命周期初始化：校验配置并复位顺序状态机
+ * @param instance exec 实例
+ * @return BM_OK 成功；BM_ERR_INVALID 指针或配置非法
+ */
+int bm_process_sequence_exec_init(const bm_exec_t *instance) {
+    bm_process_sequence_exec_context_t *context;
+
+    if (instance == NULL || instance->state == NULL) {
+        return BM_ERR_INVALID;
+    }
+    context = (bm_process_sequence_exec_context_t *)instance->state;
+    if (context->axis == NULL ||
+        bm_process_sequence_validate_config(&context->axis->config) != BM_OK) {
+        return BM_ERR_INVALID;
+    }
+
+    bm_process_sequence_reset(context->axis);
+    return BM_OK;
+}
+
+/**
+ * @brief exec 生命周期启动：启动顺序状态机
+ * @param instance exec 实例
+ * @return BM_OK 成功；BM_ERR_INVALID 指针非法
+ */
+int bm_process_sequence_exec_start(const bm_exec_t *instance) {
+    bm_process_sequence_exec_context_t *context;
+
+    if (instance == NULL || instance->state == NULL) {
+        return BM_ERR_INVALID;
+    }
+    context = (bm_process_sequence_exec_context_t *)instance->state;
+    if (context->axis == NULL) {
+        return BM_ERR_INVALID;
+    }
+
+    bm_process_sequence_start(context->axis);
+    return BM_OK;
+}
+
+/**
+ * @brief exec 周期运行：使用适配资源推进顺序状态机
+ * @param instance exec 实例；无效时静默返回
+ */
+void bm_process_sequence_exec_run(const bm_exec_t *instance) {
+    bm_process_sequence_exec_context_t *context;
+
+    if (instance == NULL || instance->state == NULL) {
+        return;
+    }
+    context = (bm_process_sequence_exec_context_t *)instance->state;
+    if (context->axis == NULL) {
+        return;
+    }
+
+    bm_process_sequence_step(context->axis,
+                             context->resources.interlock,
+                             context->resources.interlock_user);
+}
+
+/**
+ * @brief exec 安全停止：复位顺序状态机
+ * @param instance exec 实例；无效时静默返回
+ */
+void bm_process_sequence_exec_safe_stop(const bm_exec_t *instance) {
+    bm_process_sequence_exec_context_t *context;
+
+    if (instance == NULL || instance->state == NULL) {
+        return;
+    }
+    context = (bm_process_sequence_exec_context_t *)instance->state;
+    if (context->axis == NULL) {
+        return;
+    }
+
+    bm_process_sequence_reset(context->axis);
+}
+
+/** @brief process_sequence 标准 exec 生命周期操作表 */
+const bm_exec_ops_t bm_process_sequence_exec_ops = {
+    bm_process_sequence_exec_init,
+    bm_process_sequence_exec_start,
+    bm_process_sequence_exec_safe_stop
+};

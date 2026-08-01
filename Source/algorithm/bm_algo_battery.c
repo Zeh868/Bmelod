@@ -1,7 +1,7 @@
 /**
  * @file bm_algo_battery.c
  * @brief 电池算法实现
- *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.2
  * @date 2026-07-09
@@ -9,6 +9,7 @@
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
+ * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-23       1.1            zeh            修复 bm_algo_soh_update 小段放电虚报问题：
  *                                                添加有效循环阈值判定，并对学习容量做指数平滑；
@@ -63,6 +64,16 @@ float bm_algo_coulomb_step(bm_algo_coulomb_state_t *state,
     return state->soc;
 }
 
+/**
+ * @brief 对一维浮点查找表执行端点饱和的线性插值
+ *
+ * @param x 自变量节点数组
+ * @param y 因变量节点数组
+ * @param n 节点数量
+ * @param xv 查询自变量
+ * @return 插值结果；空表或空指针返回 0；区间跨度非正时返回该区间左端值；
+ *         查询值越界时返回相应端点值
+ */
 static float lut_interp(const float *x, const float *y, uint32_t n, float xv) {
     uint32_t i;
 

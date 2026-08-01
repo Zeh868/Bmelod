@@ -5,6 +5,7 @@
  * 事件驱动：bm_health_monitor_report() 更新故障源表项并重算系统级
  * 健康快照；快照较上一次发布有变化时发布一次遥测。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 0.1
  * @date 2026-07-27
@@ -13,6 +14,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-07-27       0.1            zeh            初始版本
+ * 2026-08-01       0.1            Codex           补全 Doxygen 合规注释
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -22,6 +24,12 @@
 
 #include <string.h>
 
+/**
+ * @brief 按故障源编号查找健康监视源
+ * @param mon 健康监视器实例
+ * @param source_id 故障源编号
+ * @return 匹配的故障源指针；未找到时返回 NULL
+ */
 static bm_health_monitor_source_t *find_source(bm_health_monitor_t *mon,
                                                uint16_t source_id) {
     uint32_t i;
@@ -34,7 +42,11 @@ static bm_health_monitor_source_t *find_source(bm_health_monitor_t *mon,
     return NULL;
 }
 
-/* 由源表重算系统级快照（sequence 由调用方填写） */
+/**
+ * @brief 由故障源表重新计算系统级健康快照
+ * @param mon 健康监视器实例
+ * @param snap 待更新的遥测快照；sequence 由调用方填写
+ */
 static void recompute_snapshot(const bm_health_monitor_t *mon,
                                bm_health_monitor_telemetry_t *snap) {
     uint32_t i;
@@ -63,6 +75,12 @@ static void recompute_snapshot(const bm_health_monitor_t *mon,
     }
 }
 
+/**
+ * @brief 比较两份健康监视遥测快照是否具有相同内容
+ * @param a 第一份遥测快照
+ * @param b 第二份遥测快照
+ * @return 内容相同返回 1，否则返回 0
+ */
 static int snapshot_equal(const bm_health_monitor_telemetry_t *a,
                           const bm_health_monitor_telemetry_t *b) {
     return a->status == b->status &&

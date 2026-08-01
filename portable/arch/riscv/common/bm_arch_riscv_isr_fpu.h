@@ -12,11 +12,13 @@
  *   展开为软浮点库调用（libgcc），只使用通用整数寄存器，与普通函数调用无异，
  *   天然被现有 trap 入口的通用寄存器保存覆盖。故本头恒为 no-op。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-07-11
  *
  * @par 修改日志:
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-07-11       1.0            zeh            新增 RISC-V ISR FPU 守卫（恒 no-op，IMAC 无 F/D 扩展）

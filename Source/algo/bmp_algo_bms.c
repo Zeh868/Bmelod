@@ -2,6 +2,15 @@
  * @file bmp_algo_bms.c
  * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief BMS SOC 融合实现
+ * @maturity E1
+ * @author Codex
+ * @version 1.0
+ * @date 2026-08-01
+ *
+ * @par 修改日志:
+ *
+ *    Date         Version        Author          Description
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  */
 #include "bmp/algo/bmp_algo_bms.h"
 
@@ -15,6 +24,15 @@ static const float s_soc_table[] = { 0.0f, 0.5f, 1.0f };
 static const float s_ocv_table[] = { 3.0f, 3.6f, 4.2f };
 #define BMP_BMS_OCV_DEFAULT_POINTS 3u
 
+/**
+ * @brief 根据 OCV 查找表将电压换算为 SOC
+ *
+ * 配置同时提供 SOC/OCV 表且点数不少于 2 时使用自定义表，否则使用内置三点表。
+ *
+ * @param config BMS 融合配置，必须非 NULL
+ * @param voltage_v 开路电压，单位为 V
+ * @return 查表插值得到的 SOC；超出电压表范围时取对应端点 SOC
+ */
 static float bmp_bms_voltage_to_soc(const bmp_bms_config_t *config,
                                     float voltage_v) {
     bm_algo_ocv_table_t table;

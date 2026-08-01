@@ -7,11 +7,13 @@
  * adapter 自包含：仅操作 matrix struct 新通道字段，依赖 bm_atomic_ipc + bm_crc32，
  * 不引用 matrix.c 的多核 HAL（cpu/boot/drain）。ctx 显式带 source/target，
  * native 单进程可测双向。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-27
  *
  * @par 修改日志:
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-27       1.0            zeh            阶段 2：matrix payload 通道 adapter 头文件

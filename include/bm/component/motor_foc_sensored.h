@@ -212,27 +212,44 @@ typedef struct {
     bm_motor_foc_sensored_state_t        state;
 } bm_motor_foc_sensored_axis_t;
 
+/**
+ * @brief 校验有感 FOC 配置
+ * @param config 有感 FOC 配置
+ * @return BM_OK 配置合法；BM_ERR_INVALID 参数非法
+ */
 int bm_motor_foc_sensored_validate_config(
     const bm_motor_foc_sensored_config_t *config);
 
+/** @brief 复位有感 FOC 状态 @param axis 有感 FOC 轴实例；NULL 时静默返回 */
 void bm_motor_foc_sensored_reset(bm_motor_foc_sensored_axis_t *axis);
 
+/**
+ * @brief 应用有感 FOC 控制命令
+ * @param axis 有感 FOC 轴实例
+ * @param cmd 待应用的控制命令
+ */
 void bm_motor_foc_sensored_apply_command(bm_motor_foc_sensored_axis_t *axis,
                                         const bm_motor_foc_cmd_t *cmd);
 
+/** @brief 执行一次电流环计算 @param axis 有感 FOC 轴实例；NULL 时静默返回 */
 void bm_motor_foc_sensored_current_step(bm_motor_foc_sensored_axis_t *axis);
 
+/** @brief 执行一次速度环计算 @param axis 有感 FOC 轴实例；NULL 时静默返回 */
 void bm_motor_foc_sensored_speed_step(bm_motor_foc_sensored_axis_t *axis);
 
-/** bm_exec 槽回调：instance->state 须指向 bm_motor_foc_sensored_axis_t */
+/** @brief 执行电流环 exec 槽回调 @param instance state 指向有感 FOC 轴的 exec 实例 */
 void bm_motor_foc_sensored_exec_current(const bm_exec_t *instance);
 
+/** @brief 执行速度环 exec 槽回调 @param instance state 指向有感 FOC 轴的 exec 实例 */
 void bm_motor_foc_sensored_exec_speed(const bm_exec_t *instance);
 
+/** @brief 初始化有感 FOC exec 实例 @param instance exec 实例 @return BM_OK 成功；BM_ERR_INVALID 参数非法 */
 int bm_motor_foc_sensored_exec_init(const bm_exec_t *instance);
 
+/** @brief 启动有感 FOC exec 实例 @param instance exec 实例 @return BM_OK 成功；BM_ERR_INVALID 参数非法 */
 int bm_motor_foc_sensored_exec_start(const bm_exec_t *instance);
 
+/** @brief 安全停止有感 FOC exec 实例 @param instance exec 实例；NULL 时静默返回 */
 void bm_motor_foc_sensored_exec_safe_stop(const bm_exec_t *instance);
 
 extern const bm_exec_ops_t bm_motor_foc_sensored_exec_ops;

@@ -3,6 +3,7 @@
  * @file bm_hal_console.c
  * @brief Console HAL 分发层（按通道选择编译期后端）
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-19
@@ -11,6 +12,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-19       1.0            zeh            初版
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  *
  */
 #include "bm_config.h"

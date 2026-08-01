@@ -2,6 +2,7 @@
 /**
  * @file bm_vendor_i2c_esp32_idf.c
  * @brief ESP32-WROOM-32E vendor 层共享硬件 I2C 实现（LL 寄存器级）
+ * @maturity E1
  *
  * 使用 hal/i2c_ll.h LL API 直接配置 I2C 外设寄存器，有界忙等轮询
  * 命令完成位，不安装 IDF driver 层，不依赖 FreeRTOS 调度器。
@@ -38,6 +39,7 @@
  *                                                总线准备段；移除临时失败诊断脚手架与两个 getter
  * 2026-07-16       2.6            zeh         write_read 的 read_len==0（纯写事务）不再多发
  *                                                RESTART+addr+R+READ(1,NACK)，修复多钟 1 字节
+ * 2026-08-01       2.6            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_vendor_i2c_esp32_idf.h"
 #include "bm_vendor_esp32_idf_compat.h"

@@ -11,11 +11,13 @@
  *
  * @note 公开头 `bm_stream.h` 仅暴露不透明指针与 accessor API。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 0.2
  * @date 2026-07-27
  *
  * @par 修改日志:
+ * 2026-08-01       0.2            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-07-27       0.1            zeh            从 bm_stream.h 迁出静态分配宏

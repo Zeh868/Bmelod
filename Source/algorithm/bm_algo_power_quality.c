@@ -1,7 +1,7 @@
 /**
  * @file bm_algo_power_quality.c
  * @brief 电能质量：THD 与 P/Q/S 计量实现
- *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.1
  * @date 2026-06-13
@@ -9,6 +9,7 @@
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
+ * 2026-08-01       1.1            Codex           补齐 Doxygen 合规元数据
  * 2026-06-13       1.0            zeh            初始版本
  * 2026-06-23       1.1            zeh            bm_algo_harmonic_group_index 修复
  *                                                fundamental_bin * group_width uint32 乘法溢出：

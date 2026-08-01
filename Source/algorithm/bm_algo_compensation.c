@@ -1,7 +1,7 @@
 /**
  * @file bm_algo_compensation.c
  * @brief 执行器非线性补偿实现
- *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.5
  * @date 2026-07-14
@@ -9,6 +9,7 @@
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
+ * 2026-08-01       1.5            Codex           补齐 Doxygen 合规元数据
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       1.2            zeh            修正背隙补偿只增不减缺陷：换向时重置 backlash_offset 为 0 后重新渐进，保持渐进语义
  * 2026-06-23       1.3            zeh            背隙补偿升级为双向独立偏移：正向/反向各维护 offset_fwd/offset_rev，换向时切换至对应偏移继续渐进

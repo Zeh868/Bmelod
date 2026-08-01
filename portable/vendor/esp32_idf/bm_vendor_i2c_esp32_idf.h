@@ -2,6 +2,7 @@
 /**
  * @file bm_vendor_i2c_esp32_idf.h
  * @brief ESP32-WROOM-32E vendor 层共享硬件 I2C 接口（LL 寄存器级实现）
+ * @maturity E1
  *
  * 为 AS5600、BMI160 等 I2C 设备提供统一的 master 初始化和读写封装。
  * 本层使用 hal/i2c_ll.h LL API，有界忙等轮询完成位，
@@ -21,6 +22,7 @@
  * 2026-06-21       2.3            zeh         初始化顺序对齐官方 i2c_set_pin：先 GPIO 开漏高电平，
  *                                                再挂接 I2C matrix；补 bus-clear 恢复路径
  * 2026-06-21       2.4            zeh         整理：移除两个临时诊断 getter 声明
+ * 2026-08-01       2.4            Codex            补全中文 Doxygen 合规注释
  */
 #ifndef BM_VENDOR_I2C_ESP32_IDF_H
 #define BM_VENDOR_I2C_ESP32_IDF_H

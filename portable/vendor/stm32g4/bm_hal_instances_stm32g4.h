@@ -2,6 +2,7 @@
 /**
  * @file bm_hal_instances_stm32g4.h
  * @brief STM32G474xB 板级实例绑定头（默认 NUCLEO-G474RE 参考板）
+ * @maturity E1
  *
  * 本头集中保存全部实例特定默认值（外设实例 / GPIO / 通道 / AF），
  * vendor .c 文件一律经这些宏取硬件绑定，不写死任何 GPIO 或通道号。
@@ -30,6 +31,7 @@
  *                                                fail-closed 拦截绕过面；文件头新增
  *                                                NVIC 优先级红线说明
  *
+ * 2026-08-01       1.4            Codex            补全中文 Doxygen 合规注释
  */
 #ifndef BM_HAL_INSTANCES_STM32G4_H
 #define BM_HAL_INSTANCES_STM32G4_H

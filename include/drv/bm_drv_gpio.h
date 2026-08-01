@@ -6,6 +6,7 @@
  * 最小 flags 集；EXTI 配置由同文件扩展，AF 复用配置刻意不做（AF 属 vendor 内部
  * 布线知识）。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.1
  * @date 2026-07-28
@@ -15,6 +16,7 @@
  *    Date         Version        Author          Description
  * 2026-07-27       1.0            zeh            新增（接口批 1）
  * 2026-07-28       1.1            zeh            扩展 EXTI 配置/使能/pending 清除
+ * 2026-08-01       1.1            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_DRV_GPIO_H

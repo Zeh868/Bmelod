@@ -2,6 +2,7 @@
 /**
  * @file bm_vendor_can_stm32g4.h
  * @brief STM32G4 FDCAN1/FDCAN2 后端配置与实例声明
+ * @maturity E1
  *
  * App 通过 `bm_can_stm32g4_config_t` 指定 FDCANx/引脚/AF/波特率/IRQ；
  * Message RAM 偏移由后端按实例固定为 0/212，Board 不负责计算。
@@ -29,6 +30,7 @@
  *                                                stop 状态调用（直写 Message RAM）
  * 2026-07-28       1.3            zeh            Message RAM 偏移固定 0/212；仅 IT0
  * 2026-07-28       1.4            zeh            增加 kernel_clock_hz（0=假定 PCLK1）
+ * 2026-08-01       1.4            Codex            补全中文 Doxygen 合规注释
  */
 #ifndef BM_VENDOR_CAN_STM32G4_H
 #define BM_VENDOR_CAN_STM32G4_H

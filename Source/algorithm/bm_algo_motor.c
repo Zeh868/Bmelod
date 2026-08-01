@@ -1,7 +1,7 @@
 /**
  * @file bm_algo_motor.c
  * @brief 电机数学核：Clarke/Park 与 SVPWM 实现
- *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.3
  * @date 2026-07-16
@@ -9,6 +9,7 @@
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
+ * 2026-08-01       1.3            Codex           补齐 Doxygen 合规元数据
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-23       1.2            zeh            磁链观测器纯积分改为带衰减积分，消除低速/静止时 DC 漂移
  * 2026-07-16       1.3            zeh            norm_deg_f 补非有限输入护栏：
@@ -352,6 +353,12 @@ float bm_algo_fw_id_adjust(float id_ref_a, float vd, float vq, float v_max_pu) {
     return id_ref_a - BM_ALGO_FW_ID_GAIN_DEFAULT * (v_mag - v_max_pu);
 }
 
+/**
+ * @brief 将角度以 O(1) 方式归一化到 [0, 360) 度
+ *
+ * @param deg 输入角度，单位为度
+ * @return 归一化角度；NaN 或无穷输入返回 0
+ */
 static float norm_deg_f(float deg) {
     float r;
 
@@ -370,6 +377,13 @@ static float norm_deg_f(float deg) {
     return r;
 }
 
+/**
+ * @brief 计算两个已归一化角度的最短圆周距离
+ *
+ * @param a [0, 360) 范围内的角度，单位为度
+ * @param b [0, 360) 范围内的角度，单位为度
+ * @return 两角度的最短距离，范围为 [0, 180] 度
+ */
 static float ang_diff_deg(float a, float b) {
     float d = fabsf(a - b);
     if (d > 180.0f) {

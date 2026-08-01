@@ -6,6 +6,7 @@
  * relay / stream 在 profile build 后通过注册回调读取当前代际，
  * 避免 bm_exec 与 bm_mp 循环链接。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-14
@@ -14,6 +15,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_PROFILE_EPOCH_H

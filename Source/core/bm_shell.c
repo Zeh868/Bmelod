@@ -8,11 +8,13 @@
  * v1.2 新增：行历史（↑/↓ 回翻）、ESC 序列吞噬（修箭头键注入垃圾字符）。
  * v1.3 新增：参数区 Tab 补全（命令可选登记补全回调，复用命令词补全骨架）。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.3
  * @date 2026-07-18
  *
  * @par 修改日志:
+ * 2026-08-01       1.3            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布

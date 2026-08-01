@@ -2,6 +2,7 @@
 /**
  * @file bm_dma_circular_ring.h
  * @brief DMA 循环模式软件读指针记账（单调 produced/consumed 计数）
+ * @maturity E1
  *
  * 解决模长读写位置在 DMA 恰好接收完整一圈时把"缓冲区已满"误判为"没有数据"
  * 的问题。内部维护单调递增的 32-bit produced/consumed 计数，pending =
@@ -25,6 +26,7 @@
  * 2026-07-31       1.1            zeh            头注释补互斥契约：模块无内部并发保护，
  *                                                多上下文调用方须自行序列化
  *
+ * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
  */
 #ifndef BM_DMA_CIRCULAR_RING_H
 #define BM_DMA_CIRCULAR_RING_H

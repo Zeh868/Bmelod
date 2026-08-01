@@ -7,11 +7,13 @@
  * 不引用 matrix.c 的多核 HAL（cpu/boot/drain/critical/cache）。
  * 热路径：定长 memcpy（ctx->elem 字节），无动态分配；
  * LATEST 读失稳即返回，不自旋（WCET 可静态分析）。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-27
  *
  * @par 修改日志:
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-27       1.0            zeh            阶段 2：FIFO(cmd_ring) + LATEST(tel_channel) adapter

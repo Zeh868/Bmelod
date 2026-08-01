@@ -10,6 +10,7 @@
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
+ * 2026-08-01       1.3            Codex           补齐 static 辅助函数 Doxygen
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-23       1.1            zeh            修正 BIQUAD_BPF 系数：去除误混入的 peaking 增益因子 A，改回标准恒幅 BPF
  * 2026-07-27       1.2            zeh            新增 bm_algo_lpf1_alpha_saturate；
@@ -185,6 +186,12 @@ float bm_algo_moving_avg_step(bm_algo_moving_avg_state_t *state,
     return state->sum / (float)state->count;
 }
 
+/**
+ * @brief 使用插入排序对小型浮点数组原地升序排列
+ *
+ * @param a 待排序数组
+ * @param n 数组元素数量
+ */
 static void median_sort_small(float *a, uint32_t n) {
     uint32_t i;
     uint32_t j;

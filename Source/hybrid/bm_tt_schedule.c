@@ -26,11 +26,13 @@
  * 格 Σ 命中 activity wcet_us 找峰值格并核对 `≤ minor_us`）与 MAINLOOP
  * 域·预算账（无硬时间格语义，逐行列 wcet_us + 建议 run_pending budget）。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.12
  * @date 2026-07-16
  *
  * @par 修改日志:
+ * 2026-08-01       1.12           Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-07-01       1.0            zeh            骨架发布（config+公共头+CMake，无算法实现）
@@ -100,6 +102,12 @@ struct bm_let_ctx {
 /** LET 输入龄的饱和值（uint32_t 上限 UINT32_MAX，"曾饱和恒 stale" 语义） */
 #define BM_LET_AGE_SATURATED 0xFFFFFFFFu
 
+/**
+ * @brief 冻结一个 activity 的 LET 输入快照并更新陈旧状态
+ *
+ * @param s 调度表实例
+ * @param a 目标 activity
+ */
 static void tt_freeze_inputs(bm_tt_schedule_t *s, bm_tt_activity_t *a) {
     /* (uint64_t) 提升后再乘、按需回落（B3）：与 report_json 的 period 计算
      * 保持一致的宽度纪律，消除 32 位窄乘在未来 minor_us/every 上界放宽后

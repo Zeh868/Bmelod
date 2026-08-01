@@ -2,6 +2,7 @@
 /**
  * @file bm_vendor_encoder_stm32g4.c
  * @brief STM32G474xB 增量编码器驱动（TIM3 正交编码器模式，STM32 LL 库）
+ * @maturity E1
  *
  * TIM3 配置为编码器模式 3（LL_TIM_ENCODERMODE_X4_TI12，TI1/TI2 双沿计数），
  * 计数范围 4×CPR（一圈脉冲数，BM_STM32G4_ENC_CPR 可覆盖）。read 直接读 CNT，
@@ -20,6 +21,7 @@
  * 2026-07-27       1.0            zeh            新增（STM32G474xB 移植）
  * 2026-07-27       1.1            zeh            寄存器级改写为 STM32 LL 库实现（决策变更：提高可读性）
  *
+ * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_vendor_encoder_stm32g4.h"
 #include "bm_hal_instances_stm32g4.h"

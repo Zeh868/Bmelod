@@ -4,11 +4,13 @@
  * @brief AArch64 架构宏（DAIF / 内存屏障 / 让步）
  *
  * AArch64 临界区快照为 DAIF 寄存器值（64 位语义，经 bm_irq_state_t 截断传递）。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.1
  * @date 2026-07-30
  *
  * @par 修改日志:
+ * 2026-08-01       1.1            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-15       1.0            zeh            正式发布

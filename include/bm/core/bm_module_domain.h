@@ -4,11 +4,13 @@
  * @brief 模块域过滤 API
  *
  * 提供按 RT/SRT/WORKER/COMMON 域初始化、启动、停止、反初始化模块的接口。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-14
  *
  * @par 修改日志:
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布

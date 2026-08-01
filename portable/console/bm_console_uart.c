@@ -2,11 +2,13 @@
 /**
  * @file bm_console_uart.c
  * @brief Console UART 后端（转发 bm_hal_uart）
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-19
  *
  * @par 修改日志:
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-19       1.0            zeh            初版

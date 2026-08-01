@@ -4,11 +4,13 @@
  * @brief 模块生命周期管理实现
  *
  * 从应用提供的 _bm_module_table 加载模块，按优先级排序后依次 init/start/stop/deinit。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.2
  * @date 2026-07-02
  *
  * @par 修改日志:
+ * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
@@ -51,6 +53,11 @@ static BM_CACHE_ALIGNAS(BM_CONFIG_CACHE_LINE)
 bm_module_cpu_storage_t g_module_cpu[BM_CONFIG_CPU_COUNT];
 static bm_module_owner_resolver_t s_owner_resolver;
 
+/**
+ * @brief 获取当前 CPU 的模块运行时状态
+ *
+ * @return 状态指针；CPU 越界时返回 NULL
+ */
 static bm_module_cpu_state_t *bm_module_this(void) {
     uint32_t cpu = BM_CPU_THIS();
 
@@ -163,6 +170,12 @@ static int _rollback_starts(bm_module_cpu_state_t *state, uint32_t through_index
  * @return BM_OK 全部成功；负值为首个失败模块的错误码
  */
 #if !BM_CPU_LOCAL_ENABLE_ROUTE
+/**
+ * @brief 初始化内部模块表中的全部模块
+ *
+ * @param reset_event_bus 是否先重置事件总线
+ * @return BM_OK 全部成功；负值为初始化或状态错误
+ */
 static int _module_init_all(bool reset_event_bus) {
     bm_module_cpu_state_t *state = bm_module_this();
     bm_irq_state_t s;
@@ -626,6 +639,13 @@ int bm_module_deinit_all(void) {
  * @brief 仅复制匹配 domain 或 COMMON 的模块到内部工作表并初始化
  */
 #if !BM_CPU_LOCAL_ENABLE_ROUTE
+/**
+ * @brief 初始化匹配指定执行域或 COMMON 域的模块
+ *
+ * @param domain 目标执行域
+ * @param reset_event_bus 是否先重置事件总线
+ * @return BM_OK 全部成功；负值为初始化或状态错误
+ */
 static int _module_init_all_for_domain(bm_domain_t domain, bool reset_event_bus) {
     bm_module_cpu_state_t *state = bm_module_this();
     bm_irq_state_t s;

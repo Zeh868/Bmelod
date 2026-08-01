@@ -4,11 +4,13 @@
  * @brief 控制实例硬件同步域实现
  *
  * 校验域描述后委托 HAL 完成配置、武装与触发。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.5
  * @date 2026-07-02
  *
  * @par 修改日志:
+ * 2026-08-01       1.5            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布

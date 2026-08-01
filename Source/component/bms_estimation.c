@@ -1,6 +1,7 @@
 /**
  * @file bms_estimation.c
  * @brief BMS Pack SOC 估算组件实现
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 0.4
  * @date 2026-07-13
@@ -12,6 +13,7 @@
  * 2026-06-17       0.2            zeh            接入 soc_ekf 模式
  * 2026-06-23       0.3            zeh            补 SPDX 与函数级 Doxygen
  * 2026-07-13       0.4            zeh            C11：EKF 预测 OCV 改用
+ * 2026-08-01       0.4            Codex           补全 Doxygen 合规注释
  *                                                bm_algo_ocv_lookup_voltage
  *                                                （SOC→OCV），修正误用
  *                                                lookup_soc 致 SOC 估算失真

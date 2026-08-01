@@ -2,6 +2,7 @@
 /**
  * @file bm_vendor_adc_esp32_idf.h
  * @brief ESP32-WROOM-32E 板级 ADC 实例声明
+ * @maturity E1
  *
  * @author zeh (china_qzh@163.com)
  * @version 1.0
@@ -13,6 +14,7 @@
  * 2026-06-19       1.0            zeh            新增 M0/M1 双电机 ADC 实例
  * 2026-06-22       1.1            zeh            清 B2 诊断埋点（diag_read_clear）
  *
+ * 2026-08-01       1.0            Codex            补全中文 Doxygen 合规注释
  */
 #ifndef BM_VENDOR_ADC_ESP32_IDF_H
 #define BM_VENDOR_ADC_ESP32_IDF_H

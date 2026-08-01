@@ -100,6 +100,11 @@ typedef struct {
 
 static bm_log_ring_t s_log_ring[BM_CONFIG_CPU_COUNT];
 
+/**
+ * @brief 获取当前 CPU 的日志环
+ *
+ * @return 当前 CPU 的日志环；CPU 越界时回退到 0 号环
+ */
 static bm_log_ring_t *log_ring_this(void) {
     uint32_t cpu = BM_CPU_THIS();
 

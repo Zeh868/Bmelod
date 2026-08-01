@@ -2,6 +2,7 @@
 /**
  * @file bm_sync_hal_native.c
  * @brief 原生仿真环境同步域 HAL 实现
+ * @maturity E1
  *
  * @author zeh (china_qzh@163.com)
  * @version 1.0
@@ -12,6 +13,9 @@
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
  *
+ *
+ * @par ????:
+ * 2026-08-01       1.0            Codex            补全中文 Doxygen 合规注释
  */
 
 #include "bm_sync.h"

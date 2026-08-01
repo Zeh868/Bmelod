@@ -2,6 +2,7 @@
 /**
  * @file bm_hal_gpio_native.h
  * @brief native_sim GPIO 后端测试辅助接口
+ * @maturity E1
  *
  * 仅供 native_sim 单元测试使用，用于设置 pin 电平与手动触发 EXTI。
  *
@@ -13,6 +14,9 @@
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 native_sim GPIO 测试辅助
+ *
+ * @par ????:
+ * 2026-08-01       1.0            Codex            补全中文 Doxygen 合规注释
  */
 #ifndef BM_HAL_GPIO_NATIVE_H
 #define BM_HAL_GPIO_NATIVE_H

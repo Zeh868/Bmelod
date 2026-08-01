@@ -9,11 +9,13 @@
  *   在调度切换时统一管理（如 x86-64 SysV ABI 的 XMM/YMM、Windows x64 调用约
  *   定），与真实裸机 ISR 抢占语义无关，天然安全，无需协处理器守卫。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-07-11
  *
  * @par 修改日志:
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-07-11       1.0            zeh            新增宿主 ISR FPU 守卫（恒 no-op，OS 线程上下文天然安全）

@@ -3,6 +3,7 @@
  * @file stepper_pulse_hrtimer_adapter.c
  * @brief stepper_pulse 与高精度 Timer 的标准适配器实现
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.3
  * @date 2026-07-28
@@ -14,6 +15,7 @@
  * 2026-07-28       1.1            zeh            修复 GPIO user 透传；移除调试 printf
  * 2026-07-28       1.2            zeh            GPIO 回调改 int 返回；可选 en_set
  * 2026-07-28       1.3            zeh            arm 改“只缩短”语义（缓存
+ * 2026-08-01       1.3            Codex           补全 Doxygen 合规注释
  *                                                next_deadline_us，避免 set_compare
  *                                                重定基）；started/到期回调共享标志加临界区
  */

@@ -5,6 +5,7 @@
  * 在 BM_CONFIG_ENABLE_STREAM 开启时拉入块流、时间戳与 DMA 流 HAL 契约头文件。
  * 应用实现音频、振动或采集前端时可单独包含本头，而无需完整 bm_hybrid.h。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-12
@@ -13,6 +14,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-12       1.0            zeh            正式发布
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */#ifndef BM_DSP_H

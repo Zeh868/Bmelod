@@ -50,11 +50,13 @@
  *       建议每个 ISR 上下文各持一份，避免共享/嵌套覆盖。本守卫不分配、不
  *       打印、不加锁，可在 IRAM ISR 内调用。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.2
  * @date 2026-07-11
  *
  * @par 修改日志:
+ * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-07-11       1.0            zeh    从 vendor/esp32_idf/bm_vendor_esp32_isr_fpu.h 下沉为 arch 层原语

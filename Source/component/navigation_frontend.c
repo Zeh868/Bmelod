@@ -4,6 +4,7 @@
  *
  * 按时间戳选取最新样本，经 EKF 门控更新线速度状态并发布遥测。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 0.2
  * @date 2026-06-23
@@ -13,6 +14,7 @@
  *    Date         Version        Author          Description
  * 2026-06-17       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            validate_config 噪声/权重校验；SPDX
+ * 2026-08-01       0.2            Codex           补全 Doxygen 合规注释
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -28,6 +30,13 @@
 #define BM_ALGO_PI_F 3.14159265358979323846f
 #endif
 
+/**
+ * @brief 判断两个回绕时间戳是否位于允许的对齐窗口内
+ * @param a 第一个微秒时间戳
+ * @param b 第二个微秒时间戳
+ * @param tol_us 允许的最大时间差，单位 us
+ * @return 已对齐返回 1，否则返回 0
+ */
 static int ts_aligned(uint32_t a, uint32_t b, uint32_t tol_us) {
     uint32_t d;
     uint32_t diff;
@@ -45,6 +54,12 @@ static int ts_aligned(uint32_t a, uint32_t b, uint32_t tol_us) {
     return (diff <= tol_us) ? 1 : 0;
 }
 
+/**
+ * @brief 将轮速和轮半径换算为线速度
+ * @param rpm 轮速，单位 rpm
+ * @param radius_m 轮半径，单位 m
+ * @return 线速度，单位 m/s
+ */
 static float rpm_to_m_s(float rpm, float radius_m) {
     return rpm * (2.0f * BM_ALGO_PI_F / 60.0f) * radius_m;
 }

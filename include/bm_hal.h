@@ -4,6 +4,16 @@
  * @brief HAL 契约聚合入口（核心外设；按需裁剪）
  *
  * 也可单独 `#include "hal/bm_hal_uart.h"` 等。
+ *
+ * @maturity E1
+ * @author Bmelod contributors
+ * @version 1.0
+ * @date 2026-08-01
+ *
+ * @par 修改日志:
+ *
+ *    Date         Version        Author          Description
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  */
 #ifndef BM_HAL_H
 #define BM_HAL_H

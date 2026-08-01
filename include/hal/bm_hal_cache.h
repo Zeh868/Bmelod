@@ -6,6 +6,7 @@
  * 真机 Port：设 `BM_HAL_CACHE_IS_NOOP=0` 并实现 `bm_hal_cache_clean` /
  * `bm_hal_cache_invalidate`（可替换本文件或在 portable 目录提供强符号实现）。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-14
@@ -14,6 +15,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_HAL_CACHE_H

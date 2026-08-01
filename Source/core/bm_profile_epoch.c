@@ -7,11 +7,13 @@
  * 注册与查询。这样共享 TU 不再依赖 `BM_MP_MULTICORE` 分支，避免单/多核
  * 行为在条件编译上出现分叉。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.3
  * @date 2026-06-19
  *
  * @par 修改日志:
+ * 2026-08-01       1.3            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布

@@ -2,6 +2,15 @@
 /**
  * @file bm_drv_timer.h
  * @brief 系统定时器驱动 API（平台单例后端实现）
+ * @maturity E1
+ * @author Bmelod contributors
+ * @version 1.0
+ * @date 2026-08-01
+ * @par 修改日志:
+ *
+ *    Date         Version        Author          Description
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
+ *
  */
 #ifndef BM_DRV_TIMER_H
 #define BM_DRV_TIMER_H

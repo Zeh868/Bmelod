@@ -2,6 +2,7 @@
 /**
  * @file bm_hal_timer_native.h
  * @brief 原生仿真定时器测试辅助接口
+ * @maturity E1
  *
  * @author zeh (china_qzh@163.com)
  * @version 1.2
@@ -14,6 +15,7 @@
  * 2026-06-14       1.1            zeh            按 CPU 查询 tick
  * 2026-06-14       1.2            zeh            advance_ticks_on_cpu
  *
+ * 2026-08-01       1.2            Codex            补全中文 Doxygen 合规注释
  */
 
 #ifndef BM_HAL_TIMER_NATIVE_H
@@ -21,7 +23,10 @@
 
 #include <stdint.h>
 
-/** 手动推进 delta 个 tick（当前 TLS 逻辑 CPU） */
+/**
+ * @brief 按 tick 逐步推进当前逻辑 CPU 的仿真定时器。
+ * @param delta 待推进的 tick 数。
+ */
 void bm_hal_timer_native_advance_ticks(uint32_t delta);
 
 /**
@@ -32,16 +37,26 @@ void bm_hal_timer_native_advance_ticks(uint32_t delta);
  */
 void bm_hal_timer_native_advance_ticks_on_cpu(uint32_t cpu, uint32_t delta);
 
-/** 跳跃 delta 个 tick 后仅触发一次回调（模拟 deadline 错过） */
+/**
+ * @brief 跳跃推进当前逻辑 CPU 的 tick 并仅触发一次回调。
+ * @param delta 待推进的 tick 数。
+ */
 void bm_hal_timer_native_jump_ticks(uint32_t delta);
 
-/** 重置 tick 计数为 0 */
+/**
+ * @brief 将当前逻辑 CPU 的仿真 tick 计数清零。
+ */
 void bm_hal_timer_native_reset_ticks(void);
 
-/** 测试辅助：复位定时器为未初始化状态（freq=0） */
+/**
+ * @brief 将仿真定时器恢复为未初始化状态。
+ */
 void bm_hal_timer_native_deinit(void);
 
-/** 测试辅助：设置后续 init 的返回值，BM_OK 恢复成功路径 */
+/**
+ * @brief 设置后续仿真定时器初始化的注入返回码。
+ * @param result 后续定时器初始化应返回的状态码。
+ */
 void bm_hal_timer_native_set_init_result(int result);
 
 /**

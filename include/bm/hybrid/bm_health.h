@@ -8,11 +8,13 @@
  *
  * @note 分层：hybrid 层（可依赖 core 的 event/bus 与 hybrid 的 hrt/ticker）。
  *       core 层不引用 hybrid，依赖方向保持 hybrid→core。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 0.1
  * @date 2026-06-26
  *
  * @par 修改日志:
+ * 2026-08-01       0.1            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-26       0.1            zeh            初稿：健康快照聚合 API

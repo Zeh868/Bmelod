@@ -14,11 +14,13 @@
  *
  * @core_affinity 本核（per-CPU）
  * 调度表实例、rt 状态均为静态分配，跨核使用需各核独立实例。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.5
  * @date 2026-07-13
  *
  * @par 修改日志:
+ * 2026-08-01       1.5            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-07-01       1.0            zeh            骨架发布（config+公共头+CMake，无算法实现）

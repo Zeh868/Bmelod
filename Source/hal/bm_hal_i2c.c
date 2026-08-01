@@ -5,6 +5,7 @@
  *
  * 未绑定后端（dev/api/成员为 NULL）时返回 BM_ERR_NOT_INIT
  * （对齐既有分发层模式，逐行对齐 bm_hal_spi.c）。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-08-01
@@ -13,6 +14,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-08-01       1.0            zeh            新增（I2C 总线契约，接口批 2）
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  *
  */
 #include "bm_hal_i2c.h"

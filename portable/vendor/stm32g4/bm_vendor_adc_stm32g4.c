@@ -2,6 +2,7 @@
 /**
  * @file bm_vendor_adc_stm32g4.c
  * @brief STM32G474xB 相电流 ADC 驱动（ADC1 注入组，TIM1 TRGO2 硬件触发，STM32 LL 库）
+ * @maturity E1
  *
  * 采样链路（与 bm_vendor_pwm_stm32g4.c 联动）：
  *   TIM1 update（中心对齐谷底=低边采样窗口）→ TRGO2 → ADC1 注入序列
@@ -34,6 +35,7 @@
  *                                                bm_hrt_isr_enter/exit，落地 Hardware HRT
  *                                                端口的掩码模式拦截契约
  *
+ * 2026-08-01       1.2            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_vendor_adc_stm32g4.h"
 #include "bm_hal_instances_stm32g4.h"

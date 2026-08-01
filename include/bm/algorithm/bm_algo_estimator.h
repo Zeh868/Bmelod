@@ -18,6 +18,7 @@
  *                                                NaN/Inf 输入护栏，避免一次
  *                                                毛刺永久污染持久协方差状态
  * 2026-07-28       1.5            zeh            更新状态返回对齐 BM_OK/BM_ERR_INVALID
+ * 2026-08-01       1.5            Codex           补全算法 API Doxygen 注释
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -44,11 +45,30 @@ typedef struct {
     float p;
 } bm_algo_kalman1d_state_t;
 
+/**
+ * @brief 复位一维卡尔曼滤波器状态
+ * @param state 算法运行状态
+ * @param x0 初始状态估计值
+ * @param p0 初始估计协方差
+ */
 void bm_algo_kalman1d_reset(bm_algo_kalman1d_state_t *state,
                             float x0,
                             float p0);
+/**
+ * @brief 执行一维卡尔曼滤波器预测
+ * @param state 算法运行状态
+ * @param config 算法配置
+ * @return 一维卡尔曼滤波器计算得到的浮点输出
+ */
 float bm_algo_kalman1d_predict(bm_algo_kalman1d_state_t *state,
                                const bm_algo_kalman1d_config_t *config);
+/**
+ * @brief 用新观测更新一维卡尔曼滤波器
+ * @param state 算法运行状态
+ * @param config 算法配置
+ * @param measurement 当前测量值
+ * @return 一维卡尔曼滤波器计算得到的浮点输出
+ */
 float bm_algo_kalman1d_update(bm_algo_kalman1d_state_t *state,
                               const bm_algo_kalman1d_config_t *config,
                               float measurement);
@@ -66,10 +86,28 @@ typedef struct {
     float p00, p01, p10, p11;
 } bm_algo_ekf_cv_state_t;
 
+/**
+ * @brief 复位恒速扩展卡尔曼滤波器状态
+ * @param state 算法运行状态
+ * @param pos 初始位置估计值
+ * @param vel 初始速度估计值
+ */
 void bm_algo_ekf_cv_reset(bm_algo_ekf_cv_state_t *state, float pos, float vel);
+/**
+ * @brief 执行恒速扩展卡尔曼滤波器预测
+ * @param state 算法运行状态
+ * @param config 算法配置
+ * @param dt_s 采样周期，单位 s
+ */
 void bm_algo_ekf_cv_predict(bm_algo_ekf_cv_state_t *state,
                             const bm_algo_ekf_cv_config_t *config,
                             float dt_s);
+/**
+ * @brief 用新观测更新恒速扩展卡尔曼滤波器
+ * @param state 算法运行状态
+ * @param config 算法配置
+ * @param pos_meas 当前的位置测量值
+ */
 void bm_algo_ekf_cv_update(bm_algo_ekf_cv_state_t *state,
                            const bm_algo_ekf_cv_config_t *config,
                            float pos_meas);
@@ -91,7 +129,18 @@ typedef struct {
     float p;
 } bm_algo_ukf1d_state_t;
 
+/**
+ * @brief 复位一维无迹卡尔曼滤波器状态
+ * @param state 算法运行状态
+ * @param x0 初始状态估计值
+ * @param p0 初始估计协方差
+ */
 void bm_algo_ukf1d_reset(bm_algo_ukf1d_state_t *state, float x0, float p0);
+/**
+ * @brief 执行一维无迹卡尔曼滤波器预测
+ * @param state 算法运行状态
+ * @param config 算法配置
+ */
 void bm_algo_ukf1d_predict(bm_algo_ukf1d_state_t *state,
                            const bm_algo_ukf1d_config_t *config);
 
@@ -143,6 +192,9 @@ int bm_algo_ekf_gate_accept(float innovation,
  *
  * 门控失败时跳过协方差与状态更新，返回 BM_ALGO_EKF_UPDATE_GATED。
  *
+ * @param state 恒速 EKF 状态
+ * @param config 恒速 EKF 配置
+ * @param pos_meas 当前的位置测量值
  * @param gate 门控配置；NULL 时等同无门控更新
  * @return BM_OK 更新成功；BM_ALGO_EKF_UPDATE_GATED 表示正常业务门控拒绝；
  *         BM_ERR_INVALID 表示参数或计算状态非法

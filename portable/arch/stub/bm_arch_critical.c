@@ -4,11 +4,13 @@
  * @brief stub 架构临界区（编译器屏障，无真实 IRQ 屏蔽）
  *
  * 用于 CI 与无硬件交叉编译烟雾；抢占式环境须换真实 arch port。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-14
  *
  * @par 修改日志:
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布

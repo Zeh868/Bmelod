@@ -12,11 +12,13 @@
  * BM_CONFIG_IDLE_EXTERNAL_HOOK=1 并提供外部实现，
  * 本文件不再生成占位实现。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-26
  *
  * @par 修改日志:
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-26       1.0            zeh            新增（路线图 #8 省电/空闲钩子）

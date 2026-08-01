@@ -13,11 +13,13 @@
  *   - owner_cpu 由 bus 透传给后端，后端按需校验；
  *   - 后端未绑定时调用 BLOCK 入口返回 BM_ERR_INVALID。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-26
  *
  * @par 修改日志:
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-26       1.0            zeh            初稿：BLOCK 模式控制反转 vtable

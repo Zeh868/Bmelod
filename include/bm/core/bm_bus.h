@@ -8,11 +8,13 @@
  * IPC 模式以控制反转方式委托 bm_ipc_backend_iface_t 后端（跨核暂存 + CRC + seqlock），
  * 依赖方向保持 hybrid→core，bus 核心不引用任何 hybrid 类型。
  * 静态分配宏见内部头 `bm_bus_impl.h`。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 0.8
  * @date 2026-07-27
  *
  * @par 修改日志:
+ * 2026-08-01       0.8            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-25       0.1            zeh            Phase 1 初稿

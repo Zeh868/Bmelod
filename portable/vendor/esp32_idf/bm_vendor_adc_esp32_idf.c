@@ -2,6 +2,7 @@
 /**
  * @file bm_vendor_adc_esp32_idf.c
  * @brief ESP32-WROOM-32E ADC1 采样实现（Phase 2：ISR 内软触发）
+ * @maturity E1
  *
  * 本实现仅使用 ESP-IDF 5.2.3 的 ADC LL / SoC 寄存器头文件，不依赖驱动层、
  * FreeRTOS 任务或队列。采样由 MCPWM TEZ ISR 周期触发（oneshot 软触发模式）。
@@ -32,6 +33,7 @@
  * 2026-06-22       2.3            zeh            B3-S2a 降噪：每通道滑动中值-of-3（剔单拍脉冲毛刺，不增 ADC 转换次数）
  * 2026-06-22       2.4            zeh            B3-S2a 降噪二层：中值后串一极点 IIR 低通（α=1/4，压 SENSOR 脚连续底噪）
  *
+ * 2026-08-01       2.4            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_vendor_adc_esp32_idf.h"
 #include "bm_vendor_pwm_esp32_idf.h"

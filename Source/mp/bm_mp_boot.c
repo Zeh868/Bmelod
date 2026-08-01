@@ -4,11 +4,13 @@
  * @brief PERCPU 多阶段启动状态机实现
  *
  * native_sim 单核路径简化为本地状态机；多核时通过共享矩阵 boot_phase 同步。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.2
  * @date 2026-07-09
  *
  * @par 修改日志:
+ * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
@@ -55,7 +57,11 @@ typedef BM_CACHE_LINE_PADDED_UNION(bm_mp_boot_cpu_state_t, state,
 static BM_CACHE_ALIGNAS(BM_CONFIG_CACHE_LINE)
 bm_mp_boot_cpu_storage_t s_boot_cpu[BM_CONFIG_CPU_COUNT];
 
-/** 返回当前逻辑 CPU 的本地启动状态；越界返回 NULL */
+/**
+ * @brief 获取当前逻辑 CPU 的本地启动状态
+ *
+ * @return 本地启动状态指针；CPU 越界时返回 NULL
+ */
 static bm_mp_boot_cpu_state_t *boot_this_cpu(void) {
     uint32_t cpu = BM_CPU_THIS();
 
@@ -65,7 +71,9 @@ static bm_mp_boot_cpu_state_t *boot_this_cpu(void) {
     return &s_boot_cpu[cpu].state;
 }
 
-/** 将本核与共享矩阵的 boot_phase 同步发布为 FAILED，供从核 wait 路径感知 */
+/**
+ * @brief 将本核与共享矩阵的启动阶段同步发布为失败
+ */
 static void boot_publish_failed(void) {
     bm_mp_ipc_matrix_t *matrix = bm_mp_ipc_matrix();
     bm_mp_boot_cpu_state_t *local = boot_this_cpu();
@@ -242,6 +250,11 @@ uint32_t bm_mp_boot_epoch(void) {
  */
 #define MP_BOOT_FALLBACK_TICK_US  100u
 
+/**
+ * @brief 获取单调递增的当前时间
+ *
+ * @return 当前时间，单位为微秒
+ */
 static uint64_t boot_now_us(void) {
 #if defined(_WIN32)
     LARGE_INTEGER counter;
@@ -270,6 +283,13 @@ static uint64_t boot_now_us(void) {
     }
 }
 
+/**
+ * @brief 判断指定等待是否已超时
+ *
+ * @param start_us 等待起始时间，单位为微秒
+ * @param timeout_us 超时时间；0 表示不超时
+ * @return 非 0 表示已超时；0 表示尚未超时或禁用超时
+ */
 static int boot_timed_out(uint64_t start_us, uint32_t timeout_us) {
     if (timeout_us == 0u) {
         return 0;
@@ -278,6 +298,14 @@ static int boot_timed_out(uint64_t start_us, uint32_t timeout_us) {
 }
 
 #if BM_MP_MULTICORE
+/**
+ * @brief 等待所有 CPU 到达指定启动阶段
+ *
+ * @param phase 目标启动阶段
+ * @param timeout_us 超时时间，单位为微秒
+ * @return BM_OK 成功；BM_ERR_NOT_INIT 共享矩阵未初始化；
+ *         BM_ERR_INVALID 当前 CPU 重复进入该阶段；BM_ERR_TIMEOUT 等待超时
+ */
 static int barrier_all_cpus_at(bm_mp_boot_phase_t phase, uint32_t timeout_us) {
     bm_mp_ipc_matrix_t *matrix = bm_mp_ipc_matrix();
     uint32_t cpu = BM_CPU_THIS();

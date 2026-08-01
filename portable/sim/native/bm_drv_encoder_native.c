@@ -2,6 +2,7 @@
 /**
  * @file bm_drv_encoder_native.c
  * @brief native_sim 编码器设备驱动
+ * @maturity E1
  *
  * @author zeh (china_qzh@163.com)
  * @version 1.0
@@ -12,6 +13,9 @@
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
  *
+ *
+ * @par ????:
+ * 2026-08-01       1.0            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_hal_encoder.h"
 #include "bm_log.h"
@@ -25,6 +29,11 @@ typedef struct {
 static int32_t g_encoder_count[2];
 static int     g_encoder_fail[2];
 
+/**
+ * @brief 获取编码器设备的原生仿真配置。
+ * @param enc 编码器设备实例。
+ * @return 配置有效时返回原生配置指针；否则返回 NULL。
+ */
 static const bm_encoder_native_config_t *encoder_cfg(const bm_hal_encoder_t *enc) {
     if (!enc || !enc->config) {
         return NULL;
@@ -32,6 +41,12 @@ static const bm_encoder_native_config_t *encoder_cfg(const bm_hal_encoder_t *enc
     return (const bm_encoder_native_config_t *)enc->config;
 }
 
+/**
+ * @brief 读取编码器仿真计数值。
+ * @param enc 编码器设备实例。
+ * @param value 用于接收读取值的输出指针；不得为 NULL。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int native_encoder_read(const struct bm_hal_encoder *enc, int32_t *value) {
     const bm_encoder_native_config_t *cfg = encoder_cfg(enc);
     if (!cfg || !value || cfg->id >= 2u) {

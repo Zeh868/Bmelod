@@ -2,6 +2,7 @@
 /**
  * @file bm_dma_irq_stm32g4.h
  * @brief STM32G4 DMA 通道中断统一路由器
+ * @maturity E1
  *
  * 每个 DMA{1,2}_Channel{1..8} 向量仅在本模块定义一个 Handler；USART/SPI 等
  * 驱动通过 register/unregister 挂接回调，避免多后端多重定义或运行时改通道后
@@ -16,6 +17,7 @@
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 DMA IRQ 统一路由器
  *
+ * 2026-08-01       1.0            Codex            补全中文 Doxygen 合规注释
  */
 #ifndef BM_DMA_IRQ_STM32G4_H
 #define BM_DMA_IRQ_STM32G4_H

@@ -4,6 +4,7 @@
  * @brief 系统定时器 HAL 接口
  *
  * 提供自由运行计数器、频率查询及周期性 tick 回调注册。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.3
  * @date 2026-06-15
@@ -15,6 +16,7 @@
  * 2026-06-14       1.1            zeh            clock epoch bump API
  * 2026-06-15       1.2            zeh            非法 CPU 返回无效 timer 句柄
  * 2026-06-15       1.3            zeh            非法 CPU epoch 返回 UINT32_MAX
+ * 2026-08-01       1.3            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_HAL_TIMER_H
@@ -109,6 +111,11 @@ typedef struct {
     uint32_t clock_epoch;
 } bm_hal_timer_handle_t;
 
+/**
+ * @brief 获取指定 CPU 的定时器句柄
+ * @param cpu 逻辑 CPU 编号
+ * @return 对应 CPU 的定时器句柄；无效 CPU 返回无效句柄
+ */
 bm_hal_timer_handle_t bm_hal_timer_for_cpu(uint32_t cpu);
 
 /**

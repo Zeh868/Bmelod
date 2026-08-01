@@ -20,6 +20,7 @@
  * 2026-06-23       1.3            zeh            修复 Tustin 历史导数项系数错误，消除 SOGI 递推发散
  *
  * 2026-07-28       1.4            zeh            RMS initialization status uses BM_OK/BM_ERR_*
+ * 2026-08-01       1.4            Codex          补齐公共 API 中文 Doxygen
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -70,8 +71,20 @@ typedef struct {
     float d_beta_prev;   /**< 前一拍 v_beta  导数缓存（Tustin 梯形积分用） */
 } bm_algo_sogi_pll_state_t;
 
+/**
+ * @brief 复位 SOGI 锁相环状态。
+ * @param state 算法状态对象。
+ * @param config 算法配置参数。
+ */
 void bm_algo_sogi_pll_reset(bm_algo_sogi_pll_state_t *state,
                             const bm_algo_sogi_pll_config_t *config);
+/**
+ * @brief 执行一次 SOGI 锁相环更新。
+ * @param state 算法状态对象。
+ * @param config 算法配置参数。
+ * @param v_input 锁相环输入电压。
+ * @param dt_s 本次更新的时间间隔，单位 s。
+ */
 void bm_algo_sogi_pll_step(bm_algo_sogi_pll_state_t *state,
                            const bm_algo_sogi_pll_config_t *config,
                            float v_input,
@@ -90,7 +103,20 @@ typedef struct {
     int   direction;
 } bm_algo_mppt_po_state_t;
 
+/**
+ * @brief 复位扰动观察法 MPPT 状态。
+ * @param state 算法状态对象。
+ * @param v_init 复位后的初始电压参考值。
+ */
 void bm_algo_mppt_po_reset(bm_algo_mppt_po_state_t *state, float v_init);
+/**
+ * @brief 执行一次扰动观察法 MPPT 更新。
+ * @param state 算法状态对象。
+ * @param config 算法配置参数。
+ * @param voltage 当前输入电压。
+ * @param current 当前输入电流。
+ * @return 更新后的电压参考值；参数无效时保持已有参考值，state 为 NULL 时返回当前输入电压。
+ */
 float bm_algo_mppt_po_step(bm_algo_mppt_po_state_t *state,
                            const bm_algo_mppt_po_config_t *config,
                            float voltage,
@@ -109,7 +135,20 @@ typedef struct {
     float prev_i;
 } bm_algo_mppt_ic_state_t;
 
+/**
+ * @brief 复位增量电导法 MPPT 状态。
+ * @param state 算法状态对象。
+ * @param v_init 复位后的初始电压参考值。
+ */
 void bm_algo_mppt_ic_reset(bm_algo_mppt_ic_state_t *state, float v_init);
+/**
+ * @brief 执行一次增量电导法 MPPT 更新。
+ * @param state 算法状态对象。
+ * @param config 算法配置参数。
+ * @param voltage 当前输入电压。
+ * @param current 当前输入电流。
+ * @return 更新后的电压参考值；参数无效时保持已有参考值，state 为 NULL 时返回当前输入电压。
+ */
 float bm_algo_mppt_ic_step(bm_algo_mppt_ic_state_t *state,
                            const bm_algo_mppt_ic_config_t *config,
                            float voltage,
@@ -130,19 +169,41 @@ typedef struct {
 } bm_algo_rms_state_t;
 
 /**
- * @brief Initialize RMS state.
- * @return BM_OK on success; BM_ERR_INVALID for invalid parameters.
+ * @brief 初始化滑动均方根计算器。
+ * @return 成功返回 BM_OK；参数、配置或缓冲区无效时返回 BM_ERR_INVALID。
+ *
+ * @param state 算法状态对象。
+ * @param config 算法配置参数。
+ * @param buffer 调用方提供的滑动窗口缓冲区。
+ * @param buflen 缓冲区可容纳的浮点样本数。
  */
 int bm_algo_rms_init(bm_algo_rms_state_t *state,
                      const bm_algo_rms_config_t *config,
                      float *buffer,
                      uint32_t buflen);
+/**
+ * @brief 复位滑动均方根计算器状态。
+ * @param state 算法状态对象。
+ */
 void bm_algo_rms_reset(bm_algo_rms_state_t *state);
+/**
+ * @brief 执行一次滑动均方根计算器更新。
+ * @param state 算法状态对象。
+ * @param config 算法配置参数。
+ * @param sample 当前输入样本。
+ * @return 当前窗口的均方根值；状态或配置无效时直通返回 sample。
+ */
 float bm_algo_rms_step(bm_algo_rms_state_t *state,
                        const bm_algo_rms_config_t *config,
                        float sample);
 
-/** 单相瞬时有功功率；单通道 v/i 无法求无功功率，q 固定写 0。 */
+/**
+ * @brief 根据单相瞬时电压和电流计算有功功率；无功输出固定为 0。
+ * @param v 瞬时电压。
+ * @param i 瞬时电流。
+ * @param p 输出的瞬时有功功率。
+ * @param q 输出的瞬时正交功率分量。
+ */
 void bm_algo_power_instant(float v, float i, float *p, float *q);
 
 #ifdef __cplusplus

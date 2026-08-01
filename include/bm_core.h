@@ -5,11 +5,13 @@
  *
  * 应用推荐入口：`#include "bmelod.h"`（按 bm_config.h 裁剪）。
  * 仅需事件子系统时可单独包含本头；Lite 层见 bm_lite.h。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-10
  *
  * @par 修改日志:
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布

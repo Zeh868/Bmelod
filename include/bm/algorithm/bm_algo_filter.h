@@ -14,6 +14,7 @@
  * 2026-06-17       1.1            zeh            动态 notch 系数更新
  * 2026-07-27       1.2            zeh            新增 bm_algo_lpf1_alpha_saturate
  * 2026-07-28       1.3            zeh            状态返回文档对齐 BM_OK/BM_ERR_*
+ * 2026-08-01       1.3            Codex           补全算法 API Doxygen 注释
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -37,10 +38,29 @@ typedef struct {
     float output;
 } bm_algo_lpf1_state_t;
 
+/**
+ * @brief 根据截止频率初始化一阶低通滤波器
+ * @param config 算法配置
+ * @param cutoff_hz 截止频率，单位 Hz
+ * @param sample_hz 采样频率，单位 Hz
+ * @return BM_OK 成功；BM_ERR_INVALID 参数非法
+ */
 int bm_algo_lpf1_init_from_cutoff(bm_algo_lpf1_config_t *config,
                                   float cutoff_hz,
                                   float sample_hz);
+/**
+ * @brief 复位一阶低通滤波器状态
+ * @param state 算法运行状态
+ * @param value 输入值
+ */
 void bm_algo_lpf1_reset(bm_algo_lpf1_state_t *state, float value);
+/**
+ * @brief 更新一阶低通滤波器并计算本拍输出
+ * @param state 算法运行状态
+ * @param config 算法配置
+ * @param input 当前输入值
+ * @return 一阶低通滤波器计算得到的浮点输出
+ */
 float bm_algo_lpf1_step(bm_algo_lpf1_state_t *state,
                         const bm_algo_lpf1_config_t *config,
                         float input);
@@ -69,10 +89,28 @@ typedef struct {
     float prev_output;
 } bm_algo_hpf1_state_t;
 
+/**
+ * @brief 根据截止频率初始化一阶高通滤波器
+ * @param config 算法配置
+ * @param cutoff_hz 截止频率，单位 Hz
+ * @param sample_hz 采样频率，单位 Hz
+ * @return BM_OK 成功；BM_ERR_INVALID 参数非法
+ */
 int bm_algo_hpf1_init_from_cutoff(bm_algo_hpf1_config_t *config,
                                   float cutoff_hz,
                                   float sample_hz);
+/**
+ * @brief 复位一阶高通滤波器状态
+ * @param state 算法运行状态
+ */
 void bm_algo_hpf1_reset(bm_algo_hpf1_state_t *state);
+/**
+ * @brief 更新一阶高通滤波器并计算本拍输出
+ * @param state 算法运行状态
+ * @param config 算法配置
+ * @param input 当前输入值
+ * @return 一阶高通滤波器计算得到的浮点输出
+ */
 float bm_algo_hpf1_step(bm_algo_hpf1_state_t *state,
                         const bm_algo_hpf1_config_t *config,
                         float input);
@@ -90,10 +128,28 @@ typedef struct {
     uint32_t length;
 } bm_algo_moving_avg_state_t;
 
+/**
+ * @brief 初始化滑动平均滤波器
+ * @param state 算法运行状态
+ * @param config 算法配置
+ * @return BM_OK 成功；BM_ERR_INVALID 参数非法
+ */
 int bm_algo_moving_avg_init(bm_algo_moving_avg_state_t *state,
                             const bm_algo_moving_avg_config_t *config);
+/**
+ * @brief 复位滑动平均滤波器状态
+ * @param state 算法运行状态
+ * @param config 算法配置
+ */
 void bm_algo_moving_avg_reset(bm_algo_moving_avg_state_t *state,
                               const bm_algo_moving_avg_config_t *config);
+/**
+ * @brief 更新滑动平均滤波器并计算本拍输出
+ * @param state 算法运行状态
+ * @param config 算法配置
+ * @param input 当前输入值
+ * @return 滑动平均滤波器计算得到的浮点输出
+ */
 float bm_algo_moving_avg_step(bm_algo_moving_avg_state_t *state,
                               const bm_algo_moving_avg_config_t *config,
                               float input);
@@ -111,7 +167,18 @@ typedef struct {
     uint32_t count;
 } bm_algo_median_state_t;
 
+/**
+ * @brief 复位中值滤波器状态
+ * @param state 算法运行状态
+ */
 void bm_algo_median_reset(bm_algo_median_state_t *state);
+/**
+ * @brief 更新中值滤波器并计算本拍输出
+ * @param state 算法运行状态
+ * @param config 算法配置
+ * @param input 当前输入值
+ * @return 中值滤波器计算得到的浮点输出
+ */
 float bm_algo_median_step(bm_algo_median_state_t *state,
                           const bm_algo_median_config_t *config,
                           float input);
@@ -128,10 +195,28 @@ typedef struct {
     uint32_t tap_count;
 } bm_algo_fir_state_t;
 
+/**
+ * @brief 初始化 FIR 滤波器
+ * @param state 算法运行状态
+ * @param config 算法配置
+ * @return BM_OK 成功；BM_ERR_INVALID 参数非法
+ */
 int bm_algo_fir_init(bm_algo_fir_state_t *state,
                      const bm_algo_fir_config_t *config);
+/**
+ * @brief 复位 FIR 滤波器状态
+ * @param state 算法运行状态
+ * @param config 算法配置
+ */
 void bm_algo_fir_reset(bm_algo_fir_state_t *state,
                        const bm_algo_fir_config_t *config);
+/**
+ * @brief 更新 FIR 滤波器并计算本拍输出
+ * @param state 算法运行状态
+ * @param config 算法配置
+ * @param input 当前输入值
+ * @return FIR 滤波器计算得到的浮点输出
+ */
 float bm_algo_fir_step(bm_algo_fir_state_t *state,
                        const bm_algo_fir_config_t *config,
                        float input);
@@ -162,9 +247,26 @@ typedef struct {
     float z2;
 } bm_algo_biquad_state_t;
 
+/**
+ * @brief 设计双二阶滤波器系数
+ * @param config 算法配置
+ * @param design 滤波器类型、采样率、中心频率、Q 值和增益等设计参数
+ * @return BM_OK 成功；BM_ERR_INVALID 参数非法
+ */
 int bm_algo_biquad_design(bm_algo_biquad_config_t *config,
                           const bm_algo_biquad_design_t *design);
+/**
+ * @brief 复位双二阶滤波器状态
+ * @param state 算法运行状态
+ */
 void bm_algo_biquad_reset(bm_algo_biquad_state_t *state);
+/**
+ * @brief 更新双二阶滤波器并计算本拍输出
+ * @param state 算法运行状态
+ * @param config 算法配置
+ * @param input 当前输入值
+ * @return 双二阶滤波器计算得到的浮点输出
+ */
 float bm_algo_biquad_step(bm_algo_biquad_state_t *state,
                           const bm_algo_biquad_config_t *config,
                           float input);

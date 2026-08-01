@@ -7,6 +7,7 @@
  * 设备由后端导出（默认控制台设备 bm_uart_default）。
  *
  * hard RT 剖面下阻塞收发与 RX 用户回调不可进入流式路径，HAL 直接拒绝或返回 0。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 3.0
  * @date 2026-07-28
@@ -18,6 +19,7 @@
  * 2026-06-15       1.1            zeh            hard RT 禁止阻塞 UART 路径
  * 2026-07-27       2.0            zeh            打破式全实例化，统一为 {api, config}
  * 2026-07-28       3.0            zeh            接口批 1 扩展 IDLE/环形缓冲/错误统计等
+ * 2026-08-01       3.0            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_HAL_UART_H

@@ -2,6 +2,7 @@
 /**
  * @file bm_dma_irq_stm32g4.c
  * @brief STM32G4 DMA 通道中断统一路由器实现
+ * @maturity E1
  *
  * 每个 DMA 通道向量唯一 Handler；驱动经 bm_dma_irq_register 挂接。
  * 未注册通道触发时清除 GIF/TCIF/HTIF/TEIF，避免中断风暴。
@@ -15,6 +16,7 @@
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 DMA IRQ 统一路由器
  *
+ * 2026-08-01       1.0            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_dma_irq_stm32g4.h"
 

@@ -7,11 +7,13 @@
  *
  * 如需新引用，建议直接包含 "bm/common/bm_timestamp.h"。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 2.0
  * @date 2026-06-26
  *
  * @par 修改日志:
+ * 2026-08-01       2.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-12       1.0            zeh            正式发布

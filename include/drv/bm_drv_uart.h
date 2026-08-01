@@ -10,6 +10,7 @@
  * 接口批 1 扩展：新增 IDLE/环形 RX 缓冲/可配置帧格式/错误统计/TX 完成回调/
  * flush/abort 能力。原有四函数保持兼容。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 3.1
  * @date 2026-07-28
@@ -21,6 +22,7 @@
  * 2026-07-27       2.0            zeh            打破式全实例化：删除单例全局符号约定
  * 2026-07-28       3.0            zeh            接口批 1 扩展 IDLE/环形缓冲/错误统计等
  * 2026-07-28       3.1            zeh            明确 last_errors 为 read-clear 语义
+ * 2026-08-01       3.1            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_DRV_UART_H

@@ -40,6 +40,7 @@
  * bm_persist_commit();
  * @endcode
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.3
  * @date 2026-07-28
@@ -53,6 +54,7 @@
  * 2026-07-28       1.2            zeh            无 NVS 后端时 commit 返回
  *                                                BM_ERR_NOT_SUPPORTED
  * 2026-07-28       1.3            zeh            文档对齐 STM32G4 双槽 NVS 后端
+ * 2026-08-01       1.3            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_PERSIST_H

@@ -86,6 +86,17 @@ if(BM_BUILD_ALL_COMPONENTS)
     set(BM_ENABLE_COMPONENT_TINYML ON CACHE BOOL "" FORCE)
 endif()
 
+# stream 前端属于 diagnostics 域且直接调用 bm_stream。组件开关启用时在配置导出和
+# 目标创建前拉齐父域及底层库，避免静态库阶段掩盖未解析符号。
+if(BM_ENABLE_COMPONENT_STREAM)
+    if(NOT BM_ENABLE_COMPONENT_DIAGNOSTICS OR NOT BM_ENABLE_STREAM)
+        message(STATUS
+            "BM_ENABLE_COMPONENT_STREAM: enabling diagnostics and stream dependencies")
+    endif()
+    set(BM_ENABLE_COMPONENT_DIAGNOSTICS ON CACHE BOOL "" FORCE)
+    set(BM_ENABLE_STREAM ON CACHE BOOL "" FORCE)
+endif()
+
 if(BM_BUILD_TESTS)
     set(BM_ENABLE_STREAM ON CACHE BOOL "" FORCE)
     set(BM_ENABLE_PIPELINE ON CACHE BOOL "" FORCE)
@@ -496,7 +507,11 @@ if(BM_ENABLE_COMPONENT_DIAGNOSTICS)
     endif()
     add_library(bm_component_diagnostics STATIC ${_bm_diag_sources})
     target_link_libraries(bm_component_diagnostics PUBLIC bm_algorithm bm_config)
-    if(TARGET bm_stream)
+    if(BM_ENABLE_COMPONENT_STREAM OR BM_BUILD_TESTS)
+        if(NOT TARGET bm_stream)
+            message(FATAL_ERROR
+                "diagnostics stream frontends require the bm_stream target")
+        endif()
         target_link_libraries(bm_component_diagnostics PUBLIC bm_stream)
     endif()
     bm_target_internal_includes(bm_component_diagnostics)

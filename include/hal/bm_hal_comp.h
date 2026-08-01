@@ -4,6 +4,7 @@
  * @brief 比较器 HAL 接口
  *
  * 清除比较器锁存状态，用于过流等保护信号的复位。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-10
@@ -12,6 +13,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_HAL_COMP_H

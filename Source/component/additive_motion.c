@@ -5,6 +5,7 @@
  * 两脉冲零振动整形器，半周期延迟第二脉冲；提供 exec_ops 表供
  * bm_exec 周期调度框架接入。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 0.5
  * @date 2026-07-14
@@ -17,6 +18,7 @@
  * 2026-06-23       0.3            zeh            exec_ops 表；zv_compute_coeffs Doxygen；SPDX
  * 2026-07-09       0.4            zeh            safe_stop 补清空环形缓冲（疑似-16.1）
  * 2026-07-14       0.5            zeh            Medium-6 修复：速度限幅从只写
+ * 2026-08-01       0.5            Codex           补全 Doxygen 合规注释
  *                                                遥测改为真实约束 shaped_mm 增
  *                                                量，write_z 发送已限幅位置
  *

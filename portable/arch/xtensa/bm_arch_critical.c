@@ -5,11 +5,13 @@
  *
  * ESP32 LX6/LX7：`rsil` 提升中断屏蔽级，`wsr.ps` + `rsync` 恢复。
  * ISR 检测优先 ESP-IDF `xPortInIsrContext()`，其次 `xthal_get_intlevel()`。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.1
  * @date 2026-06-15
  *
  * @par 修改日志:
+ * 2026-08-01       1.1            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-15       1.0            zeh            Phase 3 正式发布
@@ -31,12 +33,22 @@
 #endif
 #endif
 
+/**
+ * @brief 将 Xtensa 中断级别提升到最高并返回原 PS
+ *
+ * @return 提升前的 PS 寄存器值
+ */
 static inline uint32_t bm_xtensa_raise_intlevel(void) {
     uint32_t ps;
     __asm__ volatile ("rsil %0, 15" : "=a"(ps) :: "memory");
     return ps;
 }
 
+/**
+ * @brief 恢复 Xtensa PS 寄存器
+ *
+ * @param ps 要恢复的 PS 值
+ */
 static inline void bm_xtensa_write_ps(uint32_t ps) {
     __asm__ volatile ("wsr.ps %0" :: "a"(ps) : "memory");
     __asm__ volatile ("rsync");

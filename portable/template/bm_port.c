@@ -38,11 +38,13 @@
  *    persist 裁剪而桩生效（返回 BM_ERR_NOT_INIT）的口径分叉。参考
  *    `portable/packs/native_sim/CMakeLists.txt`。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 2.4
  * @date 2026-08-01
  *
  * @par 修改日志:
+ * 2026-08-01       2.4            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-15       2.0            zeh            组合模板：arch 头 + vendor 弱钩子
@@ -78,23 +80,47 @@
 static void (*g_tick_cb)(void);
 static uint32_t g_tick_hz;
 
+/**
+ * @brief 初始化模板定时器频率
+ *
+ * @param freq_hz 定时器频率，单位为 Hz
+ * @return BM_OK 初始化成功
+ */
 static int port_timer_init(uint32_t freq_hz) {
     g_tick_hz = freq_hz;
     return BM_OK;
 }
 
+/**
+ * @brief 停止模板定时器并清除回调
+ */
 static void port_timer_stop(void) {
     g_tick_cb = NULL;
 }
 
+/**
+ * @brief 读取模板定时器计数
+ *
+ * @return 当前计数；模板桩固定返回 0
+ */
 static uint32_t port_timer_get_ticks(void) {
     return 0u;
 }
 
+/**
+ * @brief 读取模板定时器频率
+ *
+ * @return 已配置频率，单位为 Hz
+ */
 static uint32_t port_timer_get_freq(void) {
     return g_tick_hz;
 }
 
+/**
+ * @brief 设置模板定时器回调
+ *
+ * @param cb 定时器回调；可为 NULL
+ */
 static void port_timer_set_callback(void (*cb)(void)) {
     g_tick_cb = cb;
 }
@@ -145,12 +171,27 @@ void bm_port_timer_isr(void) {
     }
 }
 
+/**
+ * @brief 初始化模板 UART 设备
+ *
+ * @param dev UART 设备
+ * @param config 平台配置
+ * @return BM_OK 初始化成功
+ */
 static int port_uart_init(const struct bm_hal_uart *dev, void *config) {
     (void)dev;
     (void)config;
     return BM_OK;
 }
 
+/**
+ * @brief 通过模板 UART 发送数据
+ *
+ * @param dev UART 设备
+ * @param data 待发送数据
+ * @param len 数据长度
+ * @return BM_OK 模板桩接受发送请求
+ */
 static int port_uart_send(const struct bm_hal_uart *dev,
                           const uint8_t *data, size_t len) {
     (void)dev;
@@ -159,6 +200,14 @@ static int port_uart_send(const struct bm_hal_uart *dev,
     return BM_OK;
 }
 
+/**
+ * @brief 从模板 UART 接收数据
+ *
+ * @param dev UART 设备
+ * @param data 接收缓冲区
+ * @param max_len 缓冲区容量
+ * @return 实际接收字节数；模板桩固定返回 0
+ */
 static size_t port_uart_recv(const struct bm_hal_uart *dev,
                              uint8_t *data, size_t max_len) {
     (void)dev;
@@ -167,6 +216,12 @@ static size_t port_uart_recv(const struct bm_hal_uart *dev,
     return 0u;
 }
 
+/**
+ * @brief 设置模板 UART 接收回调
+ *
+ * @param dev UART 设备
+ * @param cb 单字节接收回调；可为 NULL
+ */
 static void port_uart_set_rx_callback(const struct bm_hal_uart *dev,
                                       void (*cb)(uint8_t c)) {
     (void)dev;
@@ -183,11 +238,20 @@ static const struct bm_uart_driver_api g_port_uart_api = {
 /** @brief 默认控制台 UART 设备（统一实例模型；应用可提供强符号覆盖）。 */
 BM_PORT_WEAK const bm_hal_uart_t bm_uart_default = { &g_port_uart_api, NULL };
 
+/**
+ * @brief 初始化模板看门狗
+ *
+ * @param timeout_ms 超时时间，单位为毫秒
+ * @return BM_OK 初始化成功
+ */
 static int port_wdg_init(uint32_t timeout_ms) {
     (void)timeout_ms;
     return BM_OK;
 }
 
+/**
+ * @brief 喂模板看门狗
+ */
 static void port_wdg_feed(void) {
 }
 

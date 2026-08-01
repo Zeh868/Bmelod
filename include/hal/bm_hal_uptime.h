@@ -12,6 +12,7 @@
  * - 64 位无符号，约 584 年不回绕；
  * - 无需在调用前显式初始化（后端在首次读取时懒初始化）。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-26
@@ -20,6 +21,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-26       1.0            zeh            正式发布（路线图 #9 时间基统一 1a）
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_HAL_UPTIME_H

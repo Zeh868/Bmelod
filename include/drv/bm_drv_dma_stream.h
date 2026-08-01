@@ -2,6 +2,7 @@
 /**
  * @file bm_drv_dma_stream.h
  * @brief DMA 块流设备驱动 API
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-13
@@ -10,6 +11,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_DRV_DMA_STREAM_H

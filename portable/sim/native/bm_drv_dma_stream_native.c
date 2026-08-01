@@ -2,6 +2,7 @@
 /**
  * @file bm_drv_dma_stream_native.c
  * @brief native_sim DMA 块流驱动（模拟 RX 完成回调）
+ * @maturity E1
  *
  * @author zeh (china_qzh@163.com)
  * @version 1.0
@@ -12,6 +13,9 @@
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
  *
+ *
+ * @par ????:
+ * 2026-08-01       1.0            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_hal_dma_stream_sim.h"
 #include "bm_log.h"
@@ -32,6 +36,11 @@ typedef struct {
 
 static dma_stream_sim_state_t g_dma_state[2];
 
+/**
+ * @brief 获取 DMA 流设备绑定的仿真状态。
+ * @param stream DMA 流设备实例。
+ * @return 有效时返回设备状态指针；设备或配置无效时返回 NULL。
+ */
 static dma_stream_sim_state_t *dma_state_for(const bm_hal_dma_stream_t *stream) {
     const bm_dma_stream_native_config_t *cfg;
 
@@ -45,6 +54,12 @@ static dma_stream_sim_state_t *dma_state_for(const bm_hal_dma_stream_t *stream) 
     return &g_dma_state[cfg->id];
 }
 
+/**
+ * @brief 绑定 DMA 接收完成回调。
+ * @param stream DMA 流设备实例。
+ * @param binding HRT 回调绑定信息；传入 NULL 时解除绑定。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int native_dma_bind_rx(const struct bm_hal_dma_stream *stream,
                               const struct bm_hal_dma_stream_binding *binding) {
     dma_stream_sim_state_t *state = dma_state_for(stream);
@@ -62,6 +77,12 @@ static int native_dma_bind_rx(const struct bm_hal_dma_stream *stream,
     return BM_OK;
 }
 
+/**
+ * @brief 向 DMA 仿真接收通道提交块。
+ * @param stream DMA 流设备实例。
+ * @param block 待提交的静态数据块；不得为 NULL。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID；设备未初始化时返回 BM_ERR_NOT_INIT；资源忙或队列已满时返回 BM_ERR_BUSY。
+ */
 static int native_dma_submit_rx(const struct bm_hal_dma_stream *stream,
                                 bm_block_t *block) {
     dma_stream_sim_state_t *state = dma_state_for(stream);
@@ -80,6 +101,11 @@ static int native_dma_submit_rx(const struct bm_hal_dma_stream *stream,
     return BM_OK;
 }
 
+/**
+ * @brief 从 DMA 仿真接收通道取回当前块。
+ * @param stream DMA 流设备实例。
+ * @return 返回已分离的接收块；无有效块时返回 NULL。
+ */
 static bm_block_t *native_dma_detach_rx(const struct bm_hal_dma_stream *stream) {
     dma_stream_sim_state_t *state = dma_state_for(stream);
     bm_block_t *block;

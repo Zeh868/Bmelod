@@ -8,11 +8,13 @@
  * @core_affinity 本核（按 CPU 分域）
  * 每个 CPU 独立 ticker 槽表，bm_ticker_init/poll 仅操作调用者所在 CPU 的定时器槽。
  * 事件通过 bm_event 发布到本核事件总线；不同 CPU 的订阅由 bm_event 自动转发。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.1
  * @date 2026-06-26
  *
  * @par 修改日志:
+ * 2026-08-01       1.1            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布

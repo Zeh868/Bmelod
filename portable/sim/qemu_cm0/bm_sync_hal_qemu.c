@@ -2,6 +2,7 @@
 /**
  * @file bm_sync_hal_qemu.c
  * @brief QEMU Cortex-M0 同步域 HAL 实现
+ * @maturity E1
  *
  * trigger 仅推进 HAL 状态机，不遍历 exec slots（与 native 语义一致）。
  * @author zeh (china_qzh@163.com)
@@ -13,6 +14,7 @@
  * Date       Version Author Description
  * 2026-06-16 1.1     zeh    trigger 对齐 native，移除 slots 遍历
  *
+ * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_sync.h"
 #include "bm_log.h"

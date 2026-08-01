@@ -2,6 +2,7 @@
 /**
  * @file bm_hal_cpu_qemu_esp32_smp.c
  * @brief QEMU ESP32 Xtensa SMP CPU HAL（PRID / DPORT APP_CPU 释放）
+ * @maturity E1
  *
  * @author zeh (china_qzh@163.com)
  * @version 1.1
@@ -13,6 +14,7 @@
  * 2026-06-15       1.0            zeh            正式发布
  * 2026-07-03       1.1            zeh            新增 CPU 主频接口 freq_hz/freq_points/freq_set 实现
  *
+ * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
  */
 #include "hal/bm_hal_cpu.h"
 #include "bm_config.h"

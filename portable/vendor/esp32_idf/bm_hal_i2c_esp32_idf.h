@@ -2,6 +2,7 @@
 /**
  * @file bm_hal_i2c_esp32_idf.h
  * @brief ESP32-WROOM-32E I2C 总线后端（bm_hal_i2c 设备实例）
+ * @maturity E1
  *
  * 在既有 LL 原语（bm_vendor_i2c_esp32_idf）之上导出框架
  * `{api, config}` 设备模型实例 `bm_hal_i2c_0` / `bm_hal_i2c_1`：
@@ -22,6 +23,7 @@
  *    Date         Version        Author          Description
  * 2026-08-01       1.0            zeh            新增（I2C 总线契约 ESP32 后端）
  *
+ * 2026-08-01       1.0            Codex            补全中文 Doxygen 合规注释
  */
 #ifndef BM_HAL_I2C_ESP32_IDF_H
 #define BM_HAL_I2C_ESP32_IDF_H

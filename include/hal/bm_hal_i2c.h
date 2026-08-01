@@ -5,6 +5,7 @@
  *
  * 阻塞同步事务；具体硬件由平台实现绑定。
  * 地址语义统一为 7-bit（不含 R/W 位）。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-08-01
@@ -13,6 +14,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-08-01       1.0            zeh            新增（I2C 总线契约，接口批 2）
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_HAL_I2C_H

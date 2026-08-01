@@ -6,11 +6,13 @@
  * 应用侧约定：bm_module 不参与喂狗；主循环每圈调用 bm_wdg_feed() 即可。
  * 未注册软件模块时直接 bm_hal_wdg_feed()。
  * bm_wdg_register / bm_wdg_feed_module 仅供多心跳 AND 聚合等高级场景与单元测试。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.1
  * @date 2026-06-10
  *
  * @par 修改日志:
+ * 2026-08-01       1.1            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布

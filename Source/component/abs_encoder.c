@@ -13,6 +13,7 @@
  * 含 MAGH=bit8? 按 datasheet DIAAGC 位域：bit10=MAGL、bit9=MAGH，
  * 本实现状态字统一映射 bit1=MAGH、bit0=MAGL、bit15=错误位）。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-07-27
@@ -21,6 +22,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-07-27       1.0            zeh            新增（接口批 1 步进伺服栈）
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  *
  */
 #include "bm/component/abs_encoder.h"

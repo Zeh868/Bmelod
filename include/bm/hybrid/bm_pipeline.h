@@ -5,11 +5,13 @@
  * E1 范围：单输入单输出线性链、就地或首节点跨块处理、bypass/reset、
  * 格式链校验。DAG 与 fan-out 留待后续里程碑。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.1
  * @date 2026-07-31
  *
  * @par 修改日志:
+ * 2026-08-01       1.1            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布

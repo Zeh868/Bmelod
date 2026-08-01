@@ -2,6 +2,7 @@
 /**
  * @file bm_hal_sdk_esp32.h
  * @brief ESP32 裸机后端的 IDF 底层头入口
+ * @maturity E1
  *
  * 这里只汇聚裸机后端需要的错误码、版本宏与底层头文件，
  * 不引入任何调度器或高级外设包装。
@@ -17,6 +18,7 @@
  * 2026-06-15       1.1            zeh            增加版本判定
  * 2026-06-19       1.2            zeh          去除高层驱动入口
  *
+ * 2026-08-01       1.2            Codex            补全中文 Doxygen 合规注释
  */
 #ifndef BM_HAL_SDK_ESP32_H
 #define BM_HAL_SDK_ESP32_H

@@ -18,6 +18,7 @@
  * uint64_t elapsed_us = (bm_uptime_ns() - t0) / 1000u;
  * @endcode
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-26
@@ -26,6 +27,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-26       1.0            zeh            正式发布（路线图 #9 时间基统一 1a）
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_UPTIME_H

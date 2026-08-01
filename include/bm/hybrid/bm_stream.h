@@ -11,11 +11,13 @@
  * producer/consumer API。
  * 传输路径由上层调度完成，不在此头文件暴露具体转发细节。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-12
  *
  * @par 修改日志:
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-12       1.0            zeh            正式发布
@@ -207,33 +209,100 @@ void bm_stream_set_pending_drain(bm_stream_t *stream, uint8_t pending);
 #define BM_STREAM_DEPRECATED_OWNER_CPU(s)      bm_stream_owner_cpu(s)
 #define BM_STREAM_DEPRECATED_PENDING_DRAIN(s)  bm_stream_pending_drain(s)
 
+/**
+ * @brief 累加流的 deadline 迟到计数
+ * @param stream 流实例；无效或非本核实例时静默返回
+ */
 void bm_stream_mark_late(bm_stream_t *stream);
 
+/**
+ * @brief 初始化静态块流及其载荷区
+ * @param stream 流实例
+ * @param payloads 连续载荷缓冲区
+ * @param block_count 块数量
+ * @param block_bytes 每块容量字节数
+ * @return BM_OK 成功；BM_ERR_INVALID 参数、容量或归属核无效
+ */
 int bm_stream_init(bm_stream_t *stream,
                    void *payloads,
                    uint32_t block_count,
                    uint32_t block_bytes);
 
+/**
+ * @brief 重置流中全部块、序号和统计状态
+ * @param stream 流实例；NULL 或无效实例时静默返回
+ */
 void bm_stream_reset(bm_stream_t *stream);
 
+/**
+ * @brief 查询 READY 状态的块数量
+ * @param stream 流实例
+ * @return READY 块数；无效或非本核实例时返回 0
+ */
 uint32_t bm_stream_ready_count(const bm_stream_t *stream);
 
+/**
+ * @brief 生产者获取一个 FREE 块并转为 DMA_OWNED
+ * @param stream 流实例
+ * @param block 输出块指针
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效；BM_ERR_OVERFLOW 无可用块
+ */
 int bm_stream_producer_acquire(bm_stream_t *stream, bm_block_t **block);
 
+/**
+ * @brief 生产者提交 DMA_OWNED 块并发布为 READY
+ * @param stream 流实例
+ * @param block 待提交块
+ * @param valid_bytes 有效载荷字节数
+ * @param timestamp 时间戳；NULL 时保留零值
+ * @return BM_OK 成功；BM_ERR_INVALID 参数、块状态或长度无效；其他为 cache 平台错误码
+ */
 int bm_stream_producer_commit(bm_stream_t *stream,
                              bm_block_t *block,
                              uint32_t valid_bytes,
                              const bm_timestamp_t *timestamp);
 
-/** 取消已 acquire 但未 commit 的生产（DMA_OWNED → FREE） */
+/**
+ * @brief 取消已获取但未提交的生产块
+ * @param stream 流实例
+ * @param block 待取消块
+ * @return BM_OK 成功；BM_ERR_INVALID 参数或块状态无效
+ */
 int bm_stream_producer_abort(bm_stream_t *stream, bm_block_t *block);
 
+/**
+ * @brief 消费者获取最旧 READY 块并转为 PROCESSING
+ * @param stream 流实例
+ * @param block 输出块指针
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效；BM_ERR_WOULD_BLOCK 无 READY 块；
+ *         其他为 cache 平台错误码
+ */
 int bm_stream_consumer_acquire(bm_stream_t *stream, bm_block_t **block);
 
+/**
+ * @brief 消费者释放处理完成的块并转为 FREE
+ * @param stream 流实例
+ * @param block 待释放块
+ * @return BM_OK 成功；BM_ERR_INVALID 参数或块状态无效
+ */
 int bm_stream_consumer_release(bm_stream_t *stream, bm_block_t *block);
 
+/**
+ * @brief 输出生产者获取 FREE 块并转为 DMA_OWNED
+ * @param stream 流实例
+ * @param block 输出块指针
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效；BM_ERR_OVERFLOW 无可用块
+ */
 int bm_stream_output_acquire(bm_stream_t *stream, bm_block_t **block);
 
+/**
+ * @brief 提交输出块并转为 OUTPUT_READY
+ * @param stream 流实例
+ * @param block 待提交块
+ * @param valid_bytes 有效载荷字节数
+ * @param timestamp 时间戳；NULL 时保留零值
+ * @return BM_OK 成功；BM_ERR_INVALID 参数、块状态或长度无效；其他为 cache 平台错误码
+ */
 int bm_stream_output_commit(bm_stream_t *stream,
                             bm_block_t *block,
                             uint32_t valid_bytes,

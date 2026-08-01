@@ -22,6 +22,7 @@
  *                                                三滤波器 dt_s 补 NaN 拦截
  *
  * 2026-07-28       1.5            zeh            Calibration status documents BM_OK/BM_ERR_*
+ * 2026-08-01       1.5            Codex          补齐公共 API 中文 Doxygen
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -60,7 +61,23 @@ typedef struct {
     float pitch_rad;
 } bm_algo_complementary_state_t;
 
+/**
+ * @brief 复位互补姿态滤波器状态。
+ * @param state 算法状态对象。
+ */
 void bm_algo_complementary_reset(bm_algo_complementary_state_t *state);
+/**
+ * @brief 执行一次互补姿态滤波器更新。
+ * @param state 算法状态对象。
+ * @param config 算法配置参数。
+ * @param gx 陀螺仪 X 轴角速度，单位 rad/s。
+ * @param gy 陀螺仪 Y 轴角速度，单位 rad/s。
+ * @param gz 陀螺仪 Z 轴角速度，单位 rad/s。
+ * @param ax 加速度计 X 轴测量值。
+ * @param ay 加速度计 Y 轴测量值。
+ * @param az 加速度计 Z 轴测量值。
+ * @param dt_s 本次更新的时间间隔，单位 s。
+ */
 void bm_algo_complementary_step(bm_algo_complementary_state_t *state,
                                 const bm_algo_complementary_config_t *config,
                                 float gx, float gy, float gz,
@@ -80,12 +97,33 @@ typedef struct {
     float integral_z;
 } bm_algo_mahony_state_t;
 
+/**
+ * @brief 复位 Mahony 姿态滤波器状态。
+ * @param state 算法状态对象。
+ */
 void bm_algo_mahony_reset(bm_algo_mahony_state_t *state);
+/**
+ * @brief 执行一次 Mahony 姿态滤波器更新。
+ * @param state 算法状态对象。
+ * @param config 算法配置参数。
+ * @param gx 陀螺仪 X 轴角速度，单位 rad/s。
+ * @param gy 陀螺仪 Y 轴角速度，单位 rad/s。
+ * @param gz 陀螺仪 Z 轴角速度，单位 rad/s。
+ * @param ax 加速度计 X 轴测量值。
+ * @param ay 加速度计 Y 轴测量值。
+ * @param az 加速度计 Z 轴测量值。
+ * @param dt_s 本次更新的时间间隔，单位 s。
+ */
 void bm_algo_mahony_step(bm_algo_mahony_state_t *state,
                          const bm_algo_mahony_config_t *config,
                          float gx, float gy, float gz,
                          float ax, float ay, float az,
                          float dt_s);
+/**
+ * @brief 将归一化四元数转换为欧拉角。
+ * @param q 输出的瞬时正交功率分量。
+ * @param euler 输出的欧拉角。
+ */
 void bm_algo_quat_to_euler(const bm_algo_quat_t *q, bm_algo_euler_t *euler);
 
 /* ---------- Madgwick AHRS ---------- */
@@ -97,7 +135,23 @@ typedef struct {
     bm_algo_quat_t q;
 } bm_algo_madgwick_state_t;
 
+/**
+ * @brief 复位 Madgwick 姿态滤波器状态。
+ * @param state 算法状态对象。
+ */
 void bm_algo_madgwick_reset(bm_algo_madgwick_state_t *state);
+/**
+ * @brief 执行一次 Madgwick 姿态滤波器更新。
+ * @param state 算法状态对象。
+ * @param config 算法配置参数。
+ * @param gx 陀螺仪 X 轴角速度，单位 rad/s。
+ * @param gy 陀螺仪 Y 轴角速度，单位 rad/s。
+ * @param gz 陀螺仪 Z 轴角速度，单位 rad/s。
+ * @param ax 加速度计 X 轴测量值。
+ * @param ay 加速度计 Y 轴测量值。
+ * @param az 加速度计 Z 轴测量值。
+ * @param dt_s 本次更新的时间间隔，单位 s。
+ */
 void bm_algo_madgwick_step(bm_algo_madgwick_state_t *state,
                            const bm_algo_madgwick_config_t *config,
                            float gx, float gy, float gz,
@@ -114,6 +168,12 @@ typedef struct {
 
 /**
  * @brief 应用 IMU 标定：out = scale * (raw - bias)
+ *
+ * @param config 算法配置参数。
+ * @param raw_gyro 三轴陀螺仪原始数据。
+ * @param raw_accel 三轴加速度计原始数据。
+ * @param out_gyro 输出的三轴已标定陀螺仪数据。
+ * @param out_accel 输出的三轴已标定加速度计数据。
  */
 void bm_algo_imu_calib_apply(const bm_algo_imu_calib_config_t *config,
                              const float raw_gyro[3],
@@ -127,10 +187,18 @@ typedef struct {
     uint32_t sample_count;
 } bm_algo_imu_calib_accumulator_t;
 
+/**
+ * @brief 清空 IMU 静态标定样本累加器。
+ * @param acc 静态标定样本累加器。
+ */
 void bm_algo_imu_calib_accumulator_reset(bm_algo_imu_calib_accumulator_t *acc);
 /**
- * @brief Record one static calibration sample.
- * @return BM_OK on success; BM_ERR_INVALID for invalid arguments or samples.
+ * @brief 向 IMU 静态标定累加器记录一组样本。
+ * @return 成功返回 BM_OK；参数、配置或缓冲区无效时返回 BM_ERR_INVALID。
+ *
+ * @param acc 静态标定样本累加器。
+ * @param raw_gyro 三轴陀螺仪原始数据。
+ * @param raw_accel 三轴加速度计原始数据。
  */
 int bm_algo_imu_calib_accumulator_feed(bm_algo_imu_calib_accumulator_t *acc,
                                        const float raw_gyro[3],
@@ -140,6 +208,10 @@ int bm_algo_imu_calib_accumulator_feed(bm_algo_imu_calib_accumulator_t *acc,
  * @brief 由静态样本均值估计 bias（scale 置 1）
  *
  * @param expected_accel 当前姿态下期望比力（如静止 Z 向上为 {0,0,9.81}）
+ *
+ * @param acc 静态标定样本累加器。
+ * @param out_config 输出的 IMU 标定配置。
+ * @return 成功返回 BM_OK；参数、配置或缓冲区无效时返回 BM_ERR_INVALID。
  */
 int bm_algo_imu_calib_accumulator_finish(
     const bm_algo_imu_calib_accumulator_t *acc,

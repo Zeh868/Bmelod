@@ -1,7 +1,7 @@
 /**
  * @file bm_algo_battery_model.c
  * @brief 电池等效模型实现
- *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.2
  * @date 2026-07-09
@@ -9,6 +9,7 @@
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
+ * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       1.0            zeh            补齐 Doxygen 注释，版本与头文件对齐
  * 2026-06-23       1.1            zeh            电压更新增加协方差对角元正定性兜底

@@ -17,9 +17,10 @@
  * - 低于 HRT 阈值的 from_isr 与普通主循环路径不受影响（BM_OK）；
  * - 正常入队确实以 BM_CONFIG_HRT_PRIORITY_THRESHOLD 进入阈值掩码临界区。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.2
- * @date 2026-07-31
+ * @version 1.3
+ * @date 2026-08-01
  * @par 修改日志:
  *    Date         Version        Author          Description
  * 2026-07-30       1.0            zeh            正式发布
@@ -27,6 +28,8 @@
  *                                                用例；setUp 复位内存池
  * 2026-07-31       1.2            zeh            补 bm_event_reset/process 拦截用例
  *                                                （对齐 ultra/mempool 的 reset 语义）
+ * 2026-08-01       1.3            zeh            补完整事件发布入口的 HRT guard
+ *                                                优先级用例
  */
 
 #include "unity.h"
@@ -136,6 +139,34 @@ void test_publish_normal_variant_in_hrt_context_rejected(void) {
         bm_event_publish_copy(GUARD_EVT_TYPE, GUARD_EVT_PRIO, NULL, 0u));
 }
 
+/**
+ * @brief 完整事件发布入口须在参数与特性检查之前拒绝 HRT 级上下文
+ */
+void test_publish_event_variants_in_hrt_context_rejected_first(void) {
+    bm_event_t event;
+    unsigned before;
+
+    event.type = GUARD_EVT_TYPE;
+    event.priority = GUARD_EVT_PRIO;
+    event.data_len = 0u;
+    event.source_id = 0u;
+    event.data = NULL;
+
+    bm_hrt_isr_enter();
+    before = bm_mask_guard_fake_enter_below_count();
+    TEST_ASSERT_EQUAL(BM_ERR_BUSY, bm_event_publish_event(NULL));
+    TEST_ASSERT_EQUAL(BM_ERR_BUSY, bm_event_publish_event_from_isr(NULL));
+    TEST_ASSERT_EQUAL(BM_ERR_BUSY, bm_event_publish_event(&event));
+    TEST_ASSERT_EQUAL(BM_ERR_BUSY, bm_event_publish_event_from_isr(&event));
+    TEST_ASSERT_EQUAL_UINT(before, bm_mask_guard_fake_enter_below_count());
+    bm_hrt_isr_exit();
+
+    /* 退出 HRT 上下文后恢复默认特性语义，证明非 HRT 路径未被改写。 */
+    TEST_ASSERT_EQUAL(BM_ERR_NOT_SUPPORTED, bm_event_publish_event(&event));
+    TEST_ASSERT_EQUAL(BM_ERR_NOT_SUPPORTED,
+                      bm_event_publish_event_from_isr(&event));
+}
+
 /* ultra 队列：HRT 级上下文中 push/pop/reset 均 fail-closed */
 void test_ultra_hrt_isr_rejected(void) {
     bm_ultra_queue_item_t item;
@@ -242,6 +273,7 @@ int main(void) {
     RUN_TEST(test_publish_from_hrt_isr_rejected);
     RUN_TEST(test_publish_normal_path_ok);
     RUN_TEST(test_publish_normal_variant_in_hrt_context_rejected);
+    RUN_TEST(test_publish_event_variants_in_hrt_context_rejected_first);
     RUN_TEST(test_ultra_hrt_isr_rejected);
     RUN_TEST(test_mempool_hrt_isr_rejected);
     RUN_TEST(test_mempool_reset_hrt_isr_rejected);

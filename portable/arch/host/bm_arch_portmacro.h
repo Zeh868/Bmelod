@@ -4,11 +4,13 @@
  * @brief 宿主架构宏（PC 单元测试 / native_sim）
  *
  * 无硬件 DMB/WFI；BM_ARCH_DMB 退化为编译器屏障，BM_ARCH_YIELD 为空操作。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-15
  *
  * @par 修改日志:
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-15       1.0            zeh            正式发布

@@ -2,6 +2,7 @@
 /**
  * @file bm_hal_uart_native.h
  * @brief native_sim UART 后端测试辅助接口
+ * @maturity E1
  *
  * 仅供 native_sim 单元测试使用，用于向 RX 注入字节、触发 IDLE 事件、
  * 注入错误及读取发送侧数据。
@@ -14,6 +15,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 native_sim UART 测试辅助
+ * 2026-08-01       1.0            Codex            补全中文 Doxygen 合规注释
  */
 #ifndef BM_HAL_UART_NATIVE_H
 #define BM_HAL_UART_NATIVE_H

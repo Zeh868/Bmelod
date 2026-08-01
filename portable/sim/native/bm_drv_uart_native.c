@@ -2,6 +2,7 @@
 /**
  * @file bm_drv_uart_native.c
  * @brief native_sim 多实例 UART 后端
+ * @maturity E1
  *
  * 支持 2 个实例：
  *   - bm_uart_default（实例 0）：console 语义，send 写到 stdout。
@@ -23,6 +24,9 @@
  * 2026-07-28       1.1            zeh            reset 全量复位；TX 测试缓冲满返回
  *                                             BM_ERR_BUSY；删除未用 ring_free；
  *                                             ring 裸 -1 改 BM_ERR_*；注释对齐实现
+ *
+ * @par ????:
+ * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_drv_uart.h"
 #include "hal/bm_hal_uart.h"
@@ -91,6 +95,12 @@ static size_t bm_native_uart_ring_count(const bm_native_uart_ring_t *ring) {
     return ring->len - ring->tail + ring->head;
 }
 
+/**
+ * @brief 将一个字节压入 UART 仿真环形队列。
+ * @param ring UART 仿真环形队列。
+ * @param c 待压入队列的字节。
+ * @return 成功返回 BM_OK；设备未初始化时返回 BM_ERR_NOT_INIT；无可用静态槽位时返回 BM_ERR_NO_MEM。
+ */
 static int bm_native_uart_ring_push(bm_native_uart_ring_t *ring, uint8_t c) {
     size_t next;
 
@@ -106,6 +116,12 @@ static int bm_native_uart_ring_push(bm_native_uart_ring_t *ring, uint8_t c) {
     return BM_OK;
 }
 
+/**
+ * @brief 从 UART 仿真环形队列弹出一个字节。
+ * @param ring UART 仿真环形队列。
+ * @param c 用于接收出队字节的输出指针；不得为 NULL。
+ * @return 成功返回 BM_OK；队列为空或项目未找到时返回 BM_ERR_NOT_FOUND。
+ */
 static int bm_native_uart_ring_pop(bm_native_uart_ring_t *ring, uint8_t *c) {
     if (ring->head == ring->tail) {
         return BM_ERR_NOT_FOUND; /* 空 */
@@ -227,6 +243,13 @@ static int native_uart_init(const struct bm_hal_uart *dev, void *config) {
     return BM_OK;
 }
 
+/**
+ * @brief 通过UART发送数据。
+ * @param dev UART 设备实例。
+ * @param data 待发送数据缓冲区。
+ * @param len 缓冲区中的有效数据长度，单位为字节。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID；设备未初始化时返回 BM_ERR_NOT_INIT；资源忙或队列已满时返回 BM_ERR_BUSY。
+ */
 static int native_uart_send(const struct bm_hal_uart *dev,
                             const uint8_t *data, size_t len) {
     bm_native_uart_state_t *state;
@@ -265,6 +288,13 @@ static int native_uart_send(const struct bm_hal_uart *dev,
     return BM_OK;
 }
 
+/**
+ * @brief 从UART接收数据。
+ * @param dev UART 设备实例。
+ * @param data 接收数据缓冲区。
+ * @param max_len 接收缓冲区容量，单位为字节。
+ * @return 实际写入接收缓冲区的字节数；无数据或参数无效时返回 0。
+ */
 static size_t native_uart_recv(const struct bm_hal_uart *dev,
                                uint8_t *data, size_t max_len) {
     bm_native_uart_state_t *state;
@@ -289,6 +319,11 @@ static size_t native_uart_recv(const struct bm_hal_uart *dev,
     return n;
 }
 
+/**
+ * @brief 设置UART接收回调。
+ * @param dev UART 设备实例。
+ * @param cb 接收回调；传入 NULL 时解除绑定。
+ */
 static void native_uart_set_rx_callback(const struct bm_hal_uart *dev,
                                         void (*cb)(uint8_t c)) {
     bm_native_uart_state_t *state;
@@ -300,6 +335,11 @@ static void native_uart_set_rx_callback(const struct bm_hal_uart *dev,
     state->rx_byte_cb = cb;
 }
 
+/**
+ * @brief 中止UART当前传输。
+ * @param dev UART 设备实例。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int native_uart_abort(const struct bm_hal_uart *dev) {
     bm_native_uart_state_t *state;
 
@@ -312,6 +352,11 @@ static int native_uart_abort(const struct bm_hal_uart *dev) {
     return BM_OK;
 }
 
+/**
+ * @brief 等待UART发送数据完成。
+ * @param dev UART 设备实例；当前实现不使用该参数。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID；设备未初始化时返回 BM_ERR_NOT_INIT。
+ */
 static int native_uart_flush(const struct bm_hal_uart *dev) {
     bm_native_uart_state_t *state;
 
@@ -326,6 +371,13 @@ static int native_uart_flush(const struct bm_hal_uart *dev) {
     return BM_OK;
 }
 
+/**
+ * @brief 设置UART发送完成回调。
+ * @param dev UART 设备实例。
+ * @param cb 发送完成回调；传入 NULL 时解除绑定。
+ * @param user 回调用户上下文，调用回调时原样传入。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int native_uart_set_tx_complete_callback(
     const struct bm_hal_uart *dev,
     bm_uart_tx_complete_callback_t cb, void *user) {
@@ -340,6 +392,13 @@ static int native_uart_set_tx_complete_callback(
     return BM_OK;
 }
 
+/**
+ * @brief 设置UART接收帧回调。
+ * @param dev UART 设备实例。
+ * @param cb 接收帧回调；传入 NULL 时解除绑定。
+ * @param user 回调用户上下文，调用回调时原样传入。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int native_uart_set_rx_frame_callback(
     const struct bm_hal_uart *dev,
     bm_uart_rx_frame_callback_t cb, void *user) {
@@ -354,6 +413,13 @@ static int native_uart_set_rx_frame_callback(
     return BM_OK;
 }
 
+/**
+ * @brief 设置UART接收缓冲区。
+ * @param dev UART 设备实例。
+ * @param buf 待发送数据缓冲区。
+ * @param len 缓冲区中的有效数据长度，单位为字节。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int native_uart_set_rx_buffer(const struct bm_hal_uart *dev,
                                      uint8_t *buf, size_t len) {
     bm_native_uart_state_t *state;
@@ -376,6 +442,12 @@ static int native_uart_set_rx_buffer(const struct bm_hal_uart *dev,
     return BM_OK;
 }
 
+/**
+ * @brief 读取UART运行统计。
+ * @param dev UART 设备实例。
+ * @param stats 用于接收运行统计的输出结构；不得为 NULL。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int native_uart_get_stats(const struct bm_hal_uart *dev,
                                  bm_uart_stats_t *stats) {
     bm_native_uart_state_t *state;

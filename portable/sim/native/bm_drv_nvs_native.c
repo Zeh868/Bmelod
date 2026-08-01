@@ -2,6 +2,7 @@
 /**
  * @file bm_drv_nvs_native.c
  * @brief native_sim 非易失存储后端：文件仿真（路线图 #10）
+ * @maturity E1
  *
  * 实现 `bm_hal_nvs_load()` / `bm_hal_nvs_save()` 以文件模拟 NVS 存储。
  * 测试可通过 `bm_drv_nvs_native_set_path()` 指定文件路径，
@@ -19,6 +20,9 @@
  *    Date         Version        Author          Description
  * 2026-06-26       1.0            zeh            正式发布（路线图 #10 参数/配置持久化）
  *
+ *
+ * @par ????:
+ * 2026-08-01       1.0            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_hal_nvs_native.h"
 #include "hal/bm_hal_nvs.h"

@@ -10,8 +10,8 @@
  * 硬实时路径应将池耗尽/竞争作为显式背压处理。
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-10
+ * @version 1.3
+ * @date 2026-08-01
  *
  * @par 修改日志:
  *
@@ -19,6 +19,7 @@
  * 2026-06-10       1.0            zeh            正式发布
  * 2026-07-27       1.1            zeh            将 BM_MEMPOOL_DEFINE 迁到 bm_mempool_impl.h
  * 2026-07-28       1.2            zeh            新增可观测的非阻塞 try_free 接口
+ * 2026-08-01       1.3            zeh            明确 reset(NULL) 静默返回语义
  *
  */
 #ifndef BM_MEMPOOL_H
@@ -76,7 +77,7 @@ void bm_mempool_free(bm_mempool_t *pool, void *obj);
  *
  * 仅用于测试或受控停机；调用方须保证无悬空指针仍引用池中对象。
  *
- * @param pool 内存池控制块指针
+ * @param pool 内存池控制块指针；为 NULL 时静默返回
  */
 void bm_mempool_reset(bm_mempool_t *pool);
 

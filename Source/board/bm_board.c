@@ -6,6 +6,7 @@
  * 维护应用注入的 Board 设备表，提供注册、能力查询、设备查找与
  * 资源冲突检查。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.4
  * @date 2026-07-28
@@ -19,6 +20,7 @@
  *                                                端点溢出防御；名称上限提取宏
  * 2026-07-28       1.3            zeh            MSG_RAM 按全局 word 区间重叠判冲突
  * 2026-07-28       1.4            zeh            增加 register_devices；旧名保留
+ * 2026-08-01       1.4            Codex           补全 Doxygen 合规注释
  *
  */
 #include "board/bm_board.h"

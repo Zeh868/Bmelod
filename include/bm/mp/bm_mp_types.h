@@ -5,11 +5,13 @@
  *
  * 定义 `BM_MP_*` 剖面枚举、`BM_CONFIG_CPU_COUNT` 与 `BM_MP_MULTICORE` 推导宏。
  * 单核产品保持 `CPU_COUNT==1`，与历史 `BM_MP_SINGLE` 行为等价。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.1
  * @date 2026-07-15
  *
  * @par 修改日志:
+ * 2026-08-01       1.1            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布

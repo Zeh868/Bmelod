@@ -9,6 +9,7 @@
  * UART 硬件由 App Board 先 `bm_hal_uart_init()` 完成；本组件只绑定缓冲与
  * 回调、管理 DE。TX 路径遇 UART 错误时立即切回 RX 并上报。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.3
  * @date 2026-07-28
@@ -20,6 +21,7 @@
  * 2026-07-28       1.1            zeh            审查整改：独立帧拼装缓冲消除越界/覆盖、UART 错误粘滞位去重、TX_PRE 冲突判定、TX 超时回退、时间戳读取临界区
  * 2026-07-28       1.2            zeh            不再 init UART；TX 态遇 UART 错误立即回 RX
  * 2026-07-29       1.3            zeh            取消 UART 错误粘滞位去重，对齐 read-clear 接口约定
+ * 2026-08-01       1.3            Codex           补全 Doxygen 合规注释
  */
 #include "bm/component/bm_rs485.h"
 

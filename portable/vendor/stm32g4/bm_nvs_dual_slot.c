@@ -2,6 +2,7 @@
 /**
  * @file bm_nvs_dual_slot.c
  * @brief NVS 双槽格式解析/封装实现
+ * @maturity E1
  *
  * @author zeh (china_qzh@163.com)
  * @version 1.0
@@ -12,6 +13,7 @@
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增双槽 NVS 格式辅助
  *
+ * 2026-08-01       1.0            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_nvs_dual_slot.h"
 

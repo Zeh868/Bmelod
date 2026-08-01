@@ -2,6 +2,7 @@
 /**
  * @file bm_nvs_dual_slot.h
  * @brief NVS 双槽格式：魔数/版本/序号/载荷/CRC（平台无关）
+ * @maturity E1
  *
  * 槽布局（小端）：
  * @code
@@ -20,6 +21,7 @@
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增双槽 NVS 格式辅助
  *
+ * 2026-08-01       1.0            Codex            补全中文 Doxygen 合规注释
  */
 #ifndef BM_NVS_DUAL_SLOT_H
 #define BM_NVS_DUAL_SLOT_H

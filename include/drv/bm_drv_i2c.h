@@ -10,6 +10,7 @@
  * 后端扩展配置约定：dev->config 可指向首成员为 bm_i2c_config_t 的
  * 后端私有结构（携带引脚/端口号），分发层不触碰 config。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-08-01
@@ -18,6 +19,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-08-01       1.0            zeh            新增（I2C 总线契约，接口批 2）
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_DRV_I2C_H

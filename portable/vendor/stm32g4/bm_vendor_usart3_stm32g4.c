@@ -2,6 +2,7 @@
 /**
  * @file bm_vendor_usart3_stm32g4.c
  * @brief STM32G4 USART3 设备实例驱动（IDLE + DMA TX/RX）
+ * @maturity E1
  *
  * App 通过 `bm_usart3_stm32g4_config_t` 指定端口/Pin/AF/DMA/IRQ；Bmelod 不固定
  * USART3 与具体产品引脚。
@@ -48,6 +49,7 @@
  *                                                修复 IDLE/DMA ISR 与 SRT recv 多上下文抢占
  *                                                导致 produced 回退、pending 下溢回绕、
  *                                                数据重复/错乱交付的竞争；回调均在锁外
+ * 2026-08-01       3.5            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_vendor_usart3_stm32g4.h"
 #include "bm_dma_irq_stm32g4.h"
@@ -777,6 +779,13 @@ static int bm_vendor_usart3_init(const struct bm_hal_uart *dev, void *config) {
     return BM_OK;
 }
 
+/**
+ * @brief 通过USART发送数据。
+ * @param dev UART 设备实例；当前实现不使用该参数。
+ * @param data 待发送数据缓冲区。
+ * @param len 缓冲区中的有效数据长度，单位为字节。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID；资源忙或队列已满时返回 BM_ERR_BUSY。
+ */
 static int bm_vendor_usart3_send(const struct bm_hal_uart *dev,
                                  const uint8_t *data, size_t len) {
     bm_usart3_context_t *ctx = &g_usart3_ctx;
@@ -807,6 +816,13 @@ static int bm_vendor_usart3_send(const struct bm_hal_uart *dev,
     return BM_OK;
 }
 
+/**
+ * @brief 从USART接收数据。
+ * @param dev UART 设备实例；当前实现不使用该参数。
+ * @param data 接收数据缓冲区。
+ * @param max_len 接收缓冲区容量，单位为字节。
+ * @return 实际写入接收缓冲区的字节数；无数据或参数无效时返回 0。
+ */
 static size_t bm_vendor_usart3_recv(const struct bm_hal_uart *dev,
                                     uint8_t *data, size_t max_len) {
     bm_usart3_context_t *ctx = &g_usart3_ctx;
@@ -835,6 +851,11 @@ static size_t bm_vendor_usart3_recv(const struct bm_hal_uart *dev,
     return (size_t)copied;
 }
 
+/**
+ * @brief 设置 USART 单字节接收回调。
+ * @param dev UART 设备实例；当前实现不使用该参数。
+ * @param cb 单字节接收回调；当前驱动不支持该回调并忽略此参数，上层应使用接收帧回调。
+ */
 static void bm_vendor_usart3_set_rx_callback(const struct bm_hal_uart *dev,
                                              void (*cb)(uint8_t c)) {
     (void)dev;
@@ -842,6 +863,11 @@ static void bm_vendor_usart3_set_rx_callback(const struct bm_hal_uart *dev,
     /* 本后端不支持单字节回调；上层应使用 set_rx_frame_callback */
 }
 
+/**
+ * @brief 中止USART当前传输。
+ * @param dev UART 设备实例；当前实现不使用该参数。
+ * @return 成功返回 BM_OK；设备未初始化时返回 BM_ERR_NOT_INIT。
+ */
 static int bm_vendor_usart3_abort(const struct bm_hal_uart *dev) {
     bm_usart3_context_t *ctx = &g_usart3_ctx;
 
@@ -860,6 +886,11 @@ static int bm_vendor_usart3_abort(const struct bm_hal_uart *dev) {
     return BM_OK;
 }
 
+/**
+ * @brief 等待USART发送数据完成。
+ * @param dev UART 设备实例；当前实现不使用该参数。
+ * @return 成功返回 BM_OK；设备未初始化时返回 BM_ERR_NOT_INIT；等待超时时返回 BM_ERR_TIMEOUT。
+ */
 static int bm_vendor_usart3_flush(const struct bm_hal_uart *dev) {
     bm_usart3_context_t *ctx = &g_usart3_ctx;
     uint32_t timeout = 100000u;
@@ -876,6 +907,13 @@ static int bm_vendor_usart3_flush(const struct bm_hal_uart *dev) {
     return (ctx->tx_busy == 0) ? BM_OK : BM_ERR_TIMEOUT;
 }
 
+/**
+ * @brief 设置USART发送完成回调。
+ * @param dev UART 设备实例；当前实现不使用该参数。
+ * @param cb 发送完成回调；传入 NULL 时解除绑定。
+ * @param user 回调用户上下文，调用回调时原样传入。
+ * @return 成功返回 BM_OK；设备未初始化时返回 BM_ERR_NOT_INIT。
+ */
 static int bm_vendor_usart3_set_tx_complete_callback(
     const struct bm_hal_uart *dev,
     bm_uart_tx_complete_callback_t cb, void *user) {
@@ -890,6 +928,13 @@ static int bm_vendor_usart3_set_tx_complete_callback(
     return BM_OK;
 }
 
+/**
+ * @brief 设置USART接收帧回调。
+ * @param dev UART 设备实例；当前实现不使用该参数。
+ * @param cb 接收帧回调；传入 NULL 时解除绑定。
+ * @param user 回调用户上下文，调用回调时原样传入。
+ * @return 成功返回 BM_OK；设备未初始化时返回 BM_ERR_NOT_INIT。
+ */
 static int bm_vendor_usart3_set_rx_frame_callback(
     const struct bm_hal_uart *dev,
     bm_uart_rx_frame_callback_t cb, void *user) {
@@ -904,6 +949,13 @@ static int bm_vendor_usart3_set_rx_frame_callback(
     return BM_OK;
 }
 
+/**
+ * @brief 设置USART接收缓冲区。
+ * @param dev UART 设备实例；当前实现不使用该参数。
+ * @param buf 待发送数据缓冲区。
+ * @param len 缓冲区中的有效数据长度，单位为字节。
+ * @return 成功返回 BM_OK；设备未初始化时返回 BM_ERR_NOT_INIT；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int bm_vendor_usart3_set_rx_buffer(const struct bm_hal_uart *dev,
                                           uint8_t *buf, size_t len) {
     bm_usart3_context_t *ctx = &g_usart3_ctx;
@@ -928,6 +980,12 @@ static int bm_vendor_usart3_set_rx_buffer(const struct bm_hal_uart *dev,
     return BM_OK;
 }
 
+/**
+ * @brief 读取USART运行统计。
+ * @param dev UART 设备实例；当前实现不使用该参数。
+ * @param stats 用于接收运行统计的输出结构；不得为 NULL。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int bm_vendor_usart3_get_stats(const struct bm_hal_uart *dev,
                                       bm_uart_stats_t *stats) {
     bm_usart3_context_t *ctx = &g_usart3_ctx;

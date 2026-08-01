@@ -22,6 +22,7 @@
  *                                                返回值统一为 BM_OK /
  *                                                BM_ERR_INVALID
  * 2026-07-28       1.5            zeh            状态返回文档对齐 BM_OK/BM_ERR_*
+ * 2026-08-01       1.5            Codex           补全算法 API Doxygen 注释
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -46,7 +47,20 @@ typedef struct {
     float integrator;
 } bm_algo_integrator_state_t;
 
+/**
+ * @brief 复位积分器状态
+ * @param state 算法运行状态
+ * @param value 输入值
+ */
 void bm_algo_integrator_reset(bm_algo_integrator_state_t *state, float value);
+/**
+ * @brief 更新积分器并计算本拍输出
+ * @param state 算法运行状态
+ * @param config 算法配置
+ * @param input 当前输入值
+ * @param dt_s 采样周期，单位 s
+ * @return 积分器计算得到的浮点输出
+ */
 float bm_algo_integrator_step(bm_algo_integrator_state_t *state,
                               const bm_algo_integrator_config_t *config,
                               float input,
@@ -62,7 +76,19 @@ typedef struct {
     float derivative;
 } bm_algo_differentiator_state_t;
 
+/**
+ * @brief 复位微分器状态
+ * @param state 算法运行状态
+ */
 void bm_algo_differentiator_reset(bm_algo_differentiator_state_t *state);
+/**
+ * @brief 更新微分器并计算本拍输出
+ * @param state 算法运行状态
+ * @param config 算法配置
+ * @param input 当前输入值
+ * @param dt_s 采样周期，单位 s
+ * @return 微分器计算得到的浮点输出
+ */
 float bm_algo_differentiator_step(bm_algo_differentiator_state_t *state,
                                   const bm_algo_differentiator_config_t *config,
                                   float input,
@@ -90,11 +116,30 @@ typedef struct {
  * @return BM_OK 成功；BM_ERR_INVALID 参数无效
  */
 int bm_algo_pi_validate_config(const bm_algo_pi_config_t *config);
+/**
+ * @brief 复位 PI 控制器状态
+ * @param state 算法运行状态
+ * @param output 复位后的输出初值
+ */
 void bm_algo_pi_reset(bm_algo_pi_state_t *state, float output);
+/**
+ * @brief 更新 PI 控制器并计算本拍输出
+ * @param state 算法运行状态
+ * @param config 算法配置
+ * @param error 当前控制误差
+ * @param dt_s 采样周期，单位 s
+ * @return PI 控制器计算得到的浮点输出
+ */
 float bm_algo_pi_step(bm_algo_pi_state_t *state,
                       const bm_algo_pi_config_t *config,
                       float error,
                       float dt_s);
+/**
+ * @brief 以无扰方式复位 PI 控制器状态
+ * @param state 算法运行状态
+ * @param config 算法配置
+ * @param output 期望保持的控制器输出值
+ */
 void bm_algo_pi_bumpless_reset(bm_algo_pi_state_t *state,
                                const bm_algo_pi_config_t *config,
                                float output);
@@ -125,7 +170,20 @@ typedef struct {
  * @return BM_OK 成功；BM_ERR_INVALID 参数无效
  */
 int bm_algo_pid_validate_config(const bm_algo_pid_config_t *config);
+/**
+ * @brief 复位 PID 控制器状态
+ * @param state 算法运行状态
+ * @param output 复位后的输出初值
+ */
 void bm_algo_pid_reset(bm_algo_pid_state_t *state, float output);
+/**
+ * @brief 更新 PID 控制器并计算本拍输出
+ * @param state 算法运行状态
+ * @param config 算法配置
+ * @param error 当前控制误差
+ * @param dt_s 采样周期，单位 s
+ * @return PID 控制器计算得到的浮点输出
+ */
 float bm_algo_pid_step(bm_algo_pid_state_t *state,
                        const bm_algo_pid_config_t *config,
                        float error,
@@ -164,7 +222,23 @@ typedef struct {
 int bm_algo_pr_init(bm_algo_pr_state_t *state,
                     const bm_algo_pr_config_t *config,
                     float sample_period_s);
+/**
+ * @brief 复位 PR 控制器状态
+ * @param state 算法运行状态
+ */
 void bm_algo_pr_reset(bm_algo_pr_state_t *state);
+/**
+ * @brief 更新 PR 控制器并计算本拍输出
+ * @param state 算法运行状态
+ * @param config 算法配置
+ * @param error 当前控制误差
+ * @param b0 离散谐振环节的当前输入系数
+ * @param b1 离散谐振环节的一阶历史输入系数
+ * @param b2 离散谐振环节的二阶历史输入系数
+ * @param a1 离散谐振环节的一阶历史输出系数
+ * @param a2 离散谐振环节的二阶历史输出系数
+ * @return PR 控制器计算得到的浮点输出
+ */
 float bm_algo_pr_step(bm_algo_pr_state_t *state,
                       const bm_algo_pr_config_t *config,
                       float error,
@@ -178,8 +252,11 @@ float bm_algo_pr_step(bm_algo_pr_state_t *state,
  *
  * @param config          PR 配置（不可为 NULL）
  * @param sample_period_s 采样周期（s，>0）
- * @param b0,b1,b2        分子系数输出指针（均不可为 NULL）
- * @param a1,a2           分母系数输出指针（均不可为 NULL）
+ * @param b0 分子当前项系数输出指针（不可为 NULL）
+ * @param b1 分子一阶历史项系数输出指针（不可为 NULL）
+ * @param b2 分子二阶历史项系数输出指针（不可为 NULL）
+ * @param a1 分母一阶历史项系数输出指针（不可为 NULL）
+ * @param a2 分母二阶历史项系数输出指针（不可为 NULL）
  * @return BM_OK 成功；BM_ERR_INVALID 参数无效
  */
 int bm_algo_pr_compute_coeffs(const bm_algo_pr_config_t *config,
@@ -200,13 +277,37 @@ typedef struct {
     float b0, b1, a1;
 } bm_algo_lead_lag_state_t;
 
+/**
+ * @brief 初始化超前滞后环节
+ * @param state 算法运行状态
+ * @param config 算法配置
+ * @param sample_period_s 采样周期，单位 s
+ * @return BM_OK 成功；BM_ERR_INVALID 参数非法
+ */
 int bm_algo_lead_lag_init(bm_algo_lead_lag_state_t *state,
                           const bm_algo_lead_lag_config_t *config,
                           float sample_period_s);
+/**
+ * @brief 复位超前滞后环节状态
+ * @param state 算法运行状态
+ */
 void bm_algo_lead_lag_reset(bm_algo_lead_lag_state_t *state);
+/**
+ * @brief 更新超前滞后环节并计算本拍输出
+ * @param state 算法运行状态
+ * @param input 当前输入值
+ * @return 超前滞后环节计算得到的浮点输出
+ */
 float bm_algo_lead_lag_step(bm_algo_lead_lag_state_t *state, float input);
 
 /* ---------- 前馈 ---------- */
+/**
+ * @brief 根据参考值、增益和偏置计算静态前馈输出
+ * @param reference 当前参考输入
+ * @param gain 前馈增益
+ * @param bias 前馈偏置
+ * @return 参考输入乘以前馈增益后叠加偏置得到的输出
+ */
 float bm_algo_feedforward_step(float reference, float gain, float bias);
 
 /* ---------- 2DOF PID（设定值加权） ---------- */
@@ -239,7 +340,21 @@ typedef struct {
  * @return BM_OK 合法；BM_ERR_INVALID 参数无效
  */
 int bm_algo_pid2_validate_config(const bm_algo_pid2_config_t *config);
+/**
+ * @brief 复位双自由度 PID 控制器状态
+ * @param state 算法运行状态
+ * @param output 复位后的输出初值
+ */
 void bm_algo_pid2_reset(bm_algo_pid2_state_t *state, float output);
+/**
+ * @brief 更新双自由度 PID 控制器并计算本拍输出
+ * @param state 算法运行状态
+ * @param config 算法配置
+ * @param reference 当前控制参考值
+ * @param measurement 当前反馈测量值
+ * @param dt_s 采样周期，单位 s
+ * @return 双自由度 PID 控制器计算得到的浮点输出
+ */
 float bm_algo_pid2_step(bm_algo_pid2_state_t *state,
                         const bm_algo_pid2_config_t *config,
                         float reference,
@@ -261,13 +376,35 @@ typedef struct {
     float y_delayed;
 } bm_algo_smith_predictor_state_t;
 
+/**
+ * @brief 初始化 Smith 预估器
+ * @param state 算法运行状态
+ * @param config 算法配置
+ * @param delay_line 用户提供的延迟线
+ * @param line_len 延迟线元素数量
+ * @return BM_OK 成功；BM_ERR_INVALID 参数非法
+ */
 int bm_algo_smith_predictor_init(bm_algo_smith_predictor_state_t *state,
                                  const bm_algo_smith_predictor_config_t *config,
                                  float *delay_line,
                                  uint32_t line_len);
+/**
+ * @brief 复位 Smith 预估器状态
+ * @param state 算法运行状态
+ * @param config 算法配置
+ */
 void bm_algo_smith_predictor_reset(bm_algo_smith_predictor_state_t *state,
                                    const bm_algo_smith_predictor_config_t *config);
-/** 返回 reference 与 Smith 预测过程输出之间的控制误差。 */
+/**
+ * @brief 更新 Smith 预估器并计算本拍输出
+ * 返回 reference 与 Smith 预测过程输出之间的控制误差。
+ * @param state 算法运行状态
+ * @param config 算法配置
+ * @param reference 当前控制参考值
+ * @param measurement 当前对象测量值
+ * @param u_controller 当前控制器输出
+ * @return Smith 预估器计算得到的浮点输出
+ */
 float bm_algo_smith_predictor_step(bm_algo_smith_predictor_state_t *state,
                                    const bm_algo_smith_predictor_config_t *config,
                                    float reference,

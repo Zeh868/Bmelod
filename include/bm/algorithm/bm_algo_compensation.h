@@ -16,6 +16,7 @@
  * 2026-06-17       1.1            zeh            背隙逆补偿
  * 2026-06-23       1.2            zeh            bm_algo_backlash_inverse 换向时重置偏移，修复只增不减缺陷
  * 2026-06-23       1.3            zeh            背隙补偿升级为双向独立偏移：正向/反向各自维护累计偏移，换向时切换至另一方向已保存偏移继续渐进
+ * 2026-08-01       1.3            Codex           补全算法 API Doxygen 注释
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -26,10 +27,25 @@
 extern "C" {
 #endif
 
-/** 死区逆映射：将死区内指令置零，区外按 gain 放大 */
+/**
+ * @brief 计算死区逆补偿输出
+ * 死区逆映射：将死区内指令置零，区外按 gain 放大
+ * @param command 原始执行器指令
+ * @param deadband 执行器死区半宽度
+ * @param gain 死区外的指令增益
+ * @return 死区内返回 0，死区外返回按增益缩放后的补偿指令
+ */
 float bm_algo_deadzone_inverse(float command, float deadband, float gain);
 
-/** 库仑 + 粘性摩擦补偿量（叠加到控制输出） */
+/**
+ * @brief 计算摩擦补偿输出
+ * 库仑 + 粘性摩擦补偿量（叠加到控制输出）
+ * @param velocity 当前执行器速度
+ * @param coulomb 库仑摩擦补偿幅值
+ * @param viscous 粘性摩擦系数
+ * @param v_deadband 判定静止区间的速度死区半宽度
+ * @return 库仑摩擦与粘性摩擦之和；速度位于死区内时仅返回粘性项
+ */
 float bm_algo_friction_comp(float velocity,
                             float coulomb,
                             float viscous,
@@ -46,6 +62,10 @@ typedef struct {
     float disturbance;
 } bm_algo_dob_state_t;
 
+/**
+ * @brief 复位扰动观测器状态
+ * @param state 算法运行状态
+ */
 void bm_algo_dob_reset(bm_algo_dob_state_t *state);
 
 /**
@@ -82,6 +102,10 @@ typedef struct {
     float offset_rev;     /**< 反向累计补偿量，范围 [0, width] */
 } bm_algo_backlash_state_t;
 
+/**
+ * @brief 复位回差补偿器状态
+ * @param state 算法运行状态
+ */
 void bm_algo_backlash_reset(bm_algo_backlash_state_t *state);
 
 /**

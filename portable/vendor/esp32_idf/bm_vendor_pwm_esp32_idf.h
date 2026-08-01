@@ -2,6 +2,7 @@
 /**
  * @file bm_vendor_pwm_esp32_idf.h
  * @brief ESP32-WROOM-32E 板级 PWM 实例声明（Phase 2：MCPWM 硬件驱动）
+ * @maturity E1
  *
  * FOC 混合架构（2026-06-22 起）：
  *   - MCPWM 硬件配置（timer/operator/GPIO）由 app 层 hover_board_pwm_esp32 负责。
@@ -22,6 +23,7 @@
  * 2026-06-22       3.1            zeh            清 B2 诊断埋点（diag_read_clear/diag_get_duty）
  * 2026-06-22       3.2            zeh            新增 ISR 分频 API（set_isr_decimate），将 ADC 采样+回调按 N 抽稀降 CPU 负载
  *
+ * 2026-08-01       3.2            Codex            补全中文 Doxygen 合规注释
  */
 #ifndef BM_VENDOR_PWM_ESP32_IDF_H
 #define BM_VENDOR_PWM_ESP32_IDF_H

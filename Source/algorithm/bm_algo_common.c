@@ -1,7 +1,7 @@
 /**
  * @file bm_algo_common.c
  * @brief 算法公共工具实现
- *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.2
  * @date 2026-07-14
@@ -9,6 +9,7 @@
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
+ * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-07-09       1.1            zeh            Medium-6：bm_algo_rate_limit_step
  *                                                补 target 有限性护栏；

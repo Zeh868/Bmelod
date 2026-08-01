@@ -29,6 +29,13 @@ static bm_mp_resource_topology_entry_t
     s_entries[BM_CONFIG_MP_RESOURCE_TOPOLOGY_MAX];
 static uint32_t s_entry_count;
 
+/**
+ * @brief 判断 CPU 掩码是否恰好包含一个 CPU
+ *
+ * @param mask CPU 位掩码
+ * @param cpu_out 唯一 CPU 的输出位置；可为 NULL
+ * @return 1 掩码仅含一个 CPU；0 否则
+ */
 static int mask_has_single_cpu(uint32_t mask, uint8_t *cpu_out) {
     uint32_t i;
     uint32_t count = 0u;

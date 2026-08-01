@@ -7,19 +7,22 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.2
- * @date 2026-06-17
+ * @version 0.3
+ * @date 2026-08-01
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-17       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 SPDX 与函数级 Doxygen
+ * 2026-08-01       0.3            Codex          新增兼容的 exec 生命周期适配上下文
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #ifndef BM_PROCESS_SEQUENCE_H
 #define BM_PROCESS_SEQUENCE_H
+
+#include "bm/hybrid/bm_exec.h"
 
 #include <stdint.h>
 
@@ -111,6 +114,27 @@ typedef struct {
 } bm_process_sequence_axis_t;
 
 /**
+ * @brief 顺序状态机 exec 适配资源
+ *
+ * 资源独立于 bm_process_sequence_axis_t，避免改变既有实例布局。
+ */
+typedef struct {
+    bm_process_sequence_interlock_fn interlock; /**< 联锁回调；NULL 时视为满足 */
+    void *interlock_user;                       /**< 联锁回调用户上下文 */
+} bm_process_sequence_resources_t;
+
+/**
+ * @brief 顺序状态机 exec 适配上下文
+ *
+ * 用户静态分配本结构，并将 bm_exec_t::state 指向该结构。axis 指向既有
+ * bm_process_sequence_axis_t 实例，resources 保存周期执行所需的最小资源。
+ */
+typedef struct {
+    bm_process_sequence_axis_t *axis;          /**< 既有顺序状态机实例 */
+    bm_process_sequence_resources_t resources; /**< exec 周期执行资源 */
+} bm_process_sequence_exec_context_t;
+
+/**
  * @brief 复位 TON 定时器状态
  *
  * @param state        TON 状态指针；为 NULL 时静默返回
@@ -190,6 +214,39 @@ void bm_process_sequence_start(bm_process_sequence_axis_t *axis);
 void bm_process_sequence_step(bm_process_sequence_axis_t *axis,
                               bm_process_sequence_interlock_fn interlock,
                               void *interlock_user);
+
+/**
+ * @brief exec 生命周期初始化：校验配置并复位顺序状态机
+ *
+ * @param instance exec 实例；state 须指向 bm_process_sequence_exec_context_t
+ * @return BM_OK 成功；BM_ERR_INVALID 指针或配置非法
+ */
+int bm_process_sequence_exec_init(const bm_exec_t *instance);
+
+/**
+ * @brief exec 生命周期启动：启动顺序状态机
+ *
+ * @param instance exec 实例；state 须指向 bm_process_sequence_exec_context_t
+ * @return BM_OK 成功；BM_ERR_INVALID 指针非法
+ */
+int bm_process_sequence_exec_start(const bm_exec_t *instance);
+
+/**
+ * @brief exec 周期运行：使用适配资源转发至 bm_process_sequence_step
+ *
+ * @param instance exec 实例；为 NULL 或上下文无效时静默返回
+ */
+void bm_process_sequence_exec_run(const bm_exec_t *instance);
+
+/**
+ * @brief exec 安全停止：复位顺序状态机
+ *
+ * @param instance exec 实例；为 NULL 或上下文无效时静默返回
+ */
+void bm_process_sequence_exec_safe_stop(const bm_exec_t *instance);
+
+/** @brief process_sequence 标准 exec 生命周期操作表 */
+extern const bm_exec_ops_t bm_process_sequence_exec_ops;
 
 #ifdef __cplusplus
 }

@@ -6,11 +6,13 @@
  * 进入临界区时保存 DAIF 并通过 DAIFSet 屏蔽 IRQ/FIQ；退出时完整恢复。
  * ISR 判定采用按核 IRQ 嵌套计数：后端包在 IRQ 分发首尾调用
  * bm_arch_aarch64_irq_enter/exit（见 bm_arch_portmacro.h）。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.2
  * @date 2026-07-31
  *
  * @par 修改日志:
+ * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-15       1.0            zeh            正式发布

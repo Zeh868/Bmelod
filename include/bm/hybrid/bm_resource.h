@@ -6,11 +6,13 @@
  * 跨实例冲突。资源类别使用 bm_resource_class_t 可扩展 ID，内置 HAL 类与
  * 应用扩展区分离。详见 docs/06-路线图与多领域/02-多领域确定性流式架构.md §5.4。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 2.0
  * @date 2026-06-12
  *
  * @par 修改日志:
+ * 2026-08-01       2.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
@@ -61,10 +63,23 @@ typedef struct {
     const char *name;
 } bm_resource_claim_t;
 
+/**
+ * @brief 检查多个实例的资源声明是否冲突
+ * @param claims 各实例资源声明数组的指针数组
+ * @param claim_counts 各实例的声明数量数组
+ * @param instance_count 实例数量
+ * @return BM_OK 无冲突；BM_ERR_INVALID 参数或声明非法；
+ *         BM_ERR_OVERFLOW 声明表超限；BM_ERR_BUSY 存在冲突
+ */
 int bm_resource_check_conflicts(const bm_resource_claim_t *const *claims,
                                 const uint32_t *claim_counts,
                                 uint32_t instance_count);
 
+/**
+ * @brief 判断资源类别是否属于内置范围或应用扩展区
+ * @param resource_class 待检查的资源类别
+ * @return 1 表示有效；0 表示无效
+ */
 int bm_resource_class_valid(bm_resource_class_t resource_class);
 
 #endif /* BM_RESOURCE_H */

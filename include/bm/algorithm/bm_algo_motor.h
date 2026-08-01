@@ -15,6 +15,7 @@
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-17       1.1            zeh            PWM 扇区采样窗口判定
  * 2026-06-23       1.2            zeh            磁链观测器纯积分改为带衰减积分，新增 flux_observer_wc_rad_s 配置字段
+ * 2026-08-01       1.2            Codex          补齐公共 API 中文 Doxygen
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -49,23 +50,46 @@ typedef struct {
     float duty_c;
 } bm_algo_svpwm_out_t;
 
-/** Clarke：三相 → αβ（幅值不变） */
+/**
+ * @brief 将三相静止坐标量变换到 alpha/beta 坐标系（幅值不变）。
+ * @param abc 三相坐标量。
+ * @param ab alpha/beta 坐标量。
+ */
 void bm_algo_clarke(const bm_algo_abc_t *abc, bm_algo_alphabeta_t *ab);
 
-/** 两相电流 Clarke（假定 ia+ib+ic=0，仅用 ia/ib） */
+/**
+ * @brief 假定三相电流和为零，根据 A、B 两相采样电流执行 Clarke 变换。
+ * @param ia A 相采样电流。
+ * @param ib B 相采样电流。
+ * @param ab alpha/beta 坐标量。
+ */
 void bm_algo_clarke_2shunt(float ia, float ib, bm_algo_alphabeta_t *ab);
 
-/** Park：αβ → dq */
+/**
+ * @brief 将 alpha/beta 坐标量变换到旋转 d/q 坐标系。
+ * @param ab alpha/beta 坐标量。
+ * @param theta_rad 电角度，单位 rad。
+ * @param dq d/q 轴坐标量。
+ */
 void bm_algo_park(const bm_algo_alphabeta_t *ab,
                   float theta_rad,
                   bm_algo_dq_t *dq);
 
-/** 逆 Park：dq → αβ */
+/**
+ * @brief 将旋转 d/q 坐标量变换到 alpha/beta 坐标系。
+ * @param dq d/q 轴坐标量。
+ * @param theta_rad 电角度，单位 rad。
+ * @param ab alpha/beta 坐标量。
+ */
 void bm_algo_inv_park(const bm_algo_dq_t *dq,
                       float theta_rad,
                       bm_algo_alphabeta_t *ab);
 
-/** 逆 Clarke：αβ → 三相 */
+/**
+ * @brief 将 alpha/beta 坐标量逆变换为三相坐标量。
+ * @param ab alpha/beta 坐标量。
+ * @param abc 三相坐标量。
+ */
 void bm_algo_inv_clarke(const bm_algo_alphabeta_t *ab, bm_algo_abc_t *abc);
 
 /**
@@ -74,6 +98,13 @@ void bm_algo_inv_clarke(const bm_algo_alphabeta_t *ab, bm_algo_abc_t *abc);
  * @param vbus_v          母线电压（V），用于归一化；若已 per-unit 可传 1
  */
 /* v_alpha/v_beta and vbus_v must use the same voltage unit. */
+/**
+ * @brief 根据电压矢量和母线电压计算 SVPWM 占空比。
+ * @param v_alpha alpha 轴电压分量。
+ * @param v_beta beta 轴电压分量。
+ * @param vbus_v 直流母线电压，单位 V。
+ * @param out 输出的调制结果。
+ */
 void bm_algo_svpwm(float v_alpha,
                    float v_beta,
                    float vbus_v,
@@ -83,6 +114,11 @@ void bm_algo_svpwm(float v_alpha,
  * @brief SVPWM 过调制（E1：线性区内标准 SVPWM，超限按比例缩至六脉冲边界）
  *
  * @param max_linear_mod 线性调制比上限（相对 vbus，典型约 0.577）
+ *
+ * @param v_alpha alpha 轴电压分量。
+ * @param v_beta beta 轴电压分量。
+ * @param vbus_v 直流母线电压，单位 V。
+ * @param out 输出的调制结果。
  */
 void bm_algo_svpwm_overmod(float v_alpha,
                            float v_beta,
@@ -90,22 +126,47 @@ void bm_algo_svpwm_overmod(float v_alpha,
                            float max_linear_mod,
                            bm_algo_svpwm_out_t *out);
 
-/** 限制 dq 电压矢量幅值（圆限幅） */
+/**
+ * @brief 保持方向不变地对 d/q 轴电压矢量执行圆限幅。
+ * @param vd d 轴电压输入输出值。
+ * @param vq q 轴电压输入输出值。
+ * @param v_max 允许的电压矢量最大幅值。
+ */
 void bm_algo_voltage_limit(float *vd, float *vq, float v_max);
 
-/** 双电阻采样重构三相电流（ic = -ia - ib） */
+/**
+ * @brief 根据 A、B 两相采样电流重构三相电流。
+ * @param ia A 相采样电流。
+ * @param ib B 相采样电流。
+ * @param abc 三相坐标量。
+ */
 void bm_algo_current_from_2shunt(float ia, float ib, bm_algo_abc_t *abc);
 
 /**
+ * @brief 按兼容公式计算死区补偿后的相电压。
  * @deprecated 缺少 PWM 周期，无法进行量纲正确的补偿，仅原样返回 phase_v（空操作直通）。
  *             请改用 bm_algo_deadtime_comp_v_period()（补偿量 = sign(I)·Vbus·deadtime/period）。
+ *
+ * @param phase_v 补偿前的相电压，单位 V。
+ * @param phase_current_a 相电流，单位 A。
+ * @param deadtime_s 功率器件死区时间，单位 s。
+ * @param vbus_v 直流母线电压，单位 V。
+ * @return 为保持兼容性原样返回 phase_v。
  */
 float bm_algo_deadtime_comp_v(float phase_v,
                               float phase_current_a,
                               float deadtime_s,
                               float vbus_v);
 
-/** 死区压降补偿，补偿量为 sign(I) * Vbus * deadtime / PWM period。 */
+/**
+ * @brief 结合 PWM 周期计算死区压降补偿后的相电压。
+ * @param phase_v 补偿前的相电压，单位 V。
+ * @param phase_current_a 相电流，单位 A。
+ * @param deadtime_s 功率器件死区时间，单位 s。
+ * @param pwm_period_s PWM 周期，单位 s。
+ * @param vbus_v 直流母线电压，单位 V。
+ * @return 返回结合 PWM 周期计算得到的补偿后相电压。
+ */
 float bm_algo_deadtime_comp_v_period(float phase_v,
                                      float phase_current_a,
                                      float deadtime_s,
@@ -136,12 +197,27 @@ typedef struct {
     float flux_beta;
 } bm_algo_flux_observer_state_t;
 
+/**
+ * @brief 复位电机磁链观测器状态。
+ * @param state 算法状态对象。
+ * @param theta_rad 电角度，单位 rad。
+ */
 void bm_algo_flux_observer_reset(bm_algo_flux_observer_state_t *state,
                                  float theta_rad);
 
 /**
+ * @brief 执行一次电机磁链观测器更新。
  * 磁链观测 + PLL，返回电角度（rad）
  * 定子磁链：ψ = ∫(V - Rs·I)dt - Ls·I
+ *
+ * @param state 算法状态对象。
+ * @param config 算法配置参数。
+ * @param v_alpha alpha 轴电压分量。
+ * @param v_beta beta 轴电压分量。
+ * @param i_alpha alpha 轴电流分量。
+ * @param i_beta beta 轴电流分量。
+ * @param dt_s 本次更新的时间间隔，单位 s。
+ * @return 观测得到的电角度，单位 rad；参数无效时保持并返回已有角度，state 为 NULL 时返回 0。
  */
 float bm_algo_flux_observer_step(bm_algo_flux_observer_state_t *state,
                                  const bm_algo_flux_observer_config_t *config,
@@ -151,13 +227,27 @@ float bm_algo_flux_observer_step(bm_algo_flux_observer_state_t *state,
                                  float i_beta,
                                  float dt_s);
 
-/** MTPA：由 iq 参考求 id 参考（简化 IPM 模型） */
+/**
+ * @brief 根据简化 IPM 模型和 q 轴电流计算 MTPA d 轴电流参考值。
+ * @param iq_ref_a q 轴电流参考值，单位 A。
+ * @param ld_h d 轴电感，单位 H。
+ * @param lq_h q 轴电感，单位 H。
+ * @param psi_f_wb 永磁体磁链，单位 Wb。
+ * @return 返回 MTPA d 轴电流参考值，单位 A。
+ */
 float bm_algo_mtpa_id_ref(float iq_ref_a,
                           float ld_h,
                           float lq_h,
                           float psi_f_wb);
 
-/** 弱磁：电压饱和时下调 id 参考 */
+/**
+ * @brief 在电压饱和时下调弱磁 d 轴电流参考值。
+ * @param id_ref_a d 轴电流参考值，单位 A。
+ * @param vd d 轴电压输入输出值。
+ * @param vq q 轴电压输入输出值。
+ * @param v_max_pu 标幺化电压幅值上限。
+ * @return 返回调整后的弱磁 d 轴电流参考值，单位 A。
+ */
 float bm_algo_fw_id_adjust(float id_ref_a, float vd, float vq, float v_max_pu);
 
 /**

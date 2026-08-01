@@ -2,6 +2,7 @@
 /**
  * @file bm_vendor_uart_dev_stm32g4.h
  * @brief STM32G474xB USART2 设备实例声明（bm_drv_uart 实例契约）
+ * @maturity E1
  *
  * @author zeh (china_qzh@163.com)
  * @version 1.1
@@ -13,6 +14,7 @@
  * 2026-07-27       1.0            zeh            新增（接口批 1）
  * 2026-07-28       1.1            zeh            增加 kernel_clock_hz（0=假定 PCLK1）
  *
+ * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
  */
 #ifndef BM_VENDOR_UART_DEV_STM32G4_H
 #define BM_VENDOR_UART_DEV_STM32G4_H

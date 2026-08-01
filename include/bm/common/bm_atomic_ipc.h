@@ -6,6 +6,7 @@
  * C11 工具链优先使用 `<stdatomic.h>`；C99 工具链使用
  * GCC/Clang/MSVC 编译器原子，提供统一的 acquire/release API。
  * 单核且目标无 lock-free 32 位原子时，退化为 volatile 实现。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.1
  * @date 2026-06-16
@@ -15,6 +16,7 @@
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
  * 2026-06-16       1.1            zeh            单核无 lock-free 原子时 volatile 回退
+ * 2026-08-01       1.1            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_ATOMIC_IPC_H
@@ -69,26 +71,59 @@
 typedef _Atomic uint32_t bm_atomic_ipc_u32_t;
 #define BM_ATOMIC_IPC_U32_INIT(v) (v)
 
+/**
+ * @brief 以获取语义原子读取 32 位值
+ * @param p 原子变量指针
+ * @return 当前原子值
+ */
 static inline uint32_t bm_atomic_ipc_load_u32(
     const bm_atomic_ipc_u32_t *p) {
     return atomic_load_explicit(p, memory_order_acquire);
 }
+/**
+ * @brief 以释放语义原子写入 32 位值
+ * @param p 原子变量指针
+ * @param v 待写入的值
+ */
 static inline void bm_atomic_ipc_store_u32(
     bm_atomic_ipc_u32_t *p, uint32_t v) {
     atomic_store_explicit(p, v, memory_order_release);
 }
+/**
+ * @brief 原子递增 32 位值
+ * @param p 原子变量指针
+ * @return 递增后的值
+ */
 static inline uint32_t bm_atomic_ipc_inc_u32(bm_atomic_ipc_u32_t *p) {
     return atomic_fetch_add_explicit(
         p, 1u, memory_order_acq_rel) + 1u;
 }
+/**
+ * @brief 原子递减 32 位值
+ * @param p 原子变量指针
+ * @return 递减后的值
+ */
 static inline uint32_t bm_atomic_ipc_dec_u32(bm_atomic_ipc_u32_t *p) {
     return atomic_fetch_sub_explicit(
         p, 1u, memory_order_acq_rel) - 1u;
 }
+/**
+ * @brief 原子交换 32 位值
+ * @param p 原子变量指针
+ * @param v 待写入的新值
+ * @return 交换前的旧值
+ */
 static inline uint32_t bm_atomic_ipc_exchange_u32(bm_atomic_ipc_u32_t *p,
                                                    uint32_t v) {
     return atomic_exchange_explicit(p, v, memory_order_acq_rel);
 }
+/**
+ * @brief 原子比较并交换 32 位值
+ * @param p 原子变量指针
+ * @param expected 期望值指针；失败时写回实际值
+ * @param desired 比较成功时写入的新值
+ * @return 交换成功返回 1，否则返回 0
+ */
 static inline int bm_atomic_ipc_compare_exchange_u32(
     bm_atomic_ipc_u32_t *p, uint32_t *expected, uint32_t desired) {
     /* 改用 strong 版本：weak 允许伪失败（spurious failure），在如
@@ -97,12 +132,15 @@ static inline int bm_atomic_ipc_compare_exchange_u32(
     return atomic_compare_exchange_strong_explicit(
         p, expected, desired, memory_order_acq_rel, memory_order_acquire);
 }
+/** @brief 建立释放内存栅栏 */
 static inline void bm_atomic_ipc_fence_release(void) {
     atomic_thread_fence(memory_order_release);
 }
+/** @brief 建立获取内存栅栏 */
 static inline void bm_atomic_ipc_fence_acquire(void) {
     atomic_thread_fence(memory_order_acquire);
 }
+/** @brief 建立顺序一致性完整内存栅栏 */
 static inline void bm_atomic_ipc_fence_full(void) {
     atomic_thread_fence(memory_order_seq_cst);
 }
@@ -111,24 +149,57 @@ static inline void bm_atomic_ipc_fence_full(void) {
 typedef volatile long bm_atomic_ipc_u32_t;
 #define BM_ATOMIC_IPC_U32_INIT(v) ((long)(v))
 
+/**
+ * @brief 以获取语义原子读取 32 位值
+ * @param p 原子变量指针
+ * @return 当前原子值
+ */
 static inline uint32_t bm_atomic_ipc_load_u32(
     const bm_atomic_ipc_u32_t *p) {
     return (uint32_t)_InterlockedCompareExchange(
         (bm_atomic_ipc_u32_t *)(uintptr_t)p, 0, 0);
 }
+/**
+ * @brief 以释放语义原子写入 32 位值
+ * @param p 原子变量指针
+ * @param v 待写入的值
+ */
 static inline void bm_atomic_ipc_store_u32(bm_atomic_ipc_u32_t *p, uint32_t v) {
     (void)_InterlockedExchange(p, (long)v);
 }
+/**
+ * @brief 原子递增 32 位值
+ * @param p 原子变量指针
+ * @return 递增后的值
+ */
 static inline uint32_t bm_atomic_ipc_inc_u32(bm_atomic_ipc_u32_t *p) {
     return (uint32_t)_InterlockedIncrement(p);
 }
+/**
+ * @brief 原子递减 32 位值
+ * @param p 原子变量指针
+ * @return 递减后的值
+ */
 static inline uint32_t bm_atomic_ipc_dec_u32(bm_atomic_ipc_u32_t *p) {
     return (uint32_t)_InterlockedDecrement(p);
 }
+/**
+ * @brief 原子交换 32 位值
+ * @param p 原子变量指针
+ * @param v 待写入的新值
+ * @return 交换前的旧值
+ */
 static inline uint32_t bm_atomic_ipc_exchange_u32(bm_atomic_ipc_u32_t *p,
                                                    uint32_t v) {
     return (uint32_t)_InterlockedExchange(p, (long)v);
 }
+/**
+ * @brief 原子比较并交换 32 位值
+ * @param p 原子变量指针
+ * @param expected 期望值指针；失败时写回实际值
+ * @param desired 比较成功时写入的新值
+ * @return 交换成功返回 1，否则返回 0
+ */
 static inline int bm_atomic_ipc_compare_exchange_u32(
     bm_atomic_ipc_u32_t *p, uint32_t *expected, uint32_t desired) {
     long old = _InterlockedCompareExchange(
@@ -139,6 +210,7 @@ static inline int bm_atomic_ipc_compare_exchange_u32(
     *expected = (uint32_t)old;
     return 0;
 }
+/** @brief 建立释放内存栅栏 */
 static inline void bm_atomic_ipc_fence_release(void) {
 #if defined(_M_ARM) || defined(_M_ARM64)
     __dmb(0xB);  /* DMB ISHST: store-release barrier for ARM */
@@ -146,6 +218,7 @@ static inline void bm_atomic_ipc_fence_release(void) {
     _ReadWriteBarrier();  /* x86 TSO: compiler barrier suffices */
 #endif
 }
+/** @brief 建立获取内存栅栏 */
 static inline void bm_atomic_ipc_fence_acquire(void) {
 #if defined(_M_ARM) || defined(_M_ARM64)
     __dmb(0xB);  /* DMB ISH: load-acquire barrier for ARM */
@@ -153,6 +226,7 @@ static inline void bm_atomic_ipc_fence_acquire(void) {
     _ReadWriteBarrier();  /* x86 TSO: compiler barrier suffices */
 #endif
 }
+/** @brief 建立顺序一致性完整内存栅栏 */
 static inline void bm_atomic_ipc_fence_full(void) {
 #if defined(_M_ARM) || defined(_M_ARM64)
     __dmb(0xF);  /* DMB SY: full sequential-consistency barrier */
@@ -173,34 +247,70 @@ typedef uint32_t bm_atomic_ipc_u32_t;
 #error "bm_atomic_ipc requires a native 32-bit unsigned integer type"
 #endif
 
+/**
+ * @brief 以获取语义原子读取 32 位值
+ * @param p 原子变量指针
+ * @return 当前原子值
+ */
 static inline uint32_t bm_atomic_ipc_load_u32(
     const bm_atomic_ipc_u32_t *p) {
     return __atomic_load_n(p, __ATOMIC_ACQUIRE);
 }
+/**
+ * @brief 以释放语义原子写入 32 位值
+ * @param p 原子变量指针
+ * @param v 待写入的值
+ */
 static inline void bm_atomic_ipc_store_u32(bm_atomic_ipc_u32_t *p, uint32_t v) {
     __atomic_store_n(p, v, __ATOMIC_RELEASE);
 }
+/**
+ * @brief 原子递增 32 位值
+ * @param p 原子变量指针
+ * @return 递增后的值
+ */
 static inline uint32_t bm_atomic_ipc_inc_u32(bm_atomic_ipc_u32_t *p) {
     return __atomic_add_fetch(p, 1u, __ATOMIC_ACQ_REL);
 }
+/**
+ * @brief 原子递减 32 位值
+ * @param p 原子变量指针
+ * @return 递减后的值
+ */
 static inline uint32_t bm_atomic_ipc_dec_u32(bm_atomic_ipc_u32_t *p) {
     return __atomic_sub_fetch(p, 1u, __ATOMIC_ACQ_REL);
 }
+/**
+ * @brief 原子交换 32 位值
+ * @param p 原子变量指针
+ * @param v 待写入的新值
+ * @return 交换前的旧值
+ */
 static inline uint32_t bm_atomic_ipc_exchange_u32(bm_atomic_ipc_u32_t *p,
                                                    uint32_t v) {
     return __atomic_exchange_n(p, v, __ATOMIC_ACQ_REL);
 }
+/**
+ * @brief 原子比较并交换 32 位值
+ * @param p 原子变量指针
+ * @param expected 期望值指针；失败时写回实际值
+ * @param desired 比较成功时写入的新值
+ * @return 交换成功返回 1，否则返回 0
+ */
 static inline int bm_atomic_ipc_compare_exchange_u32(
     bm_atomic_ipc_u32_t *p, uint32_t *expected, uint32_t desired) {
     return __atomic_compare_exchange_n(
         p, expected, desired, 1, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
 }
+/** @brief 建立释放内存栅栏 */
 static inline void bm_atomic_ipc_fence_release(void) {
     __atomic_thread_fence(__ATOMIC_RELEASE);
 }
+/** @brief 建立获取内存栅栏 */
 static inline void bm_atomic_ipc_fence_acquire(void) {
     __atomic_thread_fence(__ATOMIC_ACQUIRE);
 }
+/** @brief 建立顺序一致性完整内存栅栏 */
 static inline void bm_atomic_ipc_fence_full(void) {
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
 }
@@ -214,25 +324,58 @@ static inline void bm_atomic_ipc_fence_full(void) {
 typedef volatile uint32_t bm_atomic_ipc_u32_t;
 #define BM_ATOMIC_IPC_U32_INIT(v) (v)
 
+/**
+ * @brief 以获取语义原子读取 32 位值
+ * @param p 原子变量指针
+ * @return 当前原子值
+ */
 static inline uint32_t bm_atomic_ipc_load_u32(
     const bm_atomic_ipc_u32_t *p) {
     return *p;
 }
+/**
+ * @brief 以释放语义原子写入 32 位值
+ * @param p 原子变量指针
+ * @param v 待写入的值
+ */
 static inline void bm_atomic_ipc_store_u32(bm_atomic_ipc_u32_t *p, uint32_t v) {
     *p = v;
 }
+/**
+ * @brief 原子递增 32 位值
+ * @param p 原子变量指针
+ * @return 递增后的值
+ */
 static inline uint32_t bm_atomic_ipc_inc_u32(bm_atomic_ipc_u32_t *p) {
     return ++(*p);
 }
+/**
+ * @brief 原子递减 32 位值
+ * @param p 原子变量指针
+ * @return 递减后的值
+ */
 static inline uint32_t bm_atomic_ipc_dec_u32(bm_atomic_ipc_u32_t *p) {
     return --(*p);
 }
+/**
+ * @brief 原子交换 32 位值
+ * @param p 原子变量指针
+ * @param v 待写入的新值
+ * @return 交换前的旧值
+ */
 static inline uint32_t bm_atomic_ipc_exchange_u32(bm_atomic_ipc_u32_t *p,
                                                    uint32_t v) {
     uint32_t old = *p;
     *p = v;
     return old;
 }
+/**
+ * @brief 原子比较并交换 32 位值
+ * @param p 原子变量指针
+ * @param expected 期望值指针；失败时写回实际值
+ * @param desired 比较成功时写入的新值
+ * @return 交换成功返回 1，否则返回 0
+ */
 static inline int bm_atomic_ipc_compare_exchange_u32(
     bm_atomic_ipc_u32_t *p, uint32_t *expected, uint32_t desired) {
     if (*p == *expected) {
@@ -242,8 +385,11 @@ static inline int bm_atomic_ipc_compare_exchange_u32(
     *expected = *p;
     return 0;
 }
+/** @brief 建立释放内存栅栏 */
 static inline void bm_atomic_ipc_fence_release(void) { }
+/** @brief 建立获取内存栅栏 */
 static inline void bm_atomic_ipc_fence_acquire(void) { }
+/** @brief 建立顺序一致性完整内存栅栏 */
 static inline void bm_atomic_ipc_fence_full(void) { }
 #else
 #error "bm_atomic_ipc: unsupported compiler"

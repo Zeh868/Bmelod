@@ -2,6 +2,7 @@
 /**
  * @file bm_vendor_pwm_esp32_idf.c
  * @brief ESP32-WROOM-32E 硬件 MCPWM 驱动实现（Phase 2）
+ * @maturity E1
  *
  * 本实现基于 ESP-IDF 5.2.3 MCPWM LL API，将三相单端 PWM 输出配置为：
  *   - 中心对齐（up-down 计数），20 kHz，比较量程 BOARD_FOC_PWM_MAX(1000)
@@ -76,6 +77,7 @@
  *                                                bm_hrt_isr_enter/exit，落地 Hardware HRT
  *                                                端口的掩码模式拦截契约
  *
+ * 2026-08-01       3.8            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_vendor_pwm_esp32_idf.h"
 #include "bm_vendor_esp32_idf_compat.h"

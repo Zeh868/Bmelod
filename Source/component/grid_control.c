@@ -4,6 +4,7 @@
  *
  * 封装 SOGI-PLL 锁相与 PR 谐振电流环，并提供 bm_exec_ops_t 调度封装。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 0.2
  * @date 2026-06-13
@@ -13,6 +14,7 @@
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 validate_config PLL/PR 参数校验；补 exec_ops 封装
+ * 2026-08-01       0.2            Codex           补全 Doxygen 合规注释
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

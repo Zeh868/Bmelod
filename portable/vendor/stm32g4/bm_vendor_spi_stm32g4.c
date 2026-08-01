@@ -2,6 +2,7 @@
 /**
  * @file bm_vendor_spi_stm32g4.c
  * @brief STM32G474xB SPI1 驱动（bm_drv_spi 契约，阻塞全双工轮询，STM32 LL 库）
+ * @maturity E1
  *
  * transfer 首次调用懒初始化：按设备 config（bm_spi_config_t）配置 SPI1
  * 主机模式（8bit、MSB first、软件 NSS）、GPIO 复用与 CS 引脚；cs_managed
@@ -24,6 +25,7 @@
  *                                                vtable（vendor 不依赖 bm_hal 分发）
  * 2026-07-28       1.2            zeh            DMA IRQ 改 bm_dma_irq 路由器注册
  *
+ * 2026-08-01       1.2            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_vendor_spi_stm32g4.h"
 #include "bm_vendor_gpio_stm32g4.h"

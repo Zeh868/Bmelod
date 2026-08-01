@@ -3,11 +3,13 @@
  * @brief 确定性执行实例的批量生命周期管理实现
  *
  * 校验实例与资源声明，组装 HRT 调度表，协调 init/start/stop 与硬件绑定。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 2.6
  * @date 2026-07-02
  *
  * @par 修改日志:
+ * 2026-08-01       2.6            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
@@ -69,6 +71,11 @@ bm_exec_cpu_storage_t g_exec_cpu[BM_CONFIG_CPU_COUNT];
 static bm_exec_irq_release_gate_t s_irq_release_gate;
 static bm_exec_deadline_miss_fn_t s_deadline_miss_handler;
 
+/**
+ * @brief 获取当前 CPU 的执行器运行时状态
+ *
+ * @return 状态指针；CPU 越界时返回 NULL
+ */
 static bm_exec_cpu_state_t *bm_exec_this(void) {
     uint32_t cpu = bm_hal_cpu_id();
     if (cpu >= BM_CONFIG_CPU_COUNT) {
@@ -680,6 +687,13 @@ static int assemble_tables(bm_exec_cpu_state_t *state,
     return BM_OK;
 }
 
+/**
+ * @brief 校验执行实例均有效且归属于当前 CPU
+ *
+ * @param instances 执行实例指针数组
+ * @param count 实例数量
+ * @return BM_OK 校验通过；BM_ERR_INVALID 参数、CPU 或 owner 无效
+ */
 static int validate_instances_on_this_cpu(const bm_exec_t *const *instances,
                                           uint32_t count) {
     uint32_t cpu = BM_CPU_THIS();

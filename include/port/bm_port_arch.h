@@ -4,6 +4,7 @@
  * @brief 架构 Port ID 字符串常量
  *
  * 与 CMake 变量 `BM_PORT_ARCH` 及 `portable/arch/<id>/` 目录名一一对应。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-14
@@ -12,6 +13,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_PORT_ARCH_H

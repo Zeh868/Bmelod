@@ -66,7 +66,17 @@ typedef struct {
     bm_control_loop_state_t     state;
 } bm_control_loop_axis_t;
 
+/**
+ * @brief 校验串级控制环配置
+ * @param config 控制环配置
+ * @return BM_OK 配置合法；BM_ERR_INVALID 参数非法
+ */
 int  bm_control_loop_validate_config(const bm_control_loop_config_t *config);
+
+/**
+ * @brief 复位串级控制环运行状态
+ * @param axis 控制环实例；NULL 时静默返回
+ */
 void bm_control_loop_reset(bm_control_loop_axis_t *axis);
 
 /**
@@ -79,6 +89,10 @@ void bm_control_loop_reset(bm_control_loop_axis_t *axis);
  */
 int bm_control_loop_init(bm_control_loop_axis_t *axis);
 
+/**
+ * @brief 执行一次串级控制环计算
+ * @param axis 控制环实例；NULL 时静默返回
+ */
 void bm_control_loop_step(bm_control_loop_axis_t *axis);
 
 /**

@@ -3,11 +3,13 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief hard/block realtime profile 构建实现
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.2
  * @date 2026-06-15
  *
  * @par 修改日志:
+ * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
@@ -41,6 +43,11 @@ static const bm_exec_t *const *s_profile_exec;
 static uint32_t s_profile_exec_count;
 #endif
 
+/**
+ * @brief 查询当前多核 profile epoch
+ *
+ * @return 当前 epoch 值
+ */
 static uint32_t profile_epoch_query(void) {
     return bm_atomic_ipc_load_u32(&s_profile_epoch);
 }

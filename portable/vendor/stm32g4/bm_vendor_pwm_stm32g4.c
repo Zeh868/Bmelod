@@ -2,6 +2,7 @@
 /**
  * @file bm_vendor_pwm_stm32g4.c
  * @brief STM32G474xB 三相互补 PWM 驱动（TIM1 高级定时器，STM32 LL 库）
+ * @maturity E1
  *
  * 配置要点：
  *   - 中心对齐模式 1，ARPE + CCRx 预装，update 事件（计数谷底=低边采样窗口）
@@ -37,6 +38,7 @@
  *                                                bm_hrt_isr_enter/exit，落地 Hardware HRT
  *                                                端口的掩码模式拦截契约
  *
+ * 2026-08-01       1.2            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_vendor_pwm_stm32g4.h"
 #include "bm_hal_instances_stm32g4.h"

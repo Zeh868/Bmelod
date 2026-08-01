@@ -6,11 +6,13 @@
  * 每核周期性递增 `cpu_hb_seq`；任意核调用 `bm_mp_wdg_bootstrap_check()` 可检
  * 查所有其他核心跳。超时触发全局 safe-stop 钩子（仅触发一次，`bm_mp_wdg_reset`
  * 复位）。bootstrap 核可额外检查从核尚未启动的情况（s_seen 保护）。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.1
  * @date 2026-06-14
  *
  * @par 修改日志:
+ * 2026-08-01       1.1            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
@@ -51,7 +53,17 @@ int bm_mp_wdg_bootstrap_check(void);
  * @brief 注册全局 safe-stop 钩子（超时或监督失败时调用）
  */
 typedef void (*bm_mp_wdg_safe_stop_fn_t)(void);
+
+/**
+ * @brief 设置全局 safe-stop 回调
+ *
+ * @param hook 监督失败时调用的回调；可为 NULL
+ */
 void bm_mp_wdg_set_safe_stop_hook(bm_mp_wdg_safe_stop_fn_t hook);
+
+/**
+ * @brief 重置多核看门狗心跳快照与触发状态
+ */
 void bm_mp_wdg_reset(void);
 
 #endif /* BM_MP_WDG_H */

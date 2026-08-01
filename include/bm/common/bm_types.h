@@ -4,6 +4,7 @@
  * @brief 框架公共类型与错误码定义
  *
  * 提供统一返回值宏、IRQ 状态类型及原子变量类型别名。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.1
  * @date 2026-06-10
@@ -13,6 +14,7 @@
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
  * 2026-07-27       1.1            zeh            新增 BM_ERR_IO（I/O 或硬件访问失败）
+ * 2026-08-01       1.1            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_TYPES_H

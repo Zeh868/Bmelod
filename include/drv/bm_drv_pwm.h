@@ -2,6 +2,15 @@
 /**
  * @file bm_drv_pwm.h
  * @brief PWM 设备驱动 API
+ * @maturity E1
+ * @author Bmelod contributors
+ * @version 1.0
+ * @date 2026-08-01
+ * @par 修改日志:
+ *
+ *    Date         Version        Author          Description
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
+ *
  */
 #ifndef BM_DRV_PWM_H
 #define BM_DRV_PWM_H

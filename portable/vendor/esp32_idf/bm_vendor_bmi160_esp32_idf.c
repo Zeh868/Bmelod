@@ -2,6 +2,7 @@
 /**
  * @file bm_vendor_bmi160_esp32_idf.c
  * @brief ESP32-WROOM-32E vendor 专用 BMI160 硬件 I2C 实现（LL 裸机）
+ * @maturity E1
  *
  * BMI160 与 M0 AS5600 共用 bm_hal_i2c_1（I2C_NUM_1，SDA=GPIO19, SCL=GPIO18），
  * 实际板级地址为 0x69（SDO/SA0 接 VDDIO）。
@@ -26,6 +27,7 @@
  *                                                bm_hal_i2c_write / bm_hal_i2c_write_read
  *                                                （config.bus），删除端口初始化
  *                                                （懒初始化上移 I2C 总线后端）
+ * 2026-08-01       2.3            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_vendor_bmi160_esp32_idf.h"
 #include "bm_types.h"

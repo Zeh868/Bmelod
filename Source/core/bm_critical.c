@@ -5,11 +5,13 @@
  *
  * 默认路径：BM_CRITICAL_ENTER() 关中断保证原子性（低开销）。
  * 按 CPU 路由启用时：bm_atomic_ipc_* 原子指令保证可见性与排序（自动切换）。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.2
  * @date 2026-06-14
  *
  * @par 修改日志:
+ * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布

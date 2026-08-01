@@ -2,6 +2,7 @@
  * @file bm_hal_dma_stream.c
  * @brief DMA 流 HAL 分发层
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.1
  * @date 2026-06-13
@@ -11,6 +12,7 @@
  *    Date         Version        Author          Description
  * 2026-06-12       1.0            zeh            正式发布
  * 2026-06-13       1.1            zeh            分发至 driver API
+ * 2026-08-01       1.1            Codex           补全 Doxygen 合规注释
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -18,6 +20,11 @@
 
 #include <stddef.h>
 
+/**
+ * @brief 获取 DMA 流设备的驱动 API
+ * @param stream DMA 流设备
+ * @return 有效驱动 API；设备无效时返回 NULL
+ */
 static const struct bm_dma_stream_driver_api *dma_api(
     const bm_hal_dma_stream_t *stream) {
     if (stream == NULL || stream->api == NULL) {

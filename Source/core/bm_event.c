@@ -5,9 +5,10 @@
  *
  * 按优先级分 FIFO 队列 + 不可变链表订阅者；临界区保护多生产者/消费者。
  * 订阅表初始化后冻结，分发直接遍历链表——无快照，WCET 可预测。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.7
- * @date 2026-07-31
+ * @version 1.9
+ * @date 2026-08-01
  *
  * @par 修改日志:
  *
@@ -29,6 +30,8 @@
  *                                                bm_event_process 返回 BM_ERR_BUSY，
  *                                                补齐 HRT 级上下文的 fail-closed
  *                                                拦截缺口（对齐 ultra/mempool）
+ * 2026-08-01       1.9            zeh            完整事件发布入口前置 HRT guard，
+ *                                                优先于参数、特性与普通日志分支
  *
  */
 #include "bm/core/bm_cpu_local.h"
@@ -226,7 +229,14 @@ static void _prio_queues_reset(bm_event_cpu_state_t *state) {
     memset(state->prio_write, 0, sizeof(state->prio_write));
 }
 
-/** 校验优先级队列读写索引在槽位掩码范围内（fail-stop） */
+/**
+ * @brief 校验优先级队列读写索引是否在槽位掩码范围内
+ *
+ * @param read_idx 读索引
+ * @param write_idx 写索引
+ * @param mask 槽位索引掩码
+ * @return BM_OK 索引有效；BM_ERR_INVALID 索引越界
+ */
 static int _prio_indices_valid(uint32_t read_idx, uint32_t write_idx,
                                uint32_t mask) {
     return (read_idx <= mask && write_idx <= mask) ? BM_OK : BM_ERR_INVALID;
@@ -756,6 +766,10 @@ int bm_event_publish_copy_from_isr(bm_event_type_t type, bm_event_priority_t pri
  * @return BM_OK 成功；BM_ERR_NOT_SUPPORTED 默认未启用零拷贝；负值表示其他失败
  */
 int bm_event_publish_event(const bm_event_t *event) {
+    if (BM_SRT_QUEUE_API_FORBIDDEN()) {
+        event_log_hrt_reject_op_once("publish_event");
+        return BM_ERR_BUSY;
+    }
     if (!event ||
         event->type >= BM_CONFIG_MAX_EVENT_TYPES ||
         event->priority >= BM_CONFIG_EVENT_PRIORITIES) {
@@ -797,6 +811,10 @@ int bm_event_publish_event(const bm_event_t *event) {
  * @return BM_OK 成功；BM_ERR_NOT_SUPPORTED 默认未启用零拷贝；负值表示其他失败
  */
 int bm_event_publish_event_from_isr(const bm_event_t *event) {
+    if (BM_SRT_QUEUE_API_FORBIDDEN()) {
+        event_log_hrt_reject_op_once("publish_event_from_isr");
+        return BM_ERR_BUSY;
+    }
     if (!event ||
         event->type >= BM_CONFIG_MAX_EVENT_TYPES ||
         event->priority >= BM_CONFIG_EVENT_PRIORITIES ||

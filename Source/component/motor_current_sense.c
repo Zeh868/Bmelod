@@ -1,6 +1,7 @@
 /**
  * @file motor_current_sense.c
  * @brief 2/3 分流电流重构组件实现
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 0.6
  * @date 2026-07-27
@@ -18,6 +19,7 @@
  *                                                改为用 use_sim 统一判定
  * 2026-07-27       0.5            zeh            补齐遥测发布能力与 bm_exec_ops_t 调度封装
  * 2026-07-27       0.6            zeh            bm_motor_current_sense_step 返回类型改为 void，
+ * 2026-08-01       0.6            Codex           补全 Doxygen 合规注释
  *                                                错误通过 state.sample_valid/valid 表达并仍发布遥测
  *
  * SPDX-License-Identifier: GPL-3.0-or-later

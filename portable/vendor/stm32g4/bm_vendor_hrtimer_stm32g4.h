@@ -2,6 +2,7 @@
 /**
  * @file bm_vendor_hrtimer_stm32g4.h
  * @brief STM32G4 高精度 Timer 后端配置与实例声明
+ * @maturity E1
  *
  * App 通过 `bm_hrtimer_stm32g4_config_t` 指定实际 TIM/通道/IRQ；
  * Bmelod 不固定 TIM 编号。
@@ -14,6 +15,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 STM32G4 高精度 Timer 后端
+ * 2026-08-01       1.0            Codex            补全中文 Doxygen 合规注释
  */
 #ifndef BM_VENDOR_HRTIMER_STM32G4_H
 #define BM_VENDOR_HRTIMER_STM32G4_H

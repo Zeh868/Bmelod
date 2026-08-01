@@ -2,6 +2,7 @@
 /**
  * @file bm_hal_cpu_esp32_idf.c
  * @brief ESP32-WROOM-32E 真实双核 CPU HAL 实现（核号探测 + bootstrap 判定）。
+ * @maturity E1
  *
  * 补齐 `hal/bm_hal_cpu.h` 声明的 CPU 抽象接口。此前 esp32_idf vendor 目录
  * 从未提供这些符号的真实实现，`app_firmware` 真机构建实际链接的是
@@ -38,6 +39,7 @@
  * @par 修改日志:
  *    Date         Version        Author          Description
  * 2026-07-11       1.0            zeh            Plan B Task1：补齐真机双核 CPU-ID HAL（缺口②）
+ * 2026-08-01       1.0            Codex            补全中文 Doxygen 合规注释
  */
 #include "hal/bm_hal_cpu.h"
 #include "bm_config.h"

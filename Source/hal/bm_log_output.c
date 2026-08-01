@@ -4,6 +4,7 @@
  * @brief 默认日志输出提供者（转发 Console LOG 通道）
  *
  * 独立编译单元，便于在不支持弱符号的工具链上由应用提供强符号 `bm_log_output`。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.2
  * @date 2026-06-19
@@ -14,6 +15,7 @@
  * 2026-06-14       1.0            zeh            正式发布
  * 2026-06-15       1.1            zeh            hard RT 禁止 stdio 输出
  * 2026-06-19       1.2            zeh            默认经 bm_hal_console LOG 通道输出
+ * 2026-08-01       1.2            Codex           补全 Doxygen 合规注释
  *
  */
 #include "bm_config.h"

@@ -10,11 +10,13 @@
  *   通用寄存器保存覆盖。故本头恒为 no-op，且与 Cortex-M4/M7/M33（有 FPU、
  *   靠硬件自动/lazy stacking 保护）的 no-op 原因不同，不与其共享实现。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-07-11
  *
  * @par 修改日志:
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-07-11       1.0            zeh            新增 ARMv6-M ISR FPU 守卫（恒 no-op，无 FPU 硬件）

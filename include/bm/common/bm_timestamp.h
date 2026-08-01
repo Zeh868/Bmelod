@@ -13,6 +13,7 @@
  * - 新增 `bm_timestamp_from_uptime()`，供 1c 路径用 `bm_uptime_ns()` 构造时间戳
  *   （ns 粒度：ticks=uptime_ns、rate_hz=1e9）。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 2.0
  * @date 2026-06-26
@@ -23,6 +24,7 @@
  * 2026-06-12       1.0            zeh            正式发布（原 hybrid 层）
  * 2026-06-14       1.1            zeh            clock_id 辅助
  * 2026-06-26       2.0            zeh            下沉至 common；ticks 升 64 位（#9-1b）
+ * 2026-08-01       2.0            Codex           补全 Doxygen 合规注释
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

@@ -2,6 +2,7 @@
 /**
  * @file bm_vendor_singleton_esp32_idf.c
  * @brief ESP32 后端的 timer / UART / WDT 单例实现（Phase 3：驱动层收尾）
+ * @maturity E1
  *
  * 本文件使用 IDF 5.2.3 的底层头文件、ROM 打印和看门狗寄存器封装。
  *
@@ -57,6 +58,7 @@
  *                                                fail-fast（tick 分配失败=系统无节拍，
  *                                                静默继续比崩溃更危险）
  *
+ * 2026-08-01       3.7            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_drv_timer.h"
 #include "bm_drv_uart.h"

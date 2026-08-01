@@ -40,7 +40,7 @@
 
 /* ---- Console 诊断 I/O 后端（日志 / Shell 分通道） ---- */
 #define BM_CONFIG_CONSOLE_LOG_BACKEND         0  /* 0=NONE,1=STDIO,2=UART,3=RTT；默认随 LOG_USE_STDIO 派生 */
-#define BM_CONFIG_CONSOLE_CLI_BACKEND         0  /* CLI 后端，默认与日志后端一致 */
+#define BM_CONFIG_CONSOLE_CLI_BACKEND         BM_CONFIG_CONSOLE_LOG_BACKEND /* CLI 后端默认与日志后端一致 */
 #define BM_CONFIG_CONSOLE_MP_CLI_BOOTSTRAP_ONLY 1 /* 多核 CLI 是否仅 bootstrap 核可用 */
 
 /* ---- 核心事件子系统 ---- */
@@ -76,7 +76,7 @@
 #define BM_CONFIG_HRT_PRIORITY_THRESHOLD     4   /* HRT 优先级阈值 */
 #define BM_CONFIG_HRT_TICK_US                100 /* HRT 节拍周期（微秒） */
 #define BM_CONFIG_HRT_MAX_SLOTS              16  /* HRT 槽位上限 */
-#define BM_CONFIG_HRT_DISPATCH_PER_ISR       16  /* 单次 ISR 派发槽位数；默认=HRT_MAX_SLOTS */
+#define BM_CONFIG_HRT_DISPATCH_PER_ISR       BM_CONFIG_HRT_MAX_SLOTS /* 单次 ISR 派发槽位数 */
 
 /* ---- bm_tt_schedule（时间触发调度门面） ---- */
 #define BM_CONFIG_TT_SCHED_MAX_ENTRIES       16u /* 调度条目上限 */
@@ -94,7 +94,7 @@
 #define BM_CONFIG_MAX_EXEC_SLOTS             32  /* 执行槽位上限 */
 #define BM_CONFIG_MAX_EXEC_INSTANCES         16  /* 执行实例上限 */
 #define BM_CONFIG_MAX_RESOURCE_CLAIMS        64  /* 资源声明上限 */
-#define BM_CONFIG_MAX_SYNC_MEMBERS           16  /* 同步组成员上限；默认=MAX_EXEC_INSTANCES */
+#define BM_CONFIG_MAX_SYNC_MEMBERS           BM_CONFIG_MAX_EXEC_INSTANCES /* 同步组成员上限 */
 #define BM_CONFIG_SYNC_MAX_PHASE_TICKS       1000000000u /* 相位计数上界 */
 
 /* ---- 单核运行与 cache-line 默认值 ---- */
@@ -131,7 +131,9 @@
 /* ---- IPC / 多核（MP） ---- */
 #define BM_CONFIG_IPC_EVENT_RING_DEPTH       8u  /* IPC 事件环深度 */
 #define BM_CONFIG_IPC_PER_SOURCE_BUDGET      4u  /* 每源 IPC 排空预算 */
-#define BM_CONFIG_IPC_DRAIN_BUDGET           0u  /* IPC 总排空预算；默认由 CPU_COUNT 派生，单核为 0 */
+#define BM_CONFIG_IPC_DRAIN_BUDGET \
+    ((BM_CONFIG_CPU_COUNT > 1u) ? \
+     ((BM_CONFIG_CPU_COUNT - 1u) * BM_CONFIG_IPC_PER_SOURCE_BUDGET) : 0u) /* IPC 总排空预算 */
 #define BM_CONFIG_IPC_CMD_RING_DEPTH         8u  /* 命令 FIFO 环深度（须为 2 的幂） */
 #define BM_CONFIG_IPC_CMD_PAYLOAD_SIZE       32u /* 命令 payload 定长字节槽 */
 #define BM_CONFIG_IPC_TEL_PAYLOAD_SIZE       32u /* 遥测 payload 定长字节槽 */
@@ -139,7 +141,8 @@
 #define BM_CONFIG_WDG_HB_TIMEOUT_MS          500u /* 跨核心跳看门狗超时（毫秒） */
 #define BM_CONFIG_RESOURCE_TOPOLOGY_MAX      32u /* 资源拓扑表容量 */
 #define BM_CONFIG_EXPERIMENTAL_STREAM        0u  /* 实验性流式特性开关 */
-#define BM_CONFIG_PROFILE_STREAM_GATE_ENFORCED 0 /* 流式剖面强制门禁；默认=HARD_RT_PROFILE */
+#define BM_CONFIG_PROFILE_STREAM_GATE_ENFORCED \
+    (BM_CONFIG_HARD_RT_PROFILE) /* 流式剖面强制门禁 */
 #define BM_CONFIG_IPC_MEMORY_COHERENT_OR_NONCACHEABLE 1u /* IPC 内存一致性/不可缓存假设成立 */
 #define BM_CONFIG_HARD_RT_PROFILE            0   /* 硬实时剖面（开启后禁止 stdio 控制台后端） */
 

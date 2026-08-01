@@ -4,11 +4,13 @@
  * @brief QEMU ESP32 Xtensa SMP 启动：.data/.bss 初始化与 APP_CPU 入口桩
  *
  * APP_CPU 由 DPORT 释放后直接跳入 bm_esp32_secondary_startup，再经本文件 C 包装调用框架入口。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-15
  *
  * @par 修改日志:
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-15       1.0            zeh            正式发布

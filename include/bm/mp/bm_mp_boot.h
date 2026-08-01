@@ -6,11 +6,13 @@
  * 协调 Bootstrap/Secondary 的多阶段 barrier、分区 CRC 校验与 IRQ release 门控。
  * 在 `BM_MP_BOOT_IRQ_RELEASE` 之前，`bm_hrt_start()` 与外设 IRQ 须返回
  * `BM_ERR_NOT_INIT`。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.2
  * @date 2026-07-31
  *
  * @par 修改日志:
+ * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
@@ -104,6 +106,10 @@ int bm_mp_boot_require_irq_released(void);
  * @brief Bootstrap 打开 IRQ release 门控并广播 boot_phase
  */
 void bm_mp_boot_release_irq(void);
+
+/**
+ * @brief 将当前 CPU 与共享启动阶段标记为失败
+ */
 void bm_mp_boot_report_failure(void);
 
 /**

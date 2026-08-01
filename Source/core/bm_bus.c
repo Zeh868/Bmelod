@@ -7,11 +7,13 @@
  * BM_CONFIG_CPU_COUNT 切换。零动态分配，写者 O(1) 无阻塞。
  * BLOCK 模式以控制反转方式透传至 bm_block_backend_iface_t 后端，
  * IPC 模式以控制反转方式透传至 bm_ipc_backend_iface_t 后端，core 层不引用任何 hybrid 类型。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.2
  * @date 2026-07-15
  *
  * @par 修改日志:
+ * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-25       0.1            zeh            Phase 1 Task 2 写路径骨架
@@ -48,9 +50,21 @@ void (*bm_bus_test_latest_multi_read_hook)(bm_bus_storage_t *st) = NULL;
 /* 并发层抽象（与 bm_channel.c 风格一致）                               */
 /* ------------------------------------------------------------------ */
 #if BM_CONFIG_CPU_COUNT > 1u
+/**
+ * @brief 原子读取总线绝对游标
+ *
+ * @param p 游标原子对象
+ * @return 当前游标值
+ */
 static inline uint32_t bus_load_cur(const bm_atomic_ipc_u32_t *p) {
     return bm_atomic_ipc_load_u32(p);
 }
+/**
+ * @brief 原子写入总线绝对游标
+ *
+ * @param p 游标原子对象
+ * @param v 新游标值
+ */
 static inline void bus_store_cur(bm_atomic_ipc_u32_t *p, uint32_t v) {
     bm_atomic_ipc_store_u32(p, v);
 }
@@ -59,9 +73,21 @@ static inline void bus_store_cur(bm_atomic_ipc_u32_t *p, uint32_t v) {
 #define BUS_LOCK(s)   do { (void)(s); } while (0)
 #define BUS_UNLOCK(s) do { (void)(s); } while (0)
 #else
+/**
+ * @brief 原子读取总线绝对游标
+ *
+ * @param p 游标原子对象
+ * @return 当前游标值
+ */
 static inline uint32_t bus_load_cur(const bm_atomic_ipc_u32_t *p) {
     return bm_atomic_ipc_load_u32(p);
 }
+/**
+ * @brief 原子写入总线绝对游标
+ *
+ * @param p 游标原子对象
+ * @param v 新游标值
+ */
 static inline void bus_store_cur(bm_atomic_ipc_u32_t *p, uint32_t v) {
     bm_atomic_ipc_store_u32(p, v);
 }

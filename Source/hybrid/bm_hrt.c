@@ -4,11 +4,13 @@
  * @brief 高分辨率定时（HRT）调度器实现
  *
  * 基于 HAL 定时器 ISR 按周期触发回调；支持 deadline 错过弱钩子。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.10
  * @date 2026-07-31
  *
  * @par 修改日志:
+ * 2026-08-01       1.10           Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布

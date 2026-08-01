@@ -8,11 +8,13 @@
  * 专为跨核 block 传输设计：源核调用 bm_stream_relay_publish，目标核调用
  * bm_stream_relay_drain。通过 bm_atomic_ipc_* + release/acquire fence 保证
  * 跨核内存序。不应用于同核传输（同核直接用 bm_stream）。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-14
  *
  * @par 修改日志:
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
@@ -167,6 +169,11 @@ int bm_stream_relay_register_on_this_cpu(bm_stream_relay_t *relay,
  */
 int bm_stream_relay_drain_on_this_cpu(uint32_t budget);
 
+/**
+ * @brief 查询 relay 统计信息
+ * @param relay relay 实例指针
+ * @return 统计信息指针；实例无效时返回 NULL
+ */
 const bm_stream_relay_stats_t *bm_stream_relay_stats(const bm_stream_relay_t *relay);
 
 /**

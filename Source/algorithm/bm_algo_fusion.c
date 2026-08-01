@@ -10,6 +10,7 @@
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
+ * 2026-08-01       1.7            Codex           补齐 static 辅助函数 Doxygen
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-17       1.1            zeh            增加 IMU 偏置/比例标定
  * 2026-06-23       1.2            zeh            NaN 拦截改用 bm_algo_is_finite_f；Mahony 积分项增加对称限幅
@@ -56,6 +57,12 @@
 #define BM_ALGO_HALF_PI_F 1.5707963f
 #endif
 
+/**
+ * @brief 计算非负输入的平方根倒数
+ *
+ * @param x 输入值
+ * @return x 大于 0 时返回 1/sqrt(x)；x 小于等于 0 时返回 0
+ */
 static float inv_sqrt(float x) {
     if (x <= 0.0f) {
         return 0.0f;

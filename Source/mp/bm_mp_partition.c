@@ -4,11 +4,13 @@
  * @brief 静态分区表构建与校验
  *
  * 依据 event/module owner 预指定与 round-robin 策略生成只读 `bm_mp_partition_t`。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-14
  *
  * @par 修改日志:
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
@@ -86,6 +88,9 @@ static void partition_rollback_state(void) {
 #endif
 }
 
+/**
+ * @brief 首次使用时初始化事件 owner 声明表
+ */
 static void partition_owner_decl_init(void) {
     if (!s_owner_decl_initialized) {
         memset(s_event_owner_decl, BM_CPU_ANY, sizeof(s_event_owner_decl));
@@ -111,6 +116,13 @@ void bm_mp_partition_reset(void) {
 #endif
 }
 
+/**
+ * @brief 计算分区数据的 CRC32
+ *
+ * @param data 输入字节
+ * @param len 输入长度
+ * @return CRC32 校验值
+ */
 static uint32_t partition_crc32(const uint8_t *data, uint32_t len) {
     return bm_crc32(data, len);
 }
@@ -180,6 +192,11 @@ int bm_mp_partition_register_module_event(uint32_t module_index,
     return BM_OK;
 }
 
+/**
+ * @brief 校验模块订阅事件与事件 owner 的分区闭包
+ *
+ * @return BM_OK 闭包有效；BM_ERR_INVALID 索引或 owner 不一致
+ */
 static int partition_validate_module_event_closure(void) {
     uint32_t i;
 

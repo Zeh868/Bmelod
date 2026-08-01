@@ -1,6 +1,7 @@
 /**
  * @file power_control.c
  * @brief Buck 双环电源控制组件实现
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 0.4
  * @date 2026-07-09
@@ -15,6 +16,7 @@
  *                                                锁存故障，不再以 i_out=0
  *                                                喂 PI 施加错误大修正
  * 2026-07-09       0.4            zeh            缺口 12：current_step 的
+ * 2026-08-01       0.4            Codex           补全 Doxygen 合规注释
  *                                                write_duty 失败改为锁存
  *                                                故障后仍发布遥测（带
  *                                                FAULT 位），不再当拍丢发

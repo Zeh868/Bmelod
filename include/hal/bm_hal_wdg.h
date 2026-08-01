@@ -4,6 +4,7 @@
  * @brief 硬件看门狗 HAL 接口
  *
  * 初始化超时时间并喂狗，由平台实现具体寄存器操作。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-10
@@ -12,6 +13,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_HAL_WDG_H

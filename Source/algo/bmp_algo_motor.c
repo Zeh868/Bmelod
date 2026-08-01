@@ -2,6 +2,15 @@
  * @file bmp_algo_motor.c
  * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief 电机速度观测器实现
+ * @maturity E1
+ * @author Codex
+ * @version 1.0
+ * @date 2026-08-01
+ *
+ * @par 修改日志:
+ *
+ *    Date         Version        Author          Description
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  */
 #include "bmp/algo/bmp_algo_motor.h"
 

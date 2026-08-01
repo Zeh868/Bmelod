@@ -2,6 +2,7 @@
 /**
  * @file bm_vendor_comp_stm32g4.c
  * @brief STM32G474xB 过流比较器驱动（COMP1 → TIM1_BKIN，STM32 LL 库）
+ * @maturity E1
  *
  * 保护链路：相电流经采样电阻分压 → COMP1 同相端 → 超过反相端门限时
  * COMP1 输出翻转 → 经 TIM1_AF1.BKCMP1E（LL_TIM_EnableBreakInputSource，
@@ -29,6 +30,7 @@
  * 2026-07-27       1.1            zeh            寄存器级改写为 STM32 LL 库实现（决策变更：提高可读性）；
  *                                                顺带修正 VREFINT 门限缺 SCALEN/BRGEN 桥臂使能位的问题
  *
+ * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_vendor_comp_stm32g4.h"
 #include "bm_hal_instances_stm32g4.h"

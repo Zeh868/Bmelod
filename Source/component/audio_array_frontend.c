@@ -2,6 +2,7 @@
  * @file audio_array_frontend.c
  * @brief 麦克风阵列 DAS/MVDR 波束成形实现
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 0.5
  * @date 2026-06-17
@@ -14,6 +15,7 @@
  * 2026-06-23       0.3            zeh            补 SPDX 与函数级 Doxygen
  * 2026-07-27       0.4            zeh            四段式重构：resources/state/axis + exec_ops
  * 2026-07-27       0.5            zeh            step 返回 void，NULL 入参静默返回
+ * 2026-08-01       0.5            Codex           补全 Doxygen 合规注释
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

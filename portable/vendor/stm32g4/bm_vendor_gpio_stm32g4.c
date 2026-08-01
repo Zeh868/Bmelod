@@ -2,6 +2,7 @@
 /**
  * @file bm_vendor_gpio_stm32g4.c
  * @brief STM32G474xB GPIO 驱动（bm_drv_gpio 契约，STM32 LL 库，含 EXTI）
+ * @maturity E1
  *
  * 整个芯片一个设备 bm_stm32g4_gpio，pin 编码 (port<<4)|num
  * （0=A .. 6=G）。configure 时按端口懒使能 AHB2 时钟；
@@ -22,6 +23,7 @@
  * 2026-07-28       1.1            zeh            增加 EXTI 配置/使能/pending 清除桩
  * 2026-07-28       1.2            zeh            实现 EXTI 真后端与 IRQ Handler
  *
+ * 2026-08-01       1.2            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_vendor_gpio_stm32g4.h"
 #include "bm_types.h"

@@ -5,6 +5,7 @@
  * 读取电压电流，执行 MPPT 步进并在超限时按功率上限降额。
  * 同时提供 bm_exec_ops_t 调度封装，可直接挂入框架调度器。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 0.2
  * @date 2026-06-17
@@ -14,6 +15,7 @@
  *    Date         Version        Author          Description
  * 2026-06-17       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 validate_config 字段校验；补 exec_ops 封装
+ * 2026-08-01       0.2            Codex           补全 Doxygen 合规注释
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

@@ -4,11 +4,13 @@
  * @brief PERCPU IPC 矩阵实现
  *
  * N×N 有向 SPSC 事件环；读游标保存在目标核 endpoint 状态。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.3
  * @date 2026-07-31
  *
  * @par 修改日志:
+ * 2026-08-01       1.3            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
@@ -82,7 +84,13 @@ bm_mp_ipc_matrix_t *bm_mp_ipc_matrix(void) {
     return s_matrix;
 }
 
-/** 有向环 source→target；禁止自环，越界返回 NULL */
+/**
+ * @brief 获取 source 到 target 的有向事件环
+ *
+ * @param source 源 CPU
+ * @param target 目标 CPU
+ * @return 事件环指针；共享矩阵无效、CPU 越界或自环时返回 NULL
+ */
 static bm_mp_ipc_event_ring_t *ring_for(uint8_t source, uint8_t target) {
     if (!s_matrix || source >= BM_CONFIG_CPU_COUNT ||
         target >= BM_CONFIG_CPU_COUNT || source == target) {

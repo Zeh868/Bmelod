@@ -5,11 +5,13 @@
  *
  * 未闭合 §11.1 时 `bm_mp_profile_build()` 必须失败；experimental 剖面须显式配置。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.1
  * @date 2026-06-14
  *
  * @par 修改日志:
+ * 2026-08-01       1.1            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
@@ -97,7 +99,9 @@ int bm_mp_profile_build(void);
  */
 int bm_mp_profile_is_built(void);
 
-/** Reset boot-local profile state before rebuilding a new runtime epoch. */
+/**
+ * @brief 重置本次启动的 profile 状态，以便重建运行期 epoch
+ */
 void bm_mp_profile_reset(void);
 
 #if BM_CONFIG_ENABLE_EXEC

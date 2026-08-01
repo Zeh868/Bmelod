@@ -8,11 +8,13 @@
  * memcpy 进出暂存；后端在 commit/acquire_read 内完成共享区拷贝 + CRC + seqlock。
  * 依赖方向 backend→core，core 不引用任何跨核实现类型。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-27
  *
  * @par 修改日志:
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *    Date         Version   Author   Description
  * 2026-06-27       1.0       zeh      初稿：IPC 模式控制反转 vtable
  */

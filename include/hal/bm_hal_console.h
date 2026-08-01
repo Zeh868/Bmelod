@@ -5,6 +5,7 @@
  *
  * LOG 通道供 `bm_log_output` drain 使用；CLI 通道供 `bm_shell` 交互。
  * 多核下日志仅 bootstrap 核 drain 后写出；CLI 读写默认仅 bootstrap 核。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.1
  * @date 2026-06-19
@@ -14,6 +15,7 @@
  *    Date         Version        Author          Description
  * 2026-06-19       1.0            zeh            初版：双通道 Console HAL
  * 2026-06-19       1.1            zeh            补 LOG 通道阻塞语义与实时主循环契约
+ * 2026-08-01       1.1            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_HAL_CONSOLE_H

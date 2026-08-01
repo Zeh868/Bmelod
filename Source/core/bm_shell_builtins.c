@@ -9,11 +9,13 @@
  * bm_shell_puts；每次 snprintf 后强制补 NUL（MinGW/msvcrt 截断返回
  * -1 不补 NUL 的坑）。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.2
  * @date 2026-07-18
  *
  * @par 修改日志:
+ * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-07-11       1.0            zeh            正式发布（批 P：shell 内建命令组）

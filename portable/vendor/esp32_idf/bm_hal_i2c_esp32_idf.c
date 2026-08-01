@@ -2,6 +2,7 @@
 /**
  * @file bm_hal_i2c_esp32_idf.c
  * @brief ESP32-WROOM-32E I2C 总线后端实现（bm_hal_i2c 设备实例）
+ * @maturity E1
  *
  * api 实现内部调用既有 LL 原语（bm_vendor_i2c_port_init/write/write_read，
  * 降级为后端内部实现细节）；首笔事务前幂等懒初始化端口
@@ -19,6 +20,7 @@
  *    Date         Version        Author          Description
  * 2026-08-01       1.0            zeh            新增（I2C 总线契约 ESP32 后端）
  *
+ * 2026-08-01       1.0            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_hal_i2c_esp32_idf.h"
 #include "bm_vendor_i2c_esp32_idf.h"
@@ -36,6 +38,14 @@ static int bm_hal_i2c_esp32_ensure_init(const struct bm_hal_i2c *dev) {
                                    cfg->base.clock_hz);
 }
 
+/**
+ * @brief 通过I2C发送数据。
+ * @param dev I2C 设备实例。
+ * @param addr I2C 从设备地址。
+ * @param buf 待发送数据缓冲区。
+ * @param len 缓冲区中的有效数据长度，单位为字节。
+ * @return 成功返回 BM_OK；设备或参数无效时返回校验错误码，并透传底层 I2C 传输错误码。
+ */
 static int bm_hal_i2c_esp32_write(const struct bm_hal_i2c *dev, uint8_t addr,
                                   const uint8_t *buf, size_t len) {
     const bm_i2c_config_esp32_t *cfg =
@@ -49,6 +59,14 @@ static int bm_hal_i2c_esp32_write(const struct bm_hal_i2c *dev, uint8_t addr,
                                cfg->base.timeout_ms);
 }
 
+/**
+ * @brief 从I2C接收数据。
+ * @param dev I2C 设备实例。
+ * @param addr I2C 从设备地址。
+ * @param buf 接收数据缓冲区。
+ * @param len 缓冲区中的有效数据长度，单位为字节。
+ * @return 成功返回 BM_OK；设备或参数无效时返回校验错误码，并透传底层 I2C 传输错误码。
+ */
 static int bm_hal_i2c_esp32_read(const struct bm_hal_i2c *dev, uint8_t addr,
                                  uint8_t *buf, size_t len) {
     const bm_i2c_config_esp32_t *cfg =
@@ -64,6 +82,16 @@ static int bm_hal_i2c_esp32_read(const struct bm_hal_i2c *dev, uint8_t addr,
                                     cfg->base.timeout_ms);
 }
 
+/**
+ * @brief 通过I2C发送数据。
+ * @param dev I2C 设备实例。
+ * @param addr I2C 从设备地址。
+ * @param wbuf 待发送数据缓冲区。
+ * @param wlen 写缓冲区数据长度，单位为字节。
+ * @param rbuf 接收数据缓冲区。
+ * @param rlen 读缓冲区容量，单位为字节。
+ * @return 成功返回 BM_OK；设备或参数无效时返回校验错误码，并透传底层 I2C 传输错误码。
+ */
 static int bm_hal_i2c_esp32_write_read(const struct bm_hal_i2c *dev,
                                        uint8_t addr,
                                        const uint8_t *wbuf, size_t wlen,

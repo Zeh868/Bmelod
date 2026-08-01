@@ -10,6 +10,7 @@
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
+ * 2026-08-01       2.9            Codex           补齐 static 辅助函数 Doxygen
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-13       1.1            zeh            增加 PID Q31 与 Biquad Q15
  * 2026-06-17       1.2            zeh            Q15 滑动平均/PID 与 Q31 迟滞
@@ -155,6 +156,15 @@ void bm_algo_pi_q31_reset(bm_algo_pi_q31_state_t *state, bm_algo_q31_t output) {
 static bm_algo_q31_t saturate_q31_i64(int64_t value);
 static bm_algo_q15_t saturate_q15_i32(int32_t value);
 
+/**
+ * @brief 计算两个 Q1.31 值的饱和乘积
+ *
+ * 乘积使用 64 位中间量并右移 31 位恢复量纲，不执行舍入。
+ *
+ * @param a Q1.31 乘数
+ * @param b Q1.31 乘数
+ * @return Q1.31 乘积；超出 int32 范围时饱和到 INT32_MIN 或 INT32_MAX
+ */
 static bm_algo_q31_t mul_q31(bm_algo_q31_t a, bm_algo_q31_t b) {
     int64_t prod = (int64_t)a * (int64_t)b;
     int64_t scaled = prod >> 31;
@@ -162,6 +172,12 @@ static bm_algo_q31_t mul_q31(bm_algo_q31_t a, bm_algo_q31_t b) {
     return saturate_q31_i64(scaled);
 }
 
+/**
+ * @brief 将 64 位整数饱和收窄为 Q31 存储类型
+ *
+ * @param value 待收窄整数
+ * @return value 位于 int32 范围内时直接转换；否则返回相应饱和端点
+ */
 static bm_algo_q31_t saturate_q31_i64(int64_t value) {
     if (value > (int64_t)INT32_MAX) {
         return (bm_algo_q31_t)INT32_MAX;
@@ -172,6 +188,12 @@ static bm_algo_q31_t saturate_q31_i64(int64_t value) {
     return (bm_algo_q31_t)value;
 }
 
+/**
+ * @brief 将 32 位整数饱和收窄为 Q15 存储类型
+ *
+ * @param value 待收窄整数
+ * @return value 位于 [-32768, 32767] 时直接转换；否则返回相应饱和端点
+ */
 static bm_algo_q15_t saturate_q15_i32(int32_t value) {
     if (value > 32767) {
         return (bm_algo_q15_t)32767;
@@ -182,16 +204,38 @@ static bm_algo_q15_t saturate_q15_i32(int32_t value) {
     return (bm_algo_q15_t)value;
 }
 
+/**
+ * @brief 无溢出地取得 int64 值的无符号幅值
+ *
+ * @param value 有符号输入值
+ * @return value 的精确绝对幅值；INT64_MIN 返回 2^63
+ */
 static uint64_t magnitude_i64(int64_t value) {
     return (value < 0) ? (uint64_t)(-(value + 1)) + 1u
                        : (uint64_t)value;
 }
 
+/**
+ * @brief 取得 int32 值的无符号幅值
+ *
+ * @param value 有符号输入值
+ * @return value 的精确绝对幅值；INT32_MIN 返回 2^31
+ */
 static uint64_t magnitude_i32(int32_t value) {
     return (value < 0) ? (uint64_t)(-(int64_t)value)
                        : (uint64_t)value;
 }
 
+/**
+ * @brief 计算 Q1.31 比值并执行端点饱和
+ *
+ * 结果按整数除法截断；分子幅值不小于分母幅值时饱和到对应符号端点。
+ *
+ * @param num 以 int64 承载的 Q1.31 分子
+ * @param den Q1.31 分母
+ * @return Q1.31 比值；den 为 0 时返回 0；正向溢出返回 INT32_MAX，
+ *         负向溢出返回 INT32_MIN
+ */
 static bm_algo_q31_t div_q31(int64_t num, bm_algo_q31_t den) {
     uint64_t num_mag;
     uint64_t den_mag;
@@ -397,6 +441,15 @@ void bm_algo_biquad_q15_reset(bm_algo_biquad_q15_state_t *state) {
     }
 }
 
+/**
+ * @brief 计算两个 Q1.15 值的饱和乘积
+ *
+ * 乘积使用 32 位中间量并右移 15 位恢复量纲，不执行舍入。
+ *
+ * @param a Q1.15 乘数
+ * @param b Q1.15 乘数
+ * @return Q1.15 乘积；超出 int16 范围时饱和到 -32768 或 32767
+ */
 static bm_algo_q15_t mul_q15(bm_algo_q15_t a, bm_algo_q15_t b) {
     int32_t prod = (int32_t)a * (int32_t)b;
 
@@ -980,6 +1033,14 @@ bm_algo_q31_t bm_algo_lpf1_q31_step(bm_algo_lpf1_q31_state_t *state,
     return state->output;
 }
 
+/**
+ * @brief 通过固定比较交换返回三个 Q15 值的中位数
+ *
+ * @param a 第一个 Q15 值
+ * @param b 第二个 Q15 值
+ * @param c 第三个 Q15 值
+ * @return 三个输入按数值排序后的中间值
+ */
 static bm_algo_q15_t median3_q15(bm_algo_q15_t a, bm_algo_q15_t b, bm_algo_q15_t c) {
     bm_algo_q15_t t;
 
@@ -2127,6 +2188,12 @@ static bm_algo_q15_t abs_q15_val(bm_algo_q15_t v) {
     return (v < 0) ? (bm_algo_q15_t)(-(int32_t)v) : v;
 }
 
+/**
+ * @brief 计算 Q31 绝对值，并对 INT32_MIN 执行正向饱和
+ *
+ * @param v 输入 Q31 值
+ * @return 绝对值；INT32_MIN 返回 INT32_MAX
+ */
 static bm_algo_q31_t abs_q31_val(bm_algo_q31_t v) {
     if (v == (bm_algo_q31_t)INT32_MIN) {
         return (bm_algo_q31_t)INT32_MAX;
@@ -2532,6 +2599,12 @@ static void median_sort_q15(bm_algo_q15_t *a, uint16_t n) {
     }
 }
 
+/**
+ * @brief 使用插入排序对 Q31 数组原地升序排列
+ *
+ * @param a 待排序 Q31 数组
+ * @param n 数组元素数量
+ */
 static void median_sort_q31(bm_algo_q31_t *a, uint16_t n) {
     uint16_t i;
     uint16_t j;
@@ -2546,6 +2619,16 @@ static void median_sort_q31(bm_algo_q31_t *a, uint16_t n) {
     }
 }
 
+/**
+ * @brief 将浮点 DDA 状态同步到 Q15 包装状态
+ *
+ * 浮点影子字段逐项复制，x/y 另经 Q1.15 转换写入 x_q15/y_q15；转换对
+ * 超出 [-1, 1) 的值执行端点饱和；NaN 使用安全哨兵 0，正负无穷分别
+ * 饱和到正负端点。
+ *
+ * @param state Q15 DDA 包装状态输出
+ * @param fs 浮点 DDA 状态输入
+ */
 static void dda_q15_sync_from_float(bm_algo_dda_q15_state_t *state,
                                     const bm_algo_dda_state_t *fs) {
     state->x = fs->x;
@@ -2565,6 +2648,14 @@ static void dda_q15_sync_from_float(bm_algo_dda_q15_state_t *state,
     state->y_q15 = bm_algo_float_to_q15(fs->y);
 }
 
+/**
+ * @brief 将 Q15 DDA 包装状态中的浮点影子字段复制到浮点状态
+ *
+ * 本函数不从 x_q15/y_q15 反量化，避免丢失包装状态保留的浮点精度。
+ *
+ * @param state Q15 DDA 包装状态输入
+ * @param fs 浮点 DDA 状态输出
+ */
 static void dda_q15_to_float_state(const bm_algo_dda_q15_state_t *state,
                                    bm_algo_dda_state_t *fs) {
     fs->x = state->x;
@@ -2681,6 +2772,16 @@ int bm_algo_dda_q15_step(bm_algo_dda_q15_state_t *state,
     return ok;
 }
 
+/**
+ * @brief 将浮点 DDA 状态同步到 Q31 包装状态
+ *
+ * 浮点影子字段逐项复制，x/y 另经 Q1.31 转换写入 x_q31/y_q31；转换对
+ * 超出 [-1, 1) 的值执行端点饱和；NaN 使用安全哨兵 0，正负无穷分别
+ * 饱和到正负端点。
+ *
+ * @param state Q31 DDA 包装状态输出
+ * @param fs 浮点 DDA 状态输入
+ */
 static void dda_q31_sync_from_float(bm_algo_dda_q31_state_t *state,
                                     const bm_algo_dda_state_t *fs) {
     state->x = fs->x;
@@ -2700,6 +2801,14 @@ static void dda_q31_sync_from_float(bm_algo_dda_q31_state_t *state,
     state->y_q31 = bm_algo_float_to_q31(fs->y);
 }
 
+/**
+ * @brief 将 Q31 DDA 包装状态中的浮点影子字段复制到浮点状态
+ *
+ * 本函数不从 x_q31/y_q31 反量化，避免丢失包装状态保留的浮点精度。
+ *
+ * @param state Q31 DDA 包装状态输入
+ * @param fs 浮点 DDA 状态输出
+ */
 static void dda_q31_to_float_state(const bm_algo_dda_q31_state_t *state,
                                    bm_algo_dda_state_t *fs) {
     fs->x = state->x;
@@ -3187,7 +3296,12 @@ static bm_algo_q15_t resample_phase_q15_from_float(float phase) {
     return (bm_algo_q15_t)scaled;
 }
 
-/** 相位字段专用反定标（Q15），与 resample_phase_q15_from_float() 配对。 */
+/**
+ * @brief 将重采样相位的 Q15 专用定标值还原为浮点数
+ *
+ * @param value 以每单位 1024 计数存储的相位值
+ * @return value 除以 BM_ALGO_RESAMPLE_PHASE_Q15_SCALE 后的浮点相位
+ */
 static float resample_phase_q15_to_float(bm_algo_q15_t value) {
     return (float)value / BM_ALGO_RESAMPLE_PHASE_Q15_SCALE;
 }
@@ -3214,7 +3328,12 @@ static bm_algo_q31_t resample_phase_q31_from_float(float phase) {
     return (bm_algo_q31_t)scaled;
 }
 
-/** 相位字段专用反定标（Q31），与 resample_phase_q31_from_float() 配对。 */
+/**
+ * @brief 将重采样相位的 Q31 专用定标值还原为浮点数
+ *
+ * @param value 以每单位 2^24 计数存储的相位值
+ * @return value 除以 BM_ALGO_RESAMPLE_PHASE_Q31_SCALE 后的浮点相位
+ */
 static float resample_phase_q31_to_float(bm_algo_q31_t value) {
     return (float)value / BM_ALGO_RESAMPLE_PHASE_Q31_SCALE;
 }

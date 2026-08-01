@@ -5,11 +5,13 @@
  * 实现 bm_stream 生产者/消费者 API、过载策略（drop-newest/drop-oldest）与
  * 运行统计计数。单生产者单消费者，零堆、零拷贝交接。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.5
  * @date 2026-07-15
  *
  * @par 修改日志:
+ * 2026-08-01       1.5            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-12       1.0            zeh            正式发布

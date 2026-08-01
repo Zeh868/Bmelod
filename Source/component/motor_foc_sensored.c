@@ -1,6 +1,7 @@
 /**
  * @file motor_foc_sensored.c
  * @brief 有感 FOC 伺服轴领域组件实现
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 0.7
  * @date 2026-07-13
@@ -22,6 +23,7 @@
  *                                                sensorless 对齐）；current_step 禁用分支
  *                                                补发遥测（清 VALID/SAT/FAULT 位），修陈旧 status
  * 2026-07-13       0.7            zeh            C9：read_theta_elec 改由编码器单圈原始
+ * 2026-08-01       0.7            Codex           补全 Doxygen 合规注释
  *                                                计数求电角度（有界量、精度不随圈数
  *                                                劣化），替代无界 position_rad×pole_pairs
  *
@@ -40,6 +42,11 @@
 #define BM_ALGO_PI_F 3.14159265358979323846f
 #endif
 
+/**
+ * @brief 读取并归一化当前电角度
+ * @param axis 有感 FOC 轴实例
+ * @return 归一化至一个电周期内的电角度，单位 rad
+ */
 static float read_theta_elec(const bm_motor_foc_sensored_axis_t *axis) {
     const bm_motor_foc_sensored_config_t *cfg = &axis->config;
     const bm_motor_foc_sensored_resources_t *res = &axis->resources;
@@ -154,6 +161,10 @@ static int read_id_iq_feedback(const bm_motor_foc_sensored_axis_t *axis,
     return BM_OK;
 }
 
+/**
+ * @brief 锁存 FOC 故障并请求 PWM 进入安全状态
+ * @param axis 有感 FOC 轴实例
+ */
 static void latch_fault(bm_motor_foc_sensored_axis_t *axis) {
     bm_motor_foc_sensored_state_t *st = &axis->state;
 
@@ -170,6 +181,10 @@ static void latch_fault(bm_motor_foc_sensored_axis_t *axis) {
     }
 }
 
+/**
+ * @brief 将当前故障状态写入遥测结构
+ * @param st 有感 FOC 运行状态
+ */
 static void set_fault_telemetry(bm_motor_foc_sensored_state_t *st) {
     bm_motor_foc_telemetry_t *tel = &st->telemetry;
 
@@ -178,6 +193,10 @@ static void set_fault_telemetry(bm_motor_foc_sensored_state_t *st) {
     tel->iq_ref_a = 0.0f;
 }
 
+/**
+ * @brief 从资源回调读取并同步最新控制命令
+ * @param axis 有感 FOC 轴实例
+ */
 static void sync_command(bm_motor_foc_sensored_axis_t *axis) {
     bm_motor_foc_cmd_t command;
 
@@ -188,6 +207,10 @@ static void sync_command(bm_motor_foc_sensored_axis_t *axis) {
     }
 }
 
+/**
+ * @brief 通过组件公共出口发布当前遥测
+ * @param axis 有感 FOC 轴实例
+ */
 static void publish_telemetry(const bm_motor_foc_sensored_axis_t *axis) {
     BM_COMPONENT_PUBLISH_TELEMETRY(axis, &axis->state.telemetry);
 }

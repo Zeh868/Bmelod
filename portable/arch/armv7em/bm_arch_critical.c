@@ -4,11 +4,13 @@
  * @brief ARMv7E-M 临界区实现（primask + basepri 优先级掩码）
  *
  * Cortex-M4/M4F/M7 等：支持 BM_HAL_HAS_PRIORITY_MASK 与 NVIC 优先级阈值。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-14
  *
  * @par 修改日志:
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
@@ -25,12 +27,22 @@
 #include "port/bm_arch_ops.h"
 #include "arm/common/bm_arch_arm_primask.h"
 
+/**
+ * @brief 读取 ARM BASEPRI 寄存器
+ *
+ * @return 当前 BASEPRI 值
+ */
 static inline uint32_t bm_arch_arm_read_basepri(void) {
     uint32_t basepri;
     __asm volatile ("mrs %0, basepri" : "=r"(basepri));
     return basepri;
 }
 
+/**
+ * @brief 写入 ARM BASEPRI 寄存器
+ *
+ * @param basepri 要恢复的 BASEPRI 值
+ */
 static inline void bm_arch_arm_write_basepri(uint32_t basepri) {
     __asm volatile ("msr basepri, %0" :: "r"(basepri) : "memory");
 }

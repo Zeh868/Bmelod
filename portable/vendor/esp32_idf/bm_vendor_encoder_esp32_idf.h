@@ -2,6 +2,7 @@
 /**
  * @file bm_vendor_encoder_esp32_idf.h
  * @brief ESP32-WROOM-32E 板级编码器实例声明
+ * @maturity E1
  *
  * @author zeh (china_qzh@163.com)
  * @version 1.2
@@ -17,6 +18,7 @@
  *                                                bm_hal_i2c 总线设备（vendor 内部契约
  *                                                变更，config 以 bus 指针替代 i2c_port）
  *
+ * 2026-08-01       1.2            Codex            补全中文 Doxygen 合规注释
  */
 #ifndef BM_VENDOR_ENCODER_ESP32_IDF_H
 #define BM_VENDOR_ENCODER_ESP32_IDF_H

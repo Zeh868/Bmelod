@@ -5,6 +5,7 @@
  *
  * 设备未绑定后端（api 为 NULL）时返回 BM_ERR_NOT_INIT / 0。
  * hard RT 剖面下阻塞收发与 RX 用户回调均 fail-closed。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 3.0
  * @date 2026-07-28
@@ -16,6 +17,7 @@
  * 2026-06-15       1.1            zeh            hard RT 禁止阻塞 UART 路径
  * 2026-07-27       2.0            zeh            打破式全实例化，统一 encoder 式设备分发
  * 2026-07-28       3.0            zeh            接口批 1 扩展 IDLE/环形缓冲/错误统计分发
+ * 2026-08-01       3.0            Codex           补全 Doxygen 合规注释
  */
 #include "bm_hal_uart.h"
 #include "bm_config.h"

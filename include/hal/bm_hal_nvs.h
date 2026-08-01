@@ -15,6 +15,7 @@
  *   实现（`bm_drv_nvs_flash_stm32g4.c`），Board 经 `bm_nvs_stm32g4_set_layout`
  *   注入分区后再 commit。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.1
  * @date 2026-07-28
@@ -25,6 +26,7 @@
  * 2026-06-26       1.0            zeh            正式发布（路线图 #10 参数/配置持久化）
  * 2026-07-28       1.1            zeh            注明 STM32G4 双槽 Flash 后端与布局注入
  * 2026-08-01       1.2            zeh            P2：补无后端 fail-closed 宏守卫桩
+ * 2026-08-01       1.1            Codex           补全 Doxygen 合规注释
  *                                               （Source/hal/bm_hal_nvs.c，与 bm_persist
  *                                               同一 BM_DRV_HAS_NVS_BACKEND 宏通道）
  *

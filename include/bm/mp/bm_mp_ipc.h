@@ -6,11 +6,13 @@
  * 扩展 RTD 单向通道语义为 `event_ring[source][target]` 矩阵；读游标保存在
  * 目标核 `endpoint[target]`，禁止函数级 static `last_seq`。
  * 阶段 2 新增 N×N cmd_ring（FIFO）与 tel_channel（seqlock 最新值）payload 通道。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.4
  * @date 2026-07-31
  *
  * @par 修改日志:
+ * 2026-08-01       1.4            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
@@ -234,6 +236,13 @@ int bm_ipc_drain_on_this_cpu(uint32_t budget);
  * @brief 递增共享矩阵上的 stream 块处理计数
  */
 void bm_mp_ipc_count_stream_block(uint8_t cpu);
+
+/**
+ * @brief 查询指定 CPU 已处理的 stream 块计数
+ *
+ * @param cpu 逻辑 CPU 编号
+ * @return 已处理块数；共享矩阵未初始化或 CPU 越界时返回 0
+ */
 uint32_t bm_mp_ipc_stream_blocks_processed(uint8_t cpu);
 
 /**

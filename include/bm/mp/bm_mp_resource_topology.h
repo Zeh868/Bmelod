@@ -5,11 +5,13 @@
  *
  * 分区器依据只读拓扑表验证 `owner_cpu`、IRQ、DMA 与 claim mask 的交集恰为一位。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-14
  *
  * @par 修改日志:
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
@@ -39,6 +41,9 @@ typedef struct {
     uint32_t            memory_region_mask;
 } bm_mp_resource_topology_entry_t;
 
+/**
+ * @brief 重置全部资源拓扑登记与构建状态
+ */
 void bm_mp_resource_topology_reset(void);
 
 /**

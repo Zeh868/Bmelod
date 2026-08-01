@@ -2,6 +2,7 @@
 /**
  * @file bm_hal_irq_affinity_native.c
  * @brief native_sim IRQ 亲和后端 stub
+ * @maturity E1
  *
  * native_sim 单核环境不区分 CPU，所有 API 直接返回成功。
  * @author zeh (china_qzh@163.com)
@@ -13,6 +14,9 @@
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
  *
+ *
+ * @par ????:
+ * 2026-08-01       1.0            Codex            补全中文 Doxygen 合规注释
  */
 #include "hal/bm_hal_irq_affinity.h"
 

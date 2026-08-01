@@ -20,6 +20,7 @@
  *       `BM_CONFIG_IDLE_EXTERNAL_HOOK=1` 并提供外部实现，
  *       框架不再生成默认占位实现。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-26
@@ -28,6 +29,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-26       1.0            zeh            新增（路线图 #8 省电/空闲钩子）
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_IDLE_H

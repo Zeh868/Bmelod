@@ -4,6 +4,7 @@
  *
  * 包装 bm_stream 生产/消费路径，统计块间隔并对接时钟漂移补偿。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 0.2
  * @date 2026-06-17
@@ -13,6 +14,7 @@
  *    Date         Version        Author          Description
  * 2026-06-17       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 SPDX 与函数级 Doxygen
+ * 2026-08-01       0.2            Codex           补全 Doxygen 合规注释
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

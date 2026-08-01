@@ -2,6 +2,7 @@
 /**
  * @file bm_drv_hrtimer_native.c
  * @brief native_sim 高精度 Timer 后端
+ * @maturity E1
  *
  * 以后端内部纯虚拟计数为时间基（不读墙钟），纯软件模拟高精度 Timer 行为。
  * 支持周期/单次/Output Compare、动态改比较值、deadline miss 统计。
@@ -22,6 +23,9 @@
  * 2026-07-31       1.3            zeh            回调派发首尾成对调用
  *                                             bm_hrt_isr_enter/exit，与真实 Hardware
  *                                             HRT 端口一致，消除"仿真放行、真机拒绝"分叉
+ *
+ * @par ????:
+ * 2026-08-01       1.3            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_drv_hrtimer.h"
 #include "hal/bm_hal_hrtimer.h"
@@ -224,6 +228,13 @@ static int native_hrtimer_init(const struct bm_hal_hrtimer *dev, void *config) {
     return BM_OK;
 }
 
+/**
+ * @brief 启动高分辨率定时器设备。
+ * @param dev 高分辨率定时器 设备实例。
+ * @param mode 定时器运行模式。
+ * @param period_us 定时器周期，单位为微秒。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int native_hrtimer_start(const struct bm_hal_hrtimer *dev,
                                 uint32_t mode, uint32_t period_us) {
     bm_native_hrtimer_state_t *state;
@@ -249,6 +260,11 @@ static int native_hrtimer_start(const struct bm_hal_hrtimer *dev,
     return BM_OK;
 }
 
+/**
+ * @brief 停止高分辨率定时器设备。
+ * @param dev 高分辨率定时器 设备实例。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int native_hrtimer_stop(const struct bm_hal_hrtimer *dev) {
     bm_native_hrtimer_state_t *state;
 
@@ -260,6 +276,12 @@ static int native_hrtimer_stop(const struct bm_hal_hrtimer *dev) {
     return BM_OK;
 }
 
+/**
+ * @brief 设置高分辨率定时器比较时刻。
+ * @param dev 高分辨率定时器 设备实例。
+ * @param compare_us 比较时刻，单位为微秒。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int native_hrtimer_set_compare(const struct bm_hal_hrtimer *dev,
                                       uint32_t compare_us) {
     bm_native_hrtimer_state_t *state;
@@ -281,29 +303,55 @@ static int native_hrtimer_set_compare(const struct bm_hal_hrtimer *dev,
     return BM_OK;
 }
 
+/**
+ * @brief 读取当前定时器频率。
+ * @param dev 高分辨率定时器 设备实例；当前实现不使用该参数。
+ * @return 定时器频率，单位为 Hz；设备无效时返回 0。
+ */
 static uint32_t native_hrtimer_get_freq(const struct bm_hal_hrtimer *dev) {
     (void)dev;
     return BM_NATIVE_HRTIMER_FREQ_HZ;
 }
 
+/**
+ * @brief 读取高分辨率定时器分辨率。
+ * @param dev 高分辨率定时器 设备实例；当前实现不使用该参数。
+ * @return 定时器分辨率，单位为纳秒；设备无效时返回 0。
+ */
 static uint32_t native_hrtimer_get_resolution_ns(
     const struct bm_hal_hrtimer *dev) {
     (void)dev;
     return 1000u; /* 1MHz => 1000ns/tick */
 }
 
+/**
+ * @brief 读取高分辨率定时器支持的最大周期。
+ * @param dev 高分辨率定时器 设备实例；当前实现不使用该参数。
+ * @return 支持的最大周期，单位为微秒；设备无效时返回 0。
+ */
 static uint32_t native_hrtimer_get_max_period_us(
     const struct bm_hal_hrtimer *dev) {
     (void)dev;
     return BM_NATIVE_HRTIMER_MAX_PERIOD_US;
 }
 
+/**
+ * @brief 读取高分辨率定时器支持的最小周期。
+ * @param dev 高分辨率定时器 设备实例；当前实现不使用该参数。
+ * @return 支持的最小周期，单位为微秒；设备无效时返回 0。
+ */
 static uint32_t native_hrtimer_get_min_period_us(
     const struct bm_hal_hrtimer *dev) {
     (void)dev;
     return BM_NATIVE_HRTIMER_MIN_PERIOD_US;
 }
 
+/**
+ * @brief 读取高分辨率定时器运行统计。
+ * @param dev 高分辨率定时器 设备实例。
+ * @param stats 用于接收运行统计的输出结构；不得为 NULL。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int native_hrtimer_get_stats(const struct bm_hal_hrtimer *dev,
                                     bm_hrtimer_stats_t *stats) {
     bm_native_hrtimer_state_t *state;
@@ -316,6 +364,13 @@ static int native_hrtimer_get_stats(const struct bm_hal_hrtimer *dev,
     return BM_OK;
 }
 
+/**
+ * @brief 设置高分辨率定时器回调。
+ * @param dev 高分辨率定时器 设备实例。
+ * @param cb tick 回调；传入 NULL 时解除绑定。
+ * @param user 回调用户上下文，调用回调时原样传入。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int native_hrtimer_set_callback(const struct bm_hal_hrtimer *dev,
                                        bm_hrtimer_callback_t cb, void *user) {
     bm_native_hrtimer_state_t *state;

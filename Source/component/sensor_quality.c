@@ -5,6 +5,7 @@
  * 三级质量检查：范围越限、变化率超限、冻结值检测。
  * exec_ops 封装提供 bm_exec 周期调度接入点。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 0.3
  * @date 2026-06-13
@@ -16,6 +17,7 @@
  * 2026-06-23       0.2            zeh            补 exec_ops 封装；Doxygen；SPDX
  * 2026-07-27       0.3            zeh            init/reset 签名统一为四段式范式；initial 移入 config
  * 2026-07-27       0.4            zeh            init/validate/reset 复用 bm_component_common.h 公共宏
+ * 2026-08-01       0.3            Codex           补全 Doxygen 合规注释
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

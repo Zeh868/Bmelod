@@ -2,6 +2,7 @@
 /**
  * @file bm_drv_can_native.c
  * @brief native_sim 多实例 CAN/FDCAN 后端
+ * @maturity E1
  *
  * 支持 2 个实例：
  *   - bm_can_default（实例 0）：console 语义，send 打印到 stdout。
@@ -22,6 +23,9 @@
  *                                             bm_hal_can_native_rx_frame；
  *                                             裸 -1 哨兵改 BM_ERR_*；
  *                                             注明 TX_COMPLETE 同步派发契约
+ *
+ * @par ????:
+ * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_hal_can_native.h"
 #include "bm/common/bm_types.h"
@@ -250,6 +254,12 @@ static int native_can_validate_frame(const bm_can_frame_t *frame) {
     return BM_OK;
 }
 
+/**
+ * @brief 初始化CAN设备。
+ * @param dev CAN 设备实例。
+ * @param config 设备初始化配置；当前实现不使用该参数。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int native_can_init(const struct bm_hal_can *dev, void *config) {
     int idx;
     bm_native_can_state_t *state;
@@ -265,6 +275,11 @@ static int native_can_init(const struct bm_hal_can *dev, void *config) {
     return BM_OK;
 }
 
+/**
+ * @brief 启动CAN设备。
+ * @param dev CAN 设备实例。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID；设备未初始化时返回 BM_ERR_NOT_INIT。
+ */
 static int native_can_start(const struct bm_hal_can *dev) {
     int idx;
     bm_native_can_state_t *state;
@@ -281,6 +296,11 @@ static int native_can_start(const struct bm_hal_can *dev) {
     return BM_OK;
 }
 
+/**
+ * @brief 停止CAN设备。
+ * @param dev CAN 设备实例。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int native_can_stop(const struct bm_hal_can *dev) {
     int idx;
     bm_native_can_state_t *state;
@@ -294,6 +314,12 @@ static int native_can_stop(const struct bm_hal_can *dev) {
     return BM_OK;
 }
 
+/**
+ * @brief 通过CAN发送数据。
+ * @param dev CAN 设备实例。
+ * @param frame 待发送的 CAN 帧；不得为 NULL。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID；设备未初始化时返回 BM_ERR_NOT_INIT；资源忙或队列已满时返回 BM_ERR_BUSY；底层操作失败时透传其错误码。
+ */
 static int native_can_send(const struct bm_hal_can *dev,
                            const bm_can_frame_t *frame) {
     int idx;
@@ -336,6 +362,11 @@ static int native_can_send(const struct bm_hal_can *dev,
     return BM_OK;
 }
 
+/**
+ * @brief 查找第一个未使用的 CAN 过滤器槽位。
+ * @param state 进入临界区前保存的中断状态。
+ * @return 成功返回槽位索引；无可用槽位时返回 BM_ERR_NO_MEM。
+ */
 static int native_can_find_free_filter(bm_native_can_state_t *state) {
     size_t i;
 
@@ -347,6 +378,13 @@ static int native_can_find_free_filter(bm_native_can_state_t *state) {
     return BM_ERR_NO_MEM; /* 无空闲槽（负值） */
 }
 
+/**
+ * @brief 向CAN设备添加接收过滤器。
+ * @param dev CAN 设备实例。
+ * @param filter CAN 过滤器配置；不得为 NULL。
+ * @param filter_id 用于接收新过滤器标识符的输出指针；不得为 NULL。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID；无可用静态槽位时返回 BM_ERR_NO_MEM。
+ */
 static int native_can_add_filter(const struct bm_hal_can *dev,
                                  const bm_can_filter_t *filter,
                                  uint32_t *filter_id) {
@@ -380,6 +418,12 @@ static int native_can_add_filter(const struct bm_hal_can *dev,
     return BM_OK;
 }
 
+/**
+ * @brief 从CAN设备移除接收过滤器。
+ * @param dev CAN 设备实例。
+ * @param filter_id CAN 过滤器标识符。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int native_can_remove_filter(const struct bm_hal_can *dev,
                                     uint32_t filter_id) {
     int idx;
@@ -399,12 +443,23 @@ static int native_can_remove_filter(const struct bm_hal_can *dev,
     return BM_OK;
 }
 
+/**
+ * @brief 读取CAN设备能力位掩码。
+ * @param dev CAN 设备实例；当前实现不使用该参数。
+ * @return 设备能力位掩码；设备无效时返回 0。
+ */
 static uint32_t native_can_get_capabilities(const struct bm_hal_can *dev) {
     (void)dev;
     return BM_CAN_CAP_FD | BM_CAN_CAP_STD_FILTER | BM_CAN_CAP_EXT_FILTER |
            BM_CAN_CAP_FIFO0 | BM_CAN_CAP_FIFO1 | BM_CAN_CAP_TX_FIFO;
 }
 
+/**
+ * @brief 读取CAN运行统计。
+ * @param dev CAN 设备实例。
+ * @param stats 用于接收运行统计的输出结构；不得为 NULL。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int native_can_get_stats(const struct bm_hal_can *dev,
                                 bm_can_stats_t *stats) {
     int idx;
@@ -420,6 +475,13 @@ static int native_can_get_stats(const struct bm_hal_can *dev,
     return BM_OK;
 }
 
+/**
+ * @brief 设置CAN接收回调。
+ * @param dev CAN 设备实例。
+ * @param cb 接收回调；传入 NULL 时解除绑定。
+ * @param user 回调用户上下文，调用回调时原样传入。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int native_can_set_rx_callback(const struct bm_hal_can *dev,
                                       bm_can_rx_callback_t cb, void *user) {
     int idx;
@@ -435,6 +497,13 @@ static int native_can_set_rx_callback(const struct bm_hal_can *dev,
     return BM_OK;
 }
 
+/**
+ * @brief 设置CAN事件回调。
+ * @param dev CAN 设备实例。
+ * @param cb 事件回调；传入 NULL 时解除绑定。
+ * @param user 回调用户上下文，调用回调时原样传入。
+ * @return 成功返回 BM_OK；设备或参数无效时返回 BM_ERR_INVALID。
+ */
 static int native_can_set_event_callback(const struct bm_hal_can *dev,
                                          bm_can_event_callback_t cb,
                                          void *user) {

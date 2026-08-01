@@ -8,6 +8,7 @@
  *
  * 无 backend 时提供返回 0 的桩实现，保证链接不中断。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-26
@@ -16,6 +17,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-26       1.0            zeh            正式发布（路线图 #9 时间基统一 1a）
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  *
  */
 #include "hal/bm_hal_uptime.h"

@@ -4,6 +4,7 @@
  * @brief K2 · 闭源 · 需 bm_mp 的高级无感观测器：EKF 扩展卡尔曼滤波
  *
  * 基于 αβ 坐标系电机模型的状态估计，输出转子电角度与角速度。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.1
  * @date 2026-06-17
@@ -13,6 +14,7 @@
  * Date       Version Author Description
  * 2026-06-17 1.0     zeh    首版 MP 工业 EKF 无感观测 API
  * 2026-06-17 1.1     zeh    完整 P 预测/更新，接入 q/r 协方差
+ * 2026-08-01 1.1     Codex  补齐文件头成熟度
  *
  */
 #ifndef BMP_ALGO_MOTOR_EKF_H

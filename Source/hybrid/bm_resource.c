@@ -3,11 +3,13 @@
  * @brief 硬件资源声明与冲突检测实现
  *
  * 将多实例资源声明展平后检查互斥、共享读与协调访问规则。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 2.0
  * @date 2026-06-12
  *
  * @par 修改日志:
+ * 2026-08-01       2.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布

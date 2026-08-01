@@ -10,11 +10,13 @@
  * 每个 bm_exec 实例绑定到 owner_cpu，init/start/stop/drain 仅可在该核上调用。
  * Block/Frame 槽的 bm_stream 须与 exec 实例在同一核上。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 2.1
  * @date 2026-06-12
  *
  * @par 修改日志:
+ * 2026-08-01       2.1            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
@@ -90,17 +92,63 @@ struct bm_exec {
     const bm_exec_ops_t *ops;
 };
 
+/**
+ * @brief 批量初始化执行实例并建立资源与硬件绑定
+ * @param instances 实例指针数组
+ * @param count 实例数量
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效；其他为阶段错误码
+ */
 int bm_exec_init_all(const bm_exec_t *const *instances, uint32_t count);
+/**
+ * @brief 批量启动已初始化的执行实例
+ * @param instances 实例指针数组，须与初始化时一致
+ * @param count 实例数量
+ * @return BM_OK 成功；BM_ERR_INVALID 参数或会话不匹配；其他为启动错误码
+ */
 int bm_exec_start_all(const bm_exec_t *const *instances, uint32_t count);
+/**
+ * @brief 安全停止全部实例并释放 HRT 与硬件绑定
+ * @param instances 实例指针数组；NULL 时使用内部记录
+ * @param count 实例数量
+ */
 void bm_exec_safe_stop_all(const bm_exec_t *const *instances, uint32_t count);
 
+/**
+ * @brief 过滤并初始化归属当前 CPU 的执行实例
+ * @param instances 全局实例指针数组
+ * @param count 实例数量
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效；其他为初始化错误码
+ */
 int bm_exec_init_on_this_cpu(const bm_exec_t *const *instances, uint32_t count);
+/**
+ * @brief 过滤并启动归属当前 CPU 的执行实例
+ * @param instances 全局实例指针数组
+ * @param count 实例数量
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效；其他为启动错误码
+ */
 int bm_exec_prepare_on_this_cpu(const bm_exec_t *const *instances, uint32_t count);
+/**
+ * @brief 释放全部 IRQ 资源并启动 HRT
+ * @return BM_OK 成功；BM_ERR_INVALID 或 BM_ERR_NOT_INIT 表示状态非法；其他为平台错误码
+ */
 int bm_exec_irq_release_all(void);
+/**
+ * @brief 在当前 CPU 通过门控后释放 IRQ 资源
+ * @return BM_OK 成功；BM_ERR_INVALID CPU 无效；BM_ERR_NOT_INIT 门控拒绝；其他为平台错误码
+ */
 int bm_exec_irq_release_on_this_cpu(void);
+/**
+ * @brief 按预算处理当前 CPU 的 Block/Frame 流
+ * @param budget 本次最多消费的块数
+ * @return 实际消费块数；未启动或在 ISR 中返回 0
+ */
 int bm_exec_drain_streams(uint32_t budget);
 
 typedef int (*bm_exec_irq_release_gate_t)(void);
+/**
+ * @brief 设置 IRQ 释放前的门控回调
+ * @param gate 门控回调；NULL 表示清除
+ */
 void bm_exec_set_irq_release_gate(bm_exec_irq_release_gate_t gate);
 
 typedef void (*bm_exec_deadline_miss_fn_t)(const bm_exec_slot_t *slot,
@@ -114,10 +162,21 @@ typedef void (*bm_exec_deadline_miss_fn_t)(const bm_exec_slot_t *slot,
  */
 void bm_exec_set_deadline_miss_handler(bm_exec_deadline_miss_fn_t fn);
 
+/**
+ * @brief 按 ID 查找执行实例
+ * @param instances 实例指针数组
+ * @param count 实例数量
+ * @param id 目标实例 ID
+ * @return 匹配实例指针；参数无效或未找到时返回 NULL
+ */
 const bm_exec_t *bm_exec_find(const bm_exec_t *const *instances,
                               uint32_t count,
                               uint32_t id);
 
+/**
+ * @brief 查询当前 CPU 的执行会话状态
+ * @return 当前会话状态；CPU 状态不可用时返回 BM_EXEC_SESSION_NONE
+ */
 bm_exec_session_t bm_exec_get_session(void);
 
 /**

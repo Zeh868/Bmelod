@@ -4,6 +4,7 @@
  * @brief 编码器 HAL 分发层（契约 → driver API）
  *
  * 将位置读取操作转发至已绑定的 driver API。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-14
@@ -12,6 +13,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  *
  */
 #include "bm_hal_encoder.h"

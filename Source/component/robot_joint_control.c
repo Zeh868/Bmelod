@@ -5,6 +5,7 @@
  * 位置误差经 PI 输出力矩，叠加摩擦前馈并限幅。
  * 通过 bm_robot_joint_control_exec_ops 接入 bm_exec 生命周期。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 0.4
  * @date 2026-07-27
@@ -18,6 +19,7 @@
  *                                                非有限时拒绝进入 PI/friction，
  *                                                输出 0 力矩，避免 NaN 力矩下发
  * 2026-07-27       0.4            zeh            validate_config 中
+ * 2026-08-01       0.4            Codex           补全 Doxygen 合规注释
  *                                                bm_algo_pi_validate_config
  *                                                结果比较改为 BM_OK
  *

@@ -14,6 +14,7 @@
  * `bm_persist.c` 的编译期门与 `BM_ERR_NOT_SUPPORTED` 返回不在此改动
  * （见 2026-08-01 HAL 实例模型补完规格 2.3）。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-08-01
@@ -22,6 +23,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-08-01       1.0            zeh            新增（P2 NVS fail-closed 宏守卫桩）
+ * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_DRV_HAS_NVS_BACKEND

@@ -4,11 +4,13 @@
  * @brief 同步域 HAL 空实现（未链接平台 HAL 时使用）
  *
  * GCC/Clang 下为弱符号，可被平台 HAL 覆盖；其他工具链依赖构建系统二选一链接。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.1
  * @date 2026-06-12
  *
  * @par 修改日志:
+ * 2026-08-01       1.1            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布

@@ -5,6 +5,7 @@
  *
  * 有 BM_DRV_HAS_BACKEND 时转发至 Port driver API；否则提供桩实现。
  * native_sim 路径可经 BM_NATIVE_SIM_TIMER_CPU_LOCAL 启用软件定时器。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.2
  * @date 2026-06-15
@@ -15,6 +16,7 @@
  * 2026-06-14       1.0            zeh            正式发布
  * 2026-06-15       1.1            zeh            非法 CPU timer handle fail-closed
  * 2026-06-15       1.2            zeh            非法 CPU epoch 使用无效哨兵
+ * 2026-08-01       1.2            Codex           补全 Doxygen 合规注释
  *
  */
 #include "bm_drv_timer.h"
@@ -33,22 +35,27 @@
 extern const struct bm_timer_driver_api bm_drv_timer_api;
 #define BM_TIMER_DRV (&bm_drv_timer_api)
 #else
+/** @brief 初始化定时器桩后端 @param freq_hz 目标频率 @return BM_ERR_NOT_INIT */
 static int timer_stub_init(uint32_t freq_hz) {
     (void)freq_hz;
     return BM_ERR_NOT_INIT;
 }
 
+/** @brief 停止定时器桩后端 */
 static void timer_stub_stop(void) {
 }
 
+/** @brief 读取定时器桩计数 @return 固定返回 0 */
 static uint32_t timer_stub_get_ticks(void) {
     return 0u;
 }
 
+/** @brief 读取定时器桩频率 @return 固定返回 0 */
 static uint32_t timer_stub_get_freq(void) {
     return 0u;
 }
 
+/** @brief 设置定时器桩回调 @param cb 定时器回调 */
 static void timer_stub_set_callback(void (*cb)(void)) {
     (void)cb;
 }

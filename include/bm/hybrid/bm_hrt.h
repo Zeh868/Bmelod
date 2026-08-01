@@ -9,11 +9,13 @@
  * @core_affinity 本核（per-CPU）
  * 每核独立 HRT 定时器与槽表，bm_hrt_init/start/stop 仅影响调用者所在 CPU。
  * 不同核的 HRT 周期彼此独立，通过 bm_sync 进行硬件级相位对齐。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.1
  * @date 2026-07-31
  *
  * @par 修改日志:
+ * 2026-08-01       1.1            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
@@ -66,7 +68,8 @@ int bm_hrt_start(void);
 typedef int (*bm_hrt_start_gate_t)(void);
 
 /**
- * @brief Install a start gate checked before enabling the timer IRQ.
+ * @brief 安装定时器 IRQ 启用前检查的启动门控
+ * @param gate 门控回调；NULL 表示清除
  */
 void bm_hrt_set_start_gate(bm_hrt_start_gate_t gate);
 

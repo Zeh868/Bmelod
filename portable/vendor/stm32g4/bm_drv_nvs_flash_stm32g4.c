@@ -2,6 +2,7 @@
 /**
  * @file bm_drv_nvs_flash_stm32g4.c
  * @brief STM32G4 主 Flash 双槽 NVS 后端（bm_hal_nvs_load/save）
+ * @maturity E1
  *
  * 原子语义：save 写入 inactive 槽（先擦除覆盖页、再双字编程、再读回校验）；
  * 掉电则保留旧 active。分区地址由 Board 经 `bm_nvs_stm32g4_set_layout` 注入。
@@ -18,6 +19,7 @@
  * 2026-07-28       1.0            zeh            新增 G4 Flash 双槽 NVS 后端
  * 2026-07-29       1.1            zeh            从 Flash size register 取容量；按运行时页大小校验布局与擦除
  *
+ * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
  */
 #include "bm_hal_nvs_stm32g4.h"
 #include "bm_nvs_dual_slot.h"

@@ -7,6 +7,7 @@
  * hard RT 剖面下 BM_LOG* 在宏层直接裁剪，不进入格式化/stdio 路径。
  * 运行期可在编译期级别之下收紧阈值，但不能放开已被编译裁掉的级别。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.3
  * @date 2026-06-15
@@ -18,6 +19,7 @@
  * 2026-06-14       1.1            zeh            per-CPU 有界 ring
  * 2026-06-15       1.2            zeh            hard RT 日志宏裁剪
  * 2026-07-11       1.3            zeh            批 P：运行期级别阈值
+ * 2026-08-01       1.3            Codex           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_LOG_H
@@ -65,7 +67,19 @@ typedef enum {
 #define BM_CONFIG_LOG_DRAIN_BUDGET 2u
 #endif
 
+/**
+ * @brief 按指定级别、标签和格式记录日志
+ * @param level 日志级别
+ * @param tag 日志标签
+ * @param fmt printf 风格格式字符串
+ */
 void bm_log(bm_log_level_t level, const char *tag, const char *fmt, ...);
+
+/**
+ * @brief 将已格式化的日志缓冲区写入输出后端
+ * @param buf 日志数据缓冲区
+ * @param len 缓冲区有效字节数
+ */
 void bm_log_output(const char *buf, size_t len);
 
 /**

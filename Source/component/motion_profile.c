@@ -5,6 +5,7 @@
  * 复用 bm_algo_profile 梯形或 S 曲线核，按周期输出位置与速度，
  * 并提供 bm_exec_ops_t 调度封装以接入 bm_exec 生命周期管理。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 0.3
  * @date 2026-07-09
@@ -15,6 +16,7 @@
  * 2026-06-17       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 NULL 保护（validate/goto/step）；exec_ops；Doxygen；SPDX
  * 2026-07-09       0.3            zeh            H12：exec_safe_stop 补清零
+ * 2026-08-01       0.3            Codex           补全 Doxygen 合规注释
  *                                                trapezoid/scurve.velocity，
  *                                                修复急停后 step() 仍回显
  *                                                残留速度

@@ -3,11 +3,13 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief WCET / 响应时间静态校验实现
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.1
  * @date 2026-06-15
  *
  * @par 修改日志:
+ * 2026-08-01       1.1            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
@@ -81,6 +83,12 @@ int bm_mp_schedule_register(const bm_mp_schedule_slot_t *slot) {
     return BM_OK;
 }
 
+/**
+ * @brief 计算一个调度槽的总执行时间
+ *
+ * @param s 调度槽描述
+ * @return 总执行时间，单位为微秒
+ */
 static uint64_t sched_slot_execution_us(const bm_mp_schedule_slot_t *s) {
     return (uint64_t)s->wcet_us +
            (uint64_t)s->stream_scan_us +
@@ -89,6 +97,15 @@ static uint64_t sched_slot_execution_us(const bm_mp_schedule_slot_t *s) {
            (uint64_t)s->cache_maint_us;
 }
 
+/**
+ * @brief 对指定调度槽执行固定优先级响应时间分析
+ *
+ * @param cpu 所属 CPU
+ * @param slot_index 调度槽索引
+ * @param response_out 响应时间输出位置
+ * @return BM_OK 完成分析；BM_ERR_OVERFLOW 计算溢出；
+ *         BM_ERR_TIMEOUT 固定点迭代未收敛
+ */
 static int sched_rta_response_us(uint8_t cpu, uint32_t slot_index,
                                  uint64_t *response_out) {
     const bm_mp_schedule_slot_t *s = &s_slots[slot_index];
@@ -151,6 +168,14 @@ static int sched_rta_response_us(uint8_t cpu, uint32_t slot_index,
     return BM_ERR_TIMEOUT;
 }
 
+/**
+ * @brief 校验指定 CPU 的全部调度槽并生成报告
+ *
+ * @param cpu 逻辑 CPU 编号
+ * @param report_out 校验报告输出位置；可为 NULL
+ * @return BM_OK 校验通过；BM_ERR_INVALID 槽参数无效；BM_ERR_OVERFLOW
+ *         不可调度或计算溢出；BM_ERR_TIMEOUT 响应时间分析未收敛
+ */
 static int validate_cpu(uint8_t cpu, bm_mp_schedule_cpu_report_t *report_out) {
     uint64_t util_ppm = 0u;
     uint32_t worst_r = 0u;

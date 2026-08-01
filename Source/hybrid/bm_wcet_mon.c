@@ -8,11 +8,13 @@
  * begin/end 计时与预算超额判定、misuse 语义。Task 3 补上 report_miss 语义
  * （miss_count 计数 + sink 通知），完成 sink 双层上报闭环。
  *
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.2
  * @date 2026-07-02
  *
  * @par 修改日志:
+ * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-07-02       1.0            zeh            Task 1：config/公共头/注册迭代骨架，

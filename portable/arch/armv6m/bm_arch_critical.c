@@ -5,11 +5,13 @@
  *
  * Cortex-M0/M0+/M3 路径：全关中断；若编译时启用 BM_HAL_HAS_PRIORITY_MASK
  * 则 enter_below 退化为全关中断（与 armv7em 区分）。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-14
  *
  * @par 修改日志:
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布

@@ -2,6 +2,7 @@
 /**
  * @file bm_vendor_bmi160_esp32_idf.h
  * @brief ESP32-WROOM-32E vendor 专用 BMI160 驱动接口
+ * @maturity E1
  *
  * 该接口提供 BMI160 加速度计/陀螺仪的原始采样读取能力，支持 I2C 与 SPI
  * 两种主接口配置。当前仓库的原理图文本抽取未能直接暴露 BMI160 的板级
@@ -22,6 +23,7 @@
  *                                                实例承载）；bus_id/clock_hz 仅
  *                                                保留 SPI 语义
  *
+ * 2026-08-01       2.0            Codex            补全中文 Doxygen 合规注释
  */
 #ifndef BM_VENDOR_BMI160_ESP32_IDF_H
 #define BM_VENDOR_BMI160_ESP32_IDF_H

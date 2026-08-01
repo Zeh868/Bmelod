@@ -12,11 +12,13 @@
  *          （不同于 IPC 矩阵/relay 有 non-cacheable 放置与 cache 操作），且当前
  *          **无编译期护栏**（无 `#error`）阻止误用。非相干 AMP 目标须自行将分区表
  *          置于相干/非缓存内存并做 cache 维护，否则从核可能读到陈旧 owner 映射。
+ * @maturity E1
  * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-06-14
  *
  * @par 修改日志:
+ * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
@@ -70,16 +72,41 @@ uint8_t bm_mp_event_owner(bm_event_type_t type);
  */
 uint8_t bm_mp_module_owner(uint32_t module_index);
 
-/** 预指定事件类型的 owner CPU（须在 partition build 前调用） */
+/**
+ * @brief 预指定事件类型的 owner CPU（须在 partition build 前调用）
+ *
+ * @param type 事件类型 ID
+ * @param name 事件类型名称
+ * @param owner_cpu 所属 CPU，或 BM_CPU_ANY 由分区器分配
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效或分区已构建；
+ *         BM_ERR_ALREADY 该事件类型已登记
+ */
 int bm_mp_partition_register_event_owner(bm_event_type_t type,
                                          const char *name,
                                          uint8_t owner_cpu);
 
-/** 声明 module 订阅的 event（build 时校验 module.owner == event.owner） */
+/**
+ * @brief 声明模块订阅的事件，供构建阶段校验 owner 闭包
+ *
+ * @param module_index 模块表索引
+ * @param type 事件类型 ID
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效或分区已构建；
+ *         BM_ERR_NO_MEM 绑定表已满
+ */
 int bm_mp_partition_register_module_event(uint32_t module_index,
                                         bm_event_type_t type);
 
+/**
+ * @brief 重置分区描述、owner 声明与构建状态
+ */
 void bm_mp_partition_reset(void);
+
+/**
+ * @brief 在当前 CPU 注册由其拥有的全部事件类型
+ *
+ * @return BM_OK 成功；BM_ERR_NOT_INIT 分区未构建或当前 CPU 无效；
+ *         其他负值为事件类型注册失败
+ */
 int bm_mp_partition_register_events_on_this_cpu(void);
 
 #endif /* BM_MP_PARTITION_H */
