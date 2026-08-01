@@ -9,7 +9,9 @@ add_subdirectory(${BM_FRAMEWORK_ROOT}/portable/arch/xtensa _bm_arch_xtensa_pack)
 add_subdirectory(${BM_FRAMEWORK_ROOT}/portable/vendor/esp32_idf _bm_vendor_esp32_idf_pack)
 
 add_library(bm_backend_sdk_esp32_idf INTERFACE)
-target_compile_definitions(bm_backend_sdk_esp32_idf INTERFACE BM_DRV_HAS_BACKEND)
+target_compile_definitions(bm_backend_sdk_esp32_idf INTERFACE
+    BM_DRV_HAS_BACKEND
+    BM_HAL_DEVICES_HEADER="bm_hal_devices_esp32_idf.h")
 target_link_libraries(bm_backend_sdk_esp32_idf INTERFACE
     bm_config
     bm_port_arch_xtensa

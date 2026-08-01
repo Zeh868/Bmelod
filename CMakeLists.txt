@@ -177,6 +177,8 @@ add_library(bm_hal STATIC
     Source/hal/bm_hal_encoder.c
     Source/hal/bm_hal_gpio.c         # 接口批 1：GPIO 设备契约分发
     Source/hal/bm_hal_spi.c          # 接口批 1：SPI 设备契约分发
+    Source/hal/bm_hal_i2c.c          # 接口批 2：I2C 设备契约分发
+    Source/hal/bm_hal_nvs.c          # P2：NVS 无后端 fail-closed 宏守卫桩
     Source/hal/bm_hal_hrtimer.c      # 接口批 1：高精度 Timer 设备契约分发
     Source/hal/bm_hal_dma_stream.c
     Source/hal/bm_hal_uptime.c

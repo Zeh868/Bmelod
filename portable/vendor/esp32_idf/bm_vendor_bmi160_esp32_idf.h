@@ -8,13 +8,19 @@
  * 连线，因此本接口采用“显式配置 + 透明采样”的方式，不臆造任何 GPIO。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-19
+ * @version 2.0
+ * @date 2026-08-01
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-19       1.0            zeh            新增 BMI160 vendor 专用驱动接口
+ * 2026-08-01       2.0            zeh            vendor 内部契约变更：I2C 路径以
+ *                                                `const bm_hal_i2c_t *bus` 替代
+ *                                                bus_id/sda_gpio/scl_gpio 字段
+ *                                                （端口/引脚/速率由 I2C 总线设备
+ *                                                实例承载）；bus_id/clock_hz 仅
+ *                                                保留 SPI 语义
  *
  */
 #ifndef BM_VENDOR_BMI160_ESP32_IDF_H
@@ -25,6 +31,7 @@
 #include <stdint.h>
 
 #include "bm_types.h"
+#include "bm_hal_i2c.h"
 
 /**
  * @brief BMI160 默认 I2C 地址（SDO/SA0 接 GND）。
@@ -85,21 +92,20 @@ typedef enum bm_vendor_bmi160_bus_type {
 /**
  * @brief BMI160 板级/应用侧显式配置。
  *
- * 对于 I2C，使用 bus_id 作为 I2C 控制器号，sda_gpio/scl_gpio/address 生效；
- * 对于 SPI，使用 bus_id 作为 SPI host，cs_gpio/mosi_gpio/miso_gpio/sck_gpio 生效。
- * int1_gpio/int2_gpio 仅作为保留字段，不参与当前轮询读取路径。
+ * 对于 I2C，使用 `bus` 指向的 I2C 总线设备实例（如 bm_hal_i2c_1），
+ * address 生效；端口/引脚/速率由总线实例的后端配置承载。
+ * 对于 SPI，使用 bus_id 作为 SPI host，cs_gpio/mosi_gpio/miso_gpio/sck_gpio
+ * 生效。int1_gpio/int2_gpio 仅作为保留字段，不参与当前轮询读取路径。
  */
 typedef struct bm_vendor_bmi160_config {
     /** @brief 主接口类型。 */
     bm_vendor_bmi160_bus_type_t bus_type;
-    /** @brief 总线编号：I2C port 或 SPI host。 */
+    /** @brief I2C 总线设备实例（仅 I2C 生效，不得为 NULL）。 */
+    const bm_hal_i2c_t *bus;
+    /** @brief SPI host 编号（仅 SPI 生效）。 */
     uint32_t bus_id;
-    /** @brief 总线时钟（Hz）。I2C 默认建议 400k，SPI 默认建议 1MHz。 */
+    /** @brief SPI 总线时钟（Hz，仅 SPI 生效，默认建议 1MHz）。 */
     uint32_t clock_hz;
-    /** @brief I2C SDA 引脚（仅 I2C 生效）。 */
-    int sda_gpio;
-    /** @brief I2C SCL 引脚（仅 I2C 生效）。 */
-    int scl_gpio;
     /** @brief SPI CS 引脚（仅 SPI 生效）。 */
     int cs_gpio;
     /** @brief SPI MOSI 引脚（仅 SPI 生效）。 */

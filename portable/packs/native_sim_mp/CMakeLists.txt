@@ -24,7 +24,8 @@ target_compile_definitions(bm_backend_native_sim_mp PUBLIC
     BM_NATIVE_SIM_CPU_LOCAL_CRITICAL=1
     BM_NATIVE_SIM_TIMER_CPU_LOCAL=1
     BM_DRV_HAS_BACKEND
-    BM_DRV_HAS_NVS_BACKEND)
+    BM_DRV_HAS_NVS_BACKEND
+    BM_HAL_DEVICES_HEADER="bm_hal_devices_native.h")
 target_compile_options(bm_backend_native_sim_mp PUBLIC
     "$<$<C_COMPILER_ID:MSVC>:/utf-8>")
 target_include_directories(bm_backend_native_sim_mp PUBLIC

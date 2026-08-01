@@ -8,7 +8,8 @@ add_subdirectory(${BM_FRAMEWORK_ROOT}/portable/vendor/stm32g4 _bm_vendor_stm32g4
 add_library(bm_backend_sdk_stm32g4 INTERFACE)
 target_compile_definitions(bm_backend_sdk_stm32g4 INTERFACE
     BM_DRV_HAS_BACKEND
-    BM_HAL_HAS_PRIORITY_MASK=1)
+    BM_HAL_HAS_PRIORITY_MASK=1
+    BM_HAL_DEVICES_HEADER="bm_hal_devices_stm32g4.h")
 target_link_libraries(bm_backend_sdk_stm32g4 INTERFACE
     bm_config
     bm_port_arch_armv7em

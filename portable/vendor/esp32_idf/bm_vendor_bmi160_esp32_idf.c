@@ -3,14 +3,15 @@
  * @file bm_vendor_bmi160_esp32_idf.c
  * @brief ESP32-WROOM-32E vendor 专用 BMI160 硬件 I2C 实现（LL 裸机）
  *
- * BMI160 与 M0 AS5600 共用 I2C_NUM_1（SDA=GPIO19, SCL=GPIO18），
+ * BMI160 与 M0 AS5600 共用 bm_hal_i2c_1（I2C_NUM_1，SDA=GPIO19, SCL=GPIO18），
  * 实际板级地址为 0x69（SDO/SA0 接 VDDIO）。
- * 本实现通过 bm_vendor_i2c_esp32_idf 的 LL 寄存器级接口通信，
+ * 本实现经框架 I2C 总线设备（bm_hal_i2c_write / bm_hal_i2c_write_read）
+ * 通信，底层为 bm_vendor_i2c_esp32_idf 的 LL 寄存器级原语，
  * 零 FreeRTOS 依赖；复位/上电等待用 esp_rom_delay_us 实现有界忙等。
  *
  * @author zeh (china_qzh@163.com)
- * @version 2.2
- * @date 2026-06-21
+ * @version 2.3
+ * @date 2026-08-01
  *
  * @par 修改日志:
  *
@@ -21,10 +22,12 @@
  * 2026-06-21       2.1            zeh         删除 FreeRTOS 依赖，vTaskDelay→esp_rom_delay_us
  * 2026-06-21       2.2            zeh         I2C 默认时钟 100k→400k，与 M0 AS5600
  *                                                共线统一 400kHz
+ * 2026-08-01       2.3            zeh         vendor 内部契约变更：I2C 路径改调
+ *                                                bm_hal_i2c_write / bm_hal_i2c_write_read
+ *                                                （config.bus），删除端口初始化
+ *                                                （懒初始化上移 I2C 总线后端）
  */
 #include "bm_vendor_bmi160_esp32_idf.h"
-#include "bm_vendor_i2c_esp32_idf.h"
-#include "bm_hal_instances_esp32wroom32e.h"
 #include "bm_types.h"
 
 #include <string.h>
@@ -50,13 +53,10 @@ static void bm_vendor_bmi160_normalize_config(const bm_vendor_bmi160_config_t *c
     if (out->address == 0u) {
         out->address = BM_VENDOR_BMI160_I2C_ADDR_DEFAULT;
     }
-    if (out->clock_hz == 0u) {
-        /*
-         * I2C1 与 M0 AS5600 共线。底层 I2C 已加入 7 周期 glitch 滤波并经真机
-         * 验证，电机出波期间 400 kHz（fast mode）已稳定；与 M0 AS5600 共用
-         * I2C1，统一 400 kHz，避免共线速率不一致。SPI 默认 1 MHz。
-         */
-        out->clock_hz = (out->bus_type == BM_VENDOR_BMI160_BUS_SPI) ? 1000000u : 400000u;
+    if (out->clock_hz == 0u && out->bus_type == BM_VENDOR_BMI160_BUS_SPI) {
+        /* I2C 速率由总线设备实例的后端配置承载（I2C1 与 M0 AS5600 共线
+         * 统一 400 kHz）；clock_hz 仅保留 SPI 语义，默认 1 MHz。 */
+        out->clock_hz = 1000000u;
     }
     if (out->acc_conf == 0u) {
         out->acc_conf = BM_VENDOR_BMI160_DEFAULT_ACC_CONF;
@@ -100,8 +100,7 @@ static int bm_vendor_bmi160_write_reg(const bm_vendor_bmi160_handle_t *handle,
 
     buf[0] = reg;
     buf[1] = value;
-    return bm_vendor_i2c_write((i2c_port_t)cfg->bus_id, cfg->address,
-                               buf, 2u, 0u);
+    return bm_hal_i2c_write(cfg->bus, cfg->address, buf, 2u);
 }
 
 /**
@@ -119,8 +118,8 @@ static int bm_vendor_bmi160_read_regs(const bm_vendor_bmi160_handle_t *handle,
         return BM_ERR_NOT_SUPPORTED;
     }
 
-    return bm_vendor_i2c_write_read((i2c_port_t)cfg->bus_id, cfg->address,
-                                    &reg, 1u, buf, len, 0u);
+    return bm_hal_i2c_write_read(cfg->bus, cfg->address,
+                                 &reg, 1u, buf, len);
 }
 
 /**
@@ -140,16 +139,11 @@ int bm_vendor_bmi160_init(bm_vendor_bmi160_handle_t *handle,
     if (cfg.bus_type != BM_VENDOR_BMI160_BUS_I2C) {
         return BM_ERR_NOT_SUPPORTED;
     }
-
-    /* 初始化共享 I2C 端口（与 M0 AS5600 共用）。 */
-    rc = bm_vendor_i2c_port_init((i2c_port_t)cfg.bus_id,
-                                 (gpio_num_t)cfg.sda_gpio,
-                                 (gpio_num_t)cfg.scl_gpio,
-                                 cfg.clock_hz);
-    if (rc != BM_OK) {
-        return rc;
+    if (cfg.bus == NULL) {
+        return BM_ERR_INVALID;
     }
 
+    /* 端口初始化由 I2C 总线后端首笔事务幂等懒初始化完成，此处不再调用。 */
     handle->config = cfg;
 
     /* 软复位；BMI160 datasheet 要求复位后等待 ≥ 1 ms（保守取 10 ms）。 */

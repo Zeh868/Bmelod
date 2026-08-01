@@ -25,10 +25,22 @@
  *    对 event/ultra/mempool 的 fail-closed 拦截依赖该上下文标记；非掩码
  *    模式仅维护计数，零行为差异。参考实现：
  *    `portable/vendor/stm32g4/bm_vendor_adc_stm32g4.c` 的 ADC1_2_IRQHandler。
+ * 7. 实例出口：新后端须在后端 include 目录提供 `bm_hal_devices_<backend>.h`
+ *    （`#include` 既有实例头聚合声明 + `bm_<class>_default` 首选实例别名，
+ *    某类无实例则不定义别名），并在对应 pack 向应用编译单元 PUBLIC 注入
+ *    `BM_HAL_DEVICES_HEADER="bm_hal_devices_<backend>.h"`；应用只 include
+ *    `hal/bm_hal_devices.h`。参考 `portable/sim/native/bm_hal_devices_native.h`
+ *    与 `docs/03-移植与IDE集成/01-HAL契约与移植要点.md` 实例出口约定一节。
+ * 8. NVS 后端：凡编入 NVS 实现的 pack，必须向已创建的 `bm_hal` 目标
+ *    PRIVATE 注入 `BM_DRV_HAS_NVS_BACKEND`（backend 的 PUBLIC 定义不会
+ *    逆向传播到 bm_hal 编译单元）——该宏同时是 `bm_persist.c` 编译期门与
+ *    `Source/hal/bm_hal_nvs.c` fail-closed 桩的守卫，漏注入会导致
+ *    persist 裁剪而桩生效（返回 BM_ERR_NOT_INIT）的口径分叉。参考
+ *    `portable/packs/native_sim/CMakeLists.txt`。
  *
  * @author zeh (china_qzh@163.com)
- * @version 2.3
- * @date 2026-07-31
+ * @version 2.4
+ * @date 2026-08-01
  *
  * @par 修改日志:
  *
@@ -38,6 +50,9 @@
  * 2026-07-11       2.2            zeh            timer_isr 补 ISR FPU 守卫调用示范（bm_arch_isr_fpu.h）
  * 2026-07-31       2.3            zeh            补 Hardware HRT 端口 bm_hrt_isr_enter/exit
  *                                                接线契约说明（要点 6 与示范代码）
+ * 2026-08-01       2.4            zeh            补实例出口（devices 头 + pack 宏注入）
+ *                                                与 NVS pack 宏注入两条落地清单
+ *                                                （要点 7、8）
  *
  */
 #include <stddef.h>

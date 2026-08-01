@@ -9,6 +9,8 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
+ * 2026-08-01       1.1            zeh            迁移实例出口（hal/bm_hal_devices.h +
+ *                                               bm_pwm_default 别名，SIM1/SIM2 原名保留）
  *
  */
 #include "bm_exec.h"
@@ -17,7 +19,7 @@
 #include "bm_sync.h"
 #include "hybrid_print.h"
 
-#include "bm_hal_pwm_sim.h"
+#include "hal/bm_hal_devices.h"
 #include "hal/bm_hal_timer.h"
 #include "hal/bm_hal_uart.h"
 
@@ -97,7 +99,7 @@ static const bm_exec_slot_t g_axis_slot[] = {
         .claims = NULL, .claim_count = 0u, .ops = &g_axis_ops \
     }
 
-DEFINE_AXIS(1, &BM_HAL_PWM_SIM0, &g_axis_state[0]);
+DEFINE_AXIS(1, &bm_pwm_default, &g_axis_state[0]);
 DEFINE_AXIS(2, &BM_HAL_PWM_SIM1, &g_axis_state[1]);
 DEFINE_AXIS(3, &BM_HAL_PWM_SIM2, &g_axis_state[2]);
 

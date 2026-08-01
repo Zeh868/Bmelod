@@ -21,6 +21,10 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-25       1.0            zeh            初稿，从 closed_loop_servo 移植 bm_bus 三 mode
+ * 2026-08-01       1.1            zeh            迁移实例出口（hal/bm_hal_devices.h +
+ *                                               bm_pwm_default/bm_adc_default 别名）；
+ *                                               native 下 ticker 时间基改随仿真 tick
+ *                                               推进虚拟时钟（确定性验收）
  *
  */
 #include "app_bus_servo.h"
@@ -35,13 +39,13 @@
 #include "bm_ticker.h"
 #include "hybrid_print.h"
 
-#include "bm_hal_adc_sim.h"
-#include "bm_hal_pwm_sim.h"
+#include "hal/bm_hal_devices.h"
 #include "hal/bm_hal_timer.h"
 #include "hal/bm_hal_uart.h"
 
 #ifdef NATIVE_SIM
 #include "bm_hal_timer_native.h"
+#include "bm_hal_uptime_native.h"
 #endif
 #ifdef BM_EXAMPLE_QEMU
 #include "qemu_delay.h"
@@ -331,7 +335,7 @@ static void plant_step(float duty) {
     if (g_plant_velocity_rad_s < 0.0f) {
         g_plant_velocity_rad_s = 0.0f;
     }
-    bm_hal_adc_sim_set_rank(&BM_HAL_ADC_SIM0, 0u,
+    bm_hal_adc_sim_set_rank(&bm_adc_default, 0u,
                              velocity_to_adc(g_plant_velocity_rad_s));
 }
 
@@ -380,7 +384,7 @@ static void bus_servo_control_step(const bm_exec_t *instance) {
     /* --- 故障命令：安全停机并复位算法状态 --- */
     if ((s_last_cmd.status & BUS_SERVO_CMD_STATUS_FAULT) != 0u) {
         state->fault_latched = 1;
-        bm_hal_pwm_request_safe_state(&BM_HAL_PWM_SIM0);
+        bm_hal_pwm_request_safe_state(&bm_pwm_default);
         bm_algo_pi_reset(&g_pi_state, 0.0f);
         bm_algo_ramp_reset(&g_ramp_state, g_plant_velocity_rad_s);
         plant_step(0.0f);
@@ -417,15 +421,15 @@ static void bus_servo_control_step(const bm_exec_t *instance) {
     /* --- 未使能：零输出 --- */
     if ((s_last_cmd.status & BUS_SERVO_CMD_STATUS_ENABLED) == 0u) {
         plant_step(0.0f);
-        (void)bm_hal_pwm_set_duty(&BM_HAL_PWM_SIM0, 0u, 0u);
+        (void)bm_hal_pwm_set_duty(&bm_pwm_default, 0u, 0u);
         state->loop_count++;
         return;
     }
 
     /* --- 正常运行：ADC → ramp → PI → plant → PWM --- */
-    if (bm_hal_adc_read_injected(&BM_HAL_ADC_SIM0, 0u, &adc_raw) != BM_OK) {
+    if (bm_hal_adc_read_injected(&bm_adc_default, 0u, &adc_raw) != BM_OK) {
         BM_LOGW(TAG, "ADC read failed, request safe state");
-        bm_hal_pwm_request_safe_state(&BM_HAL_PWM_SIM0);
+        bm_hal_pwm_request_safe_state(&bm_pwm_default);
         state->fault_latched = 1;
         state->fault_count++;
         return;
@@ -441,7 +445,7 @@ static void bus_servo_control_step(const bm_exec_t *instance) {
 
     plant_step(duty_f);
     duty_pwm = (uint16_t)(duty_f * (float)SERVO_PWM_MAX);
-    (void)bm_hal_pwm_set_duty(&BM_HAL_PWM_SIM0, 0u, duty_pwm);
+    (void)bm_hal_pwm_set_duty(&bm_pwm_default, 0u, duty_pwm);
 
     /* 更新运行时状态 */
     state->velocity_meas_rad_s = velocity_meas;
@@ -495,7 +499,7 @@ static int bus_servo_init(const bm_exec_t *instance) {
     bm_algo_ramp_reset(&g_ramp_state, 0.0f);
     bm_algo_pi_reset(&g_pi_state, 0.0f);
     g_plant_velocity_rad_s = 0.0f;
-    bm_hal_adc_sim_set_rank(&BM_HAL_ADC_SIM0, 0u, 0u);
+    bm_hal_adc_sim_set_rank(&bm_adc_default, 0u, 0u);
     BM_LOGD(TAG, "bus_servo axis init");
     return BM_OK;
 }
@@ -508,7 +512,7 @@ static int bus_servo_init(const bm_exec_t *instance) {
  */
 static int bus_servo_start(const bm_exec_t *instance) {
     (void)instance;
-    return bm_hal_pwm_enable_outputs(&BM_HAL_PWM_SIM0, 1);
+    return bm_hal_pwm_enable_outputs(&bm_pwm_default, 1);
 }
 
 /**
@@ -518,7 +522,7 @@ static int bus_servo_start(const bm_exec_t *instance) {
  */
 static void bus_servo_safe_stop(const bm_exec_t *instance) {
     (void)instance;
-    bm_hal_pwm_request_safe_state(&BM_HAL_PWM_SIM0);
+    bm_hal_pwm_request_safe_state(&bm_pwm_default);
 }
 
 /** bm_exec ops 表 */
@@ -597,6 +601,9 @@ static void run_sim(uint32_t cycles) {
     for (i = 0u; i < cycles; ++i) {
 #ifdef NATIVE_SIM
         bm_hal_timer_native_advance_ticks(1u);
+        /* ticker 时间基为 bm_uptime_us（#9-2b），native 下与仿真 tick
+         * 同步推进虚拟时钟，避免依赖墙钟速度（确定性验收） */
+        bm_hal_uptime_native_advance_us(BM_CONFIG_HRT_TICK_US);
 #elif defined(BM_EXAMPLE_QEMU)
         {
             uint32_t s;
@@ -702,6 +709,11 @@ int main(void) {
 
     /* --- Step 3：定时器初始化 --- */
     (void)bm_hal_timer_init(1000000u / BM_CONFIG_HRT_TICK_US);
+#ifdef NATIVE_SIM
+    /* 纯虚拟时钟：ticker/uptime 只随 run_sim 的仿真 tick 推进（确定性） */
+    bm_hal_uptime_native_set_virtual(1);
+    bm_hal_uptime_native_reset();
+#endif
 
     /* --- Step 4：exec 初始化与启动 --- */
     rc = bm_exec_init_all(g_instances, 1u);
@@ -777,10 +789,10 @@ int main(void) {
 #endif
 
     if (g_bus_servo_axis_state.fault_latched == 0 ||
-        bm_hal_pwm_sim_outputs_enabled(&BM_HAL_PWM_SIM0)) {
+        bm_hal_pwm_sim_outputs_enabled(&bm_pwm_default)) {
         BM_LOGE(TAG, "fault path failed: latched=%d pwm=%d",
                 g_bus_servo_axis_state.fault_latched,
-                bm_hal_pwm_sim_outputs_enabled(&BM_HAL_PWM_SIM0));
+                bm_hal_pwm_sim_outputs_enabled(&bm_pwm_default));
         hybrid_print("EXAMPLE_BUS_SERVO: FAIL fault\n");
         bm_exec_safe_stop_all(g_instances, 1u);
         return 1;

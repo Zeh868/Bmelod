@@ -23,7 +23,8 @@ target_include_directories(bm_backend_native_sim PUBLIC
     ${_BM_SIM_NATIVE})
 target_compile_definitions(bm_backend_native_sim PUBLIC
     BM_DRV_HAS_BACKEND
-    BM_DRV_HAS_NVS_BACKEND)
+    BM_DRV_HAS_NVS_BACKEND
+    BM_HAL_DEVICES_HEADER="bm_hal_devices_native.h")
 target_link_libraries(bm_backend_native_sim PUBLIC bm_config)
 bm_target_internal_includes(bm_backend_native_sim)
 

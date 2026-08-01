@@ -87,6 +87,49 @@ PWM/ADC/COMP/Encoder 契约头文件：`bm_hal_pwm.h`、`bm_hal_adc.h` 等。
 接口批 1 新增：`bm_hal_gpio.h`（整芯片单设备，pin 编码 `(port<<4)|num`，
 无中断/AF 配置）、`bm_hal_spi.h`（阻塞全双工 transfer + 可选
 `transfer_async`，config 含时钟/模式/CS GPIO）。
+接口批 2 新增：`bm_hal_i2c.h`（阻塞同步事务 `write` / `read` /
+`write_read`，7-bit 地址不含 R/W 位；v1 刻意不做异步/ISR 事务、
+10-bit 地址与 SMBus，对齐 SPI 裁减原则）。ESP32 后端导出
+`bm_hal_i2c_0` / `bm_hal_i2c_1` 两个总线设备实例（
+`portable/vendor/esp32_idf/bm_hal_i2c_esp32_idf.h`），端口/引脚/速率
+由后端扩展配置（首成员为契约级 `bm_i2c_config_t`）承载，首笔事务
+幂等懒初始化端口；AS5600 编码器与 BMI160 已迁移为该总线的消费方。
+
+## 实例出口约定（devices 头 + default 别名）
+
+应用不 include 后端私有实例头、不写死后端实例符号名（三套并存：
+native 大写 `BM_HAL_PWM_SIM0`、vendor 小写 `bm_hal_pwm_m0`、STM32G4
+`bm_stm32g4_*`）。统一入口：
+
+```c
+#include "hal/bm_hal_devices.h"   /* 框架公开头，唯一应用入口 */
+
+bm_hal_pwm_set_duty(&bm_pwm_default, 0u, duty);   /* 后端首选实例别名 */
+bm_hal_adc_read_injected(&bm_adc_default, 0u, &raw);
+```
+
+机制：`include/hal/bm_hal_devices.h` 展开 `#ifdef
+BM_HAL_DEVICES_HEADER` 守卫的 `#include BM_HAL_DEVICES_HEADER`；该宏由
+后端 pack 以 PUBLIC 编译定义注入（如
+`BM_HAL_DEVICES_HEADER="bm_hal_devices_native.h"`），只对应用编译单元
+生效（PUBLIC 宏不逆向传播到已创建的 `bm_hal`）。各后端的
+`bm_hal_devices_<backend>.h`（放后端既有 include 目录）
+`#include` 既有实例头聚合全部实例声明（不重复 extern 声明），并提供
+`bm_<class>_default` 宏别名指向板级首选实例；某类无实例则不定义别名，
+应用误用为编译期报错（fail-closed）。`bm_uart_default` /
+`bm_can_default` 在 native 为后端既有真实符号，效果一致。
+已落地：`bm_hal_devices_native.h`、`bm_hal_devices_stm32g4.h`、
+`bm_hal_devices_esp32_idf.h`，四个 pack（native_sim、native_sim_mp、
+sdk_stm32g4、sdk_esp32_idf）均已注入宏。
+
+后端落地要求：
+
+- **定义实例统一用 `BM_DEVICE_DEFINE(name, bm_hal_<class>_t, &api, &cfg)`**
+  （`include/drv/bm_drv.h`），实例为 `const`，占 Flash；
+- **多实例推荐 CAN 模式**：一张 api 表 + 多份 config 实例
+  （`bm_hal_can_stm32g4.c` 同表多 config）；USART 逐文件各一表的
+  模式（`bm_vendor_uart_dev_stm32g4.c` vs `bm_vendor_usart3_stm32g4.c`）
+  为遗留，不推荐新代码仿效。
 
 **UART 统一实例模型**：`bm_hal_uart_init(const bm_hal_uart_t *uart, …)`
 四函数全部实例化，无单例全局符号；每个后端导出一个默认控制台设备

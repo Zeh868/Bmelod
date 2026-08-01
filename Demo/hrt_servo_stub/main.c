@@ -9,6 +9,11 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
+ * 2026-08-01       1.1            zeh            迁移实例出口（hal/bm_hal_devices.h +
+ *                                               bm_pwm_default/bm_adc_default 别名）；
+ *                                               g_servo 改指定初始化对齐 struct bm_exec；
+ *                                               native 下 ticker 时间基改随仿真 tick
+ *                                               推进虚拟时钟
  *
  */
 #include "bm_exec.h"
@@ -19,13 +24,13 @@
 #include "bm_ticker.h"
 #include "hybrid_print.h"
 
-#include "bm_hal_adc_sim.h"
-#include "bm_hal_pwm_sim.h"
+#include "hal/bm_hal_devices.h"
 #include "hal/bm_hal_timer.h"
 #include "hal/bm_hal_uart.h"
 
 #ifdef NATIVE_SIM
 #include "bm_hal_timer_native.h"
+#include "bm_hal_uptime_native.h"
 #endif
 #ifdef BM_EXAMPLE_QEMU
 #include "qemu_delay.h"
@@ -51,14 +56,14 @@ static void current_step(const bm_exec_t *instance) {
     servo_state_t *state = (servo_state_t *)instance->state;
     uint16_t sample = 0u;
 
-    if (bm_hal_adc_read_injected(&BM_HAL_ADC_SIM0, 0u, &sample) != BM_OK) {
+    if (bm_hal_adc_read_injected(&bm_adc_default, 0u, &sample) != BM_OK) {
         BM_LOGW(TAG, "ADC read failed, request safe state");
-        bm_hal_pwm_request_safe_state(&BM_HAL_PWM_SIM0);
+        bm_hal_pwm_request_safe_state(&bm_pwm_default);
         return;
     }
 
     state->duty = (uint16_t)((sample + state->current_hits) % 1000u);
-    (void)bm_hal_pwm_set_duty(&BM_HAL_PWM_SIM0, 0u, state->duty);
+    (void)bm_hal_pwm_set_duty(&bm_pwm_default, 0u, state->duty);
     state->current_hits++;
 }
 
@@ -73,12 +78,12 @@ static void speed_step(const bm_exec_t *instance) {
 static int bind_adc(const bm_exec_t *instance,
                     const bm_hal_hrt_binding_t *binding) {
     (void)instance;
-    return bm_hal_adc_bind_complete(&BM_HAL_ADC_SIM0, binding);
+    return bm_hal_adc_bind_complete(&bm_adc_default, binding);
 }
 
 static int servo_init(const bm_exec_t *instance) {
     (void)instance;
-    bm_hal_adc_sim_set_rank(&BM_HAL_ADC_SIM0, 0u, 512u);
+    bm_hal_adc_sim_set_rank(&bm_adc_default, 0u, 512u);
     BM_LOGD(TAG, "servo init, ADC rank=512");
     return BM_OK;
 }
@@ -86,13 +91,13 @@ static int servo_init(const bm_exec_t *instance) {
 static int servo_start(const bm_exec_t *instance) {
     (void)instance;
     BM_LOGI(TAG, "servo start, enable PWM outputs");
-    return bm_hal_pwm_enable_outputs(&BM_HAL_PWM_SIM0, 1);
+    return bm_hal_pwm_enable_outputs(&bm_pwm_default, 1);
 }
 
 static void servo_safe_stop(const bm_exec_t *instance) {
     (void)instance;
     BM_LOGW(TAG, "servo safe stop");
-    bm_hal_pwm_request_safe_state(&BM_HAL_PWM_SIM0);
+    bm_hal_pwm_request_safe_state(&bm_pwm_default);
 }
 
 static const bm_exec_ops_t g_servo_ops = {
@@ -116,17 +121,14 @@ static const bm_exec_slot_t g_servo_slots[] = {
     }
 };
 
+/* 指定初始化对齐 struct bm_exec 字段定义（含 owner_cpu），
+ * 与 multi_axis_sync 同一修复范式 */
 static const bm_exec_t g_servo = {
-    1u,
-    "servo",
-    &g_servo_state,
-    NULL,
-    NULL,
-    g_servo_slots,
-    (uint32_t)(sizeof(g_servo_slots) / sizeof(g_servo_slots[0])),
-    NULL,
-    0u,
-    &g_servo_ops
+    .id = 1u, .owner_cpu = 0u, .name = "servo",
+    .state = &g_servo_state, .config = NULL, .resources = NULL,
+    .slots = g_servo_slots,
+    .slot_count = (uint32_t)(sizeof(g_servo_slots) / sizeof(g_servo_slots[0])),
+    .claims = NULL, .claim_count = 0u, .ops = &g_servo_ops
 };
 
 static const bm_exec_t *const g_instances[] = { &g_servo };
@@ -150,6 +152,9 @@ static int run_cycles(uint32_t cycles) {
     for (i = 0u; i < cycles; ++i) {
 #ifdef NATIVE_SIM
         bm_hal_timer_native_advance_ticks(1u);
+        /* ticker 时间基为 bm_uptime_us（#9-2b），native 下与仿真 tick
+         * （10000 Hz → 100 µs/tick）同步推进虚拟时钟，避免依赖墙钟速度 */
+        bm_hal_uptime_native_advance_us(100u);
 #elif defined(BM_EXAMPLE_QEMU)
         bm_example_qemu_spin();
 #else
@@ -161,7 +166,7 @@ static int run_cycles(uint32_t cycles) {
 #else
         if ((i % 10u) == 0u) {
 #endif
-            bm_hal_adc_sim_fire_complete(&BM_HAL_ADC_SIM0);
+            bm_hal_adc_sim_fire_complete(&bm_adc_default);
         }
         (void)bm_ticker_poll();
         (void)bm_event_process(16u);
@@ -182,6 +187,11 @@ int main(void) {
     }
 
     (void)bm_hal_timer_init(10000u);
+#ifdef NATIVE_SIM
+    /* 纯虚拟时钟：ticker/uptime 只随 run_cycles 的仿真 tick 推进（确定性） */
+    bm_hal_uptime_native_set_virtual(1);
+    bm_hal_uptime_native_reset();
+#endif
 
     rc = bm_exec_init_all(g_instances,
                           (uint32_t)(sizeof(g_instances) / sizeof(g_instances[0])));

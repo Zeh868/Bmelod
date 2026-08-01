@@ -26,7 +26,9 @@ function(bm_demo_apply_native_sim_example_flags)
 
     set(BM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(BM_ENABLE_MODULE ${EXAMPLE_ENABLE_MODULE} CACHE BOOL "" FORCE)
-    set(BM_ENABLE_SHELL OFF CACHE BOOL "" FORCE)
+    # 与 qemu_example.cmake 同构：尊重示例声明的 EXAMPLE_ENABLE_SHELL
+    # （bus_servo 链接 bm_shell；未声明的示例该变量为空 → OFF）
+    set(BM_ENABLE_SHELL ${EXAMPLE_ENABLE_SHELL} CACHE BOOL "" FORCE)
     set(BM_ENABLE_WDG ${EXAMPLE_ENABLE_WDG} CACHE BOOL "" FORCE)
     set(BM_ENABLE_HRT ${EXAMPLE_ENABLE_HRT} CACHE BOOL "" FORCE)
     set(BM_ENABLE_TICKER ${EXAMPLE_ENABLE_TICKER} CACHE BOOL "" FORCE)

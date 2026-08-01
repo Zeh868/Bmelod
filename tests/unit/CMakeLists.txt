@@ -93,6 +93,14 @@ bm_add_test_special(
     LIBS bm_config
     DEFS BM_DRV_HAS_BACKEND)
 
+# NVS 无后端宏守卫桩：只编 bm_hal_nvs.c + 测试源，不注入
+# BM_DRV_HAS_NVS_BACKEND、不链接任何 NVS 后端 → 桩生效返回 NOT_INIT；
+# 有后端路径零回归由 test_persist（native 强符号照常链接）保证。
+bm_add_test_special(
+    NAME test_hal_nvs_stub
+    SRCS test_hal_nvs_stub.c ${CMAKE_SOURCE_DIR}/Source/hal/bm_hal_nvs.c
+    LIBS bm_config)
+
 # NVS 双槽格式（平台无关核心，host 测损坏槽/半写/序号）
 bm_add_test_special(
     NAME test_nvs_dual_slot
@@ -537,6 +545,10 @@ target_include_directories(test_hal_dma_stream PRIVATE
 
 # 接口批 1 分发层边界（GPIO/SPI/UART-dev：无后端 NOT_INIT + 参数校验）
 bm_add_test(test_hal_dispatch test_hal_dispatch.c bm_hal)
+
+# 接口批 2 I2C 分发层边界（NOT_INIT/INVALID/fake api 参数透传，O(1) 有界）
+bm_add_test(test_hal_i2c test_hal_i2c.c bm_hal)
+set_tests_properties(test_hal_i2c PROPERTIES LABELS "determinism")
 
 # CPU 主频 HAL 接口机制单测（freq_hz/freq_points/freq_set）
 # 该测试验证的是单核桩（bm_hal_cpu_stub.c）的主频机制，三个符号仅由桩提供；
