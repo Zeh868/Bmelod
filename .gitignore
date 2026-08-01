@@ -72,6 +72,10 @@ docs/zh-CN/90-学习资源/
 Testing/
 
 ideas/
+
+# 本地商业化思路/计划/演进（勿提交；见 commercial/README.md）
+commercial/
+
 # docs/plan and docs/design are part of the project deliverables
 # docs/plan
 # docs/design
