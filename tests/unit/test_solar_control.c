@@ -3,17 +3,19 @@
  * @brief solar_control 组件单元测试
  *
  * 覆盖 MPPT P&O 步进跟踪、限功率降额、power=0 边界、
- * validate_config 非法配置拒绝以及 exec_ops 生命周期。
+ * validate_config 非法配置拒绝、exec_ops 生命周期以及
+ * CMD_ENABLED/FAULT 状态机。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-17
+ * @version 1.2
+ * @date 2026-08-01
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-17       1.0            zeh            正式发布
  * 2026-06-23       1.1            zeh            补 validate 拒绝测试、power=0 边界、exec_ops 测试
+ * 2026-08-01       1.2            zeh            补 ENABLED/FAULT 状态机用例；步进前须使能
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -52,6 +54,16 @@ static int write_vref(void *user, float v_ref_v) {
     return 0;
 }
 
+/** @brief 使能光伏控制（step 前须调用） */
+static void enable_axis(bm_solar_control_axis_t *axis) {
+    bm_solar_ctrl_cmd_t cmd;
+
+    memset(&cmd, 0, sizeof(cmd));
+    cmd.sequence = 1u;
+    cmd.status = BM_SOLAR_CTRL_CMD_ENABLED;
+    bm_solar_control_apply_command(axis, &cmd);
+}
+
 /**
  * @brief 构建合法的 P&O 默认轴配置
  */
@@ -85,6 +97,7 @@ void test_solar_po_tracking_vref_changes(void) {
 
     build_default_axis(&axis);
     TEST_ASSERT_EQUAL(BM_OK, bm_solar_control_init(&axis));
+    enable_axis(&axis);
 
     v_ref_before = axis.state.v_ref_v;
     bm_solar_control_step(&axis);
@@ -110,6 +123,7 @@ void test_solar_power_limit_flags_limited(void) {
     axis.config.power_limit_w = 30.0f;
     /* g_voltage=18, g_current=2 => power=36W > 30W */
     TEST_ASSERT_EQUAL(BM_OK, bm_solar_control_init(&axis));
+    enable_axis(&axis);
     bm_solar_control_step(&axis);
 
     TEST_ASSERT_NOT_EQUAL(0u, axis.state.telemetry.status & BM_SOLAR_CTRL_TEL_LIMITED);
@@ -128,6 +142,7 @@ void test_solar_power_zero_no_limit_flag(void) {
     axis.config.power_limit_w = 30.0f;
     g_current = 0.0f; /* power = 18 * 0 = 0 */
     TEST_ASSERT_EQUAL(BM_OK, bm_solar_control_init(&axis));
+    enable_axis(&axis);
     bm_solar_control_step(&axis);
 
     /* power=0 不超过限制，不应标记 LIMITED */
@@ -136,22 +151,74 @@ void test_solar_power_zero_no_limit_flag(void) {
 }
 
 /* ================================================================
- * 测试 4：read_iv 失败时打 STALE，不更新 v_ref
+ * 测试 4：read_iv 失败时锁存故障，打 STALE|FAULT，v_ref 置零
  * ================================================================ */
 void test_solar_read_fail_marks_stale(void) {
     bm_solar_control_axis_t axis;
-    float v_ref_after_init;
 
     build_default_axis(&axis);
     TEST_ASSERT_EQUAL(BM_OK, bm_solar_control_init(&axis));
-    v_ref_after_init = axis.state.v_ref_v;
+    enable_axis(&axis);
 
     g_read_fail = 1;
     bm_solar_control_step(&axis);
 
+    TEST_ASSERT_EQUAL(1, axis.state.fault_latched);
     TEST_ASSERT_NOT_EQUAL(0u, axis.state.telemetry.status & BM_SOLAR_CTRL_TEL_STALE);
-    /* v_ref 不应被更新 */
-    TEST_ASSERT_EQUAL_FLOAT(v_ref_after_init, axis.state.v_ref_v);
+    TEST_ASSERT_NOT_EQUAL(0u, axis.state.telemetry.status & BM_SOLAR_CTRL_TEL_FAULT);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, axis.state.v_ref_v);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, g_vref_out);
+}
+
+/* ================================================================
+ * 测试 4b：默认未使能无输出
+ * ================================================================ */
+void test_solar_default_disabled_no_output(void) {
+    bm_solar_control_axis_t axis;
+
+    build_default_axis(&axis);
+    TEST_ASSERT_EQUAL(BM_OK, bm_solar_control_init(&axis));
+    g_vref_out = 99.0f;
+    bm_solar_control_step(&axis);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, g_vref_out);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, axis.state.v_ref_v);
+}
+
+/* ================================================================
+ * 测试 4c：FAULT 锁存；reset 清故障
+ * ================================================================ */
+void test_solar_fault_latches_and_reset_clears(void) {
+    bm_solar_control_axis_t axis;
+    bm_solar_ctrl_cmd_t cmd;
+
+    build_default_axis(&axis);
+    TEST_ASSERT_EQUAL(BM_OK, bm_solar_control_init(&axis));
+    enable_axis(&axis);
+    bm_solar_control_step(&axis);
+    TEST_ASSERT_TRUE(g_vref_out > 0.0f);
+
+    memset(&cmd, 0, sizeof(cmd));
+    cmd.status = BM_SOLAR_CTRL_CMD_ENABLED | BM_SOLAR_CTRL_CMD_FAULT;
+    bm_solar_control_apply_command(&axis, &cmd);
+    TEST_ASSERT_EQUAL(1, axis.state.fault_latched);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, axis.state.v_ref_v);
+
+    bm_solar_control_reset(&axis);
+    TEST_ASSERT_EQUAL(0, axis.state.fault_latched);
+    TEST_ASSERT_EQUAL_UINT32(0u, axis.state.cmd.status);
+}
+
+/* ================================================================
+ * 测试 4d：NULL 安全
+ * ================================================================ */
+void test_solar_null_safety(void) {
+    bm_solar_ctrl_cmd_t cmd;
+
+    memset(&cmd, 0, sizeof(cmd));
+    bm_solar_control_apply_command(NULL, &cmd);
+    bm_solar_control_apply_command(NULL, NULL);
+    bm_solar_control_step(NULL);
+    bm_solar_control_reset(NULL);
 }
 
 /* ================================================================
@@ -284,6 +351,9 @@ int main(void) {
     RUN_TEST(test_solar_power_limit_flags_limited);
     RUN_TEST(test_solar_power_zero_no_limit_flag);
     RUN_TEST(test_solar_read_fail_marks_stale);
+    RUN_TEST(test_solar_default_disabled_no_output);
+    RUN_TEST(test_solar_fault_latches_and_reset_clears);
+    RUN_TEST(test_solar_null_safety);
     RUN_TEST(test_solar_validate_rejects_zero_v_init);
     RUN_TEST(test_solar_validate_rejects_negative_power_limit);
     RUN_TEST(test_solar_validate_rejects_zero_step_v);

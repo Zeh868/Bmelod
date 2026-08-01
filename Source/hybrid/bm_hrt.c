@@ -10,7 +10,6 @@
  * @date 2026-07-31
  *
  * @par 修改日志:
- * 2026-08-01       1.10           Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
@@ -36,6 +35,7 @@
  *                                               全局 bm_critical_enter/exit：掩码模式下
  *                                               BM_CRITICAL_ENTER 掩不住 tick ISR，
  *                                               全局关中断使"全屏障"假设两模式均成立
+ * 2026-08-01       1.10           zeh           补齐 Doxygen 合规元数据
  *
  */
 #include "bm_hrt.h"

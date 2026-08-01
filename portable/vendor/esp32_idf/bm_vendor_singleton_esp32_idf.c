@@ -57,8 +57,7 @@
  *                                                失败 esp_rom_printf 并 return BM_ERR_IO
  *                                                fail-fast（tick 分配失败=系统无节拍，
  *                                                静默继续比崩溃更危险）
- *
- * 2026-08-01       3.7            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       3.7            zeh            补全中文 Doxygen 合规注释
  */
 #include "bm_drv_timer.h"
 #include "bm_drv_uart.h"

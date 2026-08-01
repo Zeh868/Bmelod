@@ -4,8 +4,8 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.2
- * @date 2026-07-28
+ * @version 1.4
+ * @date 2026-08-01
  *
  * @par 修改日志:
  *
@@ -13,6 +13,9 @@
  * 2026-06-14       1.0            zeh            正式发布
  * 2026-06-14       1.1            zeh            stream gate 校验用例
  * 2026-07-28       1.2            zeh            显式包含 CPU HAL 公开声明
+ * 2026-08-01       1.3            zeh            补 publish_event_forward
+ *                                                HRT 拦截用例
+ * 2026-08-01       1.4            zeh            补 drain_on_this_cpu HRT 拦截用例
  */
 #include "unity.h"
 #include "bm/mp/bm_mp.h"
@@ -20,6 +23,7 @@
 #include "bm/mp/bm_mp_schedule.h"
 #include "bm/mp/bm_mp_stream_gate.h"
 #include "bm/mp/bm_mp_profile.h"
+#include "bm/common/bm_critical_wrap.h"
 #include "bm_event.h"
 #include "bm_module.h"
 #include "bm_hal_cpu_mp_native.h"
@@ -248,6 +252,55 @@ void test_event_owner_decl_and_forwarding(void) {
     TEST_ASSERT_EQUAL_UINT8(0u, g_forwarded_event_source);
 #endif
 }
+
+#if BM_CONFIG_SMP
+/**
+ * @brief publish_event_forward 在 HRT ISR 上下文 fail-closed 为 BM_ERR_BUSY
+ *
+ * enter → forward → BUSY；exit 后同参数可成功。覆盖直调路径拦截（经
+ * bm_event 路由的路径已由 event 域统一拦截）。
+ */
+void test_ipc_publish_event_forward_rejects_in_hrt_isr(void) {
+    bm_event_t event;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_mp_init(BM_CONFIG_CPU_COUNT));
+    memset(&event, 0, sizeof(event));
+    event.type = 0u;
+    event.priority = 0u;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_hal_cpu_native_set_id(0u));
+    TEST_ASSERT_EQUAL_INT(0, bm_in_hrt_isr());
+
+    bm_hrt_isr_enter();
+    TEST_ASSERT_EQUAL(
+        BM_ERR_BUSY,
+        bm_mp_ipc_publish_event_forward(1u, &event, NULL, 0u));
+    bm_hrt_isr_exit();
+
+    TEST_ASSERT_EQUAL_INT(0, bm_in_hrt_isr());
+    TEST_ASSERT_EQUAL(
+        BM_OK,
+        bm_mp_ipc_publish_event_forward(1u, &event, NULL, 0u));
+}
+
+/**
+ * @brief drain_on_this_cpu 在 HRT ISR 上下文 fail-closed 为 BM_ERR_BUSY
+ *
+ * 与 publish_event_forward 对称：enter → drain → BUSY；exit 后可 drain。
+ */
+void test_ipc_drain_on_this_cpu_rejects_in_hrt_isr(void) {
+    TEST_ASSERT_EQUAL(BM_OK, bm_mp_init(BM_CONFIG_CPU_COUNT));
+    TEST_ASSERT_EQUAL(BM_OK, bm_hal_cpu_native_set_id(1u));
+    TEST_ASSERT_EQUAL_INT(0, bm_in_hrt_isr());
+
+    bm_hrt_isr_enter();
+    TEST_ASSERT_EQUAL(BM_ERR_BUSY, bm_mp_ipc_drain_on_this_cpu(4u));
+    bm_hrt_isr_exit();
+
+    TEST_ASSERT_EQUAL_INT(0, bm_in_hrt_isr());
+    TEST_ASSERT_TRUE(bm_mp_ipc_drain_on_this_cpu(4u) >= 0);
+}
+#endif /* BM_CONFIG_SMP */
 
 void test_ipc_event_source_seq_is_monotonic_across_ring_wrap(void) {
     bm_mp_ipc_matrix_t *matrix;
@@ -749,6 +802,10 @@ int main(void) {
     RUN_TEST(test_mp_barrier_timeout_publishes_failure);
     RUN_TEST(test_module_runtime_state_is_per_cpu);
     RUN_TEST(test_event_owner_decl_and_forwarding);
+#if BM_CONFIG_SMP
+    RUN_TEST(test_ipc_publish_event_forward_rejects_in_hrt_isr);
+    RUN_TEST(test_ipc_drain_on_this_cpu_rejects_in_hrt_isr);
+#endif
     RUN_TEST(test_ipc_event_source_seq_is_monotonic_across_ring_wrap);
     RUN_TEST(test_ipc_event_source_seq_skips_zero_on_wrap);
     RUN_TEST(test_ipc_event_drain_counts_sequence_error);

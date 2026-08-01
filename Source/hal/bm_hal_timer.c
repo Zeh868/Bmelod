@@ -16,7 +16,7 @@
  * 2026-06-14       1.0            zeh            正式发布
  * 2026-06-15       1.1            zeh            非法 CPU timer handle fail-closed
  * 2026-06-15       1.2            zeh            非法 CPU epoch 使用无效哨兵
- * 2026-08-01       1.2            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       1.2            zeh           补全 Doxygen 合规注释
  *
  */
 #include "bm_drv_timer.h"

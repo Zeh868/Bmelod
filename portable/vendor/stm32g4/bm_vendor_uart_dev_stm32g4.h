@@ -13,8 +13,7 @@
  *    Date         Version        Author          Description
  * 2026-07-27       1.0            zeh            新增（接口批 1）
  * 2026-07-28       1.1            zeh            增加 kernel_clock_hz（0=假定 PCLK1）
- *
- * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.1            zeh            补全中文 Doxygen 合规注释
  */
 #ifndef BM_VENDOR_UART_DEV_STM32G4_H
 #define BM_VENDOR_UART_DEV_STM32G4_H

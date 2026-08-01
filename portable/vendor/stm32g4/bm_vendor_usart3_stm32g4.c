@@ -49,7 +49,7 @@
  *                                                修复 IDLE/DMA ISR 与 SRT recv 多上下文抢占
  *                                                导致 produced 回退、pending 下溢回绕、
  *                                                数据重复/错乱交付的竞争；回调均在锁外
- * 2026-08-01       3.5            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       3.5            zeh            补全中文 Doxygen 合规注释
  */
 #include "bm_vendor_usart3_stm32g4.h"
 #include "bm_dma_irq_stm32g4.h"

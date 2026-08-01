@@ -23,7 +23,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-08-01       1.0            zeh            新增（P2 NVS fail-closed 宏守卫桩）
- * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       1.0            zeh           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_DRV_HAS_NVS_BACKEND

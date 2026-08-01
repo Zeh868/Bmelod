@@ -22,8 +22,7 @@
  *                                                （端口/引脚/速率由 I2C 总线设备
  *                                                实例承载）；bus_id/clock_hz 仅
  *                                                保留 SPI 语义
- *
- * 2026-08-01       2.0            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       2.0            zeh            补全中文 Doxygen 合规注释
  */
 #ifndef BM_VENDOR_BMI160_ESP32_IDF_H
 #define BM_VENDOR_BMI160_ESP32_IDF_H

@@ -25,7 +25,7 @@
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 STM32G4 USART3 后端
  * 2026-07-28       1.1            zeh            HT 不交付 FRAME_END；kernel_clock_hz
- * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.1            zeh            补全中文 Doxygen 合规注释
  */
 #ifndef BM_VENDOR_USART3_STM32G4_H
 #define BM_VENDOR_USART3_STM32G4_H

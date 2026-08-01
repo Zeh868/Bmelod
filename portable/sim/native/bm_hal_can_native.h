@@ -14,9 +14,7 @@
  * 2026-07-28       1.0            zeh            新增 native_sim CAN 后端测试辅助
  * 2026-07-28       1.1            zeh            新增 bm_hal_can_native_rx_frame
  *                                             （读取 RX 缓冲队列）
- *
- * @par ????:
- * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.1            zeh            补全中文 Doxygen 合规注释
  */
 #ifndef BM_HAL_CAN_NATIVE_H
 #define BM_HAL_CAN_NATIVE_H

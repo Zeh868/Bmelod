@@ -20,7 +20,6 @@
  * @date 2026-07-13
  *
  * @par 修改日志:
- * 2026-08-01       1.5            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-07-01       1.0            zeh            骨架发布（config+公共头+CMake，无算法实现）
@@ -39,6 +38,7 @@
  * 2026-07-13       1.5            zeh            C3/C8：注明 input/output elem_size 须与所绑
  *                                                 bus 存储一致（init 运行期校验，与 safe_default
  *                                                 非空校验一并在 bm_tt_schedule_init 落地）
+ * 2026-08-01       1.5            zeh           补齐 Doxygen 合规元数据
  *
  */
 #ifndef BM_TT_SCHEDULE_H

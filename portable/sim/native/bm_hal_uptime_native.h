@@ -27,8 +27,7 @@
  *    Date         Version        Author          Description
  * 2026-06-26       1.0            zeh            正式发布（路线图 #9 时间基统一 2a）
  * 2026-07-02       1.1            zeh            新增纯虚拟时钟开关，消除微秒级精确断言的墙钟泄漏
- *
- * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.1            zeh            补全中文 Doxygen 合规注释
  */
 #ifndef BM_HAL_UPTIME_NATIVE_H
 #define BM_HAL_UPTIME_NATIVE_H

@@ -37,8 +37,7 @@
  * 2026-07-31       1.2            zeh            update ISR 回调派发首尾成对调用
  *                                                bm_hrt_isr_enter/exit，落地 Hardware HRT
  *                                                端口的掩码模式拦截契约
- *
- * 2026-08-01       1.2            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.2            zeh            补全中文 Doxygen 合规注释
  */
 #include "bm_vendor_pwm_stm32g4.h"
 #include "bm_hal_instances_stm32g4.h"

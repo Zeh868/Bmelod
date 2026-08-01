@@ -7,11 +7,10 @@
  * 两条编译路径共享同一套队列逻辑，仅存储布局与 ultra_this() 的实现不同。
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.4
- * @date 2026-07-31
+ * @version 1.5
+ * @date 2026-08-01
  *
  * @par 修改日志:
- * 2026-08-01       1.4            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
@@ -21,7 +20,10 @@
  *                                                消除 MSVC C2233
  * 2026-07-31       1.4            zeh            掩码模式 HRT 级上下文调用
  *                                                push/pop/reset 运行期 fail-closed
+ * 2026-08-01       1.4            zeh           补齐 Doxygen 合规元数据
+ * 2026-08-01       1.5            zeh            test_inject 补 HRT FORBIDDEN
  *
+ * 2026-08-01       1.5            zeh            test_inject 补 HRT FORBIDDEN
  */
 #include "bm_ultra.h"
 #include "bm_critical_wrap.h"
@@ -353,6 +355,10 @@ int bm_ultra_test_inject(const bm_ultra_queue_item_t *item) {
     }
     if (state == NULL) {
         return BM_ERR_INVALID;
+    }
+    if (BM_SRT_QUEUE_API_FORBIDDEN()) {
+        ultra_log_hrt_reject_once("test_inject");
+        return BM_ERR_BUSY;
     }
 
     s = BM_CRITICAL_ENTER();

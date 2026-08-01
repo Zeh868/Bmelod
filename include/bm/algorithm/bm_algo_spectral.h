@@ -15,7 +15,7 @@
  * 2026-06-17       1.2            zeh            增加重叠 STFT 状态机
  * 2026-06-23       1.3            zeh            bm_algo_stft_overlap_init 注释标注 frame_size<=64 上限约束
  * 2026-07-28       1.4            zeh            明确帧就绪返回值载荷及 BM_ERR_* 错误
- * 2026-08-01       1.4            Codex          补齐公共 API 中文 Doxygen
+ * 2026-08-01       1.4            zeh          补齐公共 API 中文 Doxygen
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

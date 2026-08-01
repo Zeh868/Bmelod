@@ -10,7 +10,6 @@
  * @date 2026-07-09
  *
  * @par 修改日志:
- * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
@@ -18,6 +17,7 @@
  *                                                消除 MSVC C2233
  * 2026-07-09       1.2            zeh            boot_epoch 自增补回绕哨兵（回绕到 0
  *                                                则重置为 1），避免与"未初始化"哨兵冲突
+ * 2026-08-01       1.2            zeh           补齐 Doxygen 合规元数据
  *
  */
 #include "bm/mp/bm_mp_boot.h"

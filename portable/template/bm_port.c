@@ -44,7 +44,6 @@
  * @date 2026-08-01
  *
  * @par 修改日志:
- * 2026-08-01       2.4            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-15       2.0            zeh            组合模板：arch 头 + vendor 弱钩子
@@ -55,6 +54,7 @@
  * 2026-08-01       2.4            zeh            补实例出口（devices 头 + pack 宏注入）
  *                                                与 NVS pack 宏注入两条落地清单
  *                                                （要点 7、8）
+ * 2026-08-01       2.4            zeh           补齐 Doxygen 合规元数据
  *
  */
 #include <stddef.h>

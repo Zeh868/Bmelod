@@ -14,7 +14,7 @@
  * 2026-06-17       1.1            zeh            动态 notch 系数更新
  * 2026-07-27       1.2            zeh            新增 bm_algo_lpf1_alpha_saturate
  * 2026-07-28       1.3            zeh            状态返回文档对齐 BM_OK/BM_ERR_*
- * 2026-08-01       1.3            Codex           补全算法 API Doxygen 注释
+ * 2026-08-01       1.3            zeh           补全算法 API Doxygen 注释
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

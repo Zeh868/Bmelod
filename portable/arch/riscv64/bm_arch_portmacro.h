@@ -10,11 +10,11 @@
  * @date 2026-06-15
  *
  * @par 修改日志:
- * 2026-08-01       1.1            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
  * 2026-06-15       1.1            zeh            共享 RISC-V 宏 + BM_ARCH_DMB
+ * 2026-08-01       1.1            zeh           补齐 Doxygen 合规元数据
  *
  */
 

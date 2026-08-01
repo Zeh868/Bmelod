@@ -17,8 +17,7 @@
  *                                                （全仓无定义无调用）；实现迁往
  *                                                bm_hal_i2c 总线设备（vendor 内部契约
  *                                                变更，config 以 bus 指针替代 i2c_port）
- *
- * 2026-08-01       1.2            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.2            zeh            补全中文 Doxygen 合规注释
  */
 #ifndef BM_VENDOR_ENCODER_ESP32_IDF_H
 #define BM_VENDOR_ENCODER_ESP32_IDF_H

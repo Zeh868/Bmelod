@@ -12,7 +12,7 @@
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-23       1.1            zeh            stable_count 自增前加饱和保护，防止 uint32_t 绕回导致误复位
- * 2026-08-01       1.1            Codex          补齐公共 API 中文 Doxygen
+ * 2026-08-01       1.1            zeh          补齐公共 API 中文 Doxygen
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

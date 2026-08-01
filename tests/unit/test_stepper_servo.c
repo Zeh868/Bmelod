@@ -7,13 +7,14 @@
  * 验证位置环经脉冲链路收敛到轨迹目标。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-07-27
+ * @version 1.1
+ * @date 2026-08-01
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-07-27       1.0            zeh            新增（接口批 1 步进伺服栈）
+ * 2026-08-01       1.1            zeh            control_loop 默认未使能，测前 apply ENABLED
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -162,6 +163,13 @@ void test_stepper_servo_position_converges(void) {
     cl.resources.write_output      = cl_write_output;
     cl.resources.write_output_user = NULL;
     bm_control_loop_reset(&cl);
+    {
+        bm_control_loop_cmd_t cmd;
+
+        memset(&cmd, 0, sizeof(cmd));
+        cmd.status = BM_CONTROL_LOOP_CMD_ENABLED;
+        bm_control_loop_apply_command(&cl, &cmd);
+    }
 
     for (i = 0; i < 10000; ++i) {
         bm_motion_profile_step(&prof, &pout);

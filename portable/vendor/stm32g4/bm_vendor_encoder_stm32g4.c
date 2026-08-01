@@ -20,8 +20,7 @@
  *    Date         Version        Author          Description
  * 2026-07-27       1.0            zeh            新增（STM32G474xB 移植）
  * 2026-07-27       1.1            zeh            寄存器级改写为 STM32 LL 库实现（决策变更：提高可读性）
- *
- * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.1            zeh            补全中文 Doxygen 合规注释
  */
 #include "bm_vendor_encoder_stm32g4.h"
 #include "bm_hal_instances_stm32g4.h"

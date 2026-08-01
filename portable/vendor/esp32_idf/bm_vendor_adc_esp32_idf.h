@@ -13,8 +13,7 @@
  *    Date         Version        Author          Description
  * 2026-06-19       1.0            zeh            新增 M0/M1 双电机 ADC 实例
  * 2026-06-22       1.1            zeh            清 B2 诊断埋点（diag_read_clear）
- *
- * 2026-08-01       1.0            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.0            zeh            补全中文 Doxygen 合规注释
  */
 #ifndef BM_VENDOR_ADC_ESP32_IDF_H
 #define BM_VENDOR_ADC_ESP32_IDF_H

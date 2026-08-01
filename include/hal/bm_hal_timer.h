@@ -16,7 +16,7 @@
  * 2026-06-14       1.1            zeh            clock epoch bump API
  * 2026-06-15       1.2            zeh            非法 CPU 返回无效 timer 句柄
  * 2026-06-15       1.3            zeh            非法 CPU epoch 返回 UINT32_MAX
- * 2026-08-01       1.3            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       1.3            zeh           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_HAL_TIMER_H

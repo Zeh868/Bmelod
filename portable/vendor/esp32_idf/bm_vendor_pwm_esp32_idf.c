@@ -76,8 +76,7 @@
  * 2026-07-31       3.8            zeh            TEZ ISR 回调派发首尾成对调用
  *                                                bm_hrt_isr_enter/exit，落地 Hardware HRT
  *                                                端口的掩码模式拦截契约
- *
- * 2026-08-01       3.8            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       3.8            zeh            补全中文 Doxygen 合规注释
  */
 #include "bm_vendor_pwm_esp32_idf.h"
 #include "bm_vendor_esp32_idf_compat.h"

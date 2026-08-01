@@ -4,12 +4,12 @@
  *
  * 外环 PI 输出作为内环设定，经饱和后驱动 plant 读回与执行器写入。
  * 提供 bm_exec_ops_t 标准封装（exec_init/exec_start/exec_safe_stop + ops 表），
- * 可直接接入调度框架；bm_control_loop_step() 直接调用路径保持不变。
+ * 可直接接入调度框架；默认未使能，须 CMD_ENABLED 后 step 才跑环。
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.3
- * @date 2026-06-17
+ * @version 0.5
+ * @date 2026-08-01
  *
  * @par 修改日志:
  *
@@ -18,13 +18,52 @@
  * 2026-06-23       0.2            zeh            补 bm_exec_ops_t 标准调度封装接口
  * 2026-07-27       0.3            zeh            新增 bm_control_loop_init 四段式入口；exec_init 复用之
  * 2026-07-27       0.4            zeh            init/validate 复用 bm_component_common.h 公共宏
- * 2026-08-01       0.3            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       0.4            zeh           补全 Doxygen 合规注释
+ * 2026-08-01       0.5            zeh            对齐 power_control：CMD_ENABLED/FAULT 状态机
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/component/control_loop.h"
 #include "bm/common/bm_types.h"
 #include "bm/component/bm_component_common.h"
+
+#include <string.h>
+
+/**
+ * @brief 锁存故障并清零输出、复位两级积分器
+ *
+ * @param axis 实例指针
+ */
+static void latch_fault(bm_control_loop_axis_t *axis) {
+    bm_control_loop_state_t *st = &axis->state;
+
+    if (!st->fault_latched) {
+        st->fault_latched = 1;
+    }
+    st->outer_out = 0.0f;
+    st->inner_out = 0.0f;
+    bm_algo_pi_reset(&st->outer_pi, 0.0f);
+    bm_algo_pi_reset(&st->inner_pi, 0.0f);
+    if (axis->resources.write_output != NULL) {
+        (void)axis->resources.write_output(axis->resources.write_output_user,
+                                           0.0f);
+    }
+}
+
+/**
+ * @brief 从回调读取最新命令并应用
+ *
+ * @param axis 实例指针
+ */
+static void sync_command(bm_control_loop_axis_t *axis) {
+    bm_control_loop_cmd_t command;
+
+    if (axis->resources.read_command != NULL &&
+        axis->resources.read_command(axis->resources.read_command_user,
+                                     &command) == 0) {
+        bm_control_loop_apply_command(axis, &command);
+    }
+}
 
 int bm_control_loop_validate_config(const bm_control_loop_config_t *config) {
     BM_COMPONENT_RETURN_IF_NULL(config);
@@ -45,11 +84,25 @@ void bm_control_loop_reset(bm_control_loop_axis_t *axis) {
     axis->state.outer_out = 0.0f;
     axis->state.inner_out = 0.0f;
     axis->state.step_count = 0u;
+    axis->state.fault_latched = 0;
+    memset(&axis->state.cmd, 0, sizeof(axis->state.cmd));
 }
 
 int bm_control_loop_init(bm_control_loop_axis_t *axis) {
     BM_COMPONENT_INIT(axis, bm_control_loop_validate_config,
                       bm_control_loop_reset);
+}
+
+void bm_control_loop_apply_command(bm_control_loop_axis_t *axis,
+                                   const bm_control_loop_cmd_t *cmd) {
+    if (axis == NULL || cmd == NULL) {
+        return;
+    }
+
+    axis->state.cmd = *cmd;
+    if ((cmd->status & BM_CONTROL_LOOP_CMD_FAULT) != 0u) {
+        latch_fault(axis);
+    }
 }
 
 void bm_control_loop_step(bm_control_loop_axis_t *axis) {
@@ -66,17 +119,29 @@ void bm_control_loop_step(bm_control_loop_axis_t *axis) {
         return;
     }
 
-    /* TODO: 本组件缺少运行/故障状态机；后续应在配置或命令层增加 enable/fault
-     * 标志，未使能或故障时停止输出并复位两级 PI 积分器。 */
-
     cfg = &axis->config;
     st = &axis->state;
+
+    sync_command(axis);
+
+    if (st->fault_latched ||
+        (st->cmd.status & BM_CONTROL_LOOP_CMD_ENABLED) == 0u) {
+        st->outer_out = 0.0f;
+        st->inner_out = 0.0f;
+        bm_algo_pi_reset(&st->outer_pi, 0.0f);
+        bm_algo_pi_reset(&st->inner_pi, 0.0f);
+        if (axis->resources.write_output != NULL) {
+            (void)axis->resources.write_output(
+                axis->resources.write_output_user, 0.0f);
+        }
+        return;
+    }
 
     if (axis->resources.read_plant != NULL &&
         axis->resources.read_plant(axis->resources.read_plant_user,
                                    &outer_meas, &inner_meas,
                                    &setpoint) != 0) {
-        st->step_count++;
+        latch_fault(axis);
         return;
     }
 

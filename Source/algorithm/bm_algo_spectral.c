@@ -10,7 +10,6 @@
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
- * 2026-08-01       1.5            Codex           补齐 static 辅助函数 Doxygen
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-13       1.1            zeh            增加 STFT 幅度谱与阶次换算
  * 2026-06-17       1.2            zeh            增加重叠 STFT 状态机
@@ -18,6 +17,7 @@
  * 2026-07-27       1.4            zeh            order_track 的 lpf_alpha
  *                                                改用 bm_algo_lpf1_alpha_saturate
  * 2026-07-28       1.5            zeh            状态错误改用 BM_ERR_*，保留帧就绪载荷
+ * 2026-08-01       1.5            zeh           补齐 static 辅助函数 Doxygen
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

@@ -6,11 +6,10 @@
  * 主循环轮询到期槽，向事件总线发布空载荷事件；统计丢弃次数。
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.10
- * @date 2026-07-13
+ * @version 1.11
+ * @date 2026-08-01
  *
  * @par 修改日志:
- * 2026-08-01       1.10           Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
@@ -30,6 +29,8 @@
  * 2026-07-13       1.10           zeh            get_dropped 注释口径与 H1/H2 新语义
  *                                                对齐（含全部发布失败与 resync 补记，
  *                                                不再只写"队列满"）
+ * 2026-08-01       1.10           zeh           补齐 Doxygen 合规元数据
+ * 2026-08-01       1.11           zeh            poll 入口 ISR 早退，对齐 bm_hrt_poll
  *
  */
 #include "bm_ticker.h"
@@ -39,6 +40,7 @@
 #include "bm_log.h"
 #include "bm_safety.h"
 #include "hal/bm_hal_cpu.h"
+#include "hal/bm_hal_critical.h"
 
 #include <string.h>
 
@@ -173,6 +175,9 @@ int bm_ticker_poll(void) {
     uint32_t i;
     int published = 0;
 
+    if (bm_hal_in_isr()) {
+        return 0;
+    }
     if (!state || !state->initialized) {
         return BM_ERR_NOT_INIT;
     }

@@ -15,7 +15,7 @@
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
  * 2026-06-15       1.1            zeh            hard RT 禁止 fence-only 临界区桩
- * 2026-08-01       1.1            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       1.1            zeh           补全 Doxygen 合规注释
  *
  */
 #include "bm_drv_critical.h"

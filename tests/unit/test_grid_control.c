@@ -3,16 +3,18 @@
  * @brief grid_control 组件单元测试
  *
  * 覆盖 SOGI-PLL 收敛行为、PR 电流环 happy-path、
- * validate_config 边界拒绝以及 exec_ops 生命周期。
+ * validate_config 边界拒绝、exec_ops 生命周期以及
+ * CMD_ENABLED/FAULT 状态机。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-23
+ * @version 1.1
+ * @date 2026-08-01
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-23       1.0            zeh            正式发布
+ * 2026-08-01       1.1            zeh            补 ENABLED/FAULT 状态机用例；步进前须使能
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -54,6 +56,16 @@ static int write_output(void *user, float v_cmd) {
     return 0;
 }
 
+/** @brief 使能并网控制（step 前须调用） */
+static void enable_axis(bm_grid_control_axis_t *axis) {
+    bm_grid_ctrl_cmd_t cmd;
+
+    memset(&cmd, 0, sizeof(cmd));
+    cmd.sequence = 1u;
+    cmd.status = BM_GRID_CTRL_CMD_ENABLED;
+    bm_grid_control_apply_command(axis, &cmd);
+}
+
 /** @brief 构建合法的默认轴配置（50 Hz，典型参数） */
 static void build_default_axis(bm_grid_control_axis_t *axis) {
     memset(axis, 0, sizeof(*axis));
@@ -93,13 +105,12 @@ void test_grid_init_valid_config_returns_ok(void) {
 
     build_default_axis(&axis);
     TEST_ASSERT_EQUAL(BM_OK, bm_grid_control_init(&axis));
+    TEST_ASSERT_EQUAL(0, axis.state.fault_latched);
+    TEST_ASSERT_EQUAL_UINT32(0u, axis.state.cmd.status & BM_GRID_CTRL_CMD_ENABLED);
 }
 
 /* ================================================================
  * 测试 2：SOGI-PLL 在多拍步进后 omega 应收敛至 nominal
- *
- * 输入为固定频率正弦（50 Hz），经过足够拍数 PLL 估计角频率
- * 应向 nominal_omega_rad_s 收敛（允许 5% 误差范围）。
  * ================================================================ */
 void test_grid_sogi_pll_converges_to_nominal(void) {
     bm_grid_control_axis_t axis;
@@ -109,6 +120,7 @@ void test_grid_sogi_pll_converges_to_nominal(void) {
 
     build_default_axis(&axis);
     TEST_ASSERT_EQUAL(BM_OK, bm_grid_control_init(&axis));
+    enable_axis(&axis);
 
     dt_s          = axis.config.dt_s;
     omega_nominal = axis.config.pll.nominal_omega_rad_s;
@@ -137,6 +149,7 @@ void test_grid_pr_current_loop_produces_nonzero_cmd(void) {
     g_i_meas = 0.0f;
     g_i_ref  = 10.0f;  /* 10 A 误差 */
     TEST_ASSERT_EQUAL(BM_OK, bm_grid_control_init(&axis));
+    enable_axis(&axis);
 
     bm_grid_control_step(&axis);
 
@@ -155,6 +168,7 @@ void test_grid_pr_zero_error_zero_cmd(void) {
     g_i_meas = 10.0f;
     g_i_ref  = 10.0f;  /* 零误差 */
     TEST_ASSERT_EQUAL(BM_OK, bm_grid_control_init(&axis));
+    enable_axis(&axis);
 
     bm_grid_control_step(&axis);
 
@@ -162,19 +176,73 @@ void test_grid_pr_zero_error_zero_cmd(void) {
 }
 
 /* ================================================================
- * 测试 5：read_io 失败时打 STALE，v_cmd 清零
+ * 测试 5：read_io 失败时锁存故障，打 STALE|FAULT，v_cmd 清零
  * ================================================================ */
 void test_grid_read_fail_marks_stale(void) {
     bm_grid_control_axis_t axis;
 
     build_default_axis(&axis);
     TEST_ASSERT_EQUAL(BM_OK, bm_grid_control_init(&axis));
+    enable_axis(&axis);
 
     g_read_fail = 1;
     bm_grid_control_step(&axis);
 
+    TEST_ASSERT_EQUAL(1, axis.state.fault_latched);
     TEST_ASSERT_NOT_EQUAL(0u, axis.state.telemetry.status & BM_GRID_CTRL_TEL_STALE);
+    TEST_ASSERT_NOT_EQUAL(0u, axis.state.telemetry.status & BM_GRID_CTRL_TEL_FAULT);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, g_v_cmd_out);
+}
+
+/* ================================================================
+ * 测试 5b：默认未使能无输出
+ * ================================================================ */
+void test_grid_default_disabled_no_output(void) {
+    bm_grid_control_axis_t axis;
+
+    build_default_axis(&axis);
+    TEST_ASSERT_EQUAL(BM_OK, bm_grid_control_init(&axis));
+    g_v_cmd_out = 99.0f;
+    bm_grid_control_step(&axis);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, g_v_cmd_out);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, axis.state.v_cmd);
+}
+
+/* ================================================================
+ * 测试 5c：FAULT 锁存；reset 清故障
+ * ================================================================ */
+void test_grid_fault_latches_and_reset_clears(void) {
+    bm_grid_control_axis_t axis;
+    bm_grid_ctrl_cmd_t cmd;
+
+    build_default_axis(&axis);
+    TEST_ASSERT_EQUAL(BM_OK, bm_grid_control_init(&axis));
+    enable_axis(&axis);
+    bm_grid_control_step(&axis);
+    TEST_ASSERT_TRUE(g_v_cmd_out != 0.0f);
+
+    memset(&cmd, 0, sizeof(cmd));
+    cmd.status = BM_GRID_CTRL_CMD_ENABLED | BM_GRID_CTRL_CMD_FAULT;
+    bm_grid_control_apply_command(&axis, &cmd);
+    TEST_ASSERT_EQUAL(1, axis.state.fault_latched);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, axis.state.v_cmd);
+
+    bm_grid_control_reset(&axis);
+    TEST_ASSERT_EQUAL(0, axis.state.fault_latched);
+    TEST_ASSERT_EQUAL_UINT32(0u, axis.state.cmd.status);
+}
+
+/* ================================================================
+ * 测试 5d：NULL 安全
+ * ================================================================ */
+void test_grid_null_safety(void) {
+    bm_grid_ctrl_cmd_t cmd;
+
+    memset(&cmd, 0, sizeof(cmd));
+    bm_grid_control_apply_command(NULL, &cmd);
+    bm_grid_control_apply_command(NULL, NULL);
+    bm_grid_control_step(NULL);
+    bm_grid_control_reset(NULL);
 }
 
 /* ================================================================
@@ -294,6 +362,9 @@ int main(void) {
     RUN_TEST(test_grid_pr_current_loop_produces_nonzero_cmd);
     RUN_TEST(test_grid_pr_zero_error_zero_cmd);
     RUN_TEST(test_grid_read_fail_marks_stale);
+    RUN_TEST(test_grid_default_disabled_no_output);
+    RUN_TEST(test_grid_fault_latches_and_reset_clears);
+    RUN_TEST(test_grid_null_safety);
     RUN_TEST(test_grid_validate_rejects_zero_dt);
     RUN_TEST(test_grid_validate_rejects_zero_omega);
     RUN_TEST(test_grid_validate_rejects_zero_k_sogi);

@@ -18,7 +18,7 @@
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            STFT frame_size FFT 合法尺寸校验；Doxygen；SPDX
  * 2026-07-16       0.3            zeh            bm_algo_goertzel_feed 负返回值（错误码）
- * 2026-08-01       0.3            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       0.3            zeh           补全 Doxygen 合规注释
  *                                                曾被当真值：NaN 样本触发半块算幅值+
  *                                                标 VALID 发布；改按契约仅 >0 判就绪
  *

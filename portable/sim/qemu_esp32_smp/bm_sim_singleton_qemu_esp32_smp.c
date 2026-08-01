@@ -6,8 +6,8 @@
  *
  * 临界区与内存屏障由 `bm_port_arch_xtensa` 提供。
  * @author zeh (china_qzh@163.com)
- * @version 1.2
- * @date 2026-07-16
+ * @version 1.3
+ * @date 2026-08-01
  *
  * @par 修改日志:
  *
@@ -15,8 +15,8 @@
  * 2026-06-15       1.0            zeh            正式发布
  * 2026-07-11       1.1            zeh            tick 回调派发接入 arch 层 FPU 守卫（bm_arch_isr_fpu.h，xtensa 路径当前仍为 no-op）
  * 2026-07-16       1.2            zeh            APP 核回调回本核派发：PRO ISR 只跑 cb[0]，APP 在自身 get_ticks 上下文按 tick 变化泵出（原 PRO 代跑全部核回调，APP 回调摸错核 per-CPU 状态）；配套 Level-1 向量改 callx4 蹦床 + 清 EXCM/置 WOE，出口改 rfe + PS/EPC1 软件自存自恢（XEA2 无 EPS1，rfi 1 还原不了原 PS；尾部以 EXCM=1 封死嵌套窗口）
- *
- * 2026-08-01       1.2            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.2            zeh            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.3            zeh            UART TX FIFO 忙等加命名上限，超时返回 BM_ERR_TIMEOUT
  */
 #include "bm_drv_timer.h"
 #include "bm_drv_uart.h"
@@ -64,6 +64,8 @@
 /** STATUS bit16:24 = TXFIFO_CNT */
 #define UART0_TXFIFO_CNT(status) (((status) >> 16) & 0xFFu)
 #define UART0_TXFIFO_MAX       128u
+/** @brief UART0 TX FIFO 空位轮询上限，超出时返回 BM_ERR_TIMEOUT。 */
+#define BM_QEMU_ESP32_UART_TX_POLL_LIMIT  100000u
 
 /** QEMU ESP32 APB 定时器时钟（80 MHz） */
 #define ESP32_SMP_TIMER_HZ   80000000u
@@ -280,18 +282,26 @@ static int esp32_smp_uart_init(const struct bm_hal_uart *dev, void *config) {
  * @param dev UART 设备实例；当前实现不使用该参数。
  * @param data 待发送数据缓冲区。
  * @param len 缓冲区中的有效数据长度，单位为字节。
- * @return 成功返回 BM_OK。
+ * @return 成功返回 BM_OK；等待超时时返回 BM_ERR_TIMEOUT。
  */
 static int esp32_smp_uart_send(const struct bm_hal_uart *dev,
                             const uint8_t *data, size_t len) {
     (void)dev;
     size_t i;
+    uint32_t attempt;
 
     if (!data || len == 0u) {
         return BM_OK;
     }
     for (i = 0u; i < len; i++) {
-        while (UART0_TXFIFO_CNT(UART0_STATUS) >= UART0_TXFIFO_MAX) {
+        for (attempt = 0u; attempt < BM_QEMU_ESP32_UART_TX_POLL_LIMIT;
+             ++attempt) {
+            if (UART0_TXFIFO_CNT(UART0_STATUS) < UART0_TXFIFO_MAX) {
+                break;
+            }
+        }
+        if (attempt == BM_QEMU_ESP32_UART_TX_POLL_LIMIT) {
+            return BM_ERR_TIMEOUT;
         }
         UART0_FIFO = (uint32_t)data[i];
     }

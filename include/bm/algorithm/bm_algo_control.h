@@ -22,7 +22,7 @@
  *                                                返回值统一为 BM_OK /
  *                                                BM_ERR_INVALID
  * 2026-07-28       1.5            zeh            状态返回文档对齐 BM_OK/BM_ERR_*
- * 2026-08-01       1.5            Codex           补全算法 API Doxygen 注释
+ * 2026-08-01       1.5            zeh           补全算法 API Doxygen 注释
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

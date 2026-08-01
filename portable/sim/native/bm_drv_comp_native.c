@@ -12,10 +12,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
- *
- *
- * @par ????:
- * 2026-08-01       1.0            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.0            zeh            补全中文 Doxygen 合规注释
  */
 #include "bm_hal_comp_sim.h"
 #include "bm_log.h"

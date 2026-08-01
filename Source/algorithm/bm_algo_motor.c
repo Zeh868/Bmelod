@@ -9,7 +9,6 @@
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
- * 2026-08-01       1.3            Codex           补齐 Doxygen 合规元数据
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-23       1.2            zeh            磁链观测器纯积分改为带衰减积分，消除低速/静止时 DC 漂移
  * 2026-07-16       1.3            zeh            norm_deg_f 补非有限输入护栏：
@@ -18,6 +17,7 @@
  *                                                可达），非有限输入返回 0.0f
  * 2026-07-31       1.4            zeh            norm_deg_f 逐圈 while 改 fmodf O(1) 归一化，
  *                                                修复有限巨值（如 1e20f）入参的 WCET 无界
+ * 2026-08-01       1.3            zeh           补齐 Doxygen 合规元数据
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

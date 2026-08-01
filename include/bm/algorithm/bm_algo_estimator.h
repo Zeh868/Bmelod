@@ -18,7 +18,7 @@
  *                                                NaN/Inf 输入护栏，避免一次
  *                                                毛刺永久污染持久协方差状态
  * 2026-07-28       1.5            zeh            更新状态返回对齐 BM_OK/BM_ERR_INVALID
- * 2026-08-01       1.5            Codex           补全算法 API Doxygen 注释
+ * 2026-08-01       1.5            zeh           补全算法 API Doxygen 注释
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

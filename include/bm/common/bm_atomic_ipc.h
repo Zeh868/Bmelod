@@ -16,7 +16,7 @@
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
  * 2026-06-16       1.1            zeh            单核无 lock-free 原子时 volatile 回退
- * 2026-08-01       1.1            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       1.1            zeh           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_ATOMIC_IPC_H

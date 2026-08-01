@@ -13,7 +13,7 @@
  * 2026-06-17       0.2            zeh            接入 soc_ekf 模式
  * 2026-06-23       0.3            zeh            补 SPDX 与函数级 Doxygen
  * 2026-07-13       0.4            zeh            C11：EKF 预测 OCV 改用
- * 2026-08-01       0.4            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       0.4            zeh           补全 Doxygen 合规注释
  *                                                bm_algo_ocv_lookup_voltage
  *                                                （SOC→OCV），修正误用
  *                                                lookup_soc 致 SOC 估算失真

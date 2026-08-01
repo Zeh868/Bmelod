@@ -8,12 +8,12 @@
  * @date 2026-07-15
  *
  * @par 修改日志:
- * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-15       1.1            zeh            init 后禁止运行期 bypass 变更
  * 2026-07-15       1.2            zeh            reset 对 bypass 节点也回调，与 init 的 prepare 对称
+ * 2026-08-01       1.2            zeh           补齐 Doxygen 合规元数据
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

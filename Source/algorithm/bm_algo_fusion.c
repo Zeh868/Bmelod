@@ -10,7 +10,6 @@
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
- * 2026-08-01       1.7            Codex           补齐 static 辅助函数 Doxygen
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-17       1.1            zeh            增加 IMU 偏置/比例标定
  * 2026-06-23       1.2            zeh            NaN 拦截改用 bm_algo_is_finite_f；Mahony 积分项增加对称限幅
@@ -28,6 +27,7 @@
  * 2026-07-27       1.6            zeh            complementary_step 的 alpha
  *                                                改用 bm_algo_lpf1_alpha_saturate
  * 2026-07-28       1.7            zeh            状态返回改用 BM_OK/BM_ERR_*
+ * 2026-08-01       1.7            zeh           补齐 static 辅助函数 Doxygen
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

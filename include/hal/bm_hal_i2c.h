@@ -5,16 +5,23 @@
  *
  * 阻塞同步事务；具体硬件由平台实现绑定。
  * 地址语义统一为 7-bit（不含 R/W 位）。
+ *
+ * 调用上下文约束（所有后端适用，与 `bm_drv_i2c.h` 一致）：
+ * - **禁止在 HRT 上下文调用**（忙等预算由 config `timeout_ms` 承载）；
+ * - 同一总线实例须单上下文或经端口互斥串行；跨上下文交错未定义。
+ *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-08-01
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-08-01       1.0            zeh            新增（I2C 总线契约，接口批 2）
- * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       1.0            zeh           补全 Doxygen 合规注释
+ * 2026-08-01       1.1            zeh            补上下文约束：禁止 HRT、单上下文
+ *                                                或经端口互斥串行
  *
  */
 #ifndef BM_HAL_I2C_H

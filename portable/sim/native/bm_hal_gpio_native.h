@@ -14,9 +14,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 native_sim GPIO 测试辅助
- *
- * @par ????:
- * 2026-08-01       1.0            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.0            zeh            补全中文 Doxygen 合规注释
  */
 #ifndef BM_HAL_GPIO_NATIVE_H
 #define BM_HAL_GPIO_NATIVE_H

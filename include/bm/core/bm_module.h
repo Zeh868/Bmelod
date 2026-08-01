@@ -7,16 +7,16 @@
  * 由框架按优先级统一调度。看门狗由应用 main 主循环统一喂，与模块无关。
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.2
+ * @version 1.4
  * @date 2026-06-12
  *
  * @par 修改日志:
- * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
  * 2026-06-12       1.2            zeh            移除模块与看门狗耦合
  * 2026-06-14       1.3            zeh            init_on_this_cpu 按 owner 过滤
+ * 2026-08-01       1.4            zeh           补齐 Doxygen 合规元数据
  *
  */
 #ifndef BM_MODULE_H

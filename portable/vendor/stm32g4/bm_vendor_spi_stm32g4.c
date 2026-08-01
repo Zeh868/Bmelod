@@ -24,8 +24,7 @@
  *                                                完成回调，FPU 守卫包裹）；CS 操作直调 GPIO
  *                                                vtable（vendor 不依赖 bm_hal 分发）
  * 2026-07-28       1.2            zeh            DMA IRQ 改 bm_dma_irq 路由器注册
- *
- * 2026-08-01       1.2            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.2            zeh            补全中文 Doxygen 合规注释
  */
 #include "bm_vendor_spi_stm32g4.h"
 #include "bm_vendor_gpio_stm32g4.h"

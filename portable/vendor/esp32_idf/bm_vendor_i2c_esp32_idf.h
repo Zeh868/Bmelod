@@ -9,8 +9,8 @@
  * 零 FreeRTOS 依赖，零 IDF driver 层依赖。
  *
  * @author zeh (china_qzh@163.com)
- * @version 2.4
- * @date 2026-06-21
+ * @version 2.5
+ * @date 2026-08-01
  *
  * @par 修改日志:
  *
@@ -22,7 +22,8 @@
  * 2026-06-21       2.3            zeh         初始化顺序对齐官方 i2c_set_pin：先 GPIO 开漏高电平，
  *                                                再挂接 I2C matrix；补 bus-clear 恢复路径
  * 2026-06-21       2.4            zeh         整理：移除两个临时诊断 getter 声明
- * 2026-08-01       2.4            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       2.4            zeh            补全中文 Doxygen 合规注释
+ * 2026-08-01       2.5            zeh            @return 补 BM_ERR_TIMEOUT（端口锁争用）
  */
 #ifndef BM_VENDOR_I2C_ESP32_IDF_H
 #define BM_VENDOR_I2C_ESP32_IDF_H
@@ -50,7 +51,8 @@ extern "C" {
  * @param sda    SDA GPIO 编号。
  * @param scl    SCL GPIO 编号。
  * @param clk_hz 总线时钟频率（Hz），通常 400000。
- * @return BM_OK 成功；BM_ERR_INVALID 参数非法；BM_ERR_IO 硬件错误。
+ * @return BM_OK 成功；BM_ERR_INVALID 参数非法；BM_ERR_IO 硬件错误；
+ *         BM_ERR_TIMEOUT 端口锁争用超时。
  */
 int bm_vendor_i2c_port_init(i2c_port_t port, gpio_num_t sda,
                             gpio_num_t scl, uint32_t clk_hz);
@@ -63,7 +65,8 @@ int bm_vendor_i2c_port_init(i2c_port_t port, gpio_num_t sda,
  * @param buf        写数据缓冲区（len > 0 时不得为 NULL）。
  * @param len        写入字节数。
  * @param timeout_ms 忙等预算（ms）；0 表示使用默认值 10 ms。
- * @return BM_OK 成功；BM_ERR_INVALID 参数非法；BM_ERR_IO 超时或 NACK。
+ * @return BM_OK 成功；BM_ERR_INVALID 参数非法；BM_ERR_IO 超时或 NACK；
+ *         BM_ERR_TIMEOUT 端口锁争用超时。
  */
 int bm_vendor_i2c_write(i2c_port_t port, uint8_t addr,
                         const uint8_t *buf, size_t len,
@@ -81,7 +84,8 @@ int bm_vendor_i2c_write(i2c_port_t port, uint8_t addr,
  * @param read_buf   读阶段数据缓冲区（read_len > 0 时不得为 NULL）。
  * @param read_len   读阶段字节数。
  * @param timeout_ms 忙等预算（ms）；0 表示使用默认值 10 ms。
- * @return BM_OK 成功；BM_ERR_INVALID 参数非法；BM_ERR_IO 超时或 NACK。
+ * @return BM_OK 成功；BM_ERR_INVALID 参数非法；BM_ERR_IO 超时或 NACK；
+ *         BM_ERR_TIMEOUT 端口锁争用超时。
  */
 int bm_vendor_i2c_write_read(i2c_port_t port, uint8_t addr,
                              const uint8_t *write_buf, size_t write_len,

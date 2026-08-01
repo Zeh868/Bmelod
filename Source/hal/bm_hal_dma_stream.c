@@ -12,7 +12,7 @@
  *    Date         Version        Author          Description
  * 2026-06-12       1.0            zeh            正式发布
  * 2026-06-13       1.1            zeh            分发至 driver API
- * 2026-08-01       1.1            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       1.1            zeh           补全 Doxygen 合规注释
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

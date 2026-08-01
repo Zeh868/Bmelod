@@ -14,8 +14,7 @@
  * 2026-06-10       1.0            zeh            正式发布
  * 2026-06-14       1.1            zeh            按 CPU 查询 tick
  * 2026-06-14       1.2            zeh            advance_ticks_on_cpu
- *
- * 2026-08-01       1.2            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.2            zeh            补全中文 Doxygen 合规注释
  */
 
 #ifndef BM_HAL_TIMER_NATIVE_H

@@ -13,11 +13,10 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-12
+ * @version 1.5
+ * @date 2026-08-01
  *
  * @par 修改日志:
- * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-12       1.0            zeh            正式发布
@@ -25,6 +24,9 @@
  * 2026-07-27       1.2            zeh            将 BM_STREAM_* 静态分配宏迁到 bm_stream_impl.h
  * 2026-07-27       1.3            zeh            struct bm_stream 下沉到 .c，头文件改为不透明指针 + accessor
  * 2026-07-28       1.4            zeh            accessor 声明补 Doxygen 中文注释（含 NULL 入参语义）
+ * 2026-08-01       1.5            zeh            明确 bm_stream_drain 的 budget=
+ *                                                最大 ready 通知次数（非消费块数）
+ * 2026-08-01       1.5            zeh           补齐 Doxygen 合规元数据
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -312,8 +314,13 @@ int bm_stream_output_commit(bm_stream_t *stream,
  * @brief 主循环 drain：可经 ready 回调通知
  *
  * @param stream 流实例
- * @param budget 本轮最多通知的 READY 块数
+ * @param budget 本轮最大 ready **通知次数**（不是“最大消费块数”）。
+ *        handler 若未消费块（仍留在 READY/PROCESSING 或被回写为 READY），
+ *        可对同一块重复通知直至本轮 budget 耗尽。
  * @return 实际调用 ready 回调的次数
+ * @note 循环语义有意不因未消费而提前 break：budget 计量的是通知次数；
+ *       需要“最多消费 N 块”语义时请走 bm_exec_drain_streams /
+ *       bm_stream_consumer_acquire。
  */
 int bm_stream_drain(bm_stream_t *stream, uint32_t budget);
 

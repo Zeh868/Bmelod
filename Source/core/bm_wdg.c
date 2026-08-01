@@ -10,7 +10,6 @@
  * @date 2026-06-29
  *
  * @par 修改日志:
- * 2026-08-01       1.5            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
@@ -19,6 +18,7 @@
  * 2026-06-15       1.3            zeh            运行期喂狗后冻结注册表
  * 2026-06-26       1.4            zeh            时间基迁至 bm_uptime_us()（#9-2a）
  * 2026-06-29       1.5            zeh            register/feed_module 收敛为单段临界区，消除栈上整表拷贝
+ * 2026-08-01       1.5            zeh           补齐 Doxygen 合规元数据
  *
  */
 #include "bm_wdg.h"

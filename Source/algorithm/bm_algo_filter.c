@@ -10,12 +10,12 @@
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
- * 2026-08-01       1.3            Codex           补齐 static 辅助函数 Doxygen
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-23       1.1            zeh            修正 BIQUAD_BPF 系数：去除误混入的 peaking 增益因子 A，改回标准恒幅 BPF
  * 2026-07-27       1.2            zeh            新增 bm_algo_lpf1_alpha_saturate；
  *                                                LPF/HPF step 改用公共饱和函数
  * 2026-07-28       1.3            zeh            状态返回改用 BM_OK/BM_ERR_*
+ * 2026-08-01       1.3            zeh           补齐 static 辅助函数 Doxygen
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

@@ -14,7 +14,6 @@
  * @date 2026-07-13
  *
  * @par 修改日志:
- * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-07-11       1.0            zeh            正式发布（批 P：bm_param 参数注册表）
@@ -22,6 +21,7 @@
  *                                                 register/set/load_overlay 三处强制
  * 2026-07-13       1.2            zeh            C6：set/get 补 name==NULL 防护，
  *                                                 消除 param_find 内 strcmp(NULL) UB
+ * 2026-08-01       1.2            zeh           补齐 Doxygen 合规元数据
  *
  */
 #include "bm/core/bm_param.h"

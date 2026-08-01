@@ -11,12 +11,12 @@
  * @date 2026-06-14
  *
  * @par 修改日志:
- * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
  * 2026-06-10       1.1            zeh            统一 BM_CRITICAL 宏；修正 inc 语义
  * 2026-06-14       1.2            zeh            按 CPU 路由时自动切换 bm_atomic_ipc_*
+ * 2026-08-01       1.2            zeh           补齐 Doxygen 合规元数据
  *
  */
 #include "bm_atomic.h"

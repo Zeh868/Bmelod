@@ -8,13 +8,13 @@
  * @date 2026-07-02
  *
  * @par 修改日志:
- * 2026-08-01       1.1            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-19       1.0            zeh            初版
  * 2026-07-02       1.1            zeh            QD-7：read 改为真正非阻塞（先探测
  *                                                就绪再读），修复非交互 stdin 无数据
  *                                                时阻塞调用者主循环的问题
+ * 2026-08-01       1.1            zeh           补齐 Doxygen 合规元数据
  *
  */
 #include "bm_types.h"

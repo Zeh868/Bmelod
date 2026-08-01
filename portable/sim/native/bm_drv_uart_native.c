@@ -24,9 +24,7 @@
  * 2026-07-28       1.1            zeh            reset 全量复位；TX 测试缓冲满返回
  *                                             BM_ERR_BUSY；删除未用 ring_free；
  *                                             ring 裸 -1 改 BM_ERR_*；注释对齐实现
- *
- * @par ????:
- * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.1            zeh            补全中文 Doxygen 合规注释
  */
 #include "bm_drv_uart.h"
 #include "hal/bm_hal_uart.h"

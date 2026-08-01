@@ -7,6 +7,8 @@
  * 使用 hal/i2c_ll.h LL API 直接配置 I2C 外设寄存器，有界忙等轮询
  * 命令完成位，不安装 IDF driver 层，不依赖 FreeRTOS 调度器。
  * 适用于 AS5600（400 kHz）与 BMI160（400 kHz）共用总线场景。
+ * 同一端口事务经跨核 CAS 有界自旋锁串行；懒 init 在持锁下完成 check-then-set。
+ * 禁止在 HRT 上下文调用（见 bm_drv_i2c.h / bm_hal_i2c.h 契约）。
  *
  * 命令链设计（ESP32 I2C 命令寄存器状态机）：
  *   写事务：START → WRITE(addr+W, data...) → STOP → END
@@ -18,8 +20,8 @@
  *       12 字节均在限制内。
  *
  * @author zeh (china_qzh@163.com)
- * @version 2.6
- * @date 2026-07-16
+ * @version 2.8
+ * @date 2026-08-01
  *
  * @par 修改日志:
  *
@@ -39,7 +41,10 @@
  *                                                总线准备段；移除临时失败诊断脚手架与两个 getter
  * 2026-07-16       2.6            zeh         write_read 的 read_len==0（纯写事务）不再多发
  *                                                RESTART+addr+R+READ(1,NACK)，修复多钟 1 字节
- * 2026-08-01       2.6            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       2.6            zeh            补全中文 Doxygen 合规注释
+ * 2026-08-01       2.7            zeh            懒 init check-then-set 包 BM_CRITICAL；
+ *                                                每 port 有界自旋锁串行整笔事务
+ * 2026-08-01       2.8            zeh            事务锁改跨核 CAS；持锁下完成 init claim
  */
 #include "bm_vendor_i2c_esp32_idf.h"
 #include "bm_vendor_esp32_idf_compat.h"
@@ -104,6 +109,13 @@
 #define BM_VENDOR_I2C_PORT_MAX            2u
 
 /**
+ * @brief 每 port 事务自旋锁获取轮询上限。
+ *
+ * 短临界区 CAS 式占锁；整笔事务持锁期间不关全局 IRQ。超时返回 BM_ERR_TIMEOUT。
+ */
+#define BM_VENDOR_I2C_LOCK_POLL_LIMIT     100000u
+
+/**
  * @brief 各 I2C 端口的 GPIO matrix 输出信号编号（SDA/SCL → GPIO）。
  *
  * 来自 soc/gpio_sig_map.h 的宏常量（避免运行时查表，零链接依赖）：
@@ -133,6 +145,14 @@ static const int g_i2c_scl_in_sig[BM_VENDOR_I2C_PORT_MAX] = {
 static int g_i2c_initialized[BM_VENDOR_I2C_PORT_MAX] = { 0, 0 };
 
 /**
+ * @brief 每 port 事务自旋锁（0=空闲，1=持有）。
+ *
+ * 跨核 CAS（`__atomic_compare_exchange_n`）占锁；不引入 OS mutex，
+ * 不把整笔事务包进全局 IRQ-off。
+ */
+static volatile uint32_t g_i2c_bus_lock[BM_VENDOR_I2C_PORT_MAX] = { 0u, 0u };
+
+/**
  * @brief 各端口已配置的 SDA GPIO。
  *
  * 用于故障诊断与恢复路径的线电平采样。
@@ -160,6 +180,40 @@ static gpio_num_t g_i2c_scl_gpio[BM_VENDOR_I2C_PORT_MAX] = {
 static uint32_t g_i2c_clk_hz[BM_VENDOR_I2C_PORT_MAX] = { 0u, 0u };
 
 /* ---------- 静态辅助函数 ---------- */
+
+/**
+ * @brief 获取端口事务自旋锁（有界轮询）。
+ *
+ * @param p 端口索引。
+ * @return BM_OK 已持锁；BM_ERR_TIMEOUT 轮询耗尽。
+ */
+static int bm_vendor_i2c_lock(int p)
+{
+    uint32_t attempt;
+    uint32_t expected;
+
+    for (attempt = 0u; attempt < BM_VENDOR_I2C_LOCK_POLL_LIMIT; ++attempt) {
+        expected = 0u;
+        if (__atomic_compare_exchange_n(&g_i2c_bus_lock[p], &expected, 1u,
+                                        0, __ATOMIC_ACQ_REL,
+                                        __ATOMIC_RELAXED)) {
+            return BM_OK;
+        }
+        /* 争用窗口：不在 IRQ-off 下空转 */
+        esp_rom_delay_us(BM_VENDOR_I2C_POLL_STEP_US);
+    }
+    return BM_ERR_TIMEOUT;
+}
+
+/**
+ * @brief 释放端口事务自旋锁。
+ *
+ * @param p 端口索引。
+ */
+static void bm_vendor_i2c_unlock(int p)
+{
+    __atomic_store_n(&g_i2c_bus_lock[p], 0u, __ATOMIC_RELEASE);
+}
 
 /**
  * @brief 配置单个 GPIO 为开漏 GPIO 输出，并断开外设矩阵。
@@ -548,8 +602,13 @@ int bm_vendor_i2c_port_init(i2c_port_t port, gpio_num_t sda,
 
     p = (int)port;
 
-    /* 幂等：已初始化直接返回，避免重复初始化时扰动正在运行的总线。 */
+    /* 事务锁串行化 init 与读写；持锁下完成 initialized 的 check-then-set。 */
+    if (bm_vendor_i2c_lock(p) != BM_OK) {
+        return BM_ERR_TIMEOUT;
+    }
+
     if (g_i2c_initialized[p] != 0) {
+        bm_vendor_i2c_unlock(p);
         return BM_OK;
     }
 
@@ -611,11 +670,13 @@ int bm_vendor_i2c_port_init(i2c_port_t port, gpio_num_t sda,
         gpio_ll_get_level(&GPIO, (uint32_t)scl) == 0) {
         rc = bm_vendor_i2c_recover_port(p);
         if (rc != BM_OK) {
+            bm_vendor_i2c_unlock(p);
             return BM_ERR_IO;
         }
     }
 
-    g_i2c_initialized[p] = 1;
+    g_i2c_initialized[p] = 1; /* 持锁下完成 check-then-set */
+    bm_vendor_i2c_unlock(p);
     return BM_OK;
 }
 
@@ -644,8 +705,13 @@ int bm_vendor_i2c_write(i2c_port_t port, uint8_t addr,
     hw        = I2C_LL_GET_HW(p);
     budget_us = bm_vendor_i2c_budget_us(timeout_ms);
 
+    if (bm_vendor_i2c_lock(p) != BM_OK) {
+        return BM_ERR_TIMEOUT;
+    }
+
     /* 事务前准备总线：确认空闲（必要时恢复）并复位 FIFO/中断。 */
     if (bm_vendor_i2c_prepare_bus(p, hw) != BM_OK) {
+        bm_vendor_i2c_unlock(p);
         return BM_ERR_IO;
     }
 
@@ -683,7 +749,11 @@ int bm_vendor_i2c_write(i2c_port_t port, uint8_t addr,
     /* 启动事务 */
     i2c_ll_master_trans_start(hw);
 
-    return bm_vendor_i2c_poll_done(hw, budget_us, p);
+    {
+        int rc = bm_vendor_i2c_poll_done(hw, budget_us, p);
+        bm_vendor_i2c_unlock(p);
+        return rc;
+    }
 }
 
 int bm_vendor_i2c_write_read(i2c_port_t port, uint8_t addr,
@@ -719,8 +789,13 @@ int bm_vendor_i2c_write_read(i2c_port_t port, uint8_t addr,
     hw        = I2C_LL_GET_HW(p);
     budget_us = bm_vendor_i2c_budget_us(timeout_ms);
 
+    if (bm_vendor_i2c_lock(p) != BM_OK) {
+        return BM_ERR_TIMEOUT;
+    }
+
     /* 事务前准备总线：确认空闲（必要时恢复）并复位 FIFO/中断。 */
     if (bm_vendor_i2c_prepare_bus(p, hw) != BM_OK) {
+        bm_vendor_i2c_unlock(p);
         return BM_ERR_IO;
     }
 
@@ -798,6 +873,7 @@ int bm_vendor_i2c_write_read(i2c_port_t port, uint8_t addr,
 
     rc = bm_vendor_i2c_poll_done(hw, budget_us, p);
     if (rc != BM_OK) {
+        bm_vendor_i2c_unlock(p);
         return rc;
     }
 
@@ -806,5 +882,6 @@ int bm_vendor_i2c_write_read(i2c_port_t port, uint8_t addr,
         i2c_ll_read_rxfifo(hw, read_buf, (uint8_t)read_len);
     }
 
+    bm_vendor_i2c_unlock(p);
     return BM_OK;
 }

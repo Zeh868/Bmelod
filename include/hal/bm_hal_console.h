@@ -15,7 +15,7 @@
  *    Date         Version        Author          Description
  * 2026-06-19       1.0            zeh            初版：双通道 Console HAL
  * 2026-06-19       1.1            zeh            补 LOG 通道阻塞语义与实时主循环契约
- * 2026-08-01       1.1            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       1.1            zeh           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_HAL_CONSOLE_H

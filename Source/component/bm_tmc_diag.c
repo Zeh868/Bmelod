@@ -13,7 +13,7 @@
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 TMC DIAG 通用输入组件
  * 2026-07-28       1.1            zeh            审查整改：ISR 状态更新入临界区、GPIO 读失败保持上次值、include 全路径
- * 2026-08-01       1.1            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       1.1            zeh           补全 Doxygen 合规注释
  */
 #include "bm/component/bm_tmc_diag.h"
 #include "bm/common/bm_uptime.h"

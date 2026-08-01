@@ -18,9 +18,7 @@
  * 2026-07-28       1.0            zeh            新增 native_sim GPIO EXTI 后端
  * 2026-07-28       1.1            zeh            fire_exti 触发时置 exti_pending，
  *                                             clear_pending 不再空操作
- *
- * @par ????:
- * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.1            zeh            补全中文 Doxygen 合规注释
  */
 #include "bm_drv_gpio.h"
 #include "hal/bm_hal_gpio.h"

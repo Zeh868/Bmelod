@@ -22,8 +22,7 @@
  * 2026-07-27       1.0            zeh            新增（接口批 1）
  * 2026-07-28       1.1            zeh            增加 EXTI 配置/使能/pending 清除桩
  * 2026-07-28       1.2            zeh            实现 EXTI 真后端与 IRQ Handler
- *
- * 2026-08-01       1.2            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.2            zeh            补全中文 Doxygen 合规注释
  */
 #include "bm_vendor_gpio_stm32g4.h"
 #include "bm_types.h"

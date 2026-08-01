@@ -5,16 +5,16 @@
  * @maturity E1
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-07-03
+ * @version 1.2
+ * @date 2026-08-01
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-15       1.0            zeh            正式发布
  * 2026-07-03       1.1            zeh            新增 CPU 主频接口 freq_hz/freq_points/freq_set 实现
- *
- * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.1            zeh            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.2            zeh            join_secondary 加命名轮询上限，超时返回 BM_ERR_TIMEOUT
  */
 #include "hal/bm_hal_cpu.h"
 #include "bm_config.h"
@@ -27,6 +27,8 @@
 #define DPORT_APPCPU_CTRL_A       (*(volatile uint32_t *)(DPORT_BASE + 0x02C))
 #define DPORT_APPCPU_CTRL_B       (*(volatile uint32_t *)(DPORT_BASE + 0x030))
 #define DPORT_APPCPU_CTRL_D       (*(volatile uint32_t *)(DPORT_BASE + 0x038))
+/** @brief 从核退出确认轮询上限，超出后 join 返回 BM_ERR_TIMEOUT。 */
+#define BM_QEMU_ESP32_SECONDARY_JOIN_POLL_LIMIT  1000000u
 
 extern void bm_esp32_secondary_startup(void);
 extern volatile uint32_t g_secondary_done[BM_CONFIG_CPU_COUNT];
@@ -86,13 +88,22 @@ int bm_hal_cpu_boot_secondary(uintptr_t entry_pc) {
 
 int bm_hal_cpu_join_secondary(void) {
     uint32_t cpu;
+    uint32_t attempt;
 
     for (cpu = 1u; cpu < BM_CONFIG_CPU_COUNT; cpu++) {
         if (!s_secondary_booted[cpu]) {
             continue;
         }
-        while (g_secondary_done[cpu] == 0u) {
+        for (attempt = 0u;
+             attempt < BM_QEMU_ESP32_SECONDARY_JOIN_POLL_LIMIT;
+             ++attempt) {
+            if (g_secondary_done[cpu] != 0u) {
+                break;
+            }
             bm_hal_cpu_yield();
+        }
+        if (attempt == BM_QEMU_ESP32_SECONDARY_JOIN_POLL_LIMIT) {
+            return BM_ERR_TIMEOUT;
         }
     }
     return BM_OK;

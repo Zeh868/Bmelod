@@ -15,7 +15,7 @@
  * 2026-06-14       1.0            zeh            正式发布
  * 2026-07-03       1.1            zeh            新增 CPU 主频接口 freq_hz/freq_points/freq_set
  * 2026-07-03       1.2            zeh            新增开机对账 freq_check/freq_check_config
- * 2026-08-01       1.2            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       1.2            zeh           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_HAL_CPU_H

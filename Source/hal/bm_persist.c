@@ -40,7 +40,7 @@
  * 2026-07-27       1.3            zeh            NVS 门控改用独立 capability，
  *                                                一般 backend 不再隐含 NVS 实现
  * 2026-07-28       1.4            zeh            无 NVS 后端时 bm_persist_commit()
- * 2026-08-01       1.4            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       1.4            zeh           补全 Doxygen 合规注释
  *                                                返回 BM_ERR_NOT_SUPPORTED
  *
  */

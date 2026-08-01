@@ -15,7 +15,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-07-27       1.0            zeh            新增（接口批 1）
- * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       1.0            zeh           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_DRV_SPI_H

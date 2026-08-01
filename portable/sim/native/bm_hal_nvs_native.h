@@ -35,10 +35,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-26       1.0            zeh            正式发布（路线图 #10 参数/配置持久化）
- *
- *
- * @par ????:
- * 2026-08-01       1.0            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.0            zeh            补全中文 Doxygen 合规注释
  */
 #ifndef BM_HAL_NVS_NATIVE_H
 #define BM_HAL_NVS_NATIVE_H

@@ -72,7 +72,7 @@ cmake -B build_g4 -G Ninja \
 
 | 信号 | 默认绑定 |
 |---|---|
-| tick | TIM6 update 中断（可 `BM_STM32G4_TICK_USE_TIM7` 切 TIM7） |
+| tick | TIM6 update 中断（可 `BM_STM32G4_TICK_USE_TIM7` 切 TIM7；**与 TIM7 hrtimer 互斥**——两者争用 `TIM7_IRQHandler`，定义该宏后 hrtimer 跳过 TIM7 handler） |
 | console | LPUART1 @ PA2/PA3（ST-LINK VCP，AF12，115200 8N1），导出 `bm_uart_default` |
 | PWM 三相 | TIM1 CH1/2/3 + CH1N/2N/3N @ PA8/PA9/PA10 + PB13/PB14/PB15（AF6），20kHz 中心对齐 |
 | 相电流 | ADC1 注入 rank0=IN1(PA0) / rank1=IN2(PA1)，TIM1 TRGO2 触发 |

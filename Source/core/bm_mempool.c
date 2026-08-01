@@ -6,7 +6,7 @@
  * 位图标记空闲槽，临界区保护分配/释放。
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.6
+ * @version 1.7
  * @date 2026-08-01
  *
  * @par 修改日志:
@@ -23,6 +23,7 @@
  *                                                BM_SRT_QUEUE_API_FORBIDDEN()；
  *                                                拒绝日志改 log-once
  * 2026-08-01       1.6            zeh            reset(NULL) 改为静默返回
+ * 2026-08-01       1.7            zeh            FORBIDDEN 前置于 validate/BM_LOGE
  *
  */
 #include "bm_mempool.h"
@@ -171,12 +172,12 @@ void *bm_mempool_alloc(bm_mempool_t *pool) {
     uint32_t allocated_idx = 0u;
     uint32_t bitmap_words;
 
-    if (mempool_validate_pool(pool) != BM_OK) {
-        BM_LOGE("mempool", "alloc invalid pool");
-        return NULL;
-    }
     if (BM_SRT_QUEUE_API_FORBIDDEN()) {
         mempool_log_hrt_reject_once("alloc");
+        return NULL;
+    }
+    if (mempool_validate_pool(pool) != BM_OK) {
+        BM_LOGE("mempool", "alloc invalid pool");
         return NULL;
     }
 
@@ -248,13 +249,13 @@ int bm_mempool_try_free(bm_mempool_t *pool, void *obj) {
     uint32_t word;
     uint32_t bit;
 
-    if (mempool_validate_pool(pool) != BM_OK || !obj) {
-        BM_LOGE("mempool", "free invalid args");
-        return BM_ERR_INVALID;
-    }
     if (BM_SRT_QUEUE_API_FORBIDDEN()) {
         mempool_log_hrt_reject_once("free");
         return BM_ERR_BUSY;
+    }
+    if (mempool_validate_pool(pool) != BM_OK || !obj) {
+        BM_LOGE("mempool", "free invalid args");
+        return BM_ERR_INVALID;
     }
     if (mempool_pool_end(pool, &pool_end) != BM_OK) {
         BM_LOGE("mempool", "free pool size overflow");
@@ -322,12 +323,12 @@ void bm_mempool_reset(bm_mempool_t *pool) {
     if (pool == NULL) {
         return;
     }
-    if (mempool_validate_pool(pool) != BM_OK) {
-        BM_LOGE("mempool", "reset invalid pool");
-        return;
-    }
     if (BM_SRT_QUEUE_API_FORBIDDEN()) {
         mempool_log_hrt_reject_once("reset");
+        return;
+    }
+    if (mempool_validate_pool(pool) != BM_OK) {
+        BM_LOGE("mempool", "reset invalid pool");
         return;
     }
 

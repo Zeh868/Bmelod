@@ -17,8 +17,7 @@
  * 2026-06-15       1.0            zeh            迁入 vendor
  * 2026-06-15       1.1            zeh            增加版本判定
  * 2026-06-19       1.2            zeh          去除高层驱动入口
- *
- * 2026-08-01       1.2            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.2            zeh            补全中文 Doxygen 合规注释
  */
 #ifndef BM_HAL_SDK_ESP32_H
 #define BM_HAL_SDK_ESP32_H

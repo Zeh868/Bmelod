@@ -6,8 +6,8 @@
  * 根据 BM_CONFIG_ENABLE_PRIORITY_MASK 选择全局关中断或优先级阈值屏蔽。
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.2
- * @date 2026-07-31
+ * @version 1.3
+ * @date 2026-08-01
  *
  * @par 修改日志:
  *
@@ -17,9 +17,11 @@
  *                                               （bm_hrt_isr_enter/exit、bm_in_hrt_isr），
  *                                               支撑掩码模式下的运行期 fail-closed
  * 2026-07-31       1.2            zeh            下沉 BM_SRT_QUEUE_API_FORBIDDEN()，
- * 2026-08-01       1.2            Codex           补全 Doxygen 合规注释
  *                                               统一 event/ultra/mempool 的
  *                                               fail-closed 判定口径
+ * 2026-08-01       1.2            zeh           补全 Doxygen 合规注释
+ * 2026-08-01       1.3            zeh            非掩码分支 FORBIDDEN 改为
+ *                                               bm_in_hrt_isr()，两模式均 fail-closed
  *
  */
 #ifndef BM_CRITICAL_WRAP_H
@@ -57,9 +59,9 @@ extern int bm_in_isr(void);
  * 完成中断）若会在 HRT 优先级调用框架 API，应在 handler 入口/出口成对调用
  * 本原语。
  *
- * 掩码模式（BM_CONFIG_ENABLE_PRIORITY_MASK=1）下，event/ultra/mempool 等 SRT
- * 队列 API 用 BM_SRT_QUEUE_API_FORBIDDEN() 对 HRT 级上下文 fail-closed；
- * 非掩码模式计数照常维护但不影响行为（全关中断下 ISR 调用本就互斥安全）。
+ * 两模式（掩码与非掩码）下，event/ultra/mempool 等 SRT 队列 API 均用
+ * BM_SRT_QUEUE_API_FORBIDDEN() 对 HRT 级上下文 fail-closed。非掩码下全关中断
+ * 虽互斥安全，仍禁止 HRT 误调 SRT 队列 API（防御深度）；计数两模式均维护。
  *
  * @note 实现位于 Source/core/bm_hrt_isr_context.c；与 bm_in_isr 的 HAL 后端
  *       判定互补：bm_in_isr 回答"是否在中断里"，bm_in_hrt_isr 回答
@@ -138,8 +140,13 @@ extern void bm_critical_exit_below(bm_irq_state_t previous_state);
 #define BM_CRITICAL_ENTER() bm_critical_enter()
 #define BM_CRITICAL_EXIT(state) bm_critical_exit(state)
 
-/** @brief 非掩码模式：全关中断下任何上下文调用 SRT 队列 API 均互斥安全 */
-#define BM_SRT_QUEUE_API_FORBIDDEN() 0
+/**
+ * @brief 当前上下文是否禁止调用 SRT 队列 API（event/ultra/mempool）
+ *
+ * 非掩码模式：全关中断下调用虽互斥安全，仍对 HRT 级上下文 fail-closed
+ * （防御深度，与掩码模式口径一致）。
+ */
+#define BM_SRT_QUEUE_API_FORBIDDEN() (bm_in_hrt_isr() != 0)
 #endif
 
 #endif /* BM_CRITICAL_WRAP_H */

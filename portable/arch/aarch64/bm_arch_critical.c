@@ -12,7 +12,6 @@
  * @date 2026-07-31
  *
  * @par 修改日志:
- * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-15       1.0            zeh            正式发布
@@ -20,6 +19,7 @@
  *                                               IRQ 嵌套计数真实判定（修复
  *                                               aarch64 上 ISR 防护全部失效）
  * 2026-07-31       1.2            zeh            按核计数补 cache-line 隔离
+ * 2026-08-01       1.2            zeh           补齐 Doxygen 合规元数据
  *
  */
 #include "port/bm_arch_ops.h"

@@ -13,7 +13,7 @@
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-23       1.1            zeh            SOH config 新增学习阈值与平滑系数字段；
  *                                                charge_ah 语义注释明确为原始 Ah（不含库仑效率）
- * 2026-08-01       1.1            Codex          补全算法 API Doxygen 注释
+ * 2026-08-01       1.1            zeh          补全算法 API Doxygen 注释
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

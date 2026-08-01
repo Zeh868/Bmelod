@@ -16,7 +16,7 @@
  *    Date         Version        Author          Description
  * 2026-06-12       1.0            zeh            正式发布
  * 2026-06-13       1.1            zeh            增加 driver API 分发
- * 2026-08-01       1.1            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       1.1            zeh           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_HAL_DMA_STREAM_H

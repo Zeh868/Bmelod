@@ -6,14 +6,15 @@
  *
  * 两路编码器经框架 I2C 总线实例（bm_hal_i2c_esp32_idf）读取
  * AS5600 RAW ANGLE：
- * - M0：bm_hal_i2c_1（I2C_NUM_1，SDA=GPIO19，SCL=GPIO18，400 kHz，与 BMI160 共用）
+ * - M0：bm_hal_i2c_1（I2C_NUM_1，SDA=GPIO19，SCL=GPIO18，400 kHz，与 BMI160
+ *   共用——须串行，禁止 HRT）
  * - M1：bm_hal_i2c_0（I2C_NUM_0，SDA=GPIO23，SCL=GPIO5，100 kHz）
  *
  * 端口懒初始化已上移到总线后端（首笔事务幂等初始化），本层不再
  * 持有端口/引脚/速率配置，也不再做端口初始化兜底。
  *
  * @author zeh (china_qzh@163.com)
- * @version 2.5
+ * @version 2.6
  * @date 2026-08-01
  *
  * @par 修改日志:
@@ -34,7 +35,8 @@
  *                                                i2c_port/sda_gpio/scl_gpio 字段，
  *                                                read 改调 bm_hal_i2c_write_read；
  *                                                端口懒初始化上移总线后端
- * 2026-08-01       2.5            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       2.5            zeh            补全中文 Doxygen 合规注释
+ * 2026-08-01       2.6            zeh            标注与 BMI160 共享 I2C1 须串行、禁 HRT
  */
 #include "bm_vendor_encoder_esp32_idf.h"
 #include "bm_hal_i2c_esp32_idf.h"

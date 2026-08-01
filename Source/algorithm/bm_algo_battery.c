@@ -9,7 +9,6 @@
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
- * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-23       1.1            zeh            修复 bm_algo_soh_update 小段放电虚报问题：
  *                                                添加有效循环阈值判定，并对学习容量做指数平滑；
@@ -19,6 +18,7 @@
  *                                                污染 charge_ah/soc 持久状态
  * 2026-07-27       1.3            zeh            soh_update 的 smooth_alpha 改用
  *                                                bm_algo_lpf1_alpha_saturate
+ * 2026-08-01       1.2            zeh           补齐 Doxygen 合规元数据
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

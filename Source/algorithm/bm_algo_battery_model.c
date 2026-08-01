@@ -9,7 +9,6 @@
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
- * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       1.0            zeh            补齐 Doxygen 注释，版本与头文件对齐
  * 2026-06-23       1.1            zeh            电压更新增加协方差对角元正定性兜底
@@ -17,6 +16,7 @@
  *                                                update_voltage 补 NaN/Inf
  *                                                输入护栏，避免一次毛刺永久
  *                                                污染 soc/bias_a/协方差状态
+ * 2026-08-01       1.2            zeh           补齐 Doxygen 合规元数据
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

@@ -10,15 +10,16 @@
  * 事件通过 bm_event 发布到本核事件总线；不同 CPU 的订阅由 bm_event 自动转发。
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-06-26
+ * @version 1.2
+ * @date 2026-08-01
  *
  * @par 修改日志:
- * 2026-08-01       1.1            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
  * 2026-06-26       1.1            zeh            新增 bm_ticker_get_dropped_total（对称 hrt total getter）
+ * 2026-08-01       1.1            zeh           补齐 Doxygen 合规元数据
+ * 2026-08-01       1.2            zeh            文档化 poll 在 ISR 上下文立即返回 0
  *
  */
 #ifndef BM_TICKER_H
@@ -49,9 +50,9 @@ int bm_ticker_init(const bm_ticker_slot_t *slots, uint32_t slot_count);
 /**
  * @brief 轮询 ticker 并发布到期事件
  *
- * 非可重入，仅限主循环调用。
+ * 非可重入，仅限主循环调用；ISR 上下文中调用立即返回 0（对齐 bm_hrt_poll）。
  *
- * @return 本次发布的事件数；负值为未初始化。单个事件发布失败（队列满）不计入返回值，而是累加到对应 slot 的 dropped 计数，可通过 bm_ticker_get_dropped 查询。
+ * @return 本次发布的事件数；负值为未初始化；ISR 内调用返回 0。单个事件发布失败（队列满）不计入返回值，而是累加到对应 slot 的 dropped 计数，可通过 bm_ticker_get_dropped 查询。
  */
 int bm_ticker_poll(void);
 

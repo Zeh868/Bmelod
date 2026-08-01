@@ -13,10 +13,10 @@
  * @date 2026-06-27
  *
  * @par 修改日志:
- * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-27       1.0            zeh            阶段 2：matrix payload 通道 adapter 头文件
+ * 2026-08-01       1.0            zeh           补齐 Doxygen 合规元数据
  *
  */
 #ifndef BM_MP_IPC_BACKEND_H

@@ -5,13 +5,13 @@
  * @maturity E1
  *
  * BMI160 与 M0 AS5600 共用 bm_hal_i2c_1（I2C_NUM_1，SDA=GPIO19, SCL=GPIO18），
- * 实际板级地址为 0x69（SDO/SA0 接 VDDIO）。
+ * 须经端口互斥串行且禁止 HRT 调用。实际板级地址为 0x69（SDO/SA0 接 VDDIO）。
  * 本实现经框架 I2C 总线设备（bm_hal_i2c_write / bm_hal_i2c_write_read）
  * 通信，底层为 bm_vendor_i2c_esp32_idf 的 LL 寄存器级原语，
  * 零 FreeRTOS 依赖；复位/上电等待用 esp_rom_delay_us 实现有界忙等。
  *
  * @author zeh (china_qzh@163.com)
- * @version 2.3
+ * @version 2.4
  * @date 2026-08-01
  *
  * @par 修改日志:
@@ -27,7 +27,8 @@
  *                                                bm_hal_i2c_write / bm_hal_i2c_write_read
  *                                                （config.bus），删除端口初始化
  *                                                （懒初始化上移 I2C 总线后端）
- * 2026-08-01       2.3            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       2.3            zeh            补全中文 Doxygen 合规注释
+ * 2026-08-01       2.4            zeh            标注与 AS5600 共享 I2C1 须串行、禁 HRT
  */
 #include "bm_vendor_bmi160_esp32_idf.h"
 #include "bm_types.h"

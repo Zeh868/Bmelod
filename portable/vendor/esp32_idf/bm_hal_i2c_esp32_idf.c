@@ -12,15 +12,15 @@
  * 实例定义使用 BM_DEVICE_DEFINE（死宏转正为推荐写法）。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-08-01
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-08-01       1.0            zeh            新增（I2C 总线契约 ESP32 后端）
- *
- * 2026-08-01       1.0            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.0            zeh            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.1            zeh            I2C1 实例注释：AS5600/BMI160 须串行、禁 HRT
  */
 #include "bm_hal_i2c_esp32_idf.h"
 #include "bm_vendor_i2c_esp32_idf.h"
@@ -121,7 +121,11 @@ static const bm_i2c_config_esp32_t g_i2c0_config = {
     (gpio_num_t)BM_ESP32WROOM32E_ENCODER1_SCL_GPIO,  /* GPIO5 */
 };
 
-/** @brief I2C1 后端配置（M0 AS5600 + BMI160 共线：GPIO19/GPIO18，400 kHz）。 */
+/**
+ * @brief I2C1 后端配置（M0 AS5600 + BMI160 共线：GPIO19/GPIO18，400 kHz）。
+ *
+ * 两消费方须串行且禁止 HRT 调用；vendor 层有界自旋锁提供端口互斥。
+ */
 static const bm_i2c_config_esp32_t g_i2c1_config = {
     { 400000u, 0u },
     I2C_NUM_1,

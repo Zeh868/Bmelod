@@ -12,7 +12,7 @@
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            初始版本
  * 2026-06-17       1.1            zeh            Wh 积分与谐波分组
- * 2026-08-01       1.1            Codex          补齐公共 API 中文 Doxygen
+ * 2026-08-01       1.1            zeh          补齐公共 API 中文 Doxygen
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

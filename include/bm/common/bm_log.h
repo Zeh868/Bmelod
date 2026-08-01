@@ -19,7 +19,7 @@
  * 2026-06-14       1.1            zeh            per-CPU 有界 ring
  * 2026-06-15       1.2            zeh            hard RT 日志宏裁剪
  * 2026-07-11       1.3            zeh            批 P：运行期级别阈值
- * 2026-08-01       1.3            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       1.3            zeh           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_LOG_H

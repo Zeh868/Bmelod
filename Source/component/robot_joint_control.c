@@ -19,7 +19,7 @@
  *                                                非有限时拒绝进入 PI/friction，
  *                                                输出 0 力矩，避免 NaN 力矩下发
  * 2026-07-27       0.4            zeh            validate_config 中
- * 2026-08-01       0.4            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       0.4            zeh           补全 Doxygen 合规注释
  *                                                bm_algo_pi_validate_config
  *                                                结果比较改为 BM_OK
  *

@@ -18,7 +18,7 @@
  * 2026-06-23       0.3            zeh            exec_ops 表；zv_compute_coeffs Doxygen；SPDX
  * 2026-07-09       0.4            zeh            safe_stop 补清空环形缓冲（疑似-16.1）
  * 2026-07-14       0.5            zeh            Medium-6 修复：速度限幅从只写
- * 2026-08-01       0.5            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       0.5            zeh           补全 Doxygen 合规注释
  *                                                遥测改为真实约束 shaped_mm 增
  *                                                量，write_z 发送已限幅位置
  *

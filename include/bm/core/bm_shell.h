@@ -27,7 +27,6 @@
  * @date 2026-07-18
  *
  * @par 修改日志:
- * 2026-08-01       1.3            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
@@ -38,6 +37,7 @@
  *                                                 命令级补全回调（参数序号+前缀→候选），
  *                                                 复用命令词补全的自动补全/列表/响铃骨架；
  *                                                 未登记命令行为不变，零 malloc 有界收集
+ * 2026-08-01       1.3            zeh           补齐 Doxygen 合规元数据
  *
  */
 #ifndef BM_SHELL_H

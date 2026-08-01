@@ -14,7 +14,7 @@
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
  * 2026-07-27       1.1            zeh            新增 BM_ERR_IO（I/O 或硬件访问失败）
- * 2026-08-01       1.1            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       1.1            zeh           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_TYPES_H

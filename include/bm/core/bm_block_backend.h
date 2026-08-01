@@ -19,10 +19,10 @@
  * @date 2026-06-26
  *
  * @par 修改日志:
- * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-26       1.0            zeh            初稿：BLOCK 模式控制反转 vtable
+ * 2026-08-01       1.0            zeh           补齐 Doxygen 合规元数据
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

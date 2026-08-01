@@ -10,13 +10,13 @@
  * @date 2026-07-30
  *
  * @par 修改日志:
- * 2026-08-01       1.1            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-15       1.0            zeh            正式发布
  * 2026-07-30       1.1            zeh            声明 IRQ 嵌套计数钩子
  *                                               （bm_arch_aarch64_irq_enter/exit），
  *                                               支撑真实的 bm_arch_in_isr 判定
+ * 2026-08-01       1.1            zeh           补齐 Doxygen 合规元数据
  *
  */
 

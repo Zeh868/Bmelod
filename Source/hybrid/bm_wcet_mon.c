@@ -14,7 +14,6 @@
  * @date 2026-07-02
  *
  * @par 修改日志:
- * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-07-02       1.0            zeh            Task 1：config/公共头/注册迭代骨架，
@@ -23,6 +22,7 @@
  *                                                 misuse 语义；report_miss 仍占位
  * 2026-07-02       1.2            zeh            Task 3：report_miss 实现
  *                                                 （miss_count++ + sink 通知）
+ * 2026-08-01       1.2            zeh           补齐 Doxygen 合规元数据
  *
  */
 #include "bm/hybrid/bm_wcet_mon.h"

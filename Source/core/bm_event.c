@@ -7,7 +7,7 @@
  * 订阅表初始化后冻结，分发直接遍历链表——无快照，WCET 可预测。
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.9
+ * @version 2.0
  * @date 2026-08-01
  *
  * @par 修改日志:
@@ -32,6 +32,8 @@
  *                                                拦截缺口（对齐 ultra/mempool）
  * 2026-08-01       1.9            zeh            完整事件发布入口前置 HRT guard，
  *                                                优先于参数、特性与普通日志分支
+ * 2026-08-01       2.0            zeh            订阅四入口与 test_inject 补 HRT
+ *                                                FORBIDDEN（对齐 reset/process）
  *
  */
 #include "bm/core/bm_cpu_local.h"
@@ -242,10 +244,14 @@ static int _prio_indices_valid(uint32_t read_idx, uint32_t write_idx,
     return (read_idx <= mask && write_idx <= mask) ? BM_OK : BM_ERR_INVALID;
 }
 
+/* 定义在发布实现旁（HRT 拒绝诊断区），此处前置声明供订阅/reset/process 使用 */
+static void event_log_hrt_reject_op_once(const char *op);
+
 /**
  * @brief 冻结事件订阅表，禁止后续注册/订阅变更
  *
  * 冻结前会审计已注册但无订阅者的事件类型并打印 warning。
+ * 处于 HRT 级上下文时静默拒绝。
  */
 void bm_event_freeze_subscriptions(void) {
     bm_event_cpu_state_t *state = bm_event_this();
@@ -254,6 +260,10 @@ void bm_event_freeze_subscriptions(void) {
     uint32_t unbound_count = 0u;
 
     if (state == NULL) {
+        return;
+    }
+    if (BM_SRT_QUEUE_API_FORBIDDEN()) {
+        event_log_hrt_reject_op_once("freeze_subscriptions");
         return;
     }
     s = BM_CRITICAL_ENTER();
@@ -276,9 +286,6 @@ void bm_event_freeze_subscriptions(void) {
     }
     BM_LOGD("event", "subscriptions frozen for deterministic dispatch");
 }
-
-/* 定义在发布实现旁（HRT 拒绝诊断区），此处前置声明供 reset/process 使用 */
-static void event_log_hrt_reject_op_once(const char *op);
 
 /**
  * @brief 重置当前核的事件总线状态
@@ -324,7 +331,7 @@ void bm_event_reset(void) {
  *
  * @param type 事件类型枚举值
  * @param name 事件名称字符串
- * @return BM_OK 成功；BM_ERR_INVALID 参数无效；BM_ERR_BUSY 冻结或分发中；
+ * @return BM_OK 成功；BM_ERR_INVALID 参数无效；BM_ERR_BUSY 冻结、分发中或 HRT 禁调；
  *         BM_ERR_ALREADY 该类型已注册
  */
 int bm_event_register_type(bm_event_type_t type, const char *name) {
@@ -332,6 +339,10 @@ int bm_event_register_type(bm_event_type_t type, const char *name) {
 
     if (state == NULL) {
         return BM_ERR_INVALID;
+    }
+    if (BM_SRT_QUEUE_API_FORBIDDEN()) {
+        event_log_hrt_reject_op_once("register_type");
+        return BM_ERR_BUSY;
     }
     if (type >= BM_CONFIG_MAX_EVENT_TYPES || !name) {
         BM_LOGE("event", "register_type invalid type=%u", (unsigned)type);
@@ -387,6 +398,10 @@ int bm_event_subscribe(bm_event_type_t type, bm_event_callback_t cb,
 
     if (state == NULL) {
         return BM_ERR_INVALID;
+    }
+    if (BM_SRT_QUEUE_API_FORBIDDEN()) {
+        event_log_hrt_reject_op_once("subscribe");
+        return BM_ERR_BUSY;
     }
     if (!cb || type >= BM_CONFIG_MAX_EVENT_TYPES) {
         BM_LOGE("event", "subscribe invalid args type=%u", (unsigned)type);
@@ -482,6 +497,10 @@ int bm_event_unsubscribe(bm_event_type_t type, bm_event_subscriber_id_t id) {
 
     if (state == NULL) {
         return BM_ERR_INVALID;
+    }
+    if (BM_SRT_QUEUE_API_FORBIDDEN()) {
+        event_log_hrt_reject_op_once("unsubscribe");
+        return BM_ERR_BUSY;
     }
     if (type >= BM_CONFIG_MAX_EVENT_TYPES || id == 0) {
         return BM_ERR_INVALID;
@@ -1089,6 +1108,10 @@ int bm_event_test_inject(const bm_event_t *event, bm_event_priority_t prio) {
 
     if (state == NULL) {
         return BM_ERR_INVALID;
+    }
+    if (BM_SRT_QUEUE_API_FORBIDDEN()) {
+        event_log_hrt_reject_op_once("test_inject");
+        return BM_ERR_BUSY;
     }
     if (!event || prio >= BM_CONFIG_EVENT_PRIORITIES) {
         return BM_ERR_INVALID;

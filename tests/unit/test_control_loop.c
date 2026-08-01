@@ -3,11 +3,12 @@
  * @brief control_loop 串级 PI 组件单元测试
  *
  * 覆盖外环设定、内环跟踪与输出饱和基本行为；
- * 并覆盖 exec 生命周期（init → start → step → safe_stop）路径。
+ * 并覆盖 exec 生命周期（init → start → step → safe_stop）路径；
+ * 以及 CMD_ENABLED/FAULT 状态机。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.2
- * @date 2026-06-17
+ * @version 1.3
+ * @date 2026-08-01
  *
  * @par 修改日志:
  *
@@ -15,6 +16,9 @@
  * 2026-06-17       1.0            zeh            正式发布
  * 2026-06-23       1.1            zeh            补 exec 生命周期测试
  * 2026-07-27       1.2            zeh            新增 bm_control_loop_init 直接入口测试
+ * 2026-08-01       1.3            zeh            补 ENABLED/FAULT 状态机用例；步进前须使能
+ *
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 #include "unity.h"
 #include "bm/component/control_loop.h"
@@ -37,12 +41,31 @@ static int read_plant(void *user, float *outer_meas, float *inner_meas,
     return 0;
 }
 
+static int read_plant_fail(void *user, float *outer_meas, float *inner_meas,
+                           float *setpoint) {
+    (void)user;
+    (void)outer_meas;
+    (void)inner_meas;
+    (void)setpoint;
+    return -1;
+}
+
 static int write_output(void *user, float output) {
     (void)user;
     g_last_output = output;
     g_inner_meas += (output - g_inner_meas) * 0.2f;
     g_outer_meas += (g_inner_meas - g_outer_meas) * 0.1f;
     return 0;
+}
+
+/** @brief 使能控制环（step 前须调用） */
+static void enable_axis(bm_control_loop_axis_t *axis) {
+    bm_control_loop_cmd_t cmd;
+
+    memset(&cmd, 0, sizeof(cmd));
+    cmd.sequence = 1u;
+    cmd.status = BM_CONTROL_LOOP_CMD_ENABLED;
+    bm_control_loop_apply_command(axis, &cmd);
 }
 
 void setUp(void) {
@@ -83,6 +106,7 @@ static void test_cascade_pi_moves_toward_setpoint(void) {
 
     TEST_ASSERT_EQUAL(BM_OK, bm_control_loop_validate_config(&axis.config));
     bm_control_loop_reset(&axis);
+    enable_axis(&axis);
 
     for (i = 0u; i < 500u; ++i) {
         bm_control_loop_step(&axis);
@@ -137,6 +161,94 @@ static void test_init_valid_resets_state(void) {
     TEST_ASSERT_EQUAL_UINT32(0u, axis.state.step_count);
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, axis.state.outer_out);
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, axis.state.inner_out);
+    TEST_ASSERT_EQUAL(0, axis.state.fault_latched);
+    TEST_ASSERT_EQUAL_UINT32(0u, axis.state.cmd.status & BM_CONTROL_LOOP_CMD_ENABLED);
+}
+
+/**
+ * @brief 默认未使能：step 不清跑环、输出保持零
+ */
+static void test_default_disabled_no_output(void) {
+    bm_control_loop_axis_t axis;
+
+    make_valid_axis(&axis);
+    TEST_ASSERT_EQUAL(BM_OK, bm_control_loop_init(&axis));
+    g_last_output = 99.0f;
+    bm_control_loop_step(&axis);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, g_last_output);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, axis.state.inner_out);
+    TEST_ASSERT_EQUAL_UINT32(0u, axis.state.step_count);
+}
+
+/**
+ * @brief ENABLED 后正常步进
+ */
+static void test_enabled_produces_output(void) {
+    bm_control_loop_axis_t axis;
+
+    make_valid_axis(&axis);
+    TEST_ASSERT_EQUAL(BM_OK, bm_control_loop_init(&axis));
+    enable_axis(&axis);
+    bm_control_loop_step(&axis);
+    TEST_ASSERT_TRUE(fabsf(g_last_output) > 0.0f);
+    TEST_ASSERT_EQUAL_UINT32(1u, axis.state.step_count);
+}
+
+/**
+ * @brief FAULT 锁存后清输出；reset 清故障
+ */
+static void test_fault_latches_and_reset_clears(void) {
+    bm_control_loop_axis_t axis;
+    bm_control_loop_cmd_t cmd;
+
+    make_valid_axis(&axis);
+    TEST_ASSERT_EQUAL(BM_OK, bm_control_loop_init(&axis));
+    enable_axis(&axis);
+    bm_control_loop_step(&axis);
+    TEST_ASSERT_TRUE(fabsf(axis.state.inner_out) > 0.0f);
+
+    memset(&cmd, 0, sizeof(cmd));
+    cmd.status = BM_CONTROL_LOOP_CMD_ENABLED | BM_CONTROL_LOOP_CMD_FAULT;
+    bm_control_loop_apply_command(&axis, &cmd);
+    TEST_ASSERT_EQUAL(1, axis.state.fault_latched);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, axis.state.inner_out);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, g_last_output);
+
+    bm_control_loop_step(&axis);
+    TEST_ASSERT_EQUAL(1, axis.state.fault_latched);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, axis.state.inner_out);
+
+    bm_control_loop_reset(&axis);
+    TEST_ASSERT_EQUAL(0, axis.state.fault_latched);
+    TEST_ASSERT_EQUAL_UINT32(0u, axis.state.cmd.status);
+}
+
+/**
+ * @brief read_plant 失败锁存故障
+ */
+static void test_read_plant_fail_latches_fault(void) {
+    bm_control_loop_axis_t axis;
+
+    make_valid_axis(&axis);
+    axis.resources.read_plant = read_plant_fail;
+    TEST_ASSERT_EQUAL(BM_OK, bm_control_loop_init(&axis));
+    enable_axis(&axis);
+    bm_control_loop_step(&axis);
+    TEST_ASSERT_EQUAL(1, axis.state.fault_latched);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, axis.state.inner_out);
+}
+
+/**
+ * @brief apply_command / step NULL 安全
+ */
+static void test_null_safety(void) {
+    bm_control_loop_cmd_t cmd;
+
+    memset(&cmd, 0, sizeof(cmd));
+    bm_control_loop_apply_command(NULL, &cmd);
+    bm_control_loop_apply_command(NULL, NULL);
+    bm_control_loop_step(NULL);
+    bm_control_loop_reset(NULL);
 }
 
 /* ---------------------------------------------------------------------------
@@ -213,6 +325,7 @@ static void test_exec_step_increments_step_count(void) {
 
     make_valid_axis(&axis);
     bm_control_loop_reset(&axis);
+    enable_axis(&axis);
     memset(&inst, 0, sizeof(inst));
     inst.state = &axis;
 
@@ -233,6 +346,7 @@ static void test_exec_safe_stop_zeros_output(void) {
 
     make_valid_axis(&axis);
     bm_control_loop_reset(&axis);
+    enable_axis(&axis);
     memset(&inst, 0, sizeof(inst));
     inst.state = &axis;
 
@@ -288,6 +402,7 @@ static void test_exec_full_lifecycle(void) {
 
     TEST_ASSERT_EQUAL(BM_OK, bm_control_loop_exec_ops.init(&inst));
     TEST_ASSERT_EQUAL(BM_OK, bm_control_loop_exec_ops.start(&inst));
+    enable_axis(&axis);
 
     for (i = 0u; i < 200u; ++i) {
         bm_control_loop_exec_step(&inst);
@@ -304,6 +419,11 @@ void test_control_loop(void) {
     RUN_TEST(test_cascade_pi_moves_toward_setpoint);
     RUN_TEST(test_init_null_returns_invalid);
     RUN_TEST(test_init_valid_resets_state);
+    RUN_TEST(test_default_disabled_no_output);
+    RUN_TEST(test_enabled_produces_output);
+    RUN_TEST(test_fault_latches_and_reset_clears);
+    RUN_TEST(test_read_plant_fail_latches_fault);
+    RUN_TEST(test_null_safety);
     /* exec 生命周期 */
     RUN_TEST(test_exec_init_null_returns_invalid);
     RUN_TEST(test_exec_init_bad_config_returns_invalid);

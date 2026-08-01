@@ -24,7 +24,7 @@
  * 2026-06-12       1.0            zeh            正式发布（原 hybrid 层）
  * 2026-06-14       1.1            zeh            clock_id 辅助
  * 2026-06-26       2.0            zeh            下沉至 common；ticks 升 64 位（#9-1b）
- * 2026-08-01       2.0            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       2.0            zeh           补全 Doxygen 合规注释
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

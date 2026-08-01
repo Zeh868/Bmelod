@@ -7,11 +7,10 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.5
- * @date 2026-07-15
+ * @version 1.8
+ * @date 2026-08-01
  *
  * @par 修改日志:
- * 2026-08-01       1.5            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-12       1.0            zeh            正式发布
@@ -22,6 +21,9 @@
  * 2026-07-15       1.5            zeh            drain 无 handler 分支的 pending_drain 清零收进临界区，消除与 ISR commit 竞态
  * 2026-07-27       1.6            zeh            struct bm_stream 定义下沉到本文件；新增内部字段 accessor 实现
  * 2026-07-28       1.7            zeh            struct bm_stream 唯一保留在 bm_stream_impl.h，本文件改为 include 复用，消除双份定义
+ * 2026-08-01       1.7            zeh           补齐 Doxygen 合规元数据
+ * 2026-08-01       1.8            zeh            文档明确 drain 的 budget=
+ *                                                最大 ready 通知次数（循环行为不变）
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -518,6 +520,11 @@ int bm_stream_drain(bm_stream_t *stream, uint32_t budget) {
         BM_STREAM_CRITICAL_EXIT(irq);
     }
 
+    /*
+     * budget = 最大 ready 通知次数（非最大消费块数）。handler 返回后若块仍
+     * 处于 PROCESSING，下方会回写 READY，下一轮仍可能再次选中同一块并通知，
+     * 直至 notified 达到 budget。此为有意语义，勿改为“未消费即 break”。
+     */
     while (notified < budget) {
         bm_irq_state_t irq;
         bm_block_t *slot;

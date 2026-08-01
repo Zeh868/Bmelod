@@ -15,7 +15,7 @@
  * 2026-06-14       1.0            zeh            正式发布
  * 2026-06-15       1.1            zeh            hard RT 禁止 stdio 输出
  * 2026-06-19       1.2            zeh            默认经 bm_hal_console LOG 通道输出
- * 2026-08-01       1.2            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       1.2            zeh           补全 Doxygen 合规注释
  *
  */
 #include "bm_config.h"

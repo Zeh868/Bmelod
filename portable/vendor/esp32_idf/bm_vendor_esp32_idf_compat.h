@@ -15,8 +15,7 @@
  *    Date         Version        Author          Description
  * 2026-06-19       1.0            zeh            新增 vendor 私有 I/O 错误兼容宏
  * 2026-06-19       1.1            zeh            Phase 3：添加 PERIPH_RCC_ATOMIC 正规化宏
- *
- * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.1            zeh            补全中文 Doxygen 合规注释
  */
 #ifndef BM_VENDOR_ESP32_IDF_COMPAT_H
 #define BM_VENDOR_ESP32_IDF_COMPAT_H

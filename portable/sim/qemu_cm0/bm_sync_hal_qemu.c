@@ -11,10 +11,9 @@
  *
  * @par 修改日志:
  *
- * Date       Version Author Description
- * 2026-06-16 1.1     zeh    trigger 对齐 native，移除 slots 遍历
- *
- * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
+ * Date             Version Author Description
+ * 2026-06-16       1.1     zeh    trigger 对齐 native，移除 slots 遍历
+ * 2026-08-01       1.1            zeh            补全中文 Doxygen 合规注释
  */
 #include "bm_sync.h"
 #include "bm_log.h"

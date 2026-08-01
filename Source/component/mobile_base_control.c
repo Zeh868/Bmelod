@@ -16,7 +16,7 @@
  * 2026-06-17       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 exec_ops、Doxygen、SPDX
  * 2026-07-14       0.3            zeh            Medium-6 修复：set_cmd 与 step
- * 2026-08-01       0.3            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       0.3            zeh           补全 Doxygen 合规注释
  *                                                增加有限性校验，非有限指令按
  *                                                0 处理，避免 NaN 轮速下发
  *

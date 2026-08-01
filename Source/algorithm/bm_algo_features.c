@@ -9,10 +9,10 @@
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
- * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-17       1.1            zeh            MFCC DCT 近似
  * 2026-06-23       1.1            zeh            补齐 Doxygen 注释
+ * 2026-08-01       1.1            zeh           补齐 Doxygen 合规元数据
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

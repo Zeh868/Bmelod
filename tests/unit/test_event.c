@@ -2,16 +2,19 @@
  * @file test_event.c
  * @brief 事件总线 publish/subscribe、优先级与内联数据单元测试
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-10
+ * @version 1.1
+ * @date 2026-08-01
  * @par 修改日志:
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
+ * 2026-08-01       1.1            zeh            补非掩码 HRT 对 process/订阅/
+ *                                                test_inject 的 fail-closed 用例
  */
 
 #include "unity.h"
 #include "bm_core.h"
 #include "bm_log.h"
+#include "bm/common/bm_critical_wrap.h"
 
 #include <string.h>
 
@@ -340,6 +343,42 @@ void test_event_subscribe_null_id(void) {
     TEST_ASSERT_EQUAL(7, g_seen_data[0]);
 }
 
+/**
+ * @brief 非掩码默认配置下 HRT 上下文同样 fail-closed（两模式统一）
+ */
+void test_event_hrt_isr_rejects_process_subscribe_inject(void) {
+    bm_event_t event;
+    bm_event_subscriber_id_t id = 0u;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_event_register_type(EVENT_TEST, "TEST"));
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_event_subscribe(EVENT_TEST, test_cb, &g_count, &id));
+    bm_event_freeze_subscriptions();
+
+    event.type = EVENT_TEST;
+    event.priority = 0u;
+    event.data = NULL;
+    event.data_len = 0u;
+    event.source_id = 0u;
+
+    bm_hrt_isr_enter();
+    TEST_ASSERT_EQUAL(BM_ERR_BUSY, test_event_process_raw(4u));
+    TEST_ASSERT_EQUAL(BM_ERR_BUSY,
+        bm_event_register_type(EVENT_HIGH, "HIGH"));
+    TEST_ASSERT_EQUAL(BM_ERR_BUSY,
+        bm_event_subscribe(EVENT_TEST, test_cb, &g_count, NULL));
+    TEST_ASSERT_EQUAL(BM_ERR_BUSY, bm_event_unsubscribe(EVENT_TEST, id));
+    bm_event_freeze_subscriptions();
+    TEST_ASSERT_EQUAL(BM_ERR_BUSY, bm_event_test_inject(&event, 0u));
+    TEST_ASSERT_EQUAL(BM_ERR_BUSY,
+        bm_event_publish_copy(EVENT_TEST, 0u, NULL, 0u));
+    bm_hrt_isr_exit();
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_event_test_inject(&event, 0u));
+    TEST_ASSERT_EQUAL(1, test_event_process_raw(4u));
+    TEST_ASSERT_EQUAL(1, g_count);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_event_publish_copy_and_process);
@@ -358,5 +397,6 @@ int main(void) {
     RUN_TEST(test_event_dispatch_skips_invalid_payload_metadata);
     RUN_TEST(test_event_register_type_rejects_duplicate);
     RUN_TEST(test_event_subscribe_null_id);
+    RUN_TEST(test_event_hrt_isr_rejects_process_subscribe_inject);
     return UNITY_END();
 }

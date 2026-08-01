@@ -4,8 +4,9 @@
  * @brief 掩码模式（BM_CONFIG_ENABLE_PRIORITY_MASK=1）下 SRT 队列 API 对
  *        HRT 级 ISR 上下文 fail-closed 的运行期拦截单元测试
  *
- * 测试目标直接编译 Source/core/bm_event.c、bm_ultra.c 与 bm_mempool.c
- * （掩码宏开），临界区两层符号由 fakes/bm_mask_guard_fake.c 提供。断言：
+ * 测试目标直接编译 Source/core/bm_event.c、bm_ultra.c、bm_mempool.c 与
+ * Source/hybrid/bm_ticker.c（掩码宏开），临界区两层符号由
+ * fakes/bm_mask_guard_fake.c 提供。断言：
  * - HRT ISR 上下文（bm_hrt_isr_enter 标记）中：
  *   bm_event_publish_copy_from_isr → BM_ERR_BUSY（且不触阈值掩码临界区）、
  *   bm_event_publish_copy（非 ISR 变体）同样 BM_ERR_BUSY、
@@ -13,13 +14,16 @@
  *   bm_mempool_alloc → NULL、bm_mempool_try_free → BM_ERR_BUSY、
  *   bm_mempool_reset 被拒绝（池内容不变）、
  *   bm_event_reset 静默拒绝（订阅与队列保持原状）、
- *   bm_event_process → BM_ERR_BUSY（队列不被触碰）；
+ *   bm_event_process → BM_ERR_BUSY（队列不被触碰）、
+ *   订阅四入口与 test_inject → BM_ERR_BUSY / void 静默、
+ *   mempool 非法入参在 HRT 下先 FORBIDDEN（返回 BUSY 而非 INVALID）、
+ *   bm_ticker_poll 在 bm_hal_in_isr 时返回 0；
  * - 低于 HRT 阈值的 from_isr 与普通主循环路径不受影响（BM_OK）；
  * - 正常入队确实以 BM_CONFIG_HRT_PRIORITY_THRESHOLD 进入阈值掩码临界区。
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.3
+ * @version 1.4
  * @date 2026-08-01
  * @par 修改日志:
  *    Date         Version        Author          Description
@@ -30,6 +34,8 @@
  *                                                （对齐 ultra/mempool 的 reset 语义）
  * 2026-08-01       1.3            zeh            补完整事件发布入口的 HRT guard
  *                                                优先级用例
+ * 2026-08-01       1.4            zeh            补订阅四入口/test_inject、
+ *                                                mempool FORBIDDEN 前置、ticker ISR 早退
  */
 
 #include "unity.h"
@@ -37,6 +43,7 @@
 #include "bm/core/bm_mempool_impl.h"
 #include "bm/common/bm_critical_wrap.h"
 #include "bm/common/bm_types.h"
+#include "bm_ticker.h"
 #include "bm_ultra.h"
 
 #include <stdint.h>
@@ -44,6 +51,7 @@
 /* fakes/bm_mask_guard_fake.c 访问器 */
 extern uint8_t bm_mask_guard_fake_last_threshold(void);
 extern unsigned bm_mask_guard_fake_enter_below_count(void);
+extern void bm_mask_guard_fake_set_in_isr(int in_isr);
 extern void bm_mask_guard_fake_reset(void);
 
 #define GUARD_EVT_TYPE ((bm_event_type_t)0x0Du)
@@ -76,6 +84,7 @@ void setUp(void) {
     /* 池与 ultra 队列跨用例复位，消除用例间顺序耦合 */
     bm_mempool_reset(&g_pool);
     bm_ultra_queue_reset();
+    bm_ticker_reset();
 }
 
 void tearDown(void) {}
@@ -193,6 +202,21 @@ void test_ultra_hrt_isr_rejected(void) {
     TEST_ASSERT_EQUAL_UINT8(0u, bm_ultra_queue_count());
 }
 
+/* ultra test_inject：与 push 同口径 FORBIDDEN */
+void test_ultra_test_inject_hrt_isr_rejected(void) {
+    bm_ultra_queue_item_t item;
+
+    item.event_type = 0u;
+    item.data_len = 0u;
+
+    bm_hrt_isr_enter();
+    TEST_ASSERT_EQUAL(BM_ERR_BUSY, bm_ultra_test_inject(&item));
+    bm_hrt_isr_exit();
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_ultra_test_inject(&item));
+    TEST_ASSERT_EQUAL_UINT8(1u, bm_ultra_queue_count());
+}
+
 /* mempool：HRT 级 ISR 中 alloc/try_free 均 fail-closed */
 void test_mempool_hrt_isr_rejected(void) {
     void *obj = bm_mempool_alloc(&g_pool);
@@ -231,6 +255,22 @@ void test_mempool_reset_hrt_isr_rejected(void) {
     bm_mempool_reset(&g_pool);
 }
 
+/*
+ * mempool：FORBIDDEN 须先于 validate/BM_LOGE——HRT + 非法入参返回 BUSY，
+ * 而非 INVALID（证明未走进 validate 的错误日志路径）
+ */
+void test_mempool_hrt_invalid_args_forbidden_first(void) {
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_mempool_try_free(NULL, NULL));
+
+    bm_hrt_isr_enter();
+    TEST_ASSERT_NULL(bm_mempool_alloc(NULL));
+    TEST_ASSERT_EQUAL(BM_ERR_BUSY, bm_mempool_try_free(NULL, NULL));
+    bm_mempool_reset((bm_mempool_t *)1);
+    bm_hrt_isr_exit();
+
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_mempool_try_free(NULL, NULL));
+}
+
 /* event reset：HRT 级上下文中静默拒绝，订阅与队列保持原状 */
 void test_event_reset_hrt_isr_rejected(void) {
     TEST_ASSERT_EQUAL(BM_OK, bm_event_register_type(GUARD_EVT_TYPE, "guard"));
@@ -267,6 +307,70 @@ void test_event_process_hrt_isr_rejected(void) {
     TEST_ASSERT_EQUAL_UINT(1u, g_guard_cb_count);
 }
 
+/* 订阅四入口：register/subscribe/unsubscribe/freeze 在 HRT 下 fail-closed */
+void test_event_subscription_apis_hrt_isr_rejected(void) {
+    bm_event_subscriber_id_t id = 0u;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_event_register_type(GUARD_EVT_TYPE, "guard"));
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_event_subscribe(GUARD_EVT_TYPE, guard_counting_cb, NULL, &id));
+    TEST_ASSERT_TRUE(id != 0u);
+
+    bm_hrt_isr_enter();
+    TEST_ASSERT_EQUAL(BM_ERR_BUSY,
+        bm_event_register_type((bm_event_type_t)0x0Eu, "other"));
+    TEST_ASSERT_EQUAL(BM_ERR_BUSY,
+        bm_event_subscribe(GUARD_EVT_TYPE, guard_counting_cb, NULL, NULL));
+    TEST_ASSERT_EQUAL(BM_ERR_BUSY,
+        bm_event_unsubscribe(GUARD_EVT_TYPE, id));
+    bm_event_freeze_subscriptions();
+    bm_hrt_isr_exit();
+
+    /* freeze 被拒绝：仍可订阅变更；先前订阅仍在 */
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_event_unsubscribe(GUARD_EVT_TYPE, id));
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_event_subscribe(GUARD_EVT_TYPE, guard_counting_cb, NULL, NULL));
+    bm_event_freeze_subscriptions();
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_event_publish_copy(GUARD_EVT_TYPE, GUARD_EVT_PRIO, NULL, 0u));
+    TEST_ASSERT_EQUAL(1, bm_event_process(4u));
+    TEST_ASSERT_EQUAL_UINT(1u, g_guard_cb_count);
+}
+
+/* event test_inject：与 publish 同口径 FORBIDDEN */
+void test_event_test_inject_hrt_isr_rejected(void) {
+    bm_event_t event;
+
+    event.type = GUARD_EVT_TYPE;
+    event.priority = GUARD_EVT_PRIO;
+    event.data_len = 0u;
+    event.source_id = 0u;
+    event.data = NULL;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_event_register_type(GUARD_EVT_TYPE, "guard"));
+    TEST_ASSERT_EQUAL(BM_OK,
+        bm_event_subscribe(GUARD_EVT_TYPE, guard_counting_cb, NULL, NULL));
+    bm_event_freeze_subscriptions();
+
+    bm_hrt_isr_enter();
+    TEST_ASSERT_EQUAL(BM_ERR_BUSY,
+        bm_event_test_inject(&event, GUARD_EVT_PRIO));
+    bm_hrt_isr_exit();
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_event_test_inject(&event, GUARD_EVT_PRIO));
+    TEST_ASSERT_EQUAL(1, bm_event_process(4u));
+    TEST_ASSERT_EQUAL_UINT(1u, g_guard_cb_count);
+}
+
+/* ticker：ISR 上下文中 poll 立即返回 0（早于 NOT_INIT） */
+void test_ticker_poll_isr_early_return(void) {
+    bm_mask_guard_fake_set_in_isr(1);
+    TEST_ASSERT_EQUAL(0, bm_ticker_poll());
+    bm_mask_guard_fake_set_in_isr(0);
+    TEST_ASSERT_EQUAL(BM_ERR_NOT_INIT, bm_ticker_poll());
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_publish_from_below_threshold_isr_ok);
@@ -275,9 +379,14 @@ int main(void) {
     RUN_TEST(test_publish_normal_variant_in_hrt_context_rejected);
     RUN_TEST(test_publish_event_variants_in_hrt_context_rejected_first);
     RUN_TEST(test_ultra_hrt_isr_rejected);
+    RUN_TEST(test_ultra_test_inject_hrt_isr_rejected);
     RUN_TEST(test_mempool_hrt_isr_rejected);
     RUN_TEST(test_mempool_reset_hrt_isr_rejected);
+    RUN_TEST(test_mempool_hrt_invalid_args_forbidden_first);
     RUN_TEST(test_event_reset_hrt_isr_rejected);
     RUN_TEST(test_event_process_hrt_isr_rejected);
+    RUN_TEST(test_event_subscription_apis_hrt_isr_rejected);
+    RUN_TEST(test_event_test_inject_hrt_isr_rejected);
+    RUN_TEST(test_ticker_poll_isr_early_return);
     return UNITY_END();
 }

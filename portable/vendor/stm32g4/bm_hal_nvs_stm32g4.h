@@ -24,8 +24,7 @@
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 G4 Flash NVS 布局注入
  * 2026-07-29       1.1            zeh            明确页对齐、整数倍、不重叠、有效 Flash 范围约束
- *
- * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.1            zeh            补全中文 Doxygen 合规注释
  */
 #ifndef BM_HAL_NVS_STM32G4_H
 #define BM_HAL_NVS_STM32G4_H

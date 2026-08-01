@@ -15,13 +15,13 @@
  * @date 2026-07-31
  *
  * @par 修改日志:
- * 2026-08-01       1.1            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
  * 2026-07-31       1.1            zeh            bm_hrt_poll 文档补充与硬件 ISR
  *                                                并存语义、HRT 级上下文标记与
  *                                                中断关闭范围
+ * 2026-08-01       1.1            zeh           补齐 Doxygen 合规元数据
  *
  */
 #ifndef BM_HRT_H

@@ -12,7 +12,7 @@
  *
  * Date       Version Author Description
  * 2026-06-16 1.0     zeh    首版振动诊断 API
- * 2026-08-01 1.0     Codex  补齐文件头成熟度与修改日志
+ * 2026-08-01 1.0     zeh  补齐文件头成熟度与修改日志
  */
 #ifndef BMP_ALGO_VIBRATION_H
 #define BMP_ALGO_VIBRATION_H

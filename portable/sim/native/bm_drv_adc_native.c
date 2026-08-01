@@ -15,10 +15,7 @@
  * 2026-07-31       1.1            zeh            fire_complete 回调派发首尾成对调用
  *                                                bm_hrt_isr_enter/exit，与真实 Hardware
  *                                                HRT 端口一致，消除"仿真放行、真机拒绝"分叉
- *
- *
- * @par ????:
- * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.1            zeh            补全中文 Doxygen 合规注释
  */
 #include "bm_hal_adc_sim.h"
 #include "bm/common/bm_critical_wrap.h"

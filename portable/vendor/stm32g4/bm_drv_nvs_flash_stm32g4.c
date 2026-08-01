@@ -18,8 +18,7 @@
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 G4 Flash 双槽 NVS 后端
  * 2026-07-29       1.1            zeh            从 Flash size register 取容量；按运行时页大小校验布局与擦除
- *
- * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.1            zeh            补全中文 Doxygen 合规注释
  */
 #include "bm_hal_nvs_stm32g4.h"
 #include "bm_nvs_dual_slot.h"

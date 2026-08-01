@@ -14,7 +14,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-07-27       0.1            zeh            初始版本
- * 2026-08-01       0.1            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       0.1            zeh           补全 Doxygen 合规注释
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

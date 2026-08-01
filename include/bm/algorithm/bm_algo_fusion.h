@@ -22,7 +22,7 @@
  *                                                三滤波器 dt_s 补 NaN 拦截
  *
  * 2026-07-28       1.5            zeh            Calibration status documents BM_OK/BM_ERR_*
- * 2026-08-01       1.5            Codex          补齐公共 API 中文 Doxygen
+ * 2026-08-01       1.5            zeh          补齐公共 API 中文 Doxygen
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

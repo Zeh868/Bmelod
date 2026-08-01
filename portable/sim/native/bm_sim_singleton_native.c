@@ -15,8 +15,7 @@
  * 2026-06-14       1.0            zeh            正式发布
  * 2026-06-14       1.1            zeh            临界区拆至 arch/host 与 MP 专用文件
  * 2026-07-02       1.2            zeh            新增 opt-in 纯虚拟时钟（bm_hal_uptime_native_set_virtual），消除 µs 级精确断言的墙钟泄漏
- *
- * 2026-08-01       1.2            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.2            zeh            补全中文 Doxygen 合规注释
  */
 #include "bm_drv_timer.h"
 #include "bm_drv_wdg.h"

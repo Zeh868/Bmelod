@@ -4,13 +4,18 @@
  *        + C5 atomic_inc 饱和语义（证明饱和上界，非 CAS 迭代次数）
  *
  * 缺口：
- *   C2 exec drain budget ← BM_ENABLE_EXEC_TEST_HOOK 未找到，待补。
+ *   C2 exec drain budget ← 已由 test_exec.c::test_exec_drain_streams_respects_budget 覆盖。
  *   C5 CAS 迭代次数 ← 单核无 CAS 路径，多核通过静态审查（D3）证明。
  *   C6 ipc 非阻塞 ← BM_CONFIG_SMP=OFF，待 SMP 构建补入。
  *
  * @author zeh (china_qzh@163.com)
- * @version 0.1
- * @date 2026-06-30
+ * @version 0.2
+ * @date 2026-08-01
+ *
+ * @par 修改日志:
+ *    Date         Version        Author          Description
+ * 2026-06-30       0.1            zeh            正式发布
+ * 2026-08-01       0.2            zeh            C2 缺口改指向 test_exec 预算断言
  */
 #include "unity.h"
 #include "bm/core/bm_event.h"

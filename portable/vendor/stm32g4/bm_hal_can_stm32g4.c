@@ -47,7 +47,7 @@
  * 2026-07-28       1.3            zeh            Message RAM 偏移按实例强制 0/212；
  *                                                忽略 App 可配 message_ram_offset
  * 2026-07-28       1.4            zeh            bitrate 推算支持 kernel_clock_hz
- * 2026-08-01       1.4            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.4            zeh            补全中文 Doxygen 合规注释
  */
 #include "bm_vendor_can_stm32g4.h"
 #include "bm_hal_instances_stm32g4.h"

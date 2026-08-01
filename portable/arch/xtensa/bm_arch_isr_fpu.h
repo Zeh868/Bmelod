@@ -56,12 +56,12 @@
  * @date 2026-07-11
  *
  * @par 修改日志:
- * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-07-11       1.0            zeh    从 vendor/esp32_idf/bm_vendor_esp32_isr_fpu.h 下沉为 arch 层原语
  * 2026-07-11       1.1            zeh    门控修正：ESP_PLATFORM（环境宏，vendor 静态库 TU 不定义→守卫被 no-op 化）→ BM_ARCH_XTENSA_HAS_XTHAL（构建目标显式定义），修真机 Coprocessor exception 回归
  * 2026-07-11       1.2            zeh    enter/exit 加 always_inline：-Og 下独立拷贝落 .flash.text，IRAM ISR（ESP_INTR_FLAG_IRAM）调 flash 代码有 cache 关闭期崩溃风险
+ * 2026-08-01       1.2            zeh           补齐 Doxygen 合规元数据
  */
 #ifndef BM_ARCH_ISR_FPU_H
 #define BM_ARCH_ISR_FPU_H

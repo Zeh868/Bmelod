@@ -9,11 +9,11 @@
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
- * 2026-08-01       1.1            Codex           补齐 Doxygen 合规元数据
  * 2026-06-13       1.0            zeh            初始版本
  * 2026-06-23       1.1            zeh            bm_algo_harmonic_group_index 修复
  *                                                fundamental_bin * group_width uint32 乘法溢出：
  *                                                改用 uint64_t 中间量计算后再收窄
+ * 2026-08-01       1.1            zeh           补齐 Doxygen 合规元数据
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

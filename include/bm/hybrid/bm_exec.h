@@ -16,7 +16,6 @@
  * @date 2026-06-12
  *
  * @par 修改日志:
- * 2026-08-01       2.1            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
@@ -25,6 +24,7 @@
  * 2026-06-13       2.2            zeh            Block 槽 deadline 错过钩子
  * 2026-06-14       2.3            zeh            owner_cpu；prepare/irq_release/drain
  * 2026-06-14       2.4            zeh            deadline miss 可注册处理函数
+ * 2026-08-01       2.1            zeh           补齐 Doxygen 合规元数据
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

@@ -24,8 +24,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-07-27       1.0            zeh            新增（STM32G474xB 移植）
- *
- * 2026-08-01       1.0            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.0            zeh            补全中文 Doxygen 合规注释
  */
 #include "hal/bm_hal_cpu.h"
 #include "bm_hal_instances_stm32g4.h"

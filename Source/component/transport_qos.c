@@ -18,7 +18,7 @@
  * 2026-07-09       0.3            zeh            补 have_pending_tx，修复
  *                                                 now_ms()==0 与挂起哨兵冲突（疑似-13）
  * 2026-07-15       0.4            zeh            step 超时判定去除无效双重强转，语义不变
- * 2026-08-01       0.4            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       0.4            zeh           补全 Doxygen 合规注释
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

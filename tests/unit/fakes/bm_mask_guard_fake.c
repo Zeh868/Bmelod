@@ -9,11 +9,13 @@
  * 供断言 BM_CRITICAL_ENTER() 确实按 BM_CONFIG_HRT_PRIORITY_THRESHOLD 屏蔽。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-07-30
+ * @version 1.1
+ * @date 2026-08-01
  * @par 修改日志:
  *    Date         Version        Author          Description
  * 2026-07-30       1.0            zeh            正式发布
+ * 2026-08-01       1.1            zeh            增加可注入的 bm_hal_in_isr 桩，
+ *                                                支撑 ticker poll ISR 早退用例
  */
 
 #include "bm_hal_critical.h"
@@ -23,6 +25,7 @@ static uint8_t g_basepri;
 static uint8_t g_primask;
 static uint8_t g_last_threshold;
 static unsigned g_enter_below_count;
+static int g_in_isr;
 
 /* ---------- HAL 层 ---------- */
 
@@ -37,7 +40,7 @@ void bm_hal_critical_exit(bm_irq_state_t state) {
 }
 
 int bm_hal_in_isr(void) {
-    return 0;
+    return g_in_isr;
 }
 
 bm_irq_state_t bm_hal_critical_enter_below(uint8_t threshold) {
@@ -87,9 +90,14 @@ unsigned bm_mask_guard_fake_enter_below_count(void) {
     return g_enter_below_count;
 }
 
+void bm_mask_guard_fake_set_in_isr(int in_isr) {
+    g_in_isr = (in_isr != 0) ? 1 : 0;
+}
+
 void bm_mask_guard_fake_reset(void) {
     g_basepri = 0u;
     g_primask = 0u;
     g_last_threshold = 0u;
     g_enter_below_count = 0u;
+    g_in_isr = 0;
 }

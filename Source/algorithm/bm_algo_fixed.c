@@ -10,7 +10,6 @@
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
- * 2026-08-01       2.9            Codex           补齐 static 辅助函数 Doxygen
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-13       1.1            zeh            增加 PID Q31 与 Biquad Q15
  * 2026-06-17       1.2            zeh            Q15 滑动平均/PID 与 Q31 迟滞
@@ -51,6 +50,7 @@
  *                                                stable_count 自增加 UINT32_MAX
  *                                                饱和（镜像 float 版）
  * 2026-07-28       2.9            zeh            初始化状态返回改用 BM_OK/BM_ERR_*
+ * 2026-08-01       2.9            zeh           补齐 static 辅助函数 Doxygen
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

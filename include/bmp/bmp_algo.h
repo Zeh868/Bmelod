@@ -12,7 +12,7 @@
  * @par 修改日志:
  *
  * Date       Version Author Description
- * 2026-08-01 1.0     Codex  补齐文件头成熟度与修改日志
+ * 2026-08-01 1.0     zeh  补齐文件头成熟度与修改日志
  */
 #ifndef BMP_ALGO_H
 #define BMP_ALGO_H

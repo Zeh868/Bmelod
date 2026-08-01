@@ -129,6 +129,7 @@ target_include_directories(test_gpio_exti PRIVATE
 bm_add_test(test_hrtimer test_hrtimer.c bm_core)
 target_include_directories(test_hrtimer PRIVATE
     ${CMAKE_SOURCE_DIR}/portable/sim/native)
+set_tests_properties(test_hrtimer PROPERTIES LABELS "determinism")
 
 # UART 多实例/IDLE/环形缓冲单测
 bm_add_test(test_uart test_uart.c bm_core)
@@ -186,12 +187,6 @@ if(BM_ENABLE_BUS)
     set_tests_properties(test_bus PROPERTIES LABELS "determinism")
 
     # ---- 显式缺口登记（非占位，各有触发条件）----
-    # [C2 缺口] exec drain budget 有界：bm_exec_drain_streams(budget) 需 exec+stream 已初始化；
-    #   BM_ENABLE_EXEC_TEST_HOOK 宏在代码库中未找到（grep 2026-06-30 确认）。
-    #   触发条件：待 bm_exec.h 增加 BM_ENABLE_EXEC_TEST_HOOK 或等效 hook 后，
-    #   在 test_det_bounded.c 新增 test_det_bounded_exec_drain_budget 用例，
-    #   注入固定数量 stream 块，断言 drain_streams(N) 处理条数 <= N。
-    #
     # [C5-CAS 缺口] atomic CAS 迭代次数有界（多核路径）：
     #   单核 native 不激活 CAS 环（BM_CPU_LOCAL_ENABLE_ROUTE 默认 OFF）；
     #   多核有界性通过 bm_critical.c:78 + BM_CONFIG_ATOMIC_MAX_RETRIES=8 静态保证，
@@ -200,6 +195,7 @@ if(BM_ENABLE_BUS)
     #
     # [C6 缺口] ipc 非阻塞返回：BM_CONFIG_SMP=OFF 默认，bm_mp/ipc 不可用。
     #   触发条件：BM_CONFIG_SMP=ON SMP 构建 + bm_mp_add_test 中新增 ipc 非阻塞用例。
+    # C2（exec drain budget 有界）已由 test_exec.c::test_exec_drain_streams_respects_budget 覆盖。
     bm_add_test(test_bus_migration test_bus_migration.c bm_core)
 
     # BM_BUS_IPC 模式契约测试：native 桩后端（fifo_stub + latest_stub）覆盖 FIFO 保序/满/空、
@@ -247,6 +243,7 @@ if(BM_ENABLE_HRT)
     bm_add_test(test_hrt test_hrt.c bm_hrt)
     target_include_directories(test_hrt PRIVATE
         ${CMAKE_SOURCE_DIR}/portable/sim/native)
+    set_tests_properties(test_hrt PROPERTIES LABELS "determinism")
 endif()
 
 if(BM_ENABLE_TT_SCHEDULE)
@@ -563,7 +560,6 @@ if(BM_ENABLE_ALGORITHM)
     # 文件替换为 6 个按主题分组的独立 Unity 可执行文件，纯移动不改测试内容。
     bm_add_test(test_algo_basic test_algo_basic.c bm_algorithm)
     bm_add_test(test_algo_filter test_algo_filter.c bm_algorithm)
-    set_tests_properties(test_algo_filter PROPERTIES LABELS "determinism")
     bm_add_test(test_algo_motor test_algo_motor.c bm_algorithm)
     bm_add_test(test_algo_fusion test_algo_fusion.c bm_algorithm)
     bm_add_test(test_algo_fixed test_algo_fixed.c bm_algorithm)
@@ -722,10 +718,14 @@ if(BM_BUILD_TESTS)
         SRCS test_priority_mask.c fakes/bm_hal_priority_mask_fake.c
         LIBS bm_config
         DEFS BM_CONFIG_ENABLE_PRIORITY_MASK=1 BM_HAL_HAS_PRIORITY_MASK=1
+            BM_ENABLE_EVENT_TEST_HOOK=1 BM_ENABLE_ULTRA_TEST_HOOK=1
         INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/fakes)
 
     # HRT ISR 上下文标记原语：嵌套/平衡/防下溢语义（域隔离运行期拦截的基础）
+    # + 宿主 arch ISR FPU enter/exit 配对冒烟（host 为 no-op）
     bm_add_test(test_hrt_isr_context test_hrt_isr_context.c bm_core)
+    target_include_directories(test_hrt_isr_context PRIVATE
+        ${CMAKE_SOURCE_DIR}/portable/arch)
     set_tests_properties(test_hrt_isr_context PROPERTIES LABELS "determinism")
 
     # 掩码模式 HRT 级 ISR fail-closed：直编 bm_event.c/bm_ultra.c/bm_mempool.c
@@ -737,8 +737,10 @@ if(BM_BUILD_TESTS)
             ${CMAKE_SOURCE_DIR}/Source/core/bm_event.c
             ${CMAKE_SOURCE_DIR}/Source/core/bm_ultra.c
             ${CMAKE_SOURCE_DIR}/Source/core/bm_mempool.c
+            ${CMAKE_SOURCE_DIR}/Source/hybrid/bm_ticker.c
         LIBS bm_core bm_hal bm_hal_native
         DEFS BM_CONFIG_ENABLE_PRIORITY_MASK=1 BM_HAL_HAS_PRIORITY_MASK=1
+             BM_ENABLE_EVENT_TEST_HOOK=1 BM_ENABLE_ULTRA_TEST_HOOK=1
         INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/fakes)
     set_tests_properties(test_mask_hrt_guard PROPERTIES LABELS "determinism")
 

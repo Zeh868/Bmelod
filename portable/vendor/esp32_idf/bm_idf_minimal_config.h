@@ -14,8 +14,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-15       1.0            zeh            从 sdk_esp32_idf 迁入 vendor
- *
- * 2026-08-01       1.0            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.0            zeh            补全中文 Doxygen 合规注释
  */
 #ifndef BM_IDF_MINIMAL_CONFIG_H
 #define BM_IDF_MINIMAL_CONFIG_H

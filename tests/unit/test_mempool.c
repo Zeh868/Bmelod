@@ -4,18 +4,20 @@
  * @brief 固定大小内存池分配、释放与耗尽单元测试
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.2
+ * @version 1.3
  * @date 2026-08-01
  * @par 修改日志:
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
  * 2026-07-28       1.1            zeh            补充 try_free 争用与非法对象测试
  * 2026-08-01       1.2            zeh            补 reset(NULL) 静默安全边界测试
+ * 2026-08-01       1.3            zeh            补 HRT + 非法入参 FORBIDDEN 前置用例
  */
 
 #include "unity.h"
 #include "bm_core.h"
 #include "bm_log.h"
+#include "bm/common/bm_critical_wrap.h"
 #include "bm/core/bm_mempool_impl.h"
 
 #include <string.h>
@@ -166,6 +168,20 @@ void test_mempool_ignores_excess_bitmap_words(void) {
     TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, bitmap[1]);
 }
 
+/**
+ * @brief 非掩码下 HRT + 非法入参须先 FORBIDDEN（BUSY），不得走 INVALID
+ */
+void test_mempool_hrt_invalid_args_forbidden_first(void) {
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_mempool_try_free(NULL, NULL));
+
+    bm_hrt_isr_enter();
+    TEST_ASSERT_NULL(bm_mempool_alloc(NULL));
+    TEST_ASSERT_EQUAL(BM_ERR_BUSY, bm_mempool_try_free(NULL, NULL));
+    bm_hrt_isr_exit();
+
+    TEST_ASSERT_EQUAL(BM_ERR_INVALID, bm_mempool_try_free(NULL, NULL));
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_mempool_alloc_free);
@@ -179,5 +195,6 @@ int main(void) {
     RUN_TEST(test_mempool_rejects_overflowing_descriptor);
     RUN_TEST(test_mempool_ignores_excess_bitmap_words);
     RUN_TEST(test_mempool_try_free_contention_is_bounded);
+    RUN_TEST(test_mempool_hrt_invalid_args_forbidden_first);
     return UNITY_END();
 }

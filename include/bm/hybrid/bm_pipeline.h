@@ -11,12 +11,12 @@
  * @date 2026-07-31
  *
  * @par 修改日志:
- * 2026-08-01       1.1            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-07-31       1.1            zeh            文档对齐实现 v1.2：reset 对 bypass
  *                                                节点同样回调，删除已过时的不对称警告
+ * 2026-08-01       1.1            zeh           补齐 Doxygen 合规元数据
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

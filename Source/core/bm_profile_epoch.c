@@ -13,13 +13,13 @@
  * @date 2026-06-19
  *
  * @par 修改日志:
- * 2026-08-01       1.3            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
  * 2026-06-14       1.1            zeh            per-CPU 存储，SMP 安全
  * 2026-06-15       1.2            zeh            代际查询 hook 注册后冻结
  * 2026-06-19       1.3            zeh            去除单/多核条件分支，统一实现
+ * 2026-08-01       1.3            zeh           补齐 Doxygen 合规元数据
  *
  */
 #include "bm/common/bm_profile_epoch.h"

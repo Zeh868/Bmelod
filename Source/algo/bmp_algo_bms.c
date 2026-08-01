@@ -3,14 +3,14 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief BMS SOC 融合实现
  * @maturity E1
- * @author Codex
+ * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-08-01
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
- * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
+ * 2026-08-01       1.0            zeh           补齐 Doxygen 合规元数据
  */
 #include "bmp/algo/bmp_algo_bms.h"
 

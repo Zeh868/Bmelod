@@ -25,8 +25,7 @@
  * 2026-07-29       1.0            zeh            新增 DMA 循环模式环形缓冲记账模块
  * 2026-07-31       1.1            zeh            头注释补互斥契约：模块无内部并发保护，
  *                                                多上下文调用方须自行序列化
- *
- * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.1            zeh            补全中文 Doxygen 合规注释
  */
 #ifndef BM_DMA_CIRCULAR_RING_H
 #define BM_DMA_CIRCULAR_RING_H

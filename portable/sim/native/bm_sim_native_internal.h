@@ -8,7 +8,7 @@
  * @date 2026-08-01
  *
  * @par 修改日志:
- * 2026-08-01       1.0            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.0            zeh            补全中文 Doxygen 合规注释
  */
 #ifndef BM_SIM_NATIVE_INTERNAL_H
 #define BM_SIM_NATIVE_INTERNAL_H

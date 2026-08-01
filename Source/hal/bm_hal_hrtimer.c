@@ -13,7 +13,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增高精度 Timer HAL 分发
- * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       1.0            zeh           补全 Doxygen 合规注释
  */
 #include "hal/bm_hal_hrtimer.h"
 #include "bm/common/bm_types.h"

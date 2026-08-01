@@ -8,11 +8,10 @@
  * 阶段 2 新增 N×N cmd_ring（FIFO）与 tel_channel（seqlock 最新值）payload 通道。
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.4
- * @date 2026-07-31
+ * @version 1.6
+ * @date 2026-08-01
  *
  * @par 修改日志:
- * 2026-08-01       1.4            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
@@ -22,6 +21,10 @@
  *                                                cache-line storage 站点写法统一
  * 2026-07-31       1.4            zeh            publish_event_forward 补 HRT 级上下文
  *                                                禁调契约与 BM_ERR_BUSY 返回说明
+ * 2026-08-01       1.5            zeh           补齐 Doxygen 合规元数据
+ * 2026-08-01       1.5            zeh            drain_on_this_cpu 补 HRT 禁调契约与
+ *                                                BM_ERR_BUSY 返回说明
+ * 2026-08-01       1.6            zeh            HRT 禁调注释改为两模式口径
  *
  */
 #ifndef BM_MP_IPC_H
@@ -206,8 +209,9 @@ bm_mp_ipc_matrix_t *bm_mp_ipc_matrix(void);
  * @param len 载荷长度
  * @return BM_OK 成功；BM_ERR_OVERFLOW 环满；BM_ERR_BUSY 在 HRT 级 ISR
  *         上下文调用被 fail-closed 拦截
- * @note 仅限 SRT 域上下文调用：掩码模式下 HRT 级 ISR 与内部阈值临界区
- *       不互斥，入口经 BM_SRT_QUEUE_API_FORBIDDEN() 运行期拦截
+ * @note 仅限 SRT 域上下文调用：两模式下 HRT 级 ISR 与内部阈值临界区
+ *       不互斥（掩码）或仍禁止误调（非掩码防御深度），入口经
+ *       BM_SRT_QUEUE_API_FORBIDDEN() 运行期拦截
  *       （与 event/ultra/mempool 域口径一致）；跨核事件发布应优先经
  *       bm_event 路由，由事件系统统一拦截后再到本函数。
  */
@@ -220,7 +224,12 @@ int bm_mp_ipc_publish_event_forward(uint8_t target_cpu,
  * @brief 本核按固定 source 顺序 drain 跨核事件环
  *
  * @param budget 本轮最多消费条数
- * @return 实际注入本核 event 队列的条数；负值为错误
+ * @return 实际注入本核 event 队列的条数；BM_ERR_BUSY 在 HRT 级 ISR
+ *         上下文调用被 fail-closed 拦截；其他负值为错误
+ * @note 仅限 SRT 域上下文调用：两模式下 HRT 级 ISR 与 SRT drain 会对
+ *       同一 SPSC 环 tail 构成双消费者竞争（或非掩码防御深度禁调），
+ *       入口经 BM_SRT_QUEUE_API_FORBIDDEN() 运行期拦截（与
+ *       publish_event_forward / event/ultra/mempool 域口径一致）。
  */
 int bm_mp_ipc_drain_on_this_cpu(uint32_t budget);
 

@@ -3,18 +3,21 @@
  * @brief SOGI-PLL + PR 电流环并网控制实现
  *
  * 封装 SOGI-PLL 锁相与 PR 谐振电流环，并提供 bm_exec_ops_t 调度封装。
+ * 默认未使能，须 CMD_ENABLED 后 step 才跑环。
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.2
- * @date 2026-06-13
+ * @version 0.4
+ * @date 2026-08-01
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 validate_config PLL/PR 参数校验；补 exec_ops 封装
- * 2026-08-01       0.2            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       0.2            zeh           补全 Doxygen 合规注释
+ * 2026-08-01       0.3            zeh            对齐 power_control：CMD_ENABLED/FAULT 状态机
+ * 2026-08-01       0.4            zeh            exec_safe_stop 复位 PLL/PR，对齐 power_control
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -23,6 +26,41 @@
 #include "bm/component/bm_component_common.h"
 
 #include <string.h>
+
+/**
+ * @brief 锁存故障并清零 v_cmd、复位 PLL/PR
+ *
+ * @param axis 实例指针
+ */
+static void latch_fault(bm_grid_control_axis_t *axis) {
+    bm_grid_control_state_t *st = &axis->state;
+
+    if (!st->fault_latched) {
+        st->fault_latched = 1;
+    }
+    st->v_cmd = 0.0f;
+    bm_algo_sogi_pll_reset(&st->pll, &axis->config.pll);
+    bm_algo_pr_reset(&st->pr_current);
+    if (axis->resources.write_output != NULL) {
+        (void)axis->resources.write_output(axis->resources.write_output_user,
+                                           0.0f);
+    }
+}
+
+/**
+ * @brief 从回调读取最新命令并应用
+ *
+ * @param axis 实例指针
+ */
+static void sync_command(bm_grid_control_axis_t *axis) {
+    bm_grid_ctrl_cmd_t command;
+
+    if (axis->resources.read_command != NULL &&
+        axis->resources.read_command(axis->resources.read_command_user,
+                                     &command) == 0) {
+        bm_grid_control_apply_command(axis, &command);
+    }
+}
 
 int bm_grid_control_validate_config(const bm_grid_control_config_t *config) {
     if (config == NULL || config->dt_s <= 0.0f) {
@@ -70,6 +108,8 @@ void bm_grid_control_reset(bm_grid_control_axis_t *axis) {
     axis->state.omega_rad_s = axis->config.pll.nominal_omega_rad_s;
     axis->state.v_cmd = 0.0f;
     axis->state.step_count = 0u;
+    axis->state.fault_latched = 0;
+    memset(&axis->state.cmd, 0, sizeof(axis->state.cmd));
     memset(&axis->state.telemetry, 0, sizeof(axis->state.telemetry));
 }
 
@@ -92,6 +132,18 @@ int bm_grid_control_init(bm_grid_control_axis_t *axis) {
     return BM_OK;
 }
 
+void bm_grid_control_apply_command(bm_grid_control_axis_t *axis,
+                                   const bm_grid_ctrl_cmd_t *cmd) {
+    if (axis == NULL || cmd == NULL) {
+        return;
+    }
+
+    axis->state.cmd = *cmd;
+    if ((cmd->status & BM_GRID_CTRL_CMD_FAULT) != 0u) {
+        latch_fault(axis);
+    }
+}
+
 void bm_grid_control_step(bm_grid_control_axis_t *axis) {
     const bm_grid_control_config_t *cfg;
     bm_grid_control_state_t *st;
@@ -103,28 +155,40 @@ void bm_grid_control_step(bm_grid_control_axis_t *axis) {
         return;
     }
 
-    /* TODO: 本组件缺少运行/故障状态机；后续应在配置或命令层增加 enable/fault
-     * 标志，未使能或故障时停止调制并复位 PLL/PR 控制器积分器。 */
-
     cfg = &axis->config;
     st = &axis->state;
+
+    sync_command(axis);
+
+    if (st->fault_latched ||
+        (st->cmd.status & BM_GRID_CTRL_CMD_ENABLED) == 0u) {
+        st->v_cmd = 0.0f;
+        bm_algo_sogi_pll_reset(&st->pll, &cfg->pll);
+        bm_algo_pr_reset(&st->pr_current);
+        if (axis->resources.write_output != NULL) {
+            (void)axis->resources.write_output(
+                axis->resources.write_output_user, 0.0f);
+        }
+        if (st->fault_latched) {
+            st->telemetry.status = BM_GRID_CTRL_TEL_FAULT;
+            st->telemetry.v_cmd = 0.0f;
+            BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
+        }
+        return;
+    }
 
     if (axis->resources.read_io != NULL &&
         axis->resources.read_io(axis->resources.read_io_user,
                                 &v_grid, &i_meas, &i_ref) != 0) {
+        latch_fault(axis);
         st->step_count++;
         st->telemetry.sequence = st->step_count;
-        st->telemetry.status = BM_GRID_CTRL_TEL_STALE;
+        st->telemetry.status = BM_GRID_CTRL_TEL_STALE | BM_GRID_CTRL_TEL_FAULT;
         st->telemetry.theta_rad = st->theta_rad;
         st->telemetry.omega_rad_s = st->omega_rad_s;
         st->telemetry.i_ref_a = i_ref;
         st->telemetry.i_meas_a = i_meas;
         st->telemetry.v_cmd = 0.0f;
-        st->v_cmd = 0.0f;
-        if (axis->resources.write_output != NULL) {
-            (void)axis->resources.write_output(
-                axis->resources.write_output_user, 0.0f);
-        }
         BM_COMPONENT_PUBLISH_TELEMETRY(axis, &st->telemetry);
         return;
     }
@@ -185,8 +249,10 @@ void bm_grid_control_exec_safe_stop(const bm_exec_t *instance) {
         return;
     }
     axis = (bm_grid_control_axis_t *)instance->state;
-    /* 安全停止：清零 v_cmd，写入硬件，停止调制 */
+    /* 清输出并复位 PLL/PR，避免停机后重启残留积分/谐振；不清 cmd/fault */
     axis->state.v_cmd = 0.0f;
+    bm_algo_sogi_pll_reset(&axis->state.pll, &axis->config.pll);
+    bm_algo_pr_reset(&axis->state.pr_current);
     if (axis->resources.write_output != NULL) {
         (void)axis->resources.write_output(axis->resources.write_output_user,
                                            0.0f);

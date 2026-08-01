@@ -508,11 +508,15 @@ if(BM_ENABLE_COMPONENT_DIAGNOSTICS)
     add_library(bm_component_diagnostics STATIC ${_bm_diag_sources})
     target_link_libraries(bm_component_diagnostics PUBLIC bm_algorithm bm_config)
     if(BM_ENABLE_COMPONENT_STREAM OR BM_BUILD_TESTS)
-        if(NOT TARGET bm_stream)
+        # EXEC 开启时 bm_stream 源并入 bm_exec，无独立 bm_stream 目标
+        if(TARGET bm_stream)
+            target_link_libraries(bm_component_diagnostics PUBLIC bm_stream)
+        elseif(TARGET bm_exec)
+            target_link_libraries(bm_component_diagnostics PUBLIC bm_exec)
+        else()
             message(FATAL_ERROR
-                "diagnostics stream frontends require the bm_stream target")
+                "diagnostics stream frontends require bm_stream or bm_exec")
         endif()
-        target_link_libraries(bm_component_diagnostics PUBLIC bm_stream)
     endif()
     bm_target_internal_includes(bm_component_diagnostics)
     target_link_libraries(bm_framework INTERFACE bm_component_diagnostics)
@@ -581,6 +585,8 @@ endif()
 # SMP 多核扩展（仅 BM_CONFIG_SMP=ON 时编译；单核构建零开销）
 # =============================================================
 if(BM_CONFIG_SMP)
+    # 与 CMake option 对齐：供源码 #if BM_CONFIG_SMP 门控（未定义时预处理为 0）
+    target_compile_definitions(bm_config INTERFACE BM_CONFIG_SMP=1)
     # bm_mp：多核调度/分区/资源/stream-relay 层
     add_library(bm_mp STATIC
         Source/mp/bm_mp.c

@@ -10,9 +10,9 @@
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
- * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  * 2026-06-17       1.1            zeh            完整 P 预测/更新，接入 q/r 协方差
  * 2026-07-15       1.2            zeh            step 补输入/配置 NaN-Inf 护栏，rs 收紧为必须 >0
+ * 2026-08-01       1.2            zeh           补齐 Doxygen 合规元数据
  */
 #include "bmp/algo/bmp_algo_motor_ekf.h"
 

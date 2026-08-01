@@ -15,7 +15,7 @@
  * 2026-06-14       1.0            zeh            正式发布
  * 2026-07-03       1.1            zeh            新增 CPU 主频接口 freq_hz/freq_points/freq_set 桩实现
  * 2026-07-04       1.2            zeh            freq 三函数加 BM_HAL_CPU_HAS_PORT_FREQ 去重 guard，供 esp32 等真机 port 让出符号
- * 2026-08-01       1.2            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       1.2            zeh           补全 Doxygen 合规注释
  *
  */
 #include <stddef.h> /* NULL */

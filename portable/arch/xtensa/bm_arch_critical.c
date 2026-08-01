@@ -11,11 +11,11 @@
  * @date 2026-06-15
  *
  * @par 修改日志:
- * 2026-08-01       1.1            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-15       1.0            zeh            Phase 3 正式发布
  * 2026-06-15       1.1            zeh            使用 rsil 原子进入临界区
+ * 2026-08-01       1.1            zeh           补齐 Doxygen 合规元数据
  *
  */
 #include "port/bm_arch_ops.h"

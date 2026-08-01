@@ -23,9 +23,7 @@
  * 2026-07-31       1.3            zeh            回调派发首尾成对调用
  *                                             bm_hrt_isr_enter/exit，与真实 Hardware
  *                                             HRT 端口一致，消除"仿真放行、真机拒绝"分叉
- *
- * @par ????:
- * 2026-08-01       1.3            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.3            zeh            补全中文 Doxygen 合规注释
  */
 #include "bm_drv_hrtimer.h"
 #include "hal/bm_hal_hrtimer.h"

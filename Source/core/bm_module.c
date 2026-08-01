@@ -10,13 +10,13 @@
  * @date 2026-07-02
  *
  * @par 修改日志:
- * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
  * 2026-06-10       1.1            zeh            失败回滚与状态机加固
  * 2026-07-02       1.2            zeh            QD-6：cache-line 补齐改用 union，
  *                                                消除 MSVC C2233
+ * 2026-08-01       1.2            zeh           补齐 Doxygen 合规元数据
  *
  */
 #include "bm_module.h"

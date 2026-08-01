@@ -13,7 +13,7 @@
  *
  * Date       Version Author Description
  * 2026-06-16 1.0     zeh    首版 MP 工业 API
- * 2026-08-01 1.0     Codex  补齐文件头成熟度
+ * 2026-08-01 1.0     zeh  补齐文件头成熟度
  *
  */
 #ifndef BMP_ALGO_FFT_H

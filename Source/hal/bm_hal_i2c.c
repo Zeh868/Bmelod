@@ -14,7 +14,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-08-01       1.0            zeh            新增（I2C 总线契约，接口批 2）
- * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       1.0            zeh           补全 Doxygen 合规注释
  *
  */
 #include "bm_hal_i2c.h"

@@ -20,7 +20,7 @@
  * 2026-06-23       1.3            zeh            修复 Tustin 历史导数项系数错误，消除 SOGI 递推发散
  *
  * 2026-07-28       1.4            zeh            RMS initialization status uses BM_OK/BM_ERR_*
- * 2026-08-01       1.4            Codex          补齐公共 API 中文 Doxygen
+ * 2026-08-01       1.4            zeh          补齐公共 API 中文 Doxygen
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

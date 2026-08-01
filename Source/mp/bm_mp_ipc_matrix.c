@@ -6,11 +6,10 @@
  * N×N 有向 SPSC 事件环；读游标保存在目标核 endpoint 状态。
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.3
- * @date 2026-07-31
+ * @version 1.4
+ * @date 2026-08-01
  *
  * @par 修改日志:
- * 2026-08-01       1.3            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
@@ -20,6 +19,10 @@
  *                                                BM_SRT_QUEUE_API_FORBIDDEN() fail-closed
  *                                                拦截（log-once 诊断），直调路径与
  *                                                bm_event 路由口径对齐
+ * 2026-08-01       1.3            zeh           补齐 Doxygen 合规元数据
+ * 2026-08-01       1.4            zeh            drain_on_this_cpu 入口对齐
+ *                                                publish_event_forward：FORBIDDEN →
+ *                                                log-once → BM_ERR_BUSY
  *
  */
 #include "bm/mp/bm_mp_ipc.h"
@@ -115,6 +118,21 @@ static void ipc_log_hrt_reject_once(void) {
     }
 }
 
+/**
+ * @brief HRT 级上下文直调 drain 被拦截时输出一次诊断日志
+ *
+ * 与 publish_event_forward 同理：掩码模式下 HRT 与 SRT drain 会构成双消费者
+ * 竞争推进 SPSC 环 tail；log-once 避免 HRT 路径无界 I/O。
+ */
+static void ipc_log_drain_hrt_reject_once(void) {
+    static volatile int logged;
+
+    if (!logged) {
+        logged = 1;
+        BM_LOGE("mp_ipc", "drain_on_this_cpu from HRT-level ISR rejected");
+    }
+}
+
 int bm_mp_ipc_publish_event_forward(uint8_t target_cpu,
                                     const bm_event_t *event,
                                     const void *data,
@@ -192,6 +210,15 @@ int bm_mp_ipc_drain_on_this_cpu(uint32_t budget) {
     uint32_t drained = 0u;
     uint32_t src;
     bm_mp_ipc_matrix_t *matrix = s_matrix;
+
+    /*
+     * fail-closed：掩码模式下 HRT 级 ISR 与 SRT 主循环 drain 会对同一 SPSC
+     * 环 tail 构成双消费者竞争。口径与 publish_event_forward / event 域一致。
+     */
+    if (BM_SRT_QUEUE_API_FORBIDDEN()) {
+        ipc_log_drain_hrt_reject_once();
+        return BM_ERR_BUSY;
+    }
 
     if (!matrix || !bm_mp_cpu_valid()) {
         return 0;

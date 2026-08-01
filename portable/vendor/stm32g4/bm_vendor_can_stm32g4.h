@@ -30,7 +30,7 @@
  *                                                stop 状态调用（直写 Message RAM）
  * 2026-07-28       1.3            zeh            Message RAM 偏移固定 0/212；仅 IT0
  * 2026-07-28       1.4            zeh            增加 kernel_clock_hz（0=假定 PCLK1）
- * 2026-08-01       1.4            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.4            zeh            补全中文 Doxygen 合规注释
  */
 #ifndef BM_VENDOR_CAN_STM32G4_H
 #define BM_VENDOR_CAN_STM32G4_H

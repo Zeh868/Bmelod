@@ -23,7 +23,7 @@
  *                                                sensorless 对齐）；current_step 禁用分支
  *                                                补发遥测（清 VALID/SAT/FAULT 位），修陈旧 status
  * 2026-07-13       0.7            zeh            C9：read_theta_elec 改由编码器单圈原始
- * 2026-08-01       0.7            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       0.7            zeh           补全 Doxygen 合规注释
  *                                                计数求电角度（有界量、精度不随圈数
  *                                                劣化），替代无界 position_rad×pole_pairs
  *

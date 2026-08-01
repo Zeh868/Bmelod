@@ -32,8 +32,7 @@
  * 2026-06-22       2.2            zeh            清 B2 诊断埋点（DIAG_ADC 计时/diag_read_clear）
  * 2026-06-22       2.3            zeh            B3-S2a 降噪：每通道滑动中值-of-3（剔单拍脉冲毛刺，不增 ADC 转换次数）
  * 2026-06-22       2.4            zeh            B3-S2a 降噪二层：中值后串一极点 IIR 低通（α=1/4，压 SENSOR 脚连续底噪）
- *
- * 2026-08-01       2.4            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       2.4            zeh            补全中文 Doxygen 合规注释
  */
 #include "bm_vendor_adc_esp32_idf.h"
 #include "bm_vendor_pwm_esp32_idf.h"

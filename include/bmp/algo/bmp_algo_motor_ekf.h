@@ -14,7 +14,7 @@
  * Date       Version Author Description
  * 2026-06-17 1.0     zeh    首版 MP 工业 EKF 无感观测 API
  * 2026-06-17 1.1     zeh    完整 P 预测/更新，接入 q/r 协方差
- * 2026-08-01 1.1     Codex  补齐文件头成熟度
+ * 2026-08-01 1.1     zeh  补齐文件头成熟度
  *
  */
 #ifndef BMP_ALGO_MOTOR_EKF_H

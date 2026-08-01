@@ -17,7 +17,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-26       1.0            zeh            正式发布（路线图 #9 时间基统一 1a）
- * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       1.0            zeh           补全 Doxygen 合规注释
  *
  */
 #include "hal/bm_hal_uptime.h"

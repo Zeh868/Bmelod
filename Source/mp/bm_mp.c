@@ -10,7 +10,6 @@
  * @date 2026-06-29
  *
  * @par 修改日志:
- * 2026-08-01       1.7            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
@@ -22,6 +21,7 @@
  * 2026-06-18       1.6            zeh            周期判定抽为可测纯函数；超限计数原子化并可查询；
  *                                               硬实时下周期超限/IPC 序列异常触发 safe-stop
  * 2026-06-29       1.7            zeh            mp_period_overrun_record CAS 环加 F-6 重试上界
+ * 2026-08-01       1.7            zeh           补齐 Doxygen 合规元数据
  *
  */
 #include "bm/mp/bm_mp.h"

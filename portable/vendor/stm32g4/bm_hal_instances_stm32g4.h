@@ -12,8 +12,8 @@
  * stm32g4xx.h 使用，本头只放可独立包含的宏常量。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.4
- * @date 2026-07-31
+ * @version 1.5
+ * @date 2026-08-01
  *
  * @par 修改日志:
  *
@@ -30,8 +30,10 @@
  *                                                CAN），不低于 HRT 阈值，封堵掩码模式下
  *                                                fail-closed 拦截绕过面；文件头新增
  *                                                NVIC 优先级红线说明
- *
- * 2026-08-01       1.4            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.4            zeh            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.5            zeh            修正 tick HRT 红线注释（enter/exit 仅 PWM/
+ *                                                ADC/hrtimer）；写明 BM_STM32G4_TICK_USE_TIM7
+ *                                                与 TIM7 hrtimer 互斥
  */
 #ifndef BM_HAL_INSTANCES_STM32G4_H
 #define BM_HAL_INSTANCES_STM32G4_H
@@ -40,9 +42,13 @@
  *
  * 掩码模式下 BM_CRITICAL_ENTER() 写 BASEPRI=BM_CONFIG_HRT_PRIORITY_THRESHOLD
  *（默认 4），只屏蔽优先级数值 ≥ 阈值的中断。因此本头全部 IRQ 默认值分两级：
- * - Hardware HRT 端口（tick=2、PWM=1、ADC=1、hrtimer）：优先级 < 阈值，
- *   handler 首尾已接线 bm_hrt_isr_enter/exit，其上下文误调 SRT 队列 API
- *   由运行期 fail-closed 拦截；
+ * - Hardware HRT 端口：PWM/ADC/hrtimer handler 首尾已接线 bm_hrt_isr_enter/exit，
+ *   优先级 < 阈值，其上下文误调 SRT 队列 API 由运行期 fail-closed 拦截；
+ * - tick（默认优先级 2）：**不**在 tick ISR 额外接线 enter/exit——依赖
+ *   `hrt_dispatch` 传递覆盖（定时器 ISR / `bm_hrt_poll` 共用同一语义）。
+ *   应用若自绑 tick 回调且绕过 hrt_dispatch，须自行成对调用 enter/exit，
+ *   否则掩码模式下拦截 fail-open；切勿在 tick ISR 再套一层 enter/exit
+ *   （会与 hrt_dispatch 嵌套）。
  * - SRT 域 IRQ（console/串口及其 DMA、SPI DMA、CAN、GPIO EXTI）：默认优先级
  *   必须 ≥ 阈值（统一取 5，与既有 EXTI 默认一致），保证与 SRT 临界区互斥。
  *   板级覆盖这些宏时不得降到阈值以下，否则掩码模式下 fail-closed 拦截与
@@ -56,6 +62,11 @@
  *
  * 若板卡 TIM6 已被 DAC 等占用，定义 BM_STM32G4_TICK_USE_TIM7 切到 TIM7
  * （寄存器布局与 TIM6 一致）。ISR 入口与 RCC 使能位由 singleton 按此宏切换。
+ *
+ * **互斥：** 与 `bm_vendor_hrtimer_stm32g4.c` 的 TIM7 handler 互斥——两者都会
+ * 定义 `TIM7_IRQHandler` 强符号。定义本宏后 hrtimer 后端条件跳过 TIM7
+ * handler，且拒绝将 TIM7 配为 hrtimer 实例；需要 TIM7 hrtimer 时保持 tick
+ * 用默认 TIM6。
  */
 /* #define BM_STM32G4_TICK_USE_TIM7 */
 

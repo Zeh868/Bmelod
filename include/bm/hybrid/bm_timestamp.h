@@ -13,12 +13,12 @@
  * @date 2026-06-26
  *
  * @par 修改日志:
- * 2026-08-01       2.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-12       1.0            zeh            正式发布
  * 2026-06-14       1.1            zeh            clock_id 辅助
  * 2026-06-26       2.0            zeh            改为转发头（定义已下沉至 common，#9-1b）
+ * 2026-08-01       2.0            zeh           补齐 Doxygen 合规元数据
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

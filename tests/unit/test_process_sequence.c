@@ -13,7 +13,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-17       1.0            zeh            正式发布
- * 2026-08-01       1.1            Codex          补兼容布局与 exec 生命周期测试
+ * 2026-08-01       1.1            zeh          补兼容布局与 exec 生命周期测试
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

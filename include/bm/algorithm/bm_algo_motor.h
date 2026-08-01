@@ -15,7 +15,7 @@
  * 2026-06-13       1.0            zeh            正式发布
  * 2026-06-17       1.1            zeh            PWM 扇区采样窗口判定
  * 2026-06-23       1.2            zeh            磁链观测器纯积分改为带衰减积分，新增 flux_observer_wc_rad_s 配置字段
- * 2026-08-01       1.2            Codex          补齐公共 API 中文 Doxygen
+ * 2026-08-01       1.2            zeh          补齐公共 API 中文 Doxygen
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

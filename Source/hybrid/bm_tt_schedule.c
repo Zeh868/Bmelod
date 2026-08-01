@@ -32,7 +32,6 @@
  * @date 2026-07-16
  *
  * @par 修改日志:
- * 2026-08-01       1.12           Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-07-01       1.0            zeh            骨架发布（config+公共头+CMake，无算法实现）
@@ -61,6 +60,7 @@
  *                                                 bus 存储 elem_size 一致性校验（不匹配即静默
  *                                                 写穿快照区/bus 数据区）
  * 2026-07-16       1.12           zeh            默认保质期 2×period_us 补 u32 溢出饱和
+ * 2026-08-01       1.12           zeh           补齐 Doxygen 合规元数据
  *
  */
 #include "bm_tt_schedule.h"

@@ -10,7 +10,7 @@
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
- * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
+ * 2026-08-01       1.0            zeh           补齐 Doxygen 合规元数据
  */
 #include "bmp/algo/bmp_algo_fft.h"
 

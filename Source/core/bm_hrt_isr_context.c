@@ -6,7 +6,7 @@
  * 掩码模式（BM_CONFIG_ENABLE_PRIORITY_MASK=1）下，BM_CRITICAL_ENTER() 仅屏蔽
  * 低于 HRT 阈值的中断，HRT 级 ISR 与 SRT 路径不互斥；event/ultra/mempool 等
  * SRT 队列 API 依据本模块维护的按核深度计数对 HRT 级上下文 fail-closed。
- * 非掩码模式下计数照常维护但不影响行为，便于 Hardware HRT 端口统一接线。
+ * 两模式均维护计数，便于 Hardware HRT 端口统一接线。
  *
  * 计数安全性：ISR 入口硬件已屏蔽同级中断（Cortex-M 同优先级不可嵌套、
  * AArch64 IRQ 入口 PSTATE.I 置位、RISC-V mstatus.MIE 清零），同核 enter/exit
@@ -14,8 +14,8 @@
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-07-31
+ * @version 1.2
+ * @date 2026-08-01
  *
  * @par 修改日志:
  *
@@ -24,9 +24,12 @@
  * 2026-07-31       1.1            zeh            按核计数补 cache-line 隔离；
  *                                                CPU 越界改钳位，与 arch 层
  *                                                ISR 计数策略统一
+ * 2026-08-01       1.2            zeh            exit 下溢在 debug 构建 log-once；
+ *                                                release 仍静默钳位
  *
  */
 #include "bm/common/bm_critical_wrap.h"
+#include "bm/common/bm_log.h"
 #include "bm/core/bm_cpu_local.h"
 #include "bm_config.h"
 
@@ -63,11 +66,32 @@ void bm_hrt_isr_enter(void) {
     hrt_isr_this()->depth++;
 }
 
+/**
+ * @brief exit 下溢时输出一次诊断（仅 debug 构建）
+ *
+ * 配对出错会使 bm_in_hrt_isr 恒假、FORBIDDEN 判定 fail-open；release 仍钳位
+ * 不输出，避免在量产路径上留无界 I/O。
+ */
+static void hrt_isr_log_underflow_once(void) {
+#ifndef NDEBUG
+    static volatile int logged;
+
+    if (!logged) {
+        logged = 1;
+        BM_LOGE("hrt_isr", "bm_hrt_isr_exit underflow (unpaired enter/exit)");
+    }
+#else
+    /* release：静默 */
+#endif
+}
+
 void bm_hrt_isr_exit(void) {
     bm_hrt_isr_depth_t *slot = hrt_isr_this();
 
     if (slot->depth > 0u) {
         slot->depth--;
+    } else {
+        hrt_isr_log_underflow_once();
     }
 }
 

@@ -14,7 +14,7 @@
  *    Date         Version        Author          Description
  * 2026-06-17       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            validate_config 噪声/权重校验；SPDX
- * 2026-08-01       0.2            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       0.2            zeh           补全 Doxygen 合规注释
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

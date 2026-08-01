@@ -8,10 +8,14 @@
  * App 通过 `bm_hrtimer_stm32g4_config_t` 指定 TIM/通道/IRQ，Bmelod 不固定 TIM 编号。
  *
  * ISR 有界：仅清除标志、更新 compare、递增统计、派发回调；不解析业务协议。
+ * 回调派发顺序对齐 PWM/ADC：enter → fpu_enter → 回调 → fpu_exit → exit。
+ *
+ * **TIM7 互斥：** 定义 `BM_STM32G4_TICK_USE_TIM7` 时 tick singleton 占用
+ * `TIM7_IRQHandler`，本文件条件跳过 TIM7 handler，且 validate 拒绝 TIM7。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.3
- * @date 2026-07-31
+ * @version 1.4
+ * @date 2026-08-01
  *
  * @par 修改日志:
  *
@@ -25,12 +29,16 @@
  * 2026-07-31       1.3            zeh            ISR 回调派发首尾成对调用
  *                                                bm_hrt_isr_enter/exit，落地 Hardware HRT
  *                                                端口的掩码模式拦截契约
- * 2026-08-01       1.3            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.3            zeh            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.4            zeh            回调派发加 ISR FPU 守卫；TIM7 与
+ *                                                BM_STM32G4_TICK_USE_TIM7 互斥（跳过 handler
+ *                                                + validate 拒绝）
  */
 #include "bm_vendor_hrtimer_stm32g4.h"
 #include "bm_hal_instances_stm32g4.h"
 #include "bm_types.h"
 #include "bm_critical_wrap.h"
+#include "armv7em/bm_arch_isr_fpu.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -59,6 +67,9 @@ typedef struct {
     int                                initialized;
     int                                running;
     bm_hrtimer_stats_t                 stats;
+    /** @brief ISR 内 FPU 现场保存区（armv7em 上 no-op，接线预留）。 */
+    uint8_t                            fpu_sa[BM_ARCH_ISR_FPU_SA_SIZE]
+        __attribute__((aligned(16)));
 } bm_vendor_hrtimer_context_t;
 
 static bm_vendor_hrtimer_context_t g_hrtimer_ctx[BM_VENDOR_HRTIMER_INSTANCE_COUNT];
@@ -323,6 +334,12 @@ static int bm_vendor_hrtimer_validate_config(
     if (cfg->irqn < 0) {
         return BM_ERR_INVALID;
     }
+#if defined(BM_STM32G4_TICK_USE_TIM7)
+    /* tick singleton 占用 TIM7_IRQHandler，与本后端 TIM7 互斥 */
+    if (cfg->tim == TIM7) {
+        return BM_ERR_INVALID;
+    }
+#endif
     return BM_OK;
 }
 
@@ -365,6 +382,7 @@ static void bm_vendor_hrtimer_isr(bm_vendor_hrtimer_context_t *ctx) {
     uint32_t cnt;
     uint32_t next;
     uint32_t arr;
+    unsigned fpu_prev;
 
     if (ctx == NULL || ctx->cfg == NULL) {
         return;
@@ -406,10 +424,12 @@ static void bm_vendor_hrtimer_isr(bm_vendor_hrtimer_context_t *ctx) {
     }
 
     if (ctx->callback != NULL) {
-        /* Hardware HRT 端口契约（bm_critical_wrap.h）：回调派发首尾成对
-         * 标记 HRT ISR 上下文，使掩码模式的 fail-closed 拦截生效 */
+        /* Hardware HRT 端口契约：enter → fpu_enter → 回调 → fpu_exit → exit
+         *（对齐 PWM/ADC；armv7em 上 FPU 守卫为 no-op） */
         bm_hrt_isr_enter();
+        fpu_prev = bm_arch_isr_fpu_enter(ctx->fpu_sa);
         ctx->callback(ctx->dev, ctx->user);
+        bm_arch_isr_fpu_exit(ctx->fpu_sa, fpu_prev);
         bm_hrt_isr_exit();
     }
 }
@@ -434,7 +454,12 @@ BM_HRTIMER_DEFINE_HANDLER(TIM5)
 /* TIM6 保留：G4 上 TIM6 中断向量是 TIM6_DAC_IRQn，已被系统 tick singleton
  * 占用（bm_hal_instances_stm32g4.h 默认 tick 定时器），本后端不提供 TIM6
  * handler；需要 hrtimer 的 TIM6 场景须先将 tick 切到 TIM7。 */
+#if defined(BM_STM32G4_TICK_USE_TIM7)
+/* tick singleton 已定义 TIM7_IRQHandler；与本后端互斥，跳过以免重复强符号。
+ * 需要 TIM7 hrtimer 时保持 tick 用默认 TIM6（勿定义 BM_STM32G4_TICK_USE_TIM7）。 */
+#else
 BM_HRTIMER_DEFINE_HANDLER(TIM7)
+#endif
 
 /* ---------- HAL API 实现 ---------- */
 

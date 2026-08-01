@@ -3,14 +3,14 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  * @brief K2 · 闭源 · 需 bm_mp 的 BMS SOC 融合：库仑计量 + OCV 加权
  * @maturity E1
- * @author Bmelod contributors
+ * @author zeh (china_qzh@163.com)
  * @version 1.0
  * @date 2026-08-01
  *
  * @par 修改日志:
  *
  * Date       Version Author Description
- * 2026-08-01 1.0     Codex  补齐规范化文件头元数据
+ * 2026-08-01 1.0     zeh  补齐规范化文件头元数据
  */
 #ifndef BMP_ALGO_BMS_H
 #define BMP_ALGO_BMS_H

@@ -2,16 +2,18 @@
  * @file test_ultra.c
  * @brief Ultra 轻量事件发布、处理与队列溢出单元测试
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-10
+ * @version 1.1
+ * @date 2026-08-01
  * @par 修改日志:
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
+ * 2026-08-01       1.1            zeh            补非掩码 HRT 对 test_inject 拦截
  */
 
 #include "unity.h"
 #include "bm_ultra.h"
 #include "bm_log.h"
+#include "bm/common/bm_critical_wrap.h"
 
 static int g_count = 0;
 static uintptr_t g_data_address = 0u;

@@ -12,7 +12,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-06-19       1.0            zeh            初版
- * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       1.0            zeh           补全 Doxygen 合规注释
  *
  */
 #include "bm_config.h"

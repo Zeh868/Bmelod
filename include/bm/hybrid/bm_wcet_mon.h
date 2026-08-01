@@ -18,10 +18,10 @@
  * @date 2026-07-02
  *
  * @par 修改日志:
- * 2026-08-01       1.0            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-07-02       1.0            zeh            骨架发布（config+公共头+CMake+注册/迭代，无计时实现）
+ * 2026-08-01       1.0            zeh           补齐 Doxygen 合规元数据
  *
  */
 #ifndef BM_WCET_MON_H

@@ -22,8 +22,7 @@
  * 2026-06-22       3.0            zeh            FOC 混合架构：新增 hw_init_isr_only
  * 2026-06-22       3.1            zeh            清 B2 诊断埋点（diag_read_clear/diag_get_duty）
  * 2026-06-22       3.2            zeh            新增 ISR 分频 API（set_isr_decimate），将 ADC 采样+回调按 N 抽稀降 CPU 负载
- *
- * 2026-08-01       3.2            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       3.2            zeh            补全中文 Doxygen 合规注释
  */
 #ifndef BM_VENDOR_PWM_ESP32_IDF_H
 #define BM_VENDOR_PWM_ESP32_IDF_H

@@ -15,7 +15,6 @@
  * @date 2026-07-18
  *
  * @par 修改日志:
- * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-07-11       1.0            zeh            正式发布（批 P：shell 内建命令组）
@@ -27,6 +26,7 @@
  *                                                 argv_idx==2 补参数名（动态取自
  *                                                 bm_param_count/bm_param_desc_at，
  *                                                 非写死列表）
+ * 2026-08-01       1.2            zeh           补齐 Doxygen 合规元数据
  *
  */
 #include "bm/core/bm_shell_builtins.h"

@@ -12,7 +12,6 @@
  * @date 2026-07-31
  *
  * @par 修改日志:
- * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
@@ -23,6 +22,7 @@
  *                                                实际使用有界默认超时
  *                                                （BM_CONFIG_MP_BOOT_BARRIER_TIMEOUT_US），
  *                                                并非"不超时"
+ * 2026-08-01       1.2            zeh           补齐 Doxygen 合规元数据
  *
  */
 #ifndef BM_MP_BOOT_H

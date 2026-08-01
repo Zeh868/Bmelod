@@ -15,7 +15,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-07-27       1.0            zeh            初始版本：shell CLI 端口抽象
- * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       1.0            zeh           补全 Doxygen 合规注释
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

@@ -7,19 +7,27 @@
  * 不做多主/从模式、不做 10-bit 地址与 SMBus 扩展（无真实消费者）。
  * config 结构为契约级通用配置：SCL 时钟与单笔事务忙等预算。
  *
+ * 调用上下文约束（所有后端适用）：
+ * - **禁止在 HRT 上下文调用**：忙等预算由 `timeout_ms` 承载（填 0 走后端
+ *   默认，通常约 10 ms），HRT 域代价灾难性；
+ * - 同一 `bm_drv_i2c` / `bm_hal_i2c` 实例须**单上下文**使用，或经端口级
+ *   互斥串行；跨 HRT/SRT（或任意两消费者）寄存器级交错未定义。
+ *
  * 后端扩展配置约定：dev->config 可指向首成员为 bm_i2c_config_t 的
  * 后端私有结构（携带引脚/端口号），分发层不触碰 config。
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 1.0
+ * @version 1.1
  * @date 2026-08-01
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-08-01       1.0            zeh            新增（I2C 总线契约，接口批 2）
- * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       1.0            zeh           补全 Doxygen 合规注释
+ * 2026-08-01       1.1            zeh            补上下文约束：禁止 HRT、单上下文
+ *                                                或经端口互斥串行
  *
  */
 #ifndef BM_DRV_I2C_H

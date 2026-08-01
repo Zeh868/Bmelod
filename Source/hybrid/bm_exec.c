@@ -9,7 +9,6 @@
  * @date 2026-07-02
  *
  * @par 修改日志:
- * 2026-08-01       2.6            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
@@ -24,6 +23,7 @@
  * 2026-06-26       2.5            zeh            deadline 时间基迁至 bm_uptime_us()（#9-2a）
  * 2026-07-02       2.6            zeh            QD-6：cache-line 补齐改用 union，
  *                                                消除 MSVC C2233
+ * 2026-08-01       2.6            zeh           补齐 Doxygen 合规元数据
  * 2026-07-28       2.7            zeh            stream 字段访问改用不透明 accessor
  *                                                （bm_stream_on_ready/owner_cpu）
  *

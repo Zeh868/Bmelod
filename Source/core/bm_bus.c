@@ -13,7 +13,6 @@
  * @date 2026-07-15
  *
  * @par 修改日志:
- * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-25       0.1            zeh            Phase 1 Task 2 写路径骨架
@@ -30,6 +29,7 @@
  *                                                拒绝为 BM_ERR_INVALID，防 read_cur 越过 write_cur 永久毒化游标
  * 2026-07-15       1.2            zeh            C7 补遗：IPC 分流接入 borrowed 未借先还防护
  *                                                （acquire_read 置位、release 检查前移）
+ * 2026-08-01       1.2            zeh           补齐 Doxygen 合规元数据
  *
  */
 #include "bm/core/bm_bus_impl.h"

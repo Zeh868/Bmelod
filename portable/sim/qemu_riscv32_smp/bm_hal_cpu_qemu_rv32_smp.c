@@ -14,8 +14,7 @@
  * 2026-06-15       1.0            zeh            正式发布
  * 2026-07-03       1.1            zeh            新增 CPU 主频接口 freq_hz/freq_points/freq_set 实现
  * 2026-07-28       1.2            zeh            从核 join 等待加入命名上限，超时返回 BM_ERR_TIMEOUT
- *
- * 2026-08-01       1.2            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.2            zeh            补全中文 Doxygen 合规注释
  */
 #include "hal/bm_hal_cpu.h"
 #include "bm_config.h"

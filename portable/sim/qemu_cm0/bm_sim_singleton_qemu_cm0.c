@@ -16,8 +16,7 @@
  * 2026-06-26       1.1            zeh            添加 bm_hal_uptime_ns_raw()（路线图 #9 时间基统一 1a）
  * 2026-07-11       1.2            zeh            tick 回调派发接入 arch 层 FPU 守卫（bm_arch_isr_fpu.h，armv6m 无 FPU 恒 no-op）
  * 2026-07-16       1.3            zeh            semihosting 写改用 SYS_WRITE(0x05) 参数块按 len 写入（原 SYS_WRITE0 忽略 len、按 NUL 结尾整段写）
- *
- * 2026-08-01       1.3            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.3            zeh            补全中文 Doxygen 合规注释
  */
 #include "bm_drv_timer.h"
 #include "bm_drv_uart.h"

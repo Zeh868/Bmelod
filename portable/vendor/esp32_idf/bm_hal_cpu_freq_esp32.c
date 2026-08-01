@@ -37,8 +37,7 @@
  * 2026-07-04       1.0            zeh            新增 esp32 真机主频接口实现（Task 4）
  * 2026-07-04       1.1            zeh            freq_set 由占位改安全版：命中当前频率即确认，
  *                                                 CONFIG_PM_ENABLE 时经 esp_pm 锁频，否则拒绝裸切
- *
- * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.1            zeh            补全中文 Doxygen 合规注释
  */
 #include "hal/bm_hal_cpu.h"
 #include "bm/common/bm_types.h"

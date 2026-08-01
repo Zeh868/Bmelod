@@ -23,9 +23,7 @@
  *                                             bm_hal_can_native_rx_frame；
  *                                             裸 -1 哨兵改 BM_ERR_*；
  *                                             注明 TX_COMPLETE 同步派发契约
- *
- * @par ????:
- * 2026-08-01       1.1            Codex            补全中文 Doxygen 合规注释
+ * 2026-08-01       1.1            zeh            补全中文 Doxygen 合规注释
  */
 #include "bm_hal_can_native.h"
 #include "bm/common/bm_types.h"

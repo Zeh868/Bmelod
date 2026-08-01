@@ -16,7 +16,7 @@
  *    Date         Version        Author          Description
  * 2026-06-14       1.0            zeh            正式发布
  * 2026-06-15       1.1            zeh            非 NOOP 禁止编译默认 fence-only 桩
- * 2026-08-01       1.1            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       1.1            zeh           补全 Doxygen 合规注释
  *
  */
 #include "hal/bm_hal_cache.h"

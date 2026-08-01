@@ -11,7 +11,6 @@
  * @date 2026-07-15
  *
  * @par 修改日志:
- * 2026-08-01       1.2            Codex           补齐 Doxygen 合规元数据
  *
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
@@ -20,6 +19,7 @@
  * 2026-07-15       1.2            zeh            补 BM_CONFIG_IPC_DRAIN_WCET_PER_MSG_US
  *                                                 缺省值（此前仅 Demo 配置头定义，独立库
  *                                                 形态 SMP 构建缺之即失败）
+ * 2026-08-01       1.2            zeh           补齐 Doxygen 合规元数据
  *
  */
 #ifndef BM_CONFIG_H

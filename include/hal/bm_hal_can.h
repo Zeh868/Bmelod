@@ -15,7 +15,7 @@
  *
  *    Date         Version        Author          Description
  * 2026-07-28       1.0            zeh            新增 CAN/FDCAN HAL 分发层
- * 2026-08-01       1.0            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       1.0            zeh           补全 Doxygen 合规注释
  */
 #ifndef BM_HAL_CAN_H
 #define BM_HAL_CAN_H

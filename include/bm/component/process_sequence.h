@@ -15,7 +15,7 @@
  *    Date         Version        Author          Description
  * 2026-06-17       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 SPDX 与函数级 Doxygen
- * 2026-08-01       0.3            Codex          新增兼容的 exec 生命周期适配上下文
+ * 2026-08-01       0.3            zeh          新增兼容的 exec 生命周期适配上下文
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

@@ -17,7 +17,7 @@
  *                                                OBSERVER 相仿真路径 omega_rad_s 改为
  *                                                逐拍差分估算，修开环末速度陈旧值
  * 2026-07-15       0.5            zeh            validate_config 补 is_finite 与 pole_pairs
- * 2026-08-01       0.5            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       0.5            zeh           补全 Doxygen 合规注释
  *                                                整数校验（对齐 sensored）
  *
  * SPDX-License-Identifier: GPL-3.0-or-later

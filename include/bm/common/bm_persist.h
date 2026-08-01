@@ -54,7 +54,7 @@
  * 2026-07-28       1.2            zeh            无 NVS 后端时 commit 返回
  *                                                BM_ERR_NOT_SUPPORTED
  * 2026-07-28       1.3            zeh            文档对齐 STM32G4 双槽 NVS 后端
- * 2026-08-01       1.3            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       1.3            zeh           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_PERSIST_H

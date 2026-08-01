@@ -3,17 +3,20 @@
  * @brief 并网控制：SOGI-PLL + PR 电流环骨架
  *
  * 封装 SOGI-PLL 锁相与 PR 谐振电流环，提供 bm_exec_ops_t 调度接口。
+ * 默认未使能：须经 apply_command 置 ENABLED 后 step 才跑环。
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.2
- * @date 2026-06-13
+ * @version 0.4
+ * @date 2026-08-01
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-13       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 exec_ops 声明；validate_config 增加 PLL/PR 参数校验
+ * 2026-08-01       0.3            zeh            对齐 power_control：CMD_ENABLED/FAULT 状态机
+ * 2026-08-01       0.4            zeh            exec_safe_stop 复位 PLL/PR；reset NULL 契约对齐
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -30,8 +33,25 @@
 extern "C" {
 #endif
 
+/** @brief 命令状态位：使能并网调制输出 */
+#define BM_GRID_CTRL_CMD_ENABLED  (1u << 0u)
+/** @brief 命令状态位：外部故障锁定 */
+#define BM_GRID_CTRL_CMD_FAULT    (1u << 1u)
+
+/** @brief 遥测状态位：数据有效 */
 #define BM_GRID_CTRL_TEL_VALID (1u << 0u)
+/** @brief 遥测状态位：采样陈旧（历史兼容；读失败现同时锁故障） */
 #define BM_GRID_CTRL_TEL_STALE (1u << 1u)
+/** @brief 遥测状态位：当前帧处于故障态 */
+#define BM_GRID_CTRL_TEL_FAULT (1u << 2u)
+
+/**
+ * @brief 并网控制命令
+ */
+typedef struct {
+    uint32_t sequence; /**< 命令序列号 */
+    uint32_t status;   /**< 命令状态位（BM_GRID_CTRL_CMD_* 位域） */
+} bm_grid_ctrl_cmd_t;
 
 typedef struct {
     uint32_t sequence;
@@ -54,13 +74,25 @@ typedef void (*bm_grid_control_publish_fn)(
     void *user,
     const bm_grid_control_telemetry_t *telemetry);
 
+/**
+ * @brief 命令读取回调函数类型
+ *
+ * @param user    用户上下文指针
+ * @param command 输出：最新命令
+ * @return 0 成功；非零 无新命令
+ */
+typedef int (*bm_grid_control_read_command_fn)(void *user,
+                                               bm_grid_ctrl_cmd_t *command);
+
 typedef struct {
-    bm_grid_control_read_fn    read_io;
-    void                      *read_io_user;
-    bm_grid_control_write_fn   write_output;
-    void                      *write_output_user;
-    bm_grid_control_publish_fn publish_telemetry;
-    void                      *publish_telemetry_user;
+    bm_grid_control_read_fn         read_io;
+    void                           *read_io_user;
+    bm_grid_control_write_fn        write_output;
+    void                           *write_output_user;
+    bm_grid_control_publish_fn      publish_telemetry;
+    void                           *publish_telemetry_user;
+    bm_grid_control_read_command_fn read_command;      /**< 可为 NULL */
+    void                           *read_command_user;
 } bm_grid_control_resources_t;
 
 typedef struct {
@@ -77,6 +109,8 @@ typedef struct {
     float                    omega_rad_s;
     float                    v_cmd;
     uint32_t                 step_count;
+    bm_grid_ctrl_cmd_t       cmd;           /**< 最新控制命令 */
+    int                      fault_latched; /**< 非零：故障已锁存 */
     bm_grid_control_telemetry_t telemetry;
 } bm_grid_control_state_t;
 
@@ -107,17 +141,30 @@ int  bm_grid_control_init(bm_grid_control_axis_t *axis);
 /**
  * @brief 复位所有运行状态
  *
- * @param axis 控制轴指针（不可为 NULL）
+ * 清零输出与控制器，清除故障锁存与命令（默认未使能）。
+ *
+ * @param axis 控制轴指针；NULL 时静默返回
  */
 void bm_grid_control_reset(bm_grid_control_axis_t *axis);
 
 /**
+ * @brief 应用外部控制命令（使能/故障）
+ *
+ * 若命令携带 FAULT 位则立即锁存故障并清零 v_cmd。
+ *
+ * @param axis 实例指针
+ * @param cmd  待应用的命令，不可为 NULL
+ */
+void bm_grid_control_apply_command(bm_grid_control_axis_t *axis,
+                                   const bm_grid_ctrl_cmd_t *cmd);
+
+/**
  * @brief 执行一拍 SOGI-PLL + PR 电流环控制
  *
- * 从 read_io 读取电网电压与电流，更新 PLL 相角/频率，
- * 执行 PR 电流环输出 v_cmd，写入 write_output 并发布遥测。
+ * 先 sync_command；故障或未 ENABLED 时停止调制并复位控制器。
+ * read_io 失败时锁存故障并发布 FAULT/STALE 遥测。
  *
- * @param axis 控制轴指针（不可为 NULL）
+ * @param axis 控制轴指针；NULL 时静默返回
  */
 void bm_grid_control_step(bm_grid_control_axis_t *axis);
 

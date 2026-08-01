@@ -2,19 +2,24 @@
  * @file test_exec.c
  * @brief 控制器实例生命周期、HRT 槽绑定与失败回滚单元测试
  * @author zeh (china_qzh@163.com)
- * @version 1.0
- * @date 2026-06-10
+ * @version 1.3
+ * @date 2026-08-01
  * @par 修改日志:
  *    Date         Version        Author          Description
  * 2026-06-10       1.0            zeh            正式发布
  * 2026-07-28       1.1            zeh            契约 3 用例改回直接置位 on_ready
  *                                                （setter 在默认剖面拒绝非 NULL handler，
  *                                                无法构造双消费者误配现场）
+ * 2026-08-01       1.2            zeh            补 bm_exec_drain_streams(budget)
+ *                                                有界截断断言（C2）
+ * 2026-08-01       1.3            zeh            补 native ADC/PWM fire 钩子
+ *                                                HRT ISR 上下文接线断言
  */
 
 #include "unity.h"
 #include "bm_exec.h"
 #include "bm_hrt.h"
+#include "bm/common/bm_critical_wrap.h"
 #include "bm/core/bm_cpu_local.h"
 #include "bm/hybrid/bm_timestamp.h"
 #include "bm/hybrid/bm_stream_impl.h"
@@ -23,6 +28,8 @@
 #include "bm_hal_timer_native.h"
 #include "bm_hal_uptime_native.h"
 #include "bm_log.h"
+#include "hal/bm_hal_adc.h"
+#include "hal/bm_hal_pwm.h"
 #include "hal/bm_hal_timer.h"
 
 #include <string.h>
@@ -36,10 +43,20 @@ static uint32_t g_inst2_premature_steps;
 static uint32_t g_fire_hardware_during_stop;
 static uint32_t g_wrong_safe_stop_count;
 static uint32_t g_block_run_count;
+/* native ADC/PWM fire 钩子内观测：是否处于 HRT ISR 上下文 */
+static int g_fire_in_hrt_isr_seen;
 
 typedef struct {
     uint32_t samples[4];
 } exec_test_payload_t;
+
+/**
+ * @brief fire 回调探针：记录 bm_in_hrt_isr() 观测值
+ */
+static void fire_ctx_probe_cb(void *context) {
+    (void)context;
+    g_fire_in_hrt_isr_seen = bm_in_hrt_isr();
+}
 
 static exec_test_payload_t g_stream_payloads[2];
 static bm_block_t g_stream_blocks[2];
@@ -513,6 +530,7 @@ void setUp(void) {
     g_fire_hardware_during_stop = 0u;
     g_wrong_safe_stop_count = 0u;
     g_block_run_count = 0u;
+    g_fire_in_hrt_isr_seen = 0;
     /* setter 在 init 后拒改 on_ready，setUp 复位须直接清字段 */
     g_stream.on_ready = NULL;
     g_stream.on_ready_context = NULL;
@@ -567,6 +585,44 @@ void test_exec_hardware_bind_fires_step(void) {
     TEST_ASSERT_EQUAL(1u, g_hw_step_count);
 
     bm_exec_safe_stop_all(instances, 1u);
+}
+
+/**
+ * @brief native ADC/PWM fire 钩子须标记 HRT ISR 上下文
+ *
+ * 与真实 Hardware HRT 端口一致：仿真 fire 路径首尾成对 enter/exit，
+ * 回调内 bm_in_hrt_isr()==1，避免"仿真放行、真机拒绝"分叉。
+ */
+void test_native_adc_pwm_fire_marks_hrt_isr(void) {
+    bm_hal_hrt_binding_t binding;
+    bm_hal_hrt_binding_t clear;
+
+    binding.callback = fire_ctx_probe_cb;
+    binding.context = NULL;
+    clear.callback = NULL;
+    clear.context = NULL;
+
+    TEST_ASSERT_EQUAL(0, bm_in_hrt_isr());
+
+    TEST_ASSERT_EQUAL(BM_OK,
+                      bm_hal_adc_bind_complete(&BM_HAL_ADC_SIM0, &binding));
+    g_fire_in_hrt_isr_seen = 0;
+    bm_hal_adc_sim_fire_complete(&BM_HAL_ADC_SIM0);
+    TEST_ASSERT_EQUAL(1, g_fire_in_hrt_isr_seen);
+    TEST_ASSERT_EQUAL(0, bm_in_hrt_isr());
+
+    TEST_ASSERT_EQUAL(BM_OK,
+                      bm_hal_pwm_bind_update(&BM_HAL_PWM_SIM0, &binding));
+    g_fire_in_hrt_isr_seen = 0;
+    bm_hal_pwm_sim_fire_update(&BM_HAL_PWM_SIM0);
+    TEST_ASSERT_EQUAL(1, g_fire_in_hrt_isr_seen);
+    TEST_ASSERT_EQUAL(0, bm_in_hrt_isr());
+
+    /* 解绑，避免干扰后续依赖 ADC_SIM0 的用例 */
+    TEST_ASSERT_EQUAL(BM_OK,
+                      bm_hal_adc_bind_complete(&BM_HAL_ADC_SIM0, &clear));
+    TEST_ASSERT_EQUAL(BM_OK,
+                      bm_hal_pwm_bind_update(&BM_HAL_PWM_SIM0, &clear));
 }
 
 void test_exec_hardware_only_does_not_initialize_hrt(void) {
@@ -725,6 +781,44 @@ void test_exec_drains_block_committed_during_start(void) {
     TEST_ASSERT_EQUAL(0u, bm_stream_ready_count(&g_stream));
 }
 
+/**
+ * @brief C2：bm_exec_drain_streams(budget) 实际处理数 <= budget（有界截断）
+ *
+ * start 注入 1 块后再 commit 第 2 块（合计 > budget=1），断言单次 drain
+ * 返回值与 run_block 次数均 <= 1，且剩余 1 块仍在 READY，证明 budget 上界
+ * 生效而非队列耗尽提前返回。
+ */
+void test_exec_drain_streams_respects_budget(void) {
+    const bm_exec_t *const instances[] = { &stream_inst };
+    bm_block_t *block;
+    int processed;
+
+    TEST_ASSERT_EQUAL(BM_OK, bm_exec_init_all(instances, 1u));
+    TEST_ASSERT_EQUAL(BM_OK, bm_exec_start_all(instances, 1u));
+    /* start 已注入 1 块；再注入第 2 块，合计 2 > budget=1 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_stream_producer_acquire(&g_stream, &block));
+    TEST_ASSERT_EQUAL(BM_OK,
+                      bm_stream_producer_commit(&g_stream, block,
+                                                sizeof(exec_test_payload_t),
+                                                NULL));
+    TEST_ASSERT_EQUAL(2u, bm_stream_ready_count(&g_stream));
+
+    processed = bm_exec_drain_streams(1u);
+    TEST_ASSERT_TRUE(processed >= 0);
+    TEST_ASSERT_TRUE((uint32_t)processed <= 1u);
+    TEST_ASSERT_EQUAL(1, processed);
+    TEST_ASSERT_EQUAL(1u, g_block_run_count);
+    TEST_ASSERT_EQUAL(1u, bm_stream_ready_count(&g_stream));
+
+    /* 剩余块仍可被后续 budget 消费（非空洞：上界截断后仍可 drain 完） */
+    processed = bm_exec_drain_streams(1u);
+    TEST_ASSERT_EQUAL(1, processed);
+    TEST_ASSERT_EQUAL(2u, g_block_run_count);
+    TEST_ASSERT_EQUAL(0u, bm_stream_ready_count(&g_stream));
+
+    bm_exec_safe_stop_all(instances, 1u);
+}
+
 void test_exec_rejects_multiple_slots_for_same_stream(void) {
     const bm_exec_t *const instances[] = { &duplicate_stream_inst };
 
@@ -807,6 +901,7 @@ int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_exec_init_and_scheduled_slot);
     RUN_TEST(test_exec_hardware_bind_fires_step);
+    RUN_TEST(test_native_adc_pwm_fire_marks_hrt_isr);
     RUN_TEST(test_exec_hardware_only_does_not_initialize_hrt);
     RUN_TEST(test_exec_init_failure_rolls_back_safe_stop);
     RUN_TEST(test_exec_start_failure_rolls_back_safe_stop);
@@ -823,6 +918,7 @@ int main(void) {
     RUN_TEST(test_exec_stop_blocks_hardware_callback_before_safe_stop);
     RUN_TEST(test_exec_safe_stop_uses_registered_instances_on_mismatch);
     RUN_TEST(test_exec_drains_block_committed_during_start);
+    RUN_TEST(test_exec_drain_streams_respects_budget);
     RUN_TEST(test_exec_rejects_multiple_slots_for_same_stream);
     RUN_TEST(test_exec_rejects_stream_owner_mismatch);
     RUN_TEST(test_exec_rejects_on_ready_with_block_slot);

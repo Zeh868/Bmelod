@@ -16,7 +16,7 @@
  * 2026-06-17       0.1            zeh            初始骨架
  * 2026-06-23       0.2            zeh            补 SPDX 与函数级 Doxygen
  * 2026-07-09       0.3            zeh            杂波抑制/峰值搜索补 Nyquist bin（疑似-16.5）
- * 2026-08-01       0.3            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       0.3            zeh           补全 Doxygen 合规注释
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

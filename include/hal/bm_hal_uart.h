@@ -19,7 +19,7 @@
  * 2026-06-15       1.1            zeh            hard RT 禁止阻塞 UART 路径
  * 2026-07-27       2.0            zeh            打破式全实例化，统一为 {api, config}
  * 2026-07-28       3.0            zeh            接口批 1 扩展 IDLE/环形缓冲/错误统计等
- * 2026-08-01       3.0            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       3.0            zeh           补全 Doxygen 合规注释
  *
  */
 #ifndef BM_HAL_UART_H

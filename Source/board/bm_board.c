@@ -20,7 +20,7 @@
  *                                                端点溢出防御；名称上限提取宏
  * 2026-07-28       1.3            zeh            MSG_RAM 按全局 word 区间重叠判冲突
  * 2026-07-28       1.4            zeh            增加 register_devices；旧名保留
- * 2026-08-01       1.4            Codex           补全 Doxygen 合规注释
+ * 2026-08-01       1.4            zeh           补全 Doxygen 合规注释
  *
  */
 #include "board/bm_board.h"
