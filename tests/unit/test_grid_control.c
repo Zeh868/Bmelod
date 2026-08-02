@@ -7,14 +7,17 @@
  * CMD_ENABLED/FAULT 状态机。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.1
- * @date 2026-08-01
+ * @version 1.2
+ * @date 2026-08-02
  *
  * @par 修改日志:
  *
  *    Date         Version        Author          Description
  * 2026-06-23       1.0            zeh            正式发布
  * 2026-08-01       1.1            zeh            补 ENABLED/FAULT 状态机用例；步进前须使能
+ * 2026-08-02       1.2            zeh            对齐门控绑定 read_command 语义：default_disabled
+ *                                                用例改绑命令通道；新增未接通道恒使能 legacy
+ *                                                兼容用例
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -54,6 +57,14 @@ static int write_output(void *user, float v_cmd) {
     (void)user;
     g_v_cmd_out = v_cmd;
     return 0;
+}
+
+/** @brief 命令通道回调：永远"无新命令"（返回非零），用于绑定通道后
+ *  验证使能门控（配合 apply_command 直发命令的场景）。 */
+static int read_command_none(void *user, bm_grid_ctrl_cmd_t *command) {
+    (void)user;
+    (void)command;
+    return -1;
 }
 
 /** @brief 使能并网控制（step 前须调用） */
@@ -195,17 +206,36 @@ void test_grid_read_fail_marks_stale(void) {
 }
 
 /* ================================================================
- * 测试 5b：默认未使能无输出
+ * 测试 5b：绑定命令通道但默认未使能无输出
  * ================================================================ */
 void test_grid_default_disabled_no_output(void) {
     bm_grid_control_axis_t axis;
 
     build_default_axis(&axis);
+    axis.resources.read_command = read_command_none;
     TEST_ASSERT_EQUAL(BM_OK, bm_grid_control_init(&axis));
     g_v_cmd_out = 99.0f;
     bm_grid_control_step(&axis);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, g_v_cmd_out);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, axis.state.v_cmd);
+}
+
+/* ================================================================
+ * 测试 5b2：未接命令通道（read_command==NULL）保持恒使能 legacy
+ * 语义，不发命令也跑环（2026-08-02 兼容性修正）
+ * ================================================================ */
+void test_grid_no_command_channel_runs_legacy(void) {
+    bm_grid_control_axis_t axis;
+
+    build_default_axis(&axis);
+    g_i_meas = 0.0f;
+    g_i_ref  = 10.0f;  /* 10 A 误差 */
+    TEST_ASSERT_EQUAL(BM_OK, bm_grid_control_init(&axis));
+
+    bm_grid_control_step(&axis);
+
+    /* v_cmd 应非零（kp 项立即响应） */
+    TEST_ASSERT_TRUE(g_v_cmd_out != 0.0f);
 }
 
 /* ================================================================
@@ -363,6 +393,7 @@ int main(void) {
     RUN_TEST(test_grid_pr_zero_error_zero_cmd);
     RUN_TEST(test_grid_read_fail_marks_stale);
     RUN_TEST(test_grid_default_disabled_no_output);
+    RUN_TEST(test_grid_no_command_channel_runs_legacy);
     RUN_TEST(test_grid_fault_latches_and_reset_clears);
     RUN_TEST(test_grid_null_safety);
     RUN_TEST(test_grid_validate_rejects_zero_dt);

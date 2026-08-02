@@ -4,12 +4,13 @@
  *
  * 外环 PI 输出作为内环设定，经饱和后驱动 plant 读回与执行器写入。
  * 提供 bm_exec_ops_t 标准封装（exec_init/exec_start/exec_safe_stop + ops 表），
- * 可直接接入调度框架；默认未使能，须 CMD_ENABLED 后 step 才跑环。
+ * 可直接接入调度框架；使能门控仅在绑定 read_command 后生效（默认未使能，
+ * 须 CMD_ENABLED）；未接命令通道保持恒使能 legacy 语义。
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.5
- * @date 2026-08-01
+ * @version 0.6
+ * @date 2026-08-02
  *
  * @par 修改日志:
  *
@@ -20,14 +21,52 @@
  * 2026-07-27       0.4            zeh            init/validate 复用 bm_component_common.h 公共宏
  * 2026-08-01       0.4            zeh           补全 Doxygen 合规注释
  * 2026-08-01       0.5            zeh            对齐 power_control：CMD_ENABLED/FAULT 状态机
+ * 2026-08-02       0.6            zeh            使能门控改绑 read_command 是否接入：未接命令通道
+ *                                                （read_command==NULL）恢复 0.4 前恒使能语义，修复
+ *                                                0.5 对既有消费方的静默零输出破坏；绑定通道仍未使能
+ *                                                时 log-once 告警；fault 锁存维持无条件生效
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/component/control_loop.h"
 #include "bm/common/bm_types.h"
+#include "bm/common/bm_log.h"
 #include "bm/component/bm_component_common.h"
 
 #include <string.h>
+
+/** @brief "绑定命令通道却从未使能"告警的 log-once 标志（配置错误类诊断，
+ *  多实例共享一次告警足够定位）。 */
+static int s_not_enabled_warned = 0;
+
+/**
+ * @brief 判定本拍是否允许跑环（使能门控）
+ *
+ * 门控仅在选择命令通道模型时生效：`resources.read_command` 绑定（非
+ * NULL）表示消费方选择"命令驱动使能"，此时须 CMD_ENABLED 才跑环
+ * （故障安全默认）；read_command 为 NULL 表示未接命令通道，保持
+ * 2026-08-01（v0.5）前的恒使能 legacy 语义，兼容既有消费方。
+ * fault_latched 与此无关，在调用点单独无条件判定。
+ *
+ * @param axis 实例指针
+ * @return 非零 允许跑环；0 抑制输出（绑定了通道却从未使能时 log-once）
+ */
+static int axis_enabled(const bm_control_loop_axis_t *axis) {
+    if (axis->resources.read_command == NULL) {
+        return 1;
+    }
+    if ((axis->state.cmd.status & BM_CONTROL_LOOP_CMD_ENABLED) != 0u) {
+        return 1;
+    }
+    if (!s_not_enabled_warned) {
+        s_not_enabled_warned = 1;
+        BM_LOGW("control_loop",
+                "command channel bound but CMD_ENABLED never applied; "
+                "output suppressed (bind read_command=NULL for legacy "
+                "always-enabled semantics)");
+    }
+    return 0;
+}
 
 /**
  * @brief 锁存故障并清零输出、复位两级积分器
@@ -124,8 +163,7 @@ void bm_control_loop_step(bm_control_loop_axis_t *axis) {
 
     sync_command(axis);
 
-    if (st->fault_latched ||
-        (st->cmd.status & BM_CONTROL_LOOP_CMD_ENABLED) == 0u) {
+    if (st->fault_latched || !axis_enabled(axis)) {
         st->outer_out = 0.0f;
         st->inner_out = 0.0f;
         bm_algo_pi_reset(&st->outer_pi, 0.0f);

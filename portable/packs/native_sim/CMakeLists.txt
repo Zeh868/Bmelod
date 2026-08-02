@@ -26,6 +26,8 @@ target_compile_definitions(bm_backend_native_sim PUBLIC
     BM_DRV_HAS_NVS_BACKEND
     BM_HAL_DEVICES_HEADER="bm_hal_devices_native.h")
 target_link_libraries(bm_backend_native_sim PUBLIC bm_config)
+# bm_core：bf9086b 起 bm_drv_hrtimer_native 调 bm_hrt_isr_enter/exit（在 bm_core）
+target_link_libraries(bm_backend_native_sim PUBLIC bm_core)
 bm_target_internal_includes(bm_backend_native_sim)
 
 # bm_persist.c 属父目录已创建的 bm_hal，backend 的 PUBLIC 定义不会逆向

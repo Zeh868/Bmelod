@@ -7,8 +7,8 @@
  * 以及 CMD_ENABLED/FAULT 状态机。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.3
- * @date 2026-08-01
+ * @version 1.4
+ * @date 2026-08-02
  *
  * @par 修改日志:
  *
@@ -17,6 +17,9 @@
  * 2026-06-23       1.1            zeh            补 exec 生命周期测试
  * 2026-07-27       1.2            zeh            新增 bm_control_loop_init 直接入口测试
  * 2026-08-01       1.3            zeh            补 ENABLED/FAULT 状态机用例；步进前须使能
+ * 2026-08-02       1.4            zeh            对齐门控绑定 read_command 语义：default_disabled
+ *                                                /enabled 用例改绑命令通道；新增未接通道恒使能
+ *                                                legacy 兼容用例
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -56,6 +59,14 @@ static int write_output(void *user, float output) {
     g_inner_meas += (output - g_inner_meas) * 0.2f;
     g_outer_meas += (g_inner_meas - g_outer_meas) * 0.1f;
     return 0;
+}
+
+/** @brief 命令通道回调：永远"无新命令"（返回非零），用于绑定通道后
+ *  验证使能门控（配合 apply_command 直发命令的场景）。 */
+static int read_command_none(void *user, bm_control_loop_cmd_t *command) {
+    (void)user;
+    (void)command;
+    return -1;
 }
 
 /** @brief 使能控制环（step 前须调用） */
@@ -166,12 +177,13 @@ static void test_init_valid_resets_state(void) {
 }
 
 /**
- * @brief 默认未使能：step 不清跑环、输出保持零
+ * @brief 绑定命令通道但默认未使能：step 不跑环、输出保持零
  */
 static void test_default_disabled_no_output(void) {
     bm_control_loop_axis_t axis;
 
     make_valid_axis(&axis);
+    axis.resources.read_command = read_command_none;
     TEST_ASSERT_EQUAL(BM_OK, bm_control_loop_init(&axis));
     g_last_output = 99.0f;
     bm_control_loop_step(&axis);
@@ -181,12 +193,27 @@ static void test_default_disabled_no_output(void) {
 }
 
 /**
- * @brief ENABLED 后正常步进
+ * @brief 未接命令通道（read_command==NULL）保持恒使能 legacy 语义：
+ *        不发任何命令 step 也跑环（2026-08-02 兼容性修正）
+ */
+static void test_no_command_channel_runs_legacy(void) {
+    bm_control_loop_axis_t axis;
+
+    make_valid_axis(&axis);
+    TEST_ASSERT_EQUAL(BM_OK, bm_control_loop_init(&axis));
+    bm_control_loop_step(&axis);
+    TEST_ASSERT_TRUE(fabsf(g_last_output) > 0.0f);
+    TEST_ASSERT_EQUAL_UINT32(1u, axis.state.step_count);
+}
+
+/**
+ * @brief 绑定命令通道 + ENABLED 后正常步进
  */
 static void test_enabled_produces_output(void) {
     bm_control_loop_axis_t axis;
 
     make_valid_axis(&axis);
+    axis.resources.read_command = read_command_none;
     TEST_ASSERT_EQUAL(BM_OK, bm_control_loop_init(&axis));
     enable_axis(&axis);
     bm_control_loop_step(&axis);
@@ -420,6 +447,7 @@ void test_control_loop(void) {
     RUN_TEST(test_init_null_returns_invalid);
     RUN_TEST(test_init_valid_resets_state);
     RUN_TEST(test_default_disabled_no_output);
+    RUN_TEST(test_no_command_channel_runs_legacy);
     RUN_TEST(test_enabled_produces_output);
     RUN_TEST(test_fault_latches_and_reset_clears);
     RUN_TEST(test_read_plant_fail_latches_fault);

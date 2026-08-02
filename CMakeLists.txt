@@ -551,7 +551,8 @@ if(BM_ENABLE_COMPONENT_PROCESS)
         Source/component/mobile_base_control.c
         Source/component/additive_motion.c
     )
-    target_link_libraries(bm_component_process PUBLIC bm_algorithm bm_component_diagnostics bm_config)
+    # bm_core：grid_control/solar_control 的"绑定命令通道但未使能" log-once 告警用 BM_LOGW
+    target_link_libraries(bm_component_process PUBLIC bm_algorithm bm_component_diagnostics bm_config bm_core)
     bm_target_internal_includes(bm_component_process)
     target_link_libraries(bm_framework INTERFACE bm_component_process)
 endif()
@@ -563,7 +564,8 @@ if(BM_ENABLE_COMPONENT_CONTROL_LOOP)
     add_library(bm_component_control_loop STATIC
         Source/component/control_loop.c
     )
-    target_link_libraries(bm_component_control_loop PUBLIC bm_algorithm bm_config)
+    # bm_core：control_loop 的"绑定命令通道但未使能" log-once 告警用 BM_LOGW
+    target_link_libraries(bm_component_control_loop PUBLIC bm_algorithm bm_config bm_core)
     bm_target_internal_includes(bm_component_control_loop)
     target_link_libraries(bm_framework INTERFACE bm_component_control_loop)
 endif()

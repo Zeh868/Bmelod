@@ -4,12 +4,13 @@
  *
  * 读取电压电流，执行 MPPT 步进并在超限时按功率上限降额。
  * 同时提供 bm_exec_ops_t 调度封装，可直接挂入框架调度器。
- * 默认未使能，须 CMD_ENABLED 后 step 才跑环。
+ * 使能门控仅在绑定 read_command 后生效（默认未使能，须 CMD_ENABLED）；
+ * 未接命令通道保持恒使能 legacy 语义。
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.5
- * @date 2026-08-01
+ * @version 0.6
+ * @date 2026-08-02
  *
  * @par 修改日志:
  *
@@ -20,14 +21,52 @@
  * 2026-08-01       0.4            zeh            对齐 power_control：CMD_ENABLED/FAULT 状态机；
  *                                                exec_safe_stop 复位 MPPT
  * 2026-08-01       0.5            zeh            read_iv 未绑定按零值继续（对齐 grid_control）
+ * 2026-08-02       0.6            zeh            使能门控改绑 read_command 是否接入：未接命令通道
+ *                                                （read_command==NULL）恢复 0.3 前恒使能语义，修复
+ *                                                0.4 对既有消费方的静默零输出破坏；绑定通道仍未使能
+ *                                                时 log-once 告警；fault 锁存维持无条件生效
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "bm/component/solar_control.h"
 #include "bm/common/bm_types.h"
+#include "bm/common/bm_log.h"
 #include "bm/component/bm_component_common.h"
 
 #include <string.h>
+
+/** @brief "绑定命令通道却从未使能"告警的 log-once 标志（配置错误类诊断，
+ *  多实例共享一次告警足够定位）。 */
+static int s_not_enabled_warned = 0;
+
+/**
+ * @brief 判定本拍是否允许跑环（使能门控）
+ *
+ * 门控仅在选择命令通道模型时生效：`resources.read_command` 绑定（非
+ * NULL）表示消费方选择"命令驱动使能"，此时须 CMD_ENABLED 才跑环
+ * （故障安全默认）；read_command 为 NULL 表示未接命令通道，保持
+ * 2026-08-01（v0.4）前的恒使能 legacy 语义，兼容既有消费方。
+ * fault_latched 与此无关，在调用点单独无条件判定。
+ *
+ * @param axis 实例指针
+ * @return 非零 允许跑环；0 抑制输出（绑定了通道却从未使能时 log-once）
+ */
+static int axis_enabled(const bm_solar_control_axis_t *axis) {
+    if (axis->resources.read_command == NULL) {
+        return 1;
+    }
+    if ((axis->state.cmd.status & BM_SOLAR_CTRL_CMD_ENABLED) != 0u) {
+        return 1;
+    }
+    if (!s_not_enabled_warned) {
+        s_not_enabled_warned = 1;
+        BM_LOGW("solar_control",
+                "command channel bound but CMD_ENABLED never applied; "
+                "output suppressed (bind read_command=NULL for legacy "
+                "always-enabled semantics)");
+    }
+    return 0;
+}
 
 /**
  * @brief 校验 P&O MPPT 子配置合法性
@@ -175,8 +214,7 @@ void bm_solar_control_step(bm_solar_control_axis_t *axis) {
 
     sync_command(axis);
 
-    if (st->fault_latched ||
-        (st->cmd.status & BM_SOLAR_CTRL_CMD_ENABLED) == 0u) {
+    if (st->fault_latched || !axis_enabled(axis)) {
         st->v_ref_v = 0.0f;
         bm_algo_mppt_po_reset(&st->po, cfg->v_init_v);
         bm_algo_mppt_ic_reset(&st->ic, cfg->v_init_v);

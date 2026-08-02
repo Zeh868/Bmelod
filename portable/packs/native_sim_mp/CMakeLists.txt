@@ -38,6 +38,8 @@ target_include_directories(bm_backend_native_sim_mp PUBLIC
     ${BM_FRAMEWORK_ROOT}/include/bm/core
     ${BM_FRAMEWORK_ROOT}/include/port)
 target_link_libraries(bm_backend_native_sim_mp PUBLIC bm_config)
+# bm_core：bf9086b 起 bm_drv_hrtimer_native 调 bm_hrt_isr_enter/exit（在 bm_core）
+target_link_libraries(bm_backend_native_sim_mp PUBLIC bm_core)
 target_compile_definitions(bm_config INTERFACE BM_HAL_CRITICAL_MASKS_STREAM_IRQ=1)
 if(TARGET bm_port_arch_host)
     target_link_libraries(bm_backend_native_sim_mp PUBLIC bm_port_arch_host)

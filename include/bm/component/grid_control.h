@@ -3,14 +3,17 @@
  * @brief 并网控制：SOGI-PLL + PR 电流环骨架
  *
  * 封装 SOGI-PLL 锁相与 PR 谐振电流环，提供 bm_exec_ops_t 调度接口。
- * 默认未使能：须经 apply_command 置 ENABLED 后 step 才跑环。
- * 故障锁存（fault_latched / CMD_FAULT）仅能经 reset 清除；清除命令 FAULT
- * 位不会自动解锁。
+ * 使能门控仅在选择命令通道模型时生效：绑定 `read_command`（非 NULL）后
+ * 默认未使能，须经 apply_command/回调置 ENABLED 后 step 才跑环；
+ * `read_command` 为 NULL（未接命令通道）时保持恒使能 legacy 语义
+ * （2026-08-01 前行为），step 直接跑环。
+ * 故障锁存（fault_latched / CMD_FAULT）与命令通道无关、无条件生效，
+ * 仅能经 reset 清除；清除命令 FAULT 位不会自动解锁。
  *
  * @maturity E1
  * @author zeh (china_qzh@163.com)
- * @version 0.5
- * @date 2026-08-01
+ * @version 0.6
+ * @date 2026-08-02
  *
  * @par 修改日志:
  *
@@ -20,6 +23,9 @@
  * 2026-08-01       0.3            zeh            对齐 power_control：CMD_ENABLED/FAULT 状态机
  * 2026-08-01       0.4            zeh            exec_safe_stop 复位 PLL/PR；reset NULL 契约对齐
  * 2026-08-01       0.5            zeh            文档化故障仅 reset 清除；read_io 未绑定按零值
+ * 2026-08-02       0.6            zeh            使能门控改绑 read_command 是否接入：NULL=恒使能
+ *                                                legacy（修复 0.3 对未接命令通道消费方的静默零
+ *                                                输出破坏），非 NULL=命令驱动使能（默认未使能）
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -36,7 +42,7 @@
 extern "C" {
 #endif
 
-/** @brief 命令状态位：使能并网调制输出 */
+/** @brief 命令状态位：使能并网调制输出（仅在绑定 read_command 后有门控意义） */
 #define BM_GRID_CTRL_CMD_ENABLED  (1u << 0u)
 /** @brief 命令状态位：外部故障锁定 */
 #define BM_GRID_CTRL_CMD_FAULT    (1u << 1u)
@@ -94,7 +100,7 @@ typedef struct {
     void                           *write_output_user;
     bm_grid_control_publish_fn      publish_telemetry;
     void                           *publish_telemetry_user;
-    bm_grid_control_read_command_fn read_command;      /**< 可为 NULL */
+    bm_grid_control_read_command_fn read_command;      /**< 可为 NULL；NULL=未接命令通道（恒使能 legacy），非 NULL=命令驱动使能（默认未使能，须 CMD_ENABLED） */
     void                           *read_command_user;
 } bm_grid_control_resources_t;
 
@@ -144,7 +150,9 @@ int  bm_grid_control_init(bm_grid_control_axis_t *axis);
 /**
  * @brief 复位所有运行状态
  *
- * 清零输出与控制器，清除故障锁存与命令（默认未使能）。
+ * 清零输出与控制器，清除故障锁存与命令。绑定 read_command 时复位后即
+ * 回到未使能态（须重新置 ENABLED）；未接命令通道（read_command 为
+ * NULL）时无门控，复位后 step 直接跑环。
  *
  * @param axis 控制轴指针；NULL 时静默返回
  */
@@ -164,7 +172,9 @@ void bm_grid_control_apply_command(bm_grid_control_axis_t *axis,
 /**
  * @brief 执行一拍 SOGI-PLL + PR 电流环控制
  *
- * 先 sync_command；故障或未 ENABLED 时停止调制并复位控制器。
+ * 先 sync_command；故障锁存时（无条件），或绑定了 read_command 但未
+ * ENABLED 时，停止调制并复位控制器（后者 log-once 告警）；未接命令
+ * 通道（read_command 为 NULL）时无使能门控，直接跑环。
  * read_io 未绑定则按零值继续；读失败时锁存故障并发布 FAULT/STALE 遥测。
  * 故障锁存仅能经 reset 清除。
  *

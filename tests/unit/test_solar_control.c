@@ -7,8 +7,8 @@
  * CMD_ENABLED/FAULT 状态机。
  *
  * @author zeh (china_qzh@163.com)
- * @version 1.3
- * @date 2026-08-01
+ * @version 1.4
+ * @date 2026-08-02
  *
  * @par 修改日志:
  *
@@ -17,6 +17,9 @@
  * 2026-06-23       1.1            zeh            补 validate 拒绝测试、power=0 边界、exec_ops 测试
  * 2026-08-01       1.2            zeh            补 ENABLED/FAULT 状态机用例；步进前须使能
  * 2026-08-01       1.3            zeh            补 read_iv 未绑定不锁故障用例
+ * 2026-08-02       1.4            zeh            对齐门控绑定 read_command 语义：default_disabled
+ *                                                用例改绑命令通道；新增未接通道恒使能 legacy
+ *                                                兼容用例
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -53,6 +56,14 @@ static int write_vref(void *user, float v_ref_v) {
     (void)user;
     g_vref_out = v_ref_v;
     return 0;
+}
+
+/** @brief 命令通道回调：永远"无新命令"（返回非零），用于绑定通道后
+ *  验证使能门控（配合 apply_command 直发命令的场景）。 */
+static int read_command_none(void *user, bm_solar_ctrl_cmd_t *command) {
+    (void)user;
+    (void)command;
+    return -1;
 }
 
 /** @brief 使能光伏控制（step 前须调用） */
@@ -189,17 +200,34 @@ void test_solar_unbound_read_iv_continues_without_fault(void) {
 }
 
 /* ================================================================
- * 测试 4b：默认未使能无输出
+ * 测试 4b：绑定命令通道但默认未使能无输出
  * ================================================================ */
 void test_solar_default_disabled_no_output(void) {
     bm_solar_control_axis_t axis;
 
     build_default_axis(&axis);
+    axis.resources.read_command = read_command_none;
     TEST_ASSERT_EQUAL(BM_OK, bm_solar_control_init(&axis));
     g_vref_out = 99.0f;
     bm_solar_control_step(&axis);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, g_vref_out);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, axis.state.v_ref_v);
+}
+
+/* ================================================================
+ * 测试 4b2：未接命令通道（read_command==NULL）保持恒使能 legacy
+ * 语义，不发命令也跑环（2026-08-02 兼容性修正）
+ * ================================================================ */
+void test_solar_no_command_channel_runs_legacy(void) {
+    bm_solar_control_axis_t axis;
+
+    build_default_axis(&axis);
+    TEST_ASSERT_EQUAL(BM_OK, bm_solar_control_init(&axis));
+
+    bm_solar_control_step(&axis);
+
+    /* P&O 应在第一拍产生非零 v_ref */
+    TEST_ASSERT_TRUE(g_vref_out > 0.0f);
 }
 
 /* ================================================================
@@ -371,6 +399,7 @@ int main(void) {
     RUN_TEST(test_solar_read_fail_marks_stale);
     RUN_TEST(test_solar_unbound_read_iv_continues_without_fault);
     RUN_TEST(test_solar_default_disabled_no_output);
+    RUN_TEST(test_solar_no_command_channel_runs_legacy);
     RUN_TEST(test_solar_fault_latches_and_reset_clears);
     RUN_TEST(test_solar_null_safety);
     RUN_TEST(test_solar_validate_rejects_zero_v_init);
